@@ -63,7 +63,9 @@ services:
       - redis
       - minio
 
+  # Phase 2 启用：Docmost ↔ Canonical Wiki Repo 同步
   wiki-sync-worker:
+    profiles: ["phase2"]
     image: your-registry/cherrygraph-wiki-sync-worker:latest
     restart: unless-stopped
     environment:
@@ -91,8 +93,9 @@ services:
       - redis
 
   # Phase 2 启用：Docmost Fork 开源版 + 自建 Bridge endpoint。
-  # Fork 路径：../../external/docmost/
+  # Phase 1 不启动。启用方式：docker compose --profile phase2 up -d
   docmost:
+    profiles: ["phase2"]
     build:
       context: ../../external/docmost
       dockerfile: Dockerfile
@@ -125,6 +128,7 @@ services:
       - "5432:5432"
 
   docmost-db:
+    profiles: ["phase2"]
     image: postgres:18
     restart: unless-stopped
     environment:
@@ -142,6 +146,7 @@ services:
       - redis_data:/data
 
   docmost-redis:
+    profiles: ["phase2"]
     image: redis:8
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]

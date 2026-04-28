@@ -32,9 +32,9 @@ CherryGraph Studio 是一个 Docker 化部署的多用户 AI 工作台，基于 
 
 1. 作为知识编辑者，我可以上传 PDF、DOCX、Markdown、图片、网页链接或 ZIP。
 2. 作为知识编辑者，我可以看到文件归档、解析、Graphify 运行、Wiki 生成、索引更新的状态。
-3. 作为知识编辑者，我可以在 Docmost 中修订 Graphify 生成的 Wiki 页面。
-4. 作为知识编辑者，我可以查看 Graphify 的候选更新，并决定接受、拒绝或手动合并。
-5. 作为知识编辑者，我可以标记页面为已验证、待复核、已废弃。
+3. 作为知识编辑者，我可以在 Docmost 中修订 Graphify 生成的 Wiki 页面。（Phase 2+）
+4. 作为知识编辑者，我可以查看 Graphify 的候选更新，并决定接受、拒绝或手动合并。（Phase 2+）
+5. 作为知识编辑者，我可以标记页面为已验证、待复核、已废弃。（Phase 2+）
 
 ### 4.3 空间管理员
 
@@ -87,16 +87,18 @@ CherryGraph Studio 是一个 Docker 化部署的多用户 AI 工作台，基于 
 | 重复文件检测 | P0 | SHA256 去重。 |
 | 恶意文件检测 | P1 | ClamAV 或企业安全网关。 |
 
-### 5.4 Docmost Shell
+### 5.4 Docmost Shell（Phase 2 交付）
+
+> Phase 1 不启动 Docmost，Cherry Web 提供只读 Wiki 浏览。以下功能均为 Phase 2 交付。
 
 | 功能 | 优先级 | 说明 |
 |---|---|---|
-| 页面浏览编辑 | P0 | 使用 Docmost 原生能力。 |
-| Spaces 对应知识空间 | P0 | 每个知识域对应一个 Docmost Space。 |
-| 页面导入导出 | P0 | Markdown/HTML/ZIP 互转。 |
-| Bridge 同步 | P0 | 与 Canonical Wiki Repo 双向同步。 |
-| 权限映射 | P0 | Docmost Group ↔ Cherry Group。 |
-| Bridge 接入 | P0 | Fork Docmost 开源版并实现内部 Bridge endpoint，用于页面保存、导入、导出、状态回写和同步事件。 |
+| 页面浏览编辑 | P2 | 使用 Docmost 原生能力。 |
+| Spaces 对应知识空间 | P2 | 每个知识域对应一个 Docmost Space。 |
+| 页面导入导出 | P2 | Markdown/HTML/ZIP 互转。 |
+| Bridge 同步 | P2 | 与 Canonical Wiki Repo 双向同步。 |
+| 权限映射 | P2 | Docmost Group ↔ Cherry Group。 |
+| Bridge 接入 | P2 | Fork Docmost 开源版并实现内部 Bridge endpoint。 |
 
 ### 5.5 管理后台
 
@@ -104,7 +106,7 @@ CherryGraph Studio 是一个 Docker 化部署的多用户 AI 工作台，基于 
 |---|---|---|
 | 用户/分组/角色 | P0 | 支持 RBAC。 |
 | 模型配置 | P0 | Chat、Embedding、Rerank 模型。 |
-| Space 管理 | P0 | 绑定权限、Docmost Space、Graphify Corpus。 |
+| Space 管理 | P0 | 绑定权限、Graphify Corpus（Docmost Space 绑定为 Phase 2）。 |
 | Graphify 任务管理 | P0 | 创建、取消、重试、查看日志。 |
 | 索引管理 | P0 | 触发重建、查看版本。 |
 | 审计日志 | P0 | 登录、上传、编辑、删除、问答、权限变更。 |
@@ -200,11 +202,14 @@ CherryGraph Studio 是一个 Docker 化部署的多用户 AI 工作台，基于 
 
 Phase 1 验收必须覆盖：
 
-1. Docker Compose 一键启动。
+1. Docker Compose 一键启动（不含 Docmost）。
 2. 用户、分组、Space 权限。
-3. 上传资料自动生成 Wiki 页面。
-4. Docmost 页面编辑同步回 Canonical Wiki Repo。
+3. 上传资料 → Graphify → Canonical Wiki Repo → Published Wiki。
+4. Cherry Web 只读 Wiki 浏览。
 5. Graphify 自动运行并生成图谱。
-6. Chat 基于 Wiki + GraphRAG 回答。
-7. 无权限用户无法检索或看到无权限内容。
-8. 任务、模型调用、索引版本和审计日志可查。
+6. 对 Published Wiki 做向量 + BM25 索引。
+7. Chat 基于 Wiki 索引回答并引用 Wiki 页面。
+8. 无权限用户无法检索或看到无权限内容。
+9. 任务、模型调用、索引版本和审计日志可查。
+
+> Docmost 页面编辑、双向同步、Bridge 回写为 Phase 2 验收内容。
