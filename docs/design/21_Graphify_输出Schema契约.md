@@ -246,8 +246,10 @@ tests/fixtures/graphify-output/v1/invalid-confidence/
 
 | Graphify 字段 | CherryGraph 表字段 |
 |---|---|
-| `node.id` | `graph_nodes.node_key` |
+| `node.id` | `graph_nodes.node_key`（Graphify 原始 ID，按 run 唯一） |
+| `node.id` → `stable_key` 算法 | `graph_nodes.stable_key`（跨 run 稳定键，见 8A） |
 | `node.label` | `graph_nodes.label` |
+| `node.norm_label` | `graph_nodes.norm_label` |
 | `node.type` | `graph_nodes.type` |
 | `node.community` | `graph_nodes.community_id` |
 | `node.source_file/source_location` | `graph_nodes.source_refs_json` |
@@ -257,6 +259,96 @@ tests/fixtures/graphify-output/v1/invalid-confidence/
 | `edge.confidence` | `graph_edges.confidence_label` |
 | `edge.confidence_score` | `graph_edges.confidence_score` |
 | `edge.evidence` | `graph_edges.evidence_refs_json` |
+
+## 8A. 图谱节点身份稳定性
+
+### 8A.1 问题
+
+Graphify 的 `node.id` 由 `_make_id(*parts)` 生成——将名称片段拼接、去特殊字符、小写化。这个 ID 在同一次 run 内是稳定的，但跨 run 可能因以下原因漂移：
+
+1. 源文件路径变化（重命名/移动目录）→ `_make_id(str(path))` 结果变化
+2. LLM 提取的实体名称细微变化 → 不同 run 产生不同 ID
+3. `deduplicate_by_label()` 的 surviving ID 选择依赖输入顺序
+
+如果不解决，历史引用、用户反馈、人工治理记录、Wiki page_id 绑定都会断裂。
+
+### 8A.2 双键设计
+
+| 字段 | 来源 | 作用域 | 用途 |
+|---|---|---|---|
+| `node_key` | Graphify 原始 `node.id` | 单次 run 内唯一 | 原始数据保真，用于 run 内关联 |
+| `stable_key` | graph-core 计算 | 跨 run 稳定 | 所有持久引用（page_id、反馈、治理、路径缓存）绑定此键 |
+
+### 8A.3 stable_key 生成算法
+
+```python
+import hashlib
+
+def compute_stable_key(space_id: str, norm_label: str, node_type: str) -> str:
+    """
+    跨 run 稳定的节点身份键。
+    绑定 Space + 规范化 label + 类型，不绑定源文件路径或 run ID。
+    """
+    raw = f"{space_id}:{norm_label}:{node_type or 'concept'}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+```
+
+`norm_label` 使用 Graphify 的规范化逻辑（`re.sub(r"[^a-z0-9 ]", "", label.lower()).strip()`），确保大小写、标点差异不影响身份。
+
+### 8A.4 跨 run 匹配流程
+
+```text
+新 run 产生 graph.json
+  → 对每个 node：
+    1. 计算 stable_key = hash(space_id + norm_label + type)
+    2. 查 graph_nodes 中同 Space 是否已存在 stable_key
+    3. 已存在 → 复用 stable_key，记录 node_key 变化到 graph_node_aliases
+    4. 不存在 → 查 graph_node_aliases 是否有别名匹配
+    5. 别名匹配 → 复用别名指向的 stable_key
+    6. 均不匹配 → 新建 stable_key
+```
+
+### 8A.5 别名表
+
+当同一概念出现不同名称时（如 "SSO" 和 "Single Sign-On"），graph-core 记录别名：
+
+```sql
+-- graph_node_aliases
+-- 同一 stable_key 可有多个 alias
+INSERT INTO graph_node_aliases (id, tenant_id, space_id, node_stable_key, alias, source, confidence)
+VALUES ('...', 't1', 's1', 'a1b2c3d4...', 'sso', 'graphify', 1.0);
+```
+
+别名来源：
+- `graphify`：不同 run 中同一概念的 node.id 变化，自动记录
+- `manual`：管理员手动添加的同义词
+- `merge`：节点合并时，被合并方的所有别名继承
+
+### 8A.6 合并表
+
+管理员可合并重复节点：
+
+```sql
+-- graph_node_merges
+INSERT INTO graph_node_merges (id, tenant_id, space_id, from_stable_key, to_stable_key, reason, created_by)
+VALUES ('...', 't1', 's1', 'old_key', 'new_key', 'duplicate: SSO vs Single Sign-On', 'user_admin');
+```
+
+合并触发：
+1. `from_stable_key` 的所有别名转移到 `to_stable_key`
+2. 引用 `from_stable_key` 的 wiki page frontmatter `graph_node_ids` 更新
+3. 历史 graph_edges 中 `from` 侧节点重映射到 `to`（仅活跃快照）
+4. 用户反馈中的节点引用重映射
+
+### 8A.7 page_id 绑定更新
+
+Doc 21 Section 9.4 定义的 god node page_id 现在绑定 `stable_key` 而非 `node.id`：
+
+```
+god node page_id = {space_id}.god-node.{stable_key[:12]}
+```
+
+这确保 Graphify 重新提取时 node.id 变化不影响 Wiki 页面身份。
 
 ## 9. Graphify Wiki Normalization Algorithm
 
@@ -304,7 +396,7 @@ page_id = {space_id}.{type_prefix}.{stable_key}
 |---|---|---|---|
 | `index` | `index` | `root` | `rd-platform.index.root` |
 | `community` | `community` | `community_{cid}`（graph.json 中 community ID） | `rd-platform.community.community_1` |
-| `god_node` | `god-node` | `node_{node_id}`（graph.json 中 node.id） | `rd-platform.god-node.node_auth_service` |
+| `god_node` | `god-node` | `{stable_key[:12]}`（跨 run 稳定，见 8A.3） | `rd-platform.god-node.a1b2c3d4e5f6` |
 | `generated_article` | `page` | SHA256(slug)[:12] | `rd-platform.page.a1b2c3d4e5f6` |
 
 **关键决策**：page_id 绑定 graph.json 中的 ID（community ID、node ID），不绑定 label。label 改名时 page_id 不变。

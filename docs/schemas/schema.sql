@@ -180,7 +180,9 @@ CREATE TABLE graph_nodes (
   space_id TEXT NOT NULL REFERENCES spaces(id),
   graphify_run_id TEXT NOT NULL REFERENCES graphify_runs(id),
   node_key TEXT NOT NULL,
+  stable_key TEXT NOT NULL,
   label TEXT NOT NULL,
+  norm_label TEXT,
   type TEXT,
   community_id TEXT,
   wiki_page_pk TEXT REFERENCES wiki_pages(id),
@@ -189,6 +191,29 @@ CREATE TABLE graph_nodes (
   acl_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (tenant_id, space_id, graphify_run_id, node_key)
+);
+
+CREATE TABLE graph_node_aliases (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  space_id TEXT NOT NULL REFERENCES spaces(id),
+  node_stable_key TEXT NOT NULL,
+  alias TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'graphify',
+  confidence DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, space_id, node_stable_key, alias)
+);
+
+CREATE TABLE graph_node_merges (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  space_id TEXT NOT NULL REFERENCES spaces(id),
+  from_stable_key TEXT NOT NULL,
+  to_stable_key TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  created_by TEXT REFERENCES users(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE graph_edges (
@@ -375,4 +400,7 @@ CREATE INDEX idx_graph_edges_confidence ON graph_edges(confidence_label, confide
 CREATE INDEX idx_wiki_chunks_index_status ON wiki_chunks(index_status, index_snapshot_id);
 CREATE INDEX idx_index_snapshots_space ON index_snapshots(tenant_id, space_id, status);
 CREATE INDEX idx_index_snapshots_active ON index_snapshots(space_id, activated_at DESC);
+CREATE INDEX idx_graph_nodes_stable_key ON graph_nodes(tenant_id, space_id, stable_key);
+CREATE INDEX idx_graph_node_aliases_lookup ON graph_node_aliases(tenant_id, space_id, alias);
+CREATE INDEX idx_graph_node_merges_from ON graph_node_merges(tenant_id, space_id, from_stable_key);
 CREATE INDEX idx_audit_logs_tenant_time ON audit_logs(tenant_id, created_at DESC);
