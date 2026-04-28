@@ -240,15 +240,25 @@ data: {"message_id":"msg_001"}
 
 ### 13.1 认证
 
-所有请求必须包含：
+所有 Bridge 请求必须包含以下 header：
 
 ```http
 Authorization: Bearer ${DOCMOST_BRIDGE_SECRET}
+X-Bridge-Signature: hmac-sha256(payload + timestamp + nonce, DOCMOST_BRIDGE_SECRET)
 X-Bridge-Event-Id: evt_...
-X-Bridge-Signature: hmac-sha256(payload, DOCMOST_BRIDGE_SECRET)
+X-Bridge-Timestamp: 2026-04-28T10:00:00Z
+X-Bridge-Nonce: random-string
 ```
 
-服务端按 `event_id` 幂等处理。重复事件返回 `200 OK`，并标记 `deduplicated=true`。
+| Header | 用途 |
+|---|---|
+| `Authorization` | Bearer token 身份认证 |
+| `X-Bridge-Signature` | HMAC-SHA256 签名校验请求完整性 |
+| `X-Bridge-Event-Id` | 幂等键，服务端按此去重 |
+| `X-Bridge-Timestamp` | 防重放：拒绝超过 5 分钟的请求 |
+| `X-Bridge-Nonce` | 防重放：与 timestamp 配合确保唯一性 |
+
+服务端校验流程：验证 Bearer token → 验证 timestamp 在窗口内 → 验证 HMAC 签名 → 按 `event_id` 幂等处理。重复事件返回 `200 OK`，标记 `deduplicated=true`。
 
 ### 13.2 页面保存事件
 

@@ -12,6 +12,34 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    bridgeBearer:
+      type: http
+      scheme: bearer
+      description: DOCMOST_BRIDGE_SECRET as Bearer token for internal Bridge endpoints
+    bridgeHmacAuth:
+      type: apiKey
+      in: header
+      name: X-Bridge-Signature
+      description: HMAC-SHA256(payload, DOCMOST_BRIDGE_SECRET)
+  parameters:
+    bridgeEventId:
+      name: X-Bridge-Event-Id
+      in: header
+      required: true
+      schema: { type: string }
+      description: Unique event ID for idempotent processing
+    bridgeTimestamp:
+      name: X-Bridge-Timestamp
+      in: header
+      required: true
+      schema: { type: string, format: date-time }
+      description: Event timestamp for replay attack prevention
+    bridgeNonce:
+      name: X-Bridge-Nonce
+      in: header
+      required: true
+      schema: { type: string }
+      description: Random nonce for replay attack prevention
   schemas:
     ErrorResponse:
       type: object
@@ -289,7 +317,13 @@ paths:
   /internal/docmost/events/page-saved:
     post:
       summary: Docmost 页面保存事件（Docmost Fork POST 到此）
-      security: []
+      security:
+        - bridgeBearer: []
+          bridgeHmacAuth: []
+      parameters:
+        - { $ref: '#/components/parameters/bridgeEventId' }
+        - { $ref: '#/components/parameters/bridgeTimestamp' }
+        - { $ref: '#/components/parameters/bridgeNonce' }
       requestBody:
         required: true
         content:
@@ -300,13 +334,25 @@ paths:
   /internal/docmost/events/page-deleted:
     post:
       summary: Docmost 页面删除事件
-      security: []
+      security:
+        - bridgeBearer: []
+          bridgeHmacAuth: []
+      parameters:
+        - { $ref: '#/components/parameters/bridgeEventId' }
+        - { $ref: '#/components/parameters/bridgeTimestamp' }
+        - { $ref: '#/components/parameters/bridgeNonce' }
       responses:
         '200': { description: Accepted }
   /internal/docmost/events/attachment-created:
     post:
       summary: Docmost 附件创建事件
-      security: []
+      security:
+        - bridgeBearer: []
+          bridgeHmacAuth: []
+      parameters:
+        - { $ref: '#/components/parameters/bridgeEventId' }
+        - { $ref: '#/components/parameters/bridgeTimestamp' }
+        - { $ref: '#/components/parameters/bridgeNonce' }
       requestBody:
         required: true
         content:
@@ -314,44 +360,61 @@ paths:
             schema: { $ref: '#/components/schemas/DocmostAttachmentEvent' }
       responses:
         '200': { description: Accepted }
-  # 以下为 Docmost Fork 暴露的 Bridge 能力（Cherry API → Docmost Fork）
-  # 运行在 Docmost 服务上，此处仅做契约文档化，实际 base URL 为 ${DOCMOST_BASE_URL}/api
+  # Docmost Fork 暴露的 Bridge 能力（Cherry API → Docmost Fork）
+  # 运行在 Docmost 服务上，此处做契约文档化，实际 base URL 为 ${DOCMOST_BASE_URL}/api
   /internal/bridge/pages/{docmost_page_id}/export:
     get:
       summary: 从 Docmost Fork 导出页面 Markdown
-      security: []
+      security:
+        - bridgeBearer: []
+          bridgeHmacAuth: []
       parameters:
         - { name: docmost_page_id, in: path, required: true, schema: { type: string } }
         - { name: format, in: query, schema: { type: string, default: markdown } }
+        - { $ref: '#/components/parameters/bridgeTimestamp' }
+        - { $ref: '#/components/parameters/bridgeNonce' }
       responses:
         '200': { description: Page content }
   /internal/bridge/pages/{docmost_page_id}/import:
     put:
       summary: 向 Docmost Fork 导入/更新页面
-      security: []
+      security:
+        - bridgeBearer: []
+          bridgeHmacAuth: []
       parameters:
         - { name: docmost_page_id, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/bridgeTimestamp' }
+        - { $ref: '#/components/parameters/bridgeNonce' }
       responses:
         '200': { description: Import accepted }
   /internal/bridge/attachments/{attachment_id}/download:
     get:
       summary: 从 Docmost Fork 下载附件
-      security: []
+      security:
+        - bridgeBearer: []
+          bridgeHmacAuth: []
       parameters:
         - { name: attachment_id, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/bridgeTimestamp' }
+        - { $ref: '#/components/parameters/bridgeNonce' }
       responses:
         '200': { description: Attachment binary }
   /internal/bridge/spaces/{docmost_space_id}/sync-status:
     get:
       summary: 查询 Docmost Space 同步状态
-      security: []
+      security:
+        - bridgeBearer: []
+          bridgeHmacAuth: []
       parameters:
         - { name: docmost_space_id, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/bridgeTimestamp' }
+        - { $ref: '#/components/parameters/bridgeNonce' }
       responses:
         '200': { description: Sync status }
   /internal/bridge/health:
     get:
       summary: Bridge 健康检查
-      security: []
+      security:
+        - bridgeBearer: []
       responses:
         '200': { description: Healthy }
