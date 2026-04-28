@@ -257,3 +257,154 @@ tests/fixtures/graphify-output/v1/invalid-confidence/
 | `edge.confidence` | `graph_edges.confidence_label` |
 | `edge.confidence_score` | `graph_edges.confidence_score` |
 | `edge.evidence` | `graph_edges.evidence_refs_json` |
+
+## 9. Graphify Wiki Normalization Algorithm
+
+### 9.1 概述
+
+wiki-core 负责将 Graphify 的扁平 wiki/ 目录转换为 Canonical Wiki Repo 的嵌套结构 + 标准 frontmatter。此过程是**确定性**的——相同输入必须产生相同输出。
+
+### 9.2 输入
+
+| 来源 | 用途 |
+|---|---|
+| `graphify-out/wiki/index.md` | 解析社区列表和 god node 列表，用于页面类型识别 |
+| `graphify-out/wiki/{slug}.md` | 页面正文 |
+| `graphify-out/graph.json` | 提取 node→community 映射、node.id→node.label 映射 |
+| `graphify-out/GRAPH_REPORT.md` | 存为 Space 运行报告 |
+| 当前 Canonical Wiki Repo `spaces/{space_id}/` | 用于冲突检测、page_id 复用、人工区块保护 |
+| `graphify_runs` 记录 | 提供 `graphify_run_id`、`input_version`、`output_version` |
+
+### 9.3 页面类型识别
+
+Graphify 不输出页面类型元数据，wiki-core 通过以下规则推断：
+
+| 规则 | 类型 | 目标目录 |
+|---|---|---|
+| 文件名 = `index.md` | `index` | `spaces/{space_id}/index.md` |
+| 文件 slug 匹配 graph.json 中某个 `community` label 经 `_safe_filename()` 转换后的结果 | `community` | `spaces/{space_id}/communities/{slug}.md` |
+| 文件 slug 匹配 graph.json 中某个 god node label 经 `_safe_filename()` 转换后的结果 | `god_node` | `spaces/{space_id}/god-nodes/{slug}.md` |
+| 以上均不匹配 | `generated_article` | `spaces/{space_id}/pages/{slug}.md` |
+
+`_safe_filename()` 逻辑（与 Graphify v0.5.3 `wiki.py:9` 一致）：
+
+```python
+slug = label.replace("/", "-").replace(" ", "_").replace(":", "-")
+```
+
+Graphify 内部使用 `_unique_slug()` 对重复 slug 追加 `_2`、`_3`。wiki-core 必须用相同算法还原。
+
+### 9.4 page_id 生成规则
+
+```
+page_id = {space_id}.{type_prefix}.{stable_key}
+```
+
+| 页面类型 | type_prefix | stable_key | 示例 |
+|---|---|---|---|
+| `index` | `index` | `root` | `rd-platform.index.root` |
+| `community` | `community` | `community_{cid}`（graph.json 中 community ID） | `rd-platform.community.community_1` |
+| `god_node` | `god-node` | `node_{node_id}`（graph.json 中 node.id） | `rd-platform.god-node.node_auth_service` |
+| `generated_article` | `page` | SHA256(slug)[:12] | `rd-platform.page.a1b2c3d4e5f6` |
+
+**关键决策**：page_id 绑定 graph.json 中的 ID（community ID、node ID），不绑定 label。label 改名时 page_id 不变。
+
+### 9.5 frontmatter 生成
+
+每个页面生成的标准 frontmatter：
+
+```yaml
+---
+page_id: rd-platform.community.community_1
+title: 认证与权限          # 取自 Graphify 输出的 community label 或 node label
+space_id: rd-platform
+page_type: community       # community / god_node / generated_article / index
+status: draft              # 新页面默认 draft；已存在页面保留原 status
+curation_status: auto_generated
+source: graphify
+graphify_run_id: gf_run_001
+graphify_schema_version: v1
+managed_by: graphify       # 整页由 Graphify 管理（人工编辑后局部区块改为 human_curated）
+source_document_ids: []    # 从 graph.json 节点的 source_file 反查 file_blobs
+graph_node_ids: [auth_service, token_service]  # 页面关联的图节点
+version: 1                 # 新页面 = 1；已存在页面 = current_version + 1
+acl_hash: ""               # 由 wiki-core 根据 Space 权限计算
+created_by: graphify
+created_at: 2026-04-28T10:00:00Z
+updated_at: 2026-04-28T10:00:00Z
+---
+```
+
+### 9.6 section anchor 生成
+
+wiki-core 对每个 Markdown 二级/三级标题生成稳定 anchor：
+
+```
+section_id = {page_id}#heading-{slugify(heading_text)}
+```
+
+用于 Chat 引用跳转到具体段落。
+
+### 9.7 block ownership markers
+
+所有由 Graphify 生成的正文内容包裹 managed marker：
+
+```markdown
+<!-- graphify:managed:start id="{page_id}_body" run="{graphify_run_id}" -->
+...Graphify 生成的正文...
+<!-- graphify:managed:end -->
+```
+
+首次生成时整页 = managed。人工编辑某区块后，编辑器将该区块改为：
+
+```markdown
+<!-- human:curated:start id="{page_id}_section_xxx" -->
+...人工修订内容...
+<!-- human:curated:end -->
+```
+
+后续 Graphify 更新时只能修改 `graphify:managed` 区块，不碰 `human:curated` 区块。
+
+### 9.8 冲突策略
+
+| 场景 | 策略 |
+|---|---|
+| **Graphify slug 与现有页面 slug 冲突** | 查 Canonical Wiki Repo 的 `page_id`。如果 page_id 匹配（同一逻辑页面），执行更新；如果 page_id 不匹配（不同页面撞 slug），Graphify 侧 slug 追加 `_gf_{run_id_short}` 后缀。 |
+| **Graphify 节点 label 改名** | page_id 绑定 node.id 而非 label，所以 page_id 不变。frontmatter `title` 更新为新 label，文件名 slug 如果变化则执行 rename（git mv），旧路径写 redirect。 |
+| **同一 god node 多次生成** | page_id = `{space}.god-node.node_{node_id}`，天然稳定。多次运行只更新 `graphify:managed` 区块和 frontmatter `version`、`graphify_run_id`。 |
+| **社区 ID 变化（Graphify 重新聚类）** | community page_id 绑定 community ID。如果 Graphify 重新聚类导致 ID 变化：旧页面标记 `status: deprecated`，新页面创建 draft，不自动删除旧页面。管理员可手动合并或确认。 |
+| **扁平 community/god-node 归入嵌套目录** | wiki-core 根据 9.3 的类型识别将文件写入对应子目录。Graphify 的扁平输出不直接写入 Repo。 |
+| **GRAPH_REPORT.md 的定位** | 不作为 Wiki 页面，不进入 Canonical Wiki Repo 页面目录。存入 `graphify_runs` 表的 `report_uri` 字段（MinIO），管理后台可查看。Space 概览从 report 摘要提取。 |
+| **同时存在 Graphify 更新和人工编辑** | wiki-core 按 block ownership 合并：`graphify:managed` 区块接受 Graphify 更新，`human:curated` 区块保持不变。如果 Graphify 试图修改 `human:curated` 区块对应的段落，生成 `graphify:proposal` 候选更新，等待人工确认。 |
+
+### 9.9 转换流程
+
+```text
+1. 读取 graphify-out/graph.json
+   → 构建 community_id → label 映射
+   → 构建 node_id → label 映射
+   → 构建 node_id → community_id 映射
+
+2. 遍历 graphify-out/wiki/*.md
+   → 对每个文件：
+     a. 识别页面类型（9.3）
+     b. 生成或复用 page_id（9.4）
+     c. 生成 frontmatter（9.5）
+     d. 生成 section anchors（9.6）
+     e. 包裹 block ownership markers（9.7）
+     f. 写入 Canonical Wiki Repo 对应目录
+
+3. 处理 GRAPH_REPORT.md
+   → 存入 graphify_runs.report_uri（MinIO）
+   → 不写入 Canonical Wiki Repo
+
+4. 冲突检测
+   → 对比 Repo 中已有页面的 page_id
+   → 已有页面：按 block ownership 合并（9.8）
+   → 新页面：直接写入
+
+5. 输出 index_update_manifest
+   → 新增/更新/删除的页面列表
+   → 需重新 chunk 和 embedding 的页面列表
+   → 图节点/边变更列表
+```
