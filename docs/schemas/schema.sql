@@ -43,6 +43,7 @@ CREATE TABLE spaces (
   docmost_space_id TEXT,
   wiki_repo_path TEXT NOT NULL,
   active_graphify_run_id TEXT,
+  active_index_snapshot_id TEXT,
   index_consistency_status TEXT NOT NULL DEFAULT 'healthy',
   graphify_config JSONB NOT NULL DEFAULT '{}'::jsonb,
   default_publish_policy TEXT NOT NULL DEFAULT 'editor_publish',
@@ -219,7 +220,13 @@ CREATE TABLE wiki_chunks (
   section_id TEXT,
   chunk_index INT NOT NULL,
   content TEXT NOT NULL,
+  content_hash TEXT,
   token_count INT,
+  index_status TEXT NOT NULL DEFAULT 'pending',
+  index_snapshot_id TEXT,
+  index_version TEXT,
+  indexed_at TIMESTAMPTZ,
+  embedding_model_id TEXT,
   acl_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (page_version_id, chunk_index)
@@ -256,6 +263,21 @@ CREATE TABLE wiki_update_proposals (
   diff_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   resolved_at TIMESTAMPTZ
+);
+
+CREATE TABLE index_snapshots (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  space_id TEXT NOT NULL REFERENCES spaces(id),
+  graphify_run_id TEXT REFERENCES graphify_runs(id),
+  wiki_repo_commit_hash TEXT NOT NULL,
+  embedding_model_id TEXT NOT NULL,
+  chunk_count INT NOT NULL DEFAULT 0,
+  node_count INT NOT NULL DEFAULT 0,
+  edge_count INT NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'building',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  activated_at TIMESTAMPTZ
 );
 
 CREATE TABLE consistency_checks (
@@ -340,4 +362,7 @@ CREATE INDEX idx_graph_nodes_label_trgm ON graph_nodes USING GIN (label gin_trgm
 CREATE INDEX idx_graph_edges_source ON graph_edges(source_node_id);
 CREATE INDEX idx_graph_edges_target ON graph_edges(target_node_id);
 CREATE INDEX idx_graph_edges_confidence ON graph_edges(confidence_label, confidence_score);
+CREATE INDEX idx_wiki_chunks_index_status ON wiki_chunks(index_status, index_snapshot_id);
+CREATE INDEX idx_index_snapshots_space ON index_snapshots(tenant_id, space_id, status);
+CREATE INDEX idx_index_snapshots_active ON index_snapshots(space_id, activated_at DESC);
 CREATE INDEX idx_audit_logs_tenant_time ON audit_logs(tenant_id, created_at DESC);
