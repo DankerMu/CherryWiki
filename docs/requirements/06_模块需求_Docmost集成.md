@@ -172,33 +172,42 @@ Docmost 页面增强优先在 Cherry Web 侧实现旁路面板；确需嵌入 Do
 
 ## 9. 权限同步
 
-### 9.1 权限级别
+> **Cherry API 是权限唯一主数据源**。Docmost 权限只是 Cherry 权限的 UI 投影。详见 [Doc 12 §2A](../engineering/12_权限安全审计.md)。
 
-| Cherry 权限 | Docmost 权限 | 说明 |
-|---|---|---|
-| `space:view` | Can View | 可浏览页面和被 Chat 检索引用。 |
-| `space:edit` | Can Edit | 可编辑页面。 |
-| `space:admin` | Full Access | 可管理 Space。 |
-| `upload:create` | 附件/上传权限 | 可上传资料。 |
-| `graphify:run` | 无直接对应 | Cherry 管理后台控制。 |
-
-### 9.2 权限一致性检查
-
-每日、每次权限变更后、每次 Docmost rebase 后执行：
+### 9.1 同步方向
 
 ```text
-Cherry group membership
-  ↔ Docmost group membership
-  ↔ Docmost space members
-  ↔ index ACL envelope
+Cherry Admin 管理权限 → Cherry DB → 单向推送到 Docmost Fork
 ```
 
-如果不一致：
+**禁止在 Docmost 侧独立修改权限**。Docmost 管理员修改权限后，Cherry reconciliation 会覆盖回 Cherry 状态。
 
-- 暂停相关 Space 的 Chat 检索。
+### 9.2 权限映射
+
+| Cherry 权限 | Docmost 投影 | 说明 |
+|---|---|---|
+| `space:view` | Can View | Docmost 页面可浏览。 |
+| `space:edit` | Can Edit | Docmost 页面可编辑。 |
+| `space:admin` | Full Access | Docmost Space 管理。 |
+| `upload:create` | 附件/上传权限 | 附件上传能力。 |
+| `graphify:run` | 无直接对应 | Cherry 管理后台控制。 |
+
+### 9.3 同步机制
+
+1. **事件驱动**：Cherry API 权限变更 → Bridge 推送 `PUT /api/internal/bridge/spaces/{id}/permissions`。
+2. **定时 reconcile**：每小时比对 Cherry 权限和 Docmost 权限，差异自动修复为 Cherry 状态。
+3. **Docmost rebase 后**：强制执行全量 reconcile。
+
+### 9.4 不一致处理
+
+- 暂停相关 Space 的 Docmost 编辑和 Chat 检索。
 - 管理后台显示告警。
-- 触发权限修复任务。
+- 触发权限修复任务（幂等覆盖，非增量合并）。
 - 审计记录 `permission_consistency_failed`。
+
+### 9.5 检索权限约束
+
+Chat 和 RAG 检索**永远只读 Cherry ACL**（`acl_json`、`space_permissions`），**禁止查询 Docmost 数据库**。即使 Docmost 权限暂时不一致，Chat 也不会因此泄露内容。
 
 ## 10. 附件处理
 
