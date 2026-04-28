@@ -246,13 +246,31 @@ CREATE TABLE graph_communities (
   UNIQUE (tenant_id, space_id, graphify_run_id, community_key)
 );
 
+CREATE TABLE wiki_sections (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  space_id TEXT NOT NULL REFERENCES spaces(id),
+  wiki_page_pk TEXT NOT NULL REFERENCES wiki_pages(id),
+  page_version_id TEXT NOT NULL REFERENCES wiki_page_versions(id),
+  section_id TEXT NOT NULL,
+  heading TEXT NOT NULL,
+  level INT NOT NULL DEFAULT 2,
+  section_index INT NOT NULL,
+  start_offset INT,
+  end_offset INT,
+  content_hash TEXT,
+  acl_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (page_version_id, section_id)
+);
+
 CREATE TABLE wiki_chunks (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id),
   space_id TEXT NOT NULL REFERENCES spaces(id),
   wiki_page_pk TEXT NOT NULL REFERENCES wiki_pages(id),
   page_version_id TEXT NOT NULL REFERENCES wiki_page_versions(id),
-  section_id TEXT,
+  section_id TEXT REFERENCES wiki_sections(id),
   chunk_index INT NOT NULL,
   content TEXT NOT NULL,
   content_hash TEXT,
@@ -345,6 +363,37 @@ CREATE TABLE chat_messages (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE source_links (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  space_id TEXT NOT NULL REFERENCES spaces(id),
+  wiki_page_pk TEXT NOT NULL REFERENCES wiki_pages(id),
+  page_version_id TEXT NOT NULL REFERENCES wiki_page_versions(id),
+  section_id TEXT REFERENCES wiki_sections(id),
+  source_document_id TEXT REFERENCES source_documents(id),
+  source_uri TEXT,
+  quote_hash TEXT,
+  evidence_type TEXT NOT NULL DEFAULT 'reference',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE answer_citations (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  message_id TEXT NOT NULL REFERENCES chat_messages(id),
+  page_id TEXT,
+  page_version_id TEXT REFERENCES wiki_page_versions(id),
+  section_id TEXT REFERENCES wiki_sections(id),
+  source_link_id TEXT REFERENCES source_links(id),
+  graph_node_id TEXT REFERENCES graph_nodes(id),
+  graph_edge_id TEXT REFERENCES graph_edges(id),
+  graph_path_json JSONB,
+  quote TEXT,
+  score DOUBLE PRECISION,
+  citation_index INT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE retrieval_traces (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id),
@@ -403,4 +452,8 @@ CREATE INDEX idx_index_snapshots_active ON index_snapshots(space_id, activated_a
 CREATE INDEX idx_graph_nodes_stable_key ON graph_nodes(tenant_id, space_id, stable_key);
 CREATE INDEX idx_graph_node_aliases_lookup ON graph_node_aliases(tenant_id, space_id, alias);
 CREATE INDEX idx_graph_node_merges_from ON graph_node_merges(tenant_id, space_id, from_stable_key);
+CREATE INDEX idx_wiki_sections_page_version ON wiki_sections(page_version_id);
+CREATE INDEX idx_source_links_page_version ON source_links(page_version_id);
+CREATE INDEX idx_source_links_source_doc ON source_links(source_document_id);
+CREATE INDEX idx_answer_citations_message ON answer_citations(message_id);
 CREATE INDEX idx_audit_logs_tenant_time ON audit_logs(tenant_id, created_at DESC);
