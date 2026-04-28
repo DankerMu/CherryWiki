@@ -106,22 +106,32 @@ ALTER TABLE wiki_pages
   ADD CONSTRAINT fk_wiki_pages_indexed_version
   FOREIGN KEY (indexed_version_id) REFERENCES wiki_page_versions(id);
 
+CREATE TABLE file_blobs (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  sha256 TEXT NOT NULL,
+  size_bytes BIGINT NOT NULL,
+  mime_type TEXT NOT NULL,
+  storage_uri TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, sha256)
+);
+
 CREATE TABLE source_documents (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id),
   space_id TEXT NOT NULL REFERENCES spaces(id),
-  sha256 TEXT NOT NULL,
+  file_blob_id TEXT NOT NULL REFERENCES file_blobs(id),
   filename TEXT NOT NULL,
-  mime_type TEXT NOT NULL,
-  size_bytes BIGINT NOT NULL,
-  storage_uri TEXT NOT NULL,
-  parsed_uri TEXT,
-  status TEXT NOT NULL DEFAULT 'uploaded',
   uploader_id TEXT REFERENCES users(id),
+  source_type TEXT NOT NULL DEFAULT 'upload',
+  classification TEXT,
+  status TEXT NOT NULL DEFAULT 'uploaded',
+  parsed_uri TEXT,
   metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (tenant_id, sha256)
+  UNIQUE (space_id, file_blob_id)
 );
 
 CREATE TABLE jobs (
