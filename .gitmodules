@@ -1,8 +1,8 @@
 [submodule "cherry-studio"]
-	path = cherry-studio
+	path = external/cherry-studio
 	url = https://github.com/DankerMu/cherry-studio.git
 [submodule "graphify"]
-	path = graphify
+	path = external/graphify
 	url = https://github.com/DankerMu/graphify.git
 [submodule "external/docmost"]
 	path = external/docmost

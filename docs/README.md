@@ -1,6 +1,6 @@
 # CherryGraph Studio 方案文档包
 
-版本：v0.2-todo-merged  
+版本：v0.3  
 日期：2026-04-28  
 定位：基于 Cherry Studio 社区版 Fork 重构的 Docker 化 Web 端，强耦合 Graphify Wiki、Docmost Fork 协作编辑和 GraphRAG 能力。
 
@@ -21,66 +21,87 @@ Cherry Studio Web
 
 ## 2. 已确认路线
 
-| 编号 | 决策 | 本文档处理方式 |
-|---|---|---|
-| D1 | Fork 开源 Cherry Studio，路线 A，重构 Web 版 | 以“重构”而不是“Electron 直改”为前提，保留 Cherry 聊天、模型、知识库、MCP、Agent 等核心体验。 |
-| D2 | Graphify CLI 由 Cherry Web 后台自动调度 | 设计 `graphify-worker`、任务队列、运行记录、输出解析、索引更新。 |
-| D3 | 不考虑内网模型限制，按互联网可用模型处理 | 模型网关仍作为抽象层保留，便于未来切换。 |
-| D4 | Docmost 作为 Wiki 网页 | 使用 Fork 开源版 + 自建 Bridge endpoint，不购买企业版；Docmost 是 Graphify Wiki 的编辑/协作/权限前端。 |
-| D5 | Graphify Wiki 是唯一信息源 | 聊天检索只从发布后的 Graphify Wiki 页面与其派生图谱/索引取材；上传原文只作为证据、归档和再生成输入。 |
-| D6 | 认可六层耦合 | 形成数据源、索引、检索、UI、Agent、权限六层强耦合。 |
-| D7 | Wiki 支持人工修订、上传资料自动归档解析、同步 Graphify | 增加 Wiki 修订流、上传归档流、Graphify 增量更新流和冲突合并机制。 |
-| D8 | 内部小团队使用，非 SaaS | 仍保留 tenant 字段作为扩展和权限边界，但 Phase 1 默认单 tenant。 |
-| D9 | 源码全部公开 | AGPL 合规风险降级，保留许可证页面、SBOM、源码入口和 license bundle。 |
-| D10 | 不设 MVP，分阶段交付成品 | Phase 1 定义为最小可用成品，不使用“实验性 MVP”口径。 |
-| D11 | Phase 1 先不上 Docmost | Phase 1 使用 Cherry Web 内置只读 Wiki；Phase 2 再接入 Docmost Fork 双向协作编辑。 |
-| D12 | Phase 1-3 使用 PostgreSQL 图表，Neo4j 预留 | `graph-core` 通过 Repository 接口屏蔽 PG/Neo4j 差异。 |
+| 编号 | 决策 |
+|---|---|
+| D1 | Fork 开源 Cherry Studio，路线 A，重构 Web 版 |
+| D2 | Graphify CLI 由 Cherry Web 后台自动调度 |
+| D3 | 不考虑内网模型限制，按互联网可用模型处理 |
+| D4 | Docmost Fork 开源版 + 自建 Bridge endpoint，不购买企业版 |
+| D5 | Graphify Wiki 是唯一信息源 |
+| D6 | 认可六层耦合 |
+| D7 | Wiki 支持人工修订、上传资料自动归档解析、同步 Graphify |
+| D8 | 内部小团队使用，非 SaaS |
+| D9 | 源码全部公开 |
+| D10 | 不设 MVP，分阶段交付成品 |
+| D11 | Phase 1 先不上 Docmost |
+| D12 | Phase 1-3 使用 PostgreSQL 图表，Neo4j 预留 |
 
 ## 3. 文档索引
 
-### 需求与产品
+### architecture/ — 架构与总体设计
 
-1. [方案总览与边界](docs/01_方案总览与边界.md)
-2. [产品需求 PRD](docs/03_产品需求_PRD.md)
-3. [模块需求：Cherry Web、Chat、Admin](docs/04_模块需求_CherryWeb_Chat_Admin.md)
-4. [模块需求：Graphify Wiki 唯一知识源](docs/05_模块需求_GraphifyWiki唯一知识源.md)
-5. [模块需求：Docmost 集成](docs/06_模块需求_Docmost集成.md)
-6. [模块需求：资料上传、归档、解析](docs/07_模块需求_资料上传归档解析.md)
+| 文件 | 内容 |
+|---|---|
+| [01_方案总览与边界](architecture/01_方案总览与边界.md) | 项目定位、边界、术语、成功标准 |
+| [02_总体架构设计](architecture/02_总体架构设计.md) | 服务拆分、数据流、存储分层、Cherry Studio 改造策略 |
+| [08_强耦合设计_六层](architecture/08_强耦合设计_六层.md) | 六层耦合定义、验收矩阵、一致性保障 |
 
-### 架构与技术
+### requirements/ — 需求与模块
 
-7. [总体架构设计](docs/02_总体架构设计.md)
-8. [六层强耦合设计](docs/08_强耦合设计_六层.md)
-9. [RAG 与 GraphRAG 设计](docs/09_RAG与GraphRAG设计.md)
-10. [数据模型与数据库设计](docs/10_数据模型与数据库设计.md)
-11. [API 规范](docs/11_API规范.md)
-12. [权限、安全与审计](docs/12_权限安全审计.md)
-13. [Cherry Studio 代码审计](docs/20_Cherry_Studio_代码审计.md)
-14. [Graphify 输出 Schema 契约](docs/21_Graphify_输出Schema契约.md)
-15. [Docmost Fork 改动清单](docs/22_Docmost_Fork_改动清单.md)
+| 文件 | 内容 |
+|---|---|
+| [03_产品需求_PRD](requirements/03_产品需求_PRD.md) | 用户角色、用户故事、功能矩阵、非功能需求 |
+| [04_CherryWeb_Chat_Admin](requirements/04_模块需求_CherryWeb_Chat_Admin.md) | 前端、Chat 引擎、管理后台 |
+| [05_GraphifyWiki唯一知识源](requirements/05_模块需求_GraphifyWiki唯一知识源.md) | Canonical Wiki Repo、Frontmatter、合并流水线 |
+| [06_Docmost集成](requirements/06_模块需求_Docmost集成.md) | Fork 策略、双向同步、Bridge 路由、权限映射 |
+| [07_资料上传归档解析](requirements/07_模块需求_资料上传归档解析.md) | 上传入口、安全校验、解析、分类、Graphify 触发 |
 
-### 工程与交付
+### design/ — 技术设计
 
-16. [开发规范](docs/13_开发规范.md)
-17. [测试与验收规范](docs/14_测试验收规范.md)
-18. [部署与运维规范](docs/15_部署运维规范.md)
-19. [实施路线图与里程碑](docs/16_实施路线图与里程碑.md)
-20. [风险清单与决策记录](docs/17_风险清单与决策记录.md)
-21. [开源许可证与合规说明](docs/18_开源许可证与合规说明.md)
-22. [资料依据与外部来源](docs/19_资料依据与外部来源.md)
-23. [补充建议清单](docs/23_补充建议清单.md)
+| 文件 | 内容 |
+|---|---|
+| [09_RAG与GraphRAG设计](design/09_RAG与GraphRAG设计.md) | 检索源、混合检索、置信度模型、Prompt 组装 |
+| [10_数据模型与数据库设计](design/10_数据模型与数据库设计.md) | ER 关系、表结构、ACL 信封、版本一致性 |
+| [11_API规范](design/11_API规范.md) | RESTful API、SSE、Docmost Bridge 内部 API |
+| [21_Graphify输出Schema契约](design/21_Graphify_输出Schema契约.md) | graph.json/wiki/report 契约、校验规则、降级策略 |
+
+### engineering/ — 工程规范
+
+| 文件 | 内容 |
+|---|---|
+| [12_权限安全审计](engineering/12_权限安全审计.md) | RBAC、Space 隔离、检索安全、审计日志 |
+| [13_开发规范](engineering/13_开发规范.md) | 仓库结构、技术栈、编码规范、PR 要求 |
+| [14_测试验收规范](engineering/14_测试验收规范.md) | 测试层级、核心场景、性能指标 |
+| [15_部署运维规范](engineering/15_部署运维规范.md) | Docker Compose、健康检查、备份恢复、监控 |
+
+### project/ — 项目管理
+
+| 文件 | 内容 |
+|---|---|
+| [16_实施路线图与里程碑](project/16_实施路线图与里程碑.md) | Phase 1-4 交付物、退出标准、工作量 |
+| [17_风险清单与决策记录](project/17_风险清单与决策记录.md) | R1-R14 风险、ADR-001 至 ADR-009 |
+| [18_开源许可证与合规](project/18_开源许可证与合规说明.md) | AGPL 合规、SBOM、许可证声明 |
+| [19_资料依据与外部来源](project/19_资料依据与外部来源.md) | Cherry Studio/Graphify/Docmost 参考信息 |
+| [23_补充建议清单](project/23_补充建议清单.md) | 安全、可观测性、数据治理补充建议 |
+
+### audit/ — 代码审计与集成
+
+| 文件 | 内容 |
+|---|---|
+| [20_Cherry Studio代码审计](audit/20_Cherry_Studio_代码审计.md) | 345K LOC 实际扫描、A/B/C 复用评级 |
+| [22_Docmost Fork改动清单](audit/22_Docmost_Fork_改动清单.md) | baseline v0.80.1、Bridge 路由、rebase 流程 |
 
 ### 可执行参考件
 
-- [Docker Compose 骨架](ops/docker-compose.skeleton.yml)
-- [环境变量样例](ops/env.example)
-- [Nginx 反向代理样例](ops/nginx.conf.example)
-- [数据库 Schema 草案](schemas/schema.sql)
-- [OpenAPI 草案](schemas/openapi.yaml)
-- [TODO 合并状态](todo.md)
-- [ADR 模板](templates/ADR_TEMPLATE.md)
-- [模块需求模板](templates/MODULE_REQUIREMENT_TEMPLATE.md)
-- [验收用例模板](templates/ACCEPTANCE_CASE_TEMPLATE.md)
+| 文件 | 内容 |
+|---|---|
+| [docker-compose.skeleton.yml](ops/docker-compose.skeleton.yml) | Docker Compose 骨架 |
+| [env.example](ops/env.example) | 环境变量样例 |
+| [nginx.conf.example](ops/nginx.conf.example) | Nginx 反向代理 |
+| [schema.sql](schemas/schema.sql) | 数据库 Schema 草案 |
+| [openapi.yaml](schemas/openapi.yaml) | OpenAPI 草案 |
+| [todo.md](todo.md) | TODO 合并状态 |
+| [templates/](templates/) | ADR、模块需求、验收用例模板 |
 
 ## 4. 总体架构速览
 
@@ -120,37 +141,22 @@ flowchart LR
   CHAT --> LLM[Model Gateway]
 ```
 
-## 5. 核心原则
-
-1. **Graphify Wiki 是唯一知识源**：AI 回答基于发布后的 Wiki 页面、页面切片、图谱节点和关系；原始上传文件不是直接检索源。
-2. **Docmost 是协作编辑壳层**：Docmost 提供多人编辑、页面历史、附件、Spaces、权限 UI；内容需同步回 Canonical Graphify Wiki Repo 后才可发布和索引。
-3. **Graphify 是平台内置索引器**：不让用户手动跑 CLI；后台通过任务队列自动调用 Graphify，解析 `graph.json`、`GRAPH_REPORT.md` 和 `wiki/`。
-4. **生成内容不能静默覆盖人工修订**：Graphify 新生成页面进入“候选修订/变更提案”，与人工修订做差异合并。
-5. **权限必须贯穿检索链路**：检索前、检索中、重排后、回答引用阶段都要做 ACL 校验。
-6. **源码公开优先**：Cherry Studio、Docmost Fork、CherryGraph 自研代码公开，AGPL 义务按默认开源治理处理。
-7. **版本一致性优先于实时性**：Chat 默认使用最近一次成功索引版本；当前页面版本领先索引时，不阻断问答，但必须在 UI 标注“索引滞后”。
-
-## 6. Phase 1 最小可用成品目标
-
-Phase 1 不接入 Docmost，只交付一个可上线运行的最小可用成品：
-
-- Docker Compose 部署。
-- 用户登录、分组、Space、基础权限。
-- Cherry Web 基础聊天、会话历史、模型配置。
-- 上传资料并归档。
-- 后台自动跑 Graphify `--wiki`。
-- Cherry Web 内置只读 Wiki 浏览。
-- 对发布 Wiki 做向量 + BM25 索引。
-- 聊天时使用 Wiki 检索回答并引用 Wiki 页面。
-- 管理后台支持用户、Space、模型、上传任务、Graphify 任务。
-
-Docmost Fork、双向同步、完整 GraphRAG、图路径解释和知识治理分别进入 Phase 2、Phase 3、Phase 4。
-
-## 7. 建议项目代号
+## 5. 项目仓库结构
 
 ```text
-项目名称：CherryGraph Studio
-知识层名称：Graphify Wiki
-Wiki UI：Docmost Shell
-服务端名称：Cherry Web Platform
+CherryWiki/
+  docs/                     ← 本文档包
+    architecture/           ← 架构与总体设计
+    requirements/           ← 需求与模块
+    design/                 ← 技术设计
+    engineering/            ← 工程规范
+    project/                ← 项目管理
+    audit/                  ← 代码审计与集成
+    schemas/                ← SQL / OpenAPI
+    ops/                    ← Docker / Nginx / env
+    templates/              ← ADR / 需求 / 验收模板
+  external/                 ← 第三方 Fork（submodule）
+    cherry-studio/          ← DankerMu/cherry-studio
+    graphify/               ← DankerMu/graphify
+    docmost/                ← DankerMu/docmost
 ```
