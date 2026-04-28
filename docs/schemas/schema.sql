@@ -62,6 +62,25 @@ CREATE TABLE space_permissions (
   UNIQUE (space_id, group_id, permission)
 );
 
+CREATE TABLE model_configs (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  provider TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  model_type TEXT NOT NULL,
+  display_name TEXT,
+  base_url TEXT,
+  encrypted_api_key_ref TEXT,
+  embedding_dim INT,
+  max_tokens INT,
+  rate_limit_rpm INT,
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  visible_group_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, provider, model_id)
+);
+
 CREATE TABLE wiki_pages (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id),
@@ -285,13 +304,16 @@ CREATE TABLE wiki_chunks (
   UNIQUE (page_version_id, chunk_index)
 );
 
+-- Phase 1: 单模型，VECTOR 维度与 model_configs.embedding_dim 对应。
+-- 切换 embedding 模型时须全量重建索引快照。
+-- Phase 2+: 按 model_config_id 分 collection 或迁移至 Qdrant。
 CREATE TABLE embeddings (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id),
   space_id TEXT NOT NULL REFERENCES spaces(id),
   chunk_id TEXT NOT NULL REFERENCES wiki_chunks(id) ON DELETE CASCADE,
-  model_id TEXT NOT NULL,
-  embedding VECTOR(3072),
+  model_config_id TEXT NOT NULL REFERENCES model_configs(id),
+  embedding VECTOR,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -456,4 +478,6 @@ CREATE INDEX idx_wiki_sections_page_version ON wiki_sections(page_version_id);
 CREATE INDEX idx_source_links_page_version ON source_links(page_version_id);
 CREATE INDEX idx_source_links_source_doc ON source_links(source_document_id);
 CREATE INDEX idx_answer_citations_message ON answer_citations(message_id);
+CREATE INDEX idx_model_configs_tenant_type ON model_configs(tenant_id, model_type, enabled);
+CREATE INDEX idx_embeddings_model ON embeddings(model_config_id);
 CREATE INDEX idx_audit_logs_tenant_time ON audit_logs(tenant_id, created_at DESC);
