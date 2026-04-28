@@ -157,8 +157,17 @@ CREATE TABLE jobs (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id),
   space_id TEXT REFERENCES spaces(id),
+  queue_name TEXT NOT NULL DEFAULT 'default',
   type TEXT NOT NULL,
+  priority INT NOT NULL DEFAULT 100,
   status TEXT NOT NULL DEFAULT 'pending',
+  attempt_count INT NOT NULL DEFAULT 0,
+  max_attempts INT NOT NULL DEFAULT 3,
+  timeout_seconds INT,
+  locked_by TEXT,
+  locked_at TIMESTAMPTZ,
+  next_run_at TIMESTAMPTZ,
+  cancel_requested_at TIMESTAMPTZ,
   payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   result_json JSONB,
   error_json JSONB,
@@ -174,6 +183,7 @@ CREATE TABLE graphify_runs (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id),
   space_id TEXT NOT NULL REFERENCES spaces(id),
+  job_id TEXT REFERENCES jobs(id),
   trigger_type TEXT NOT NULL,
   mode TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
@@ -478,6 +488,10 @@ CREATE INDEX idx_wiki_sections_page_version ON wiki_sections(page_version_id);
 CREATE INDEX idx_source_links_page_version ON source_links(page_version_id);
 CREATE INDEX idx_source_links_source_doc ON source_links(source_document_id);
 CREATE INDEX idx_answer_citations_message ON answer_citations(message_id);
+CREATE INDEX idx_jobs_poll ON jobs(queue_name, status, priority, next_run_at) WHERE status IN ('pending', 'retrying');
+CREATE INDEX idx_jobs_locked ON jobs(locked_by, locked_at) WHERE locked_by IS NOT NULL;
+CREATE INDEX idx_jobs_space ON jobs(tenant_id, space_id, type, status);
+CREATE INDEX idx_graphify_runs_job ON graphify_runs(job_id);
 CREATE INDEX idx_model_configs_tenant_type ON model_configs(tenant_id, model_type, enabled);
 CREATE INDEX idx_embeddings_model ON embeddings(model_config_id);
 CREATE INDEX idx_audit_logs_tenant_time ON audit_logs(tenant_id, created_at DESC);
