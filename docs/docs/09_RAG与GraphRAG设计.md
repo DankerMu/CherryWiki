@@ -189,7 +189,7 @@ ANSWER REQUIREMENTS:
 feedback → issue → assigned editor → wiki edit/proposal → graphify update → reindex
 ```
 
-## 11. MVP 验收
+## 11. Phase 1 验收
 
 1. 查询能返回 Wiki chunk 引用。
 2. 查询能返回至少一条图谱路径或相关节点。
@@ -197,3 +197,54 @@ feedback → issue → assigned editor → wiki edit/proposal → graphify updat
 4. 回答中能区分 EXTRACTED/INFERRED。
 5. 管理员能查看检索 debug。
 6. 用户能点击引用打开 Docmost 页面。
+
+## 12. 关系置信度模型增强
+
+> 本节合并 TODO T-5.3.1。UI 仍展示 `EXTRACTED / INFERRED / AMBIGUOUS`，底层排序使用连续分数。
+
+### 12.1 字段定义
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `confidence_label` | enum | `EXTRACTED`、`INFERRED`、`AMBIGUOUS`，用于 UI 和回答约束。 |
+| `confidence_score` | float | 0.0-1.0，参与检索排序和 rerank。 |
+| `evidence_count` | int | 支撑该关系的证据数量。 |
+| `evidence_refs_json` | JSON array | 证据页面、section、source span。 |
+
+### 12.2 score 与 label 映射
+
+| score 区间 | 默认 label | 说明 |
+|---|---|---|
+| `>= 0.85` | `EXTRACTED` | 源文本或代码结构明确表达。 |
+| `0.55 - 0.849` | `INFERRED` | 由上下文、共现、二跳调用、语义关系推断。 |
+| `< 0.55` | `AMBIGUOUS` | 证据不足或关系方向不确定。 |
+
+Graphify 原始输出若只有 label，则导入时按默认分数初始化：
+
+| label | 初始 score |
+|---|---:|
+| `EXTRACTED` | 0.90 |
+| `INFERRED` | 0.70 |
+| `AMBIGUOUS` | 0.40 |
+
+### 12.3 排序公式
+
+```text
+graph_score =
+  0.40 * entity_match_score +
+  0.25 * path_relevance_score +
+  0.20 * confidence_score +
+  0.10 * log1p(evidence_count) +
+  0.05 * recency_score
+```
+
+回答生成时：
+
+1. `EXTRACTED` 可作为事实关系表述。
+2. `INFERRED` 必须标注“根据 Wiki/图谱推断”。
+3. `AMBIGUOUS` 默认不进入普通回答，只在“可能相关/待确认”中展示。
+4. 管理员 Debug 模式可显示所有边及分数。
+
+### 12.4 Schema 对齐
+
+`schemas/schema.sql` 中 `graph_edges.confidence_score` 已使用 `DOUBLE PRECISION`。本版本新增 `evidence_count INT NOT NULL DEFAULT 1`。

@@ -219,3 +219,170 @@ Docmost Bridge 内部接口：
 ## 12. OpenAPI 草案
 
 详见 [`../schemas/openapi.yaml`](../schemas/openapi.yaml)。
+
+## 13. Docmost Bridge 内部 API 详细定义
+
+> 本节合并 TODO T-2.1.2 / T-7.2。以下接口由 Docmost Fork 与 Cherry API/docmost-bridge 之间调用，不对普通用户开放。
+
+### 13.1 认证
+
+所有请求必须包含：
+
+```http
+Authorization: Bearer ${DOCMOST_BRIDGE_SECRET}
+X-Bridge-Event-Id: evt_...
+X-Bridge-Signature: hmac-sha256(payload, DOCMOST_BRIDGE_SECRET)
+```
+
+服务端按 `event_id` 幂等处理。重复事件返回 `200 OK`，并标记 `deduplicated=true`。
+
+### 13.2 页面保存事件
+
+```http
+POST /api/internal/docmost/events/page-saved
+```
+
+调用方：Docmost Fork。  
+触发时机：Docmost 页面保存成功后。
+
+请求：
+
+```json
+{
+  "event_id": "evt_page_saved_001",
+  "docmost_space_id": "dm_space_abc",
+  "docmost_page_id": "dm_page_123",
+  "actor_id": "dm_user_456",
+  "title": "SSO 认证流程",
+  "updated_at": "2026-04-28T10:00:00Z",
+  "content_hash": "sha256...",
+  "attachments": [
+    {"attachment_id":"att_1","filename":"diagram.png","size_bytes":1024}
+  ]
+}
+```
+
+响应：
+
+```json
+{
+  "accepted": true,
+  "deduplicated": false,
+  "sync_job_id": "job_sync_001"
+}
+```
+
+错误处理：
+
+| 状态 | 含义 | 重试 |
+|---|---|---|
+| 400 | payload 不合法 | 否 |
+| 401/403 | bridge secret 错误 | 否，告警 |
+| 409 | 版本冲突 | 否，转 `conflict_required` |
+| 429 | 限流 | 是 |
+| 500/503 | 服务异常 | 是，指数退避 |
+
+### 13.3 附件事件
+
+```http
+POST /api/internal/docmost/events/attachment-created
+```
+
+请求：
+
+```json
+{
+  "event_id": "evt_att_001",
+  "docmost_space_id": "dm_space_abc",
+  "docmost_page_id": "dm_page_123",
+  "attachment_id": "att_1",
+  "filename": "sso-design.pdf",
+  "mime_type": "application/pdf",
+  "size_bytes": 102400,
+  "download_url": "http://docmost:3000/api/internal/bridge/attachments/att_1/download",
+  "created_at": "2026-04-28T10:01:00Z"
+}
+```
+
+处理：写入 Source Archive，创建 ingestion job，不直接进入检索。
+
+### 13.4 页面导出
+
+```http
+GET /api/internal/docmost/pages/{docmost_page_id}/export?format=markdown
+```
+
+调用方：docmost-bridge。  
+响应：
+
+```json
+{
+  "docmost_page_id": "dm_page_123",
+  "title": "SSO 认证流程",
+  "format": "markdown",
+  "content_markdown": "# SSO 认证流程\n...",
+  "updated_at": "2026-04-28T10:00:00Z",
+  "content_hash": "sha256..."
+}
+```
+
+### 13.5 页面导入/更新
+
+```http
+PUT /api/internal/docmost/pages/{docmost_page_id}/import
+```
+
+调用方：wiki-sync-worker。  
+触发时机：Graphify → Docmost 同步或候选更新被接受。
+
+请求：
+
+```json
+{
+  "docmost_space_id": "dm_space_abc",
+  "title": "SSO 认证流程",
+  "content_markdown": "---\npage_id: rd.auth.sso\n---\n# SSO 认证流程\n...",
+  "source": "graphify",
+  "page_version_id": "ver_001",
+  "overwrite_policy": "preserve_human_blocks"
+}
+```
+
+### 13.6 同步状态
+
+```http
+GET /api/internal/docmost/spaces/{docmost_space_id}/sync-status
+```
+
+响应：
+
+```json
+{
+  "docmost_space_id": "dm_space_abc",
+  "space_id": "space_rd",
+  "status": "healthy",
+  "pending_events": 0,
+  "last_success_at": "2026-04-28T10:05:00Z"
+}
+```
+
+## 14. Wiki API 补充
+
+| Method | Path | 说明 |
+|---|---|---|
+| GET | `/api/spaces/{space_id}/wiki/pages` | 查询 Wiki 页面列表。 |
+| GET | `/api/spaces/{space_id}/wiki/pages/{page_id}` | 获取页面当前版本与索引版本。 |
+| GET | `/api/spaces/{space_id}/wiki/pages/{page_id}/versions` | 页面版本列表。 |
+| POST | `/api/spaces/{space_id}/wiki/pages/{page_id}/publish` | 发布页面版本。 |
+| POST | `/api/spaces/{space_id}/wiki/pages/{page_id}/reindex` | 触发页面重索引。 |
+| GET | `/api/spaces/{space_id}/wiki/consistency` | Space 一致性状态。 |
+
+## 15. Admin API 补充
+
+| Method | Path | 说明 |
+|---|---|---|
+| GET | `/api/admin/graphify/runs` | Graphify run 列表。 |
+| POST | `/api/admin/graphify/runs/{run_id}/retry` | 重试 run。 |
+| GET | `/api/admin/consistency-checks` | 一致性检查列表。 |
+| POST | `/api/admin/spaces/{space_id}/rebuild-index` | 重建 Space 索引。 |
+| GET | `/api/admin/retrieval-traces/{trace_id}` | 检索调试详情。 |

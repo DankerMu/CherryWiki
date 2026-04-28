@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: CherryGraph Studio API
-  version: 0.1.0
+  version: 0.2.0
 servers:
   - url: /api
 security:
@@ -34,6 +34,20 @@ components:
         slug: { type: string }
         docmost_space_id: { type: string }
         wiki_repo_path: { type: string }
+        index_consistency_status:
+          type: string
+          enum: [healthy, checking, inconsistent]
+    WikiPage:
+      type: object
+      properties:
+        id: { type: string }
+        space_id: { type: string }
+        page_id: { type: string }
+        title: { type: string }
+        status: { type: string }
+        current_version_id: { type: string }
+        indexed_version_id: { type: string }
+        sync_status: { type: string }
     GraphifyRun:
       type: object
       properties:
@@ -44,6 +58,7 @@ components:
         status: { type: string }
         graph_json_uri: { type: string }
         report_uri: { type: string }
+        schema_version: { type: string }
     ChatCompletionRequest:
       type: object
       required: [model_id, message, space_ids]
@@ -59,24 +74,52 @@ components:
           enum: [wiki_only, graph_rag, path_first, community_first]
         include_graph_explanation: { type: boolean }
         stream: { type: boolean }
+    DocmostPageSavedEvent:
+      type: object
+      required: [event_id, docmost_space_id, docmost_page_id, updated_at, content_hash]
+      properties:
+        event_id: { type: string }
+        docmost_space_id: { type: string }
+        docmost_page_id: { type: string }
+        actor_id: { type: string }
+        title: { type: string }
+        updated_at: { type: string, format: date-time }
+        content_hash: { type: string }
+        attachments:
+          type: array
+          items:
+            type: object
+            properties:
+              attachment_id: { type: string }
+              filename: { type: string }
+              size_bytes: { type: integer }
+    DocmostAttachmentEvent:
+      type: object
+      required: [event_id, docmost_space_id, docmost_page_id, attachment_id, filename]
+      properties:
+        event_id: { type: string }
+        docmost_space_id: { type: string }
+        docmost_page_id: { type: string }
+        attachment_id: { type: string }
+        filename: { type: string }
+        mime_type: { type: string }
+        size_bytes: { type: integer }
+        download_url: { type: string }
 paths:
   /auth/me:
     get:
       summary: Get current user
       responses:
-        '200':
-          description: Current user
+        '200': { description: Current user }
   /spaces:
     get:
       summary: List accessible spaces
       responses:
-        '200':
-          description: Spaces
+        '200': { description: Spaces }
     post:
       summary: Create space
       responses:
-        '201':
-          description: Created
+        '201': { description: Created }
   /spaces/{space_id}/uploads:
     post:
       summary: Upload source document
@@ -92,12 +135,58 @@ paths:
             schema:
               type: object
               properties:
-                file:
-                  type: string
-                  format: binary
+                file: { type: string, format: binary }
       responses:
-        '201':
-          description: Uploaded
+        '201': { description: Uploaded }
+  /spaces/{space_id}/wiki/pages:
+    get:
+      summary: List wiki pages
+      parameters:
+        - name: space_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Wiki pages }
+  /spaces/{space_id}/wiki/pages/{page_id}:
+    get:
+      summary: Get wiki page with current and indexed versions
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+        - { name: page_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Wiki page }
+  /spaces/{space_id}/wiki/pages/{page_id}/versions:
+    get:
+      summary: List wiki page versions
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+        - { name: page_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Versions }
+  /spaces/{space_id}/wiki/pages/{page_id}/publish:
+    post:
+      summary: Publish wiki page version
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+        - { name: page_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Published }
+  /spaces/{space_id}/wiki/pages/{page_id}/reindex:
+    post:
+      summary: Reindex wiki page
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+        - { name: page_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '202': { description: Reindex job created }
+  /spaces/{space_id}/wiki/consistency:
+    get:
+      summary: Get space consistency status
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Consistency status }
   /spaces/{space_id}/graphify/runs:
     post:
       summary: Create Graphify run
@@ -107,8 +196,7 @@ paths:
           required: true
           schema: { type: string }
       responses:
-        '201':
-          description: Created
+        '201': { description: Created }
   /graphify/runs/{run_id}:
     get:
       summary: Get Graphify run
@@ -118,14 +206,17 @@ paths:
           required: true
           schema: { type: string }
       responses:
-        '200':
-          description: Graphify run
+        '200': { description: Graphify run }
   /graph/path:
     post:
       summary: Query graph path
       responses:
-        '200':
-          description: Graph paths
+        '200': { description: Graph paths }
+  /graph/nodes:
+    get:
+      summary: Search graph nodes
+      responses:
+        '200': { description: Graph nodes }
   /chat/completions:
     post:
       summary: Chat completion with GraphRAG
@@ -133,8 +224,104 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              $ref: '#/components/schemas/ChatCompletionRequest'
+            schema: { $ref: '#/components/schemas/ChatCompletionRequest' }
       responses:
-        '200':
-          description: Completion or SSE stream
+        '200': { description: Completion or SSE stream }
+  /admin/users:
+    get:
+      summary: List users
+      responses:
+        '200': { description: Users }
+    post:
+      summary: Create user
+      responses:
+        '201': { description: Created }
+  /admin/groups:
+    get:
+      summary: List groups
+      responses:
+        '200': { description: Groups }
+    post:
+      summary: Create group
+      responses:
+        '201': { description: Created }
+  /admin/models:
+    get:
+      summary: List model configs
+      responses:
+        '200': { description: Models }
+    post:
+      summary: Create model config
+      responses:
+        '201': { description: Created }
+  /admin/graphify/runs:
+    get:
+      summary: List Graphify runs
+      responses:
+        '200': { description: Runs }
+  /admin/graphify/runs/{run_id}/retry:
+    post:
+      summary: Retry Graphify run
+      parameters:
+        - { name: run_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '202': { description: Retry job created }
+  /admin/consistency-checks:
+    get:
+      summary: List consistency checks
+      responses:
+        '200': { description: Checks }
+  /admin/spaces/{space_id}/rebuild-index:
+    post:
+      summary: Rebuild space index
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '202': { description: Rebuild job created }
+  /admin/retrieval-traces/{trace_id}:
+    get:
+      summary: Get retrieval trace
+      parameters:
+        - { name: trace_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Trace }
+  /internal/docmost/events/page-saved:
+    post:
+      summary: Internal Docmost page saved event
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DocmostPageSavedEvent' }
+      responses:
+        '200': { description: Accepted }
+  /internal/docmost/events/page-deleted:
+    post:
+      summary: Internal Docmost page deleted event
+      security: []
+      responses:
+        '200': { description: Accepted }
+  /internal/docmost/events/attachment-created:
+    post:
+      summary: Internal Docmost attachment created event
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DocmostAttachmentEvent' }
+      responses:
+        '200': { description: Accepted }
+  /internal/docmost/sync/pull:
+    post:
+      summary: Pull page from Docmost Fork
+      security: []
+      responses:
+        '202': { description: Pull job created }
+  /internal/docmost/sync/push:
+    post:
+      summary: Push page to Docmost Fork
+      security: []
+      responses:
+        '202': { description: Push job created }

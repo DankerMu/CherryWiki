@@ -4,3 +4,6 @@
 [submodule "graphify"]
 	path = graphify
 	url = https://github.com/DankerMu/graphify.git
+[submodule "external/docmost"]
+	path = external/docmost
+	url = https://github.com/DankerMu/docmost.git

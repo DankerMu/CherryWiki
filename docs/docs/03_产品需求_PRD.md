@@ -96,7 +96,7 @@ CherryGraph Studio 是一个 Docker 化部署的多用户 AI 工作台，基于 
 | 页面导入导出 | P0 | Markdown/HTML/ZIP 互转。 |
 | Bridge 同步 | P0 | 与 Canonical Wiki Repo 双向同步。 |
 | 权限映射 | P0 | Docmost Group ↔ Cherry Group。 |
-| API/MCP 接入 | P1 | 若有 Enterprise license 直接使用，否则 Fork 实现。 |
+| Bridge 接入 | P0 | Fork Docmost 开源版并实现内部 Bridge endpoint，用于页面保存、导入、导出、状态回写和同步事件。 |
 
 ### 5.5 管理后台
 
@@ -198,7 +198,7 @@ CherryGraph Studio 是一个 Docker 化部署的多用户 AI 工作台，基于 
 
 ## 9. 验收摘要
 
-MVP 验收必须覆盖：
+Phase 1 验收必须覆盖：
 
 1. Docker Compose 一键启动。
 2. 用户、分组、Space 权限。

@@ -228,7 +228,7 @@ Admin API        只处理管理配置。
 
 不得在 Chat API 中直接访问 Docmost 数据库或源文件归档。Chat API 只读已发布索引。
 
-## 6. MVP 验收
+## 6. Phase 1 验收
 
 1. 用户登录后可以发起流式聊天。
 2. 用户可以选择自己有权限的 Space。

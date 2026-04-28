@@ -43,6 +43,7 @@ CREATE TABLE spaces (
   docmost_space_id TEXT,
   wiki_repo_path TEXT NOT NULL,
   active_graphify_run_id TEXT,
+  index_consistency_status TEXT NOT NULL DEFAULT 'healthy',
   graphify_config JSONB NOT NULL DEFAULT '{}'::jsonb,
   default_publish_policy TEXT NOT NULL DEFAULT 'editor_publish',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -69,6 +70,8 @@ CREATE TABLE wiki_pages (
   slug TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'draft',
   current_version_id TEXT,
+  indexed_version_id TEXT,
+  sync_status TEXT NOT NULL DEFAULT 'synced',
   docmost_page_id TEXT,
   created_by TEXT REFERENCES users(id),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -93,6 +96,14 @@ CREATE TABLE wiki_page_versions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (wiki_page_pk, version_no)
 );
+
+ALTER TABLE wiki_pages
+  ADD CONSTRAINT fk_wiki_pages_current_version
+  FOREIGN KEY (current_version_id) REFERENCES wiki_page_versions(id);
+
+ALTER TABLE wiki_pages
+  ADD CONSTRAINT fk_wiki_pages_indexed_version
+  FOREIGN KEY (indexed_version_id) REFERENCES wiki_page_versions(id);
 
 CREATE TABLE source_documents (
   id TEXT PRIMARY KEY,
@@ -121,10 +132,12 @@ CREATE TABLE jobs (
   payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   result_json JSONB,
   error_json JSONB,
+  idempotency_key TEXT,
   created_by TEXT REFERENCES users(id),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   started_at TIMESTAMPTZ,
-  completed_at TIMESTAMPTZ
+  completed_at TIMESTAMPTZ,
+  UNIQUE (tenant_id, idempotency_key)
 );
 
 CREATE TABLE graphify_runs (
@@ -136,10 +149,12 @@ CREATE TABLE graphify_runs (
   status TEXT NOT NULL DEFAULT 'pending',
   input_version TEXT,
   output_version TEXT,
+  graphify_ref TEXT,
   graph_json_uri TEXT,
   wiki_output_uri TEXT,
   report_uri TEXT,
   graph_html_uri TEXT,
+  schema_version TEXT NOT NULL DEFAULT 'v1',
   stats_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   error_json JSONB,
   created_by TEXT REFERENCES users(id),
@@ -175,9 +190,24 @@ CREATE TABLE graph_edges (
   relation_type TEXT NOT NULL,
   confidence_label TEXT NOT NULL,
   confidence_score DOUBLE PRECISION,
+  evidence_count INT NOT NULL DEFAULT 1,
   evidence_refs_json JSONB NOT NULL DEFAULT '[]'::jsonb,
   acl_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE graph_communities (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  space_id TEXT NOT NULL REFERENCES spaces(id),
+  graphify_run_id TEXT NOT NULL REFERENCES graphify_runs(id),
+  community_key TEXT NOT NULL,
+  label TEXT,
+  summary TEXT,
+  node_count INT NOT NULL DEFAULT 0,
+  metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, space_id, graphify_run_id, community_key)
 );
 
 CREATE TABLE wiki_chunks (
@@ -197,6 +227,8 @@ CREATE TABLE wiki_chunks (
 
 CREATE TABLE embeddings (
   id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  space_id TEXT NOT NULL REFERENCES spaces(id),
   chunk_id TEXT NOT NULL REFERENCES wiki_chunks(id) ON DELETE CASCADE,
   model_id TEXT NOT NULL,
   embedding VECTOR(3072),
@@ -211,6 +243,29 @@ CREATE TABLE graph_reports (
   report_markdown TEXT NOT NULL,
   stats_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE wiki_update_proposals (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  space_id TEXT NOT NULL REFERENCES spaces(id),
+  wiki_page_pk TEXT REFERENCES wiki_pages(id),
+  graphify_run_id TEXT REFERENCES graphify_runs(id),
+  proposal_type TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  diff_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at TIMESTAMPTZ
+);
+
+CREATE TABLE consistency_checks (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  space_id TEXT NOT NULL REFERENCES spaces(id),
+  status TEXT NOT NULL,
+  findings_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at TIMESTAMPTZ
 );
 
 CREATE TABLE chat_conversations (
@@ -233,6 +288,33 @@ CREATE TABLE chat_messages (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE retrieval_traces (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  user_id TEXT REFERENCES users(id),
+  conversation_id TEXT REFERENCES chat_conversations(id),
+  space_ids TEXT[] NOT NULL,
+  query TEXT NOT NULL,
+  retrieval_mode TEXT NOT NULL,
+  candidates_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  acl_filtered_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  final_context_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE feedback_items (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  user_id TEXT REFERENCES users(id),
+  message_id TEXT REFERENCES chat_messages(id),
+  space_id TEXT REFERENCES spaces(id),
+  feedback_type TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open',
+  payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at TIMESTAMPTZ
+);
+
 CREATE TABLE audit_logs (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id),
@@ -248,9 +330,14 @@ CREATE TABLE audit_logs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE INDEX idx_spaces_consistency ON spaces(index_consistency_status);
+CREATE INDEX idx_wiki_pages_indexed_version ON wiki_pages(indexed_version_id);
+CREATE INDEX idx_wiki_pages_current_indexed ON wiki_pages(current_version_id, indexed_version_id);
+CREATE INDEX idx_wiki_versions_status ON wiki_page_versions(tenant_id, space_id, status, created_at DESC);
 CREATE INDEX idx_wiki_chunks_space ON wiki_chunks(tenant_id, space_id);
 CREATE INDEX idx_wiki_chunks_fts ON wiki_chunks USING GIN (to_tsvector('simple', content));
 CREATE INDEX idx_graph_nodes_label_trgm ON graph_nodes USING GIN (label gin_trgm_ops);
 CREATE INDEX idx_graph_edges_source ON graph_edges(source_node_id);
 CREATE INDEX idx_graph_edges_target ON graph_edges(target_node_id);
+CREATE INDEX idx_graph_edges_confidence ON graph_edges(confidence_label, confidence_score);
 CREATE INDEX idx_audit_logs_tenant_time ON audit_logs(tenant_id, created_at DESC);

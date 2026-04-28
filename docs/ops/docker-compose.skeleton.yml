@@ -23,7 +23,8 @@ services:
       MODEL_API_BASE_URL: ${MODEL_API_BASE_URL}
       MODEL_API_KEY: ${MODEL_API_KEY}
       DOCMOST_BASE_URL: ${DOCMOST_BASE_URL}
-      DOCMOST_API_KEY: ${DOCMOST_API_KEY}
+      DOCMOST_BRIDGE_SECRET: ${DOCMOST_BRIDGE_SECRET}
+      GRAPHIFY_PINNED_REF: ${GRAPHIFY_PINNED_REF}
     ports:
       - "8081:8080"
     depends_on:
@@ -41,6 +42,7 @@ services:
       MODEL_API_BASE_URL: ${MODEL_API_BASE_URL}
       MODEL_API_KEY: ${MODEL_API_KEY}
       GRAPHIFY_WORKDIR: /work/graphify
+      GRAPHIFY_PINNED_REF: ${GRAPHIFY_PINNED_REF}
     volumes:
       - graphify_work:/work/graphify
       - wiki_repo:/work/wiki-repo
@@ -68,7 +70,7 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       DOCMOST_BASE_URL: ${DOCMOST_BASE_URL}
-      DOCMOST_API_KEY: ${DOCMOST_API_KEY}
+      DOCMOST_BRIDGE_SECRET: ${DOCMOST_BRIDGE_SECRET}
     volumes:
       - wiki_repo:/work/wiki-repo
     depends_on:
@@ -88,14 +90,20 @@ services:
       - postgres
       - redis
 
+  # Phase 2 启用：Docmost Fork 开源版 + 自建 Bridge endpoint。
+  # Fork 路径：../../external/docmost/
   docmost:
-    image: docmost/docmost:latest
+    build:
+      context: ../../external/docmost
+      dockerfile: Dockerfile
     restart: unless-stopped
     environment:
       APP_URL: ${DOCMOST_BASE_URL}
       APP_SECRET: ${DOCMOST_APP_SECRET}
       DATABASE_URL: postgresql://docmost:${DOCMOST_DB_PASSWORD}@docmost-db:5432/docmost
       REDIS_URL: redis://docmost-redis:6379
+      DOCMOST_BRIDGE_SECRET: ${DOCMOST_BRIDGE_SECRET}
+      DOCMOST_FORK_BUILD: ${DOCMOST_FORK_BUILD}
     ports:
       - "3000:3000"
     volumes:
