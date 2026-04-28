@@ -37,7 +37,7 @@
 
 **注册要点**（基于 Docmost v0.80.1 代码结构）：
 1. 在 `apps/server/src/app.module.ts` 的 `imports` 添加 `BridgeModule`
-2. Bridge 路由如需跳过 workspaceId 检查，在 `main.ts` 的 `excludedPaths` 添加 `/api/bridge`
+2. Bridge 路由如需跳过 workspaceId 检查，在 `main.ts` 的 `excludedPaths` 添加 `/api/internal/bridge`
 3. 如需跳过 DomainMiddleware，在 `core.module.ts` 的 `excludedRoutes` 添加
 4. 参考现有 `apps/server/src/integrations/health/health.controller.ts` 作为最简控制器模板
 
@@ -46,10 +46,10 @@
 | 修改点 | 说明 | 约束 |
 |---|---|---|
 | `apps/server/src/app.module.ts` | imports 添加 BridgeModule | 仅新增一行 import |
-| `apps/server/src/main.ts` | excludedPaths 添加 `/api/bridge` | 跳过 workspaceId 检查 |
-| `apps/server/src/core/page/` 相关 service | 页面保存后 emit 内部事件 | 不改变原保存逻辑，仅追加 EventEmitter |
-| `apps/server/src/core/page/` 相关 service | 页面删除后 emit 内部事件 | 不改变原删除逻辑 |
-| 附件相关 service | 附件创建/删除后 emit 事件 | 不改变存储层 |
+| `apps/server/src/main.ts` | excludedPaths 添加 `/api/internal/bridge` | 跳过 workspaceId 检查 |
+| `apps/server/src/core/page/` 相关 service | 页面保存后 POST Cherry API `/api/internal/docmost/events/page-saved` | 不改变原保存逻辑，仅追加 EventEmitter + HTTP 通知 |
+| `apps/server/src/core/page/` 相关 service | 页面删除后 POST Cherry API `/api/internal/docmost/events/page-deleted` | 不改变原删除逻辑 |
+| 附件相关 service | 附件创建后 POST Cherry API `/api/internal/docmost/events/attachment-created` | 不改变存储层 |
 | `.env.example` | 新增 `DOCMOST_BRIDGE_SECRET` | 不影响原配置 |
 
 ## 5. 不修改清单

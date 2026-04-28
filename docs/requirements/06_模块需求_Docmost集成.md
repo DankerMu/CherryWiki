@@ -19,17 +19,17 @@ Docmost 的页面内容必须与 Canonical Wiki Repo 同步。任何脱离 Canon
 ```text
 Fork docmost/docmost 开源版
   → 放入 external/docmost/
-  → 最小改动新增 /api/internal/bridge/ 路由组
-  → 新增 page save 后 webhook 通知
-  → Cherry Web 通过 docmost-bridge 与 Docmost Fork 通信
+  → Docmost Fork 新增 /api/internal/bridge/* 路由组（导出/导入/同步状态）
+  → 新增 page save 后 webhook → 通知 Cherry API /api/internal/docmost/*
+  → Cherry API 接收事件后驱动 wiki-sync-worker
 ```
 
 ### 2.1 Fork 修改范围
 
 | 范围 | 是否允许修改 | 说明 |
 |---|---:|---|
-| `/api/internal/bridge/**` | 是 | 新增内部同步、webhook、状态接口。 |
-| page save lifecycle hook | 是 | 页面保存后通知 Cherry API 或 docmost-bridge。 |
+| `/api/internal/bridge/**` | 是 | Docmost Fork 暴露的导出/导入/同步状态接口。 |
+| page save lifecycle hook | 是 | 页面保存后 POST Cherry API `/api/internal/docmost/events/page-saved`。 |
 | attachment event hook | 是 | 附件上传、删除、替换时发事件。 |
 | Docmost 核心编辑器 | 否 | 不修改，以降低 upstream rebase 成本。 |
 | Docmost 权限模型 | 否 | 只做映射和校验，不重写权限核心。 |
@@ -111,8 +111,8 @@ Graphify wiki output
 
 ```text
 Docmost page saved
-  → /api/internal/bridge/events/page.saved
-  → docmost-bridge 拉取页面正文
+  → Docmost POST Cherry API /api/internal/docmost/events/page-saved
+  → Cherry API 通过 /api/internal/bridge/pages/{id}/export 拉取页面正文
   → convert to canonical markdown
   → validate frontmatter
   → optimistic lock check
@@ -129,21 +129,33 @@ Docmost page saved
 - 不得跳过权限检查。
 - webhook 事件允许至少一次投递，Bridge 必须按 `event_id` 幂等。
 
-## 7. Bridge 路由组
+## 7. Bridge 路由命名规范
 
-Fork 版 Docmost 新增内部路由组：
+两个命名空间，职责分离：
+
+**Cherry API 接收 Docmost 事件**（Docmost → Cherry API）：
 
 ```text
-/api/internal/bridge/events/page.saved
-/api/internal/bridge/events/page.deleted
-/api/internal/bridge/events/attachment.created
-/api/internal/bridge/pages/{page_id}/export
-/api/internal/bridge/pages/{page_id}/import
-/api/internal/bridge/spaces/{space_id}/sync-status
-/api/internal/bridge/health
+POST /api/internal/docmost/events/page-saved
+POST /api/internal/docmost/events/page-deleted
+POST /api/internal/docmost/events/attachment-created
 ```
 
-鉴权：所有接口使用 `DOCMOST_BRIDGE_SECRET` 做 HMAC 或 Bearer 认证，仅允许内网服务调用。
+Docmost Fork 在 page/attachment lifecycle hook 中主动 POST 到 Cherry API。Cherry API 收到后驱动 wiki-sync-worker。
+
+**Docmost Fork 暴露 Bridge 能力**（Cherry API → Docmost）：
+
+```text
+GET  /api/internal/bridge/pages/{docmost_page_id}/export?format=markdown
+PUT  /api/internal/bridge/pages/{docmost_page_id}/import
+GET  /api/internal/bridge/attachments/{attachment_id}/download
+GET  /api/internal/bridge/spaces/{docmost_space_id}/sync-status
+GET  /api/internal/bridge/health
+```
+
+Cherry API / wiki-sync-worker 调用 Docmost Fork 的这些接口完成页面拉取、导入和状态查询。
+
+**鉴权**：所有接口使用 `DOCMOST_BRIDGE_SECRET` 做 HMAC-SHA256 签名校验，仅允许内网服务调用。
 
 ## 8. 页面增强需求
 

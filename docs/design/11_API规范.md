@@ -205,16 +205,27 @@ data: {"message_id":"msg_001"}
 
 ## 11. Webhook / Bridge API
 
-Docmost Bridge 内部接口：
+两个命名空间，按调用方向划分：
+
+**Cherry API 接收 Docmost 事件**（Docmost → Cherry API）：
 
 | Method | Path | 说明 |
 |---|---|---|
-| POST | `/internal/docmost/events/page-updated` | 页面变更事件。 |
-| POST | `/internal/docmost/events/attachment-uploaded` | 附件上传事件。 |
-| POST | `/internal/docmost/sync/pull` | 从 Docmost 拉取。 |
-| POST | `/internal/docmost/sync/push` | 推送到 Docmost。 |
+| POST | `/api/internal/docmost/events/page-saved` | 页面保存事件。 |
+| POST | `/api/internal/docmost/events/page-deleted` | 页面删除事件。 |
+| POST | `/api/internal/docmost/events/attachment-created` | 附件上传事件。 |
 
-内部接口必须只在内网或服务网格内可访问。
+**Docmost Fork 暴露 Bridge 能力**（Cherry API → Docmost）：
+
+| Method | Path | 说明 |
+|---|---|---|
+| GET | `/api/internal/bridge/pages/{docmost_page_id}/export` | 导出页面 Markdown。 |
+| PUT | `/api/internal/bridge/pages/{docmost_page_id}/import` | 导入/更新页面。 |
+| GET | `/api/internal/bridge/attachments/{attachment_id}/download` | 下载附件。 |
+| GET | `/api/internal/bridge/spaces/{docmost_space_id}/sync-status` | 同步状态。 |
+| GET | `/api/internal/bridge/health` | Bridge 健康检查。 |
+
+所有接口仅内网可访问，使用 `DOCMOST_BRIDGE_SECRET` HMAC 签名认证。
 
 ## 12. OpenAPI 草案
 
@@ -222,7 +233,10 @@ Docmost Bridge 内部接口：
 
 ## 13. Docmost Bridge 内部 API 详细定义
 
-> 本节合并 TODO T-2.1.2 / T-7.2。以下接口由 Docmost Fork 与 Cherry API/docmost-bridge 之间调用，不对普通用户开放。
+> 本节合并 TODO T-2.1.2 / T-7.2。  
+> `/api/internal/docmost/*` = Cherry API 暴露，接收 Docmost 事件。  
+> `/api/internal/bridge/*` = Docmost Fork 暴露，供 Cherry API / wiki-sync-worker 调用。  
+> 所有接口不对普通用户开放。
 
 ### 13.1 认证
 
@@ -306,13 +320,13 @@ POST /api/internal/docmost/events/attachment-created
 
 处理：写入 Source Archive，创建 ingestion job，不直接进入检索。
 
-### 13.4 页面导出
+### 13.4 页面导出（Docmost Fork 暴露）
 
 ```http
-GET /api/internal/docmost/pages/{docmost_page_id}/export?format=markdown
+GET /api/internal/bridge/pages/{docmost_page_id}/export?format=markdown
 ```
 
-调用方：docmost-bridge。  
+调用方：Cherry API / wiki-sync-worker → Docmost Fork。  
 响应：
 
 ```json
@@ -326,13 +340,13 @@ GET /api/internal/docmost/pages/{docmost_page_id}/export?format=markdown
 }
 ```
 
-### 13.5 页面导入/更新
+### 13.5 页面导入/更新（Docmost Fork 暴露）
 
 ```http
-PUT /api/internal/docmost/pages/{docmost_page_id}/import
+PUT /api/internal/bridge/pages/{docmost_page_id}/import
 ```
 
-调用方：wiki-sync-worker。  
+调用方：wiki-sync-worker → Docmost Fork。  
 触发时机：Graphify → Docmost 同步或候选更新被接受。
 
 请求：
@@ -348,10 +362,10 @@ PUT /api/internal/docmost/pages/{docmost_page_id}/import
 }
 ```
 
-### 13.6 同步状态
+### 13.6 同步状态（Docmost Fork 暴露）
 
 ```http
-GET /api/internal/docmost/spaces/{docmost_space_id}/sync-status
+GET /api/internal/bridge/spaces/{docmost_space_id}/sync-status
 ```
 
 响应：
