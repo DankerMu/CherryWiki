@@ -88,9 +88,11 @@ acl_hash: acl_abc123
 ---
 ```
 
-### 3.4 正文区块规范
+### 3.4 正文区块规范（双轨制）
 
-为了避免 Graphify 覆盖人工内容，页面必须支持区块级所有权：
+为了避免 Graphify 覆盖人工内容，页面使用**双轨制**管理区块所有权。
+
+**轨道 1：Markdown 内嵌标记**（用于 Git diff 可读性和直接编辑场景）：
 
 ```markdown
 <!-- graphify:managed:start id="summary" -->
@@ -105,6 +107,12 @@ acl_hash: acl_abc123
 本节是 Graphify 新提案，待人工接受。
 <!-- graphify:proposal:end -->
 ```
+
+**轨道 2：`page_block_metadata` 表**（权威源，防止 Docmost 富文本编辑器清洗 HTML 注释）：
+
+每个 block 在数据库中记录 `block_id`、`owner`（graphify / human）、`content_hash`、`graphify_run_id`、`last_editor`、`editable`。合并判断以 sidecar 为准，内嵌标记为辅助。
+
+详细流程见 [Doc 21 §9.7](../design/21_Graphify_输出Schema契约.md)。
 
 ## 4. 页面状态机
 

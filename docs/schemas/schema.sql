@@ -293,6 +293,23 @@ CREATE TABLE wiki_sections (
   UNIQUE (page_version_id, section_id)
 );
 
+CREATE TABLE page_block_metadata (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  space_id TEXT NOT NULL REFERENCES spaces(id),
+  wiki_page_pk TEXT NOT NULL REFERENCES wiki_pages(id),
+  page_version_id TEXT NOT NULL REFERENCES wiki_page_versions(id),
+  block_id TEXT NOT NULL,
+  owner TEXT NOT NULL DEFAULT 'graphify',
+  content_hash TEXT NOT NULL,
+  graphify_run_id TEXT,
+  last_editor TEXT REFERENCES users(id),
+  editable BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (page_version_id, block_id)
+);
+
 CREATE TABLE wiki_chunks (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id),
@@ -485,6 +502,8 @@ CREATE INDEX idx_graph_nodes_stable_key ON graph_nodes(tenant_id, space_id, stab
 CREATE INDEX idx_graph_node_aliases_lookup ON graph_node_aliases(tenant_id, space_id, alias);
 CREATE INDEX idx_graph_node_merges_from ON graph_node_merges(tenant_id, space_id, from_stable_key);
 CREATE INDEX idx_wiki_sections_page_version ON wiki_sections(page_version_id);
+CREATE INDEX idx_page_blocks_page_version ON page_block_metadata(page_version_id);
+CREATE INDEX idx_page_blocks_owner ON page_block_metadata(wiki_page_pk, owner);
 CREATE INDEX idx_source_links_page_version ON source_links(page_version_id);
 CREATE INDEX idx_source_links_source_doc ON source_links(source_document_id);
 CREATE INDEX idx_answer_citations_message ON answer_citations(message_id);

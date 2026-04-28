@@ -437,25 +437,79 @@ section_id = {page_id}#heading-{slugify(heading_text)}
 
 用于 Chat 引用跳转到具体段落。
 
-### 9.7 block ownership markers
+### 9.7 block ownership — 双轨制
 
-所有由 Graphify 生成的正文内容包裹 managed marker：
+Docmost 富文本编辑器可能在保存/导出时清洗 HTML 注释、重排块结构、丢失 frontmatter。因此 block ownership **不能只依赖 Markdown 内嵌注释**，必须采用双轨制：
+
+**轨道 1：正文内嵌标记（best-effort）**
+
+Canonical Wiki Repo 中的 Markdown 正文仍包含 HTML 注释标记：
 
 ```markdown
-<!-- graphify:managed:start id="{page_id}_body" run="{graphify_run_id}" -->
+<!-- graphify:managed:start id="summary" run="gf_run_001" -->
 ...Graphify 生成的正文...
 <!-- graphify:managed:end -->
-```
 
-首次生成时整页 = managed。人工编辑某区块后，编辑器将该区块改为：
-
-```markdown
-<!-- human:curated:start id="{page_id}_section_xxx" -->
+<!-- human:curated:start id="implementation-notes" -->
 ...人工修订内容...
 <!-- human:curated:end -->
 ```
 
-后续 Graphify 更新时只能修改 `graphify:managed` 区块，不碰 `human:curated` 区块。
+这些标记用于 Git diff 可读性和非 Docmost 场景（直接编辑 Markdown 文件）。
+
+**轨道 2：sidecar metadata（权威源）**
+
+`page_block_metadata` 表为每个 block 记录结构化元数据：
+
+```json
+{
+  "page_id": "rd.auth.sso",
+  "page_version_id": "ver_003",
+  "blocks": [
+    {
+      "block_id": "summary",
+      "owner": "graphify",
+      "content_hash": "sha256...",
+      "graphify_run_id": "gf_run_001",
+      "editable": false
+    },
+    {
+      "block_id": "implementation-notes",
+      "owner": "human",
+      "content_hash": "sha256...",
+      "last_editor": "user_admin",
+      "editable": true
+    }
+  ]
+}
+```
+
+**合并判断以 sidecar 为准**，内嵌标记为辅助。
+
+**Bridge 导出流程（Docmost → Canonical Wiki Repo）**：
+
+```text
+1. Bridge 导出 Docmost 页面正文（可能丢失 HTML 注释）
+2. wiki-core 读取 page_block_metadata 获取 block 清单
+3. 对每个 block：
+   a. 按 block_id 定位正文区域（通过 heading 匹配或 content_hash 模糊匹配）
+   b. 计算新 content_hash
+   c. 与 sidecar 中记录的 content_hash 对比
+   d. 若 owner = graphify 且 hash 变化 → 说明用户编辑了 Graphify 区块 → 转为 human 所有权
+   e. 若 owner = human 且 hash 变化 → 正常人工修订，更新 hash 和 last_editor
+   f. 若 hash 未变 → 无操作
+4. 重新注入 HTML 注释标记到 Canonical Wiki Repo 的 Markdown
+5. 更新 page_block_metadata
+```
+
+**Graphify 更新流程**：
+
+```text
+1. wiki-core 读取 page_block_metadata
+2. owner = graphify 的 block → 允许覆盖
+3. owner = human 的 block → 不碰，如果 Graphify 对同区域有新内容 → 生成 proposal
+4. 更新 sidecar metadata 中 graphify block 的 content_hash 和 graphify_run_id
+```
 
 ### 9.8 冲突策略
 
