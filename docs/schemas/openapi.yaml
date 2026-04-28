@@ -1,0 +1,140 @@
+openapi: 3.1.0
+info:
+  title: CherryGraph Studio API
+  version: 0.1.0
+servers:
+  - url: /api
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: { type: object }
+        meta:
+          type: object
+          properties:
+            request_id: { type: string }
+    Space:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        slug: { type: string }
+        docmost_space_id: { type: string }
+        wiki_repo_path: { type: string }
+    GraphifyRun:
+      type: object
+      properties:
+        id: { type: string }
+        space_id: { type: string }
+        trigger_type: { type: string }
+        mode: { type: string }
+        status: { type: string }
+        graph_json_uri: { type: string }
+        report_uri: { type: string }
+    ChatCompletionRequest:
+      type: object
+      required: [model_id, message, space_ids]
+      properties:
+        conversation_id: { type: string }
+        model_id: { type: string }
+        space_ids:
+          type: array
+          items: { type: string }
+        message: { type: string }
+        retrieval_mode:
+          type: string
+          enum: [wiki_only, graph_rag, path_first, community_first]
+        include_graph_explanation: { type: boolean }
+        stream: { type: boolean }
+paths:
+  /auth/me:
+    get:
+      summary: Get current user
+      responses:
+        '200':
+          description: Current user
+  /spaces:
+    get:
+      summary: List accessible spaces
+      responses:
+        '200':
+          description: Spaces
+    post:
+      summary: Create space
+      responses:
+        '201':
+          description: Created
+  /spaces/{space_id}/uploads:
+    post:
+      summary: Upload source document
+      parameters:
+        - name: space_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Uploaded
+  /spaces/{space_id}/graphify/runs:
+    post:
+      summary: Create Graphify run
+      parameters:
+        - name: space_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '201':
+          description: Created
+  /graphify/runs/{run_id}:
+    get:
+      summary: Get Graphify run
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Graphify run
+  /graph/path:
+    post:
+      summary: Query graph path
+      responses:
+        '200':
+          description: Graph paths
+  /chat/completions:
+    post:
+      summary: Chat completion with GraphRAG
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+      responses:
+        '200':
+          description: Completion or SSE stream

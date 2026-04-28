@@ -1,0 +1,177 @@
+services:
+  cherry-web:
+    image: your-registry/cherrygraph-web:latest
+    restart: unless-stopped
+    environment:
+      API_BASE_URL: http://cherry-api:8080
+    ports:
+      - "8080:80"
+    depends_on:
+      - cherry-api
+
+  cherry-api:
+    image: your-registry/cherrygraph-api:latest
+    restart: unless-stopped
+    environment:
+      APP_URL: ${APP_URL}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MODEL_API_BASE_URL: ${MODEL_API_BASE_URL}
+      MODEL_API_KEY: ${MODEL_API_KEY}
+      DOCMOST_BASE_URL: ${DOCMOST_BASE_URL}
+      DOCMOST_API_KEY: ${DOCMOST_API_KEY}
+    ports:
+      - "8081:8080"
+    depends_on:
+      - postgres
+      - redis
+      - minio
+
+  graphify-worker:
+    image: your-registry/cherrygraph-graphify-worker:latest
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MODEL_API_BASE_URL: ${MODEL_API_BASE_URL}
+      MODEL_API_KEY: ${MODEL_API_KEY}
+      GRAPHIFY_WORKDIR: /work/graphify
+    volumes:
+      - graphify_work:/work/graphify
+      - wiki_repo:/work/wiki-repo
+    depends_on:
+      - postgres
+      - redis
+      - minio
+
+  ingestion-worker:
+    image: your-registry/cherrygraph-ingestion-worker:latest
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+    depends_on:
+      - postgres
+      - redis
+      - minio
+
+  wiki-sync-worker:
+    image: your-registry/cherrygraph-wiki-sync-worker:latest
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      DOCMOST_BASE_URL: ${DOCMOST_BASE_URL}
+      DOCMOST_API_KEY: ${DOCMOST_API_KEY}
+    volumes:
+      - wiki_repo:/work/wiki-repo
+    depends_on:
+      - postgres
+      - redis
+      - docmost
+
+  indexer-worker:
+    image: your-registry/cherrygraph-indexer-worker:latest
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      MODEL_API_BASE_URL: ${MODEL_API_BASE_URL}
+      MODEL_API_KEY: ${MODEL_API_KEY}
+    depends_on:
+      - postgres
+      - redis
+
+  docmost:
+    image: docmost/docmost:latest
+    restart: unless-stopped
+    environment:
+      APP_URL: ${DOCMOST_BASE_URL}
+      APP_SECRET: ${DOCMOST_APP_SECRET}
+      DATABASE_URL: postgresql://docmost:${DOCMOST_DB_PASSWORD}@docmost-db:5432/docmost
+      REDIS_URL: redis://docmost-redis:6379
+    ports:
+      - "3000:3000"
+    volumes:
+      - docmost_storage:/app/data/storage
+    depends_on:
+      - docmost-db
+      - docmost-redis
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: cherrygraph
+      POSTGRES_USER: cherrygraph
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  docmost-db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: docmost
+      POSTGRES_USER: docmost
+      POSTGRES_PASSWORD: ${DOCMOST_DB_PASSWORD}
+    volumes:
+      - docmost_db_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:8
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+
+  docmost-redis:
+    image: redis:8
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - docmost_redis_data:/data
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  nginx:
+    image: nginx:stable
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - cherry-web
+      - cherry-api
+      - docmost
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  docmost_storage:
+  docmost_db_data:
+  docmost_redis_data:
+  graphify_work:
+  wiki_repo:

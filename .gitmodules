@@ -1,0 +1,6 @@
+[submodule "cherry-studio"]
+	path = cherry-studio
+	url = https://github.com/DankerMu/cherry-studio.git
+[submodule "graphify"]
+	path = graphify
+	url = https://github.com/DankerMu/graphify.git
