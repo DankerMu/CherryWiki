@@ -1,4 +1,4 @@
-import { DynamicModule, Inject, Injectable, Module, type OnModuleDestroy } from '@nestjs/common';
+import { DynamicModule, Global, Inject, Injectable, Module, type OnModuleDestroy } from '@nestjs/common';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
 import type { Pool as PgPool, PoolConfig } from 'pg';
@@ -27,6 +27,7 @@ class PgPoolShutdown implements OnModuleDestroy {
   }
 }
 
+@Global()
 @Module({})
 export class DrizzleModule {
   static forRoot(options: DrizzleModuleOptions = {}): DynamicModule {

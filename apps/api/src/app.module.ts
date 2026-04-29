@@ -4,6 +4,7 @@ import { PinoHttpLoggerMiddleware, LoggerModule } from './common/logger/logger.m
 import { IdempotencyMiddleware } from './common/middleware/idempotency.middleware.js';
 import { RequestContextMiddleware } from './common/middleware/request-context.middleware.js';
 import { RedisModule } from './common/redis/redis.module.js';
+import { AuditModule } from './audit/audit.module.js';
 import { DrizzleModule } from './database/drizzle.module.js';
 import { HealthModule } from './health/health.module.js';
 
@@ -12,6 +13,7 @@ import { HealthModule } from './health/health.module.js';
     LoggerModule,
     RedisModule,
     DrizzleModule.forRoot({ connectionCheck: process.env.NODE_ENV !== 'test' }),
+    AuditModule,
     HealthModule,
   ],
 })
