@@ -1,8 +1,17 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
-import { AUTH_CORE_OPTIONS, JwtAuthGuard, RbacGuard } from '@cherrygraph/auth-core';
+import {
+  AUTH_CORE_OPTIONS,
+  JwtAuthGuard,
+  RbacGuard,
+  SPACE_PERMISSION_RESOLVER,
+  type SpacePermissionResolver,
+} from '@cherrygraph/auth-core';
+import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 import { RateLimitGuard } from '../common/guards/rate-limit.guard.js';
+import { DRIZZLE } from '../database/drizzle.constants.js';
+import { DrizzleSpacePermissionResolver } from '../groups/space-permission.resolver.js';
 import { AuthContextInterceptor } from './auth-context.interceptor.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
@@ -17,6 +26,12 @@ import { SessionService } from './session.service.js';
     RbacGuard,
     RateLimitGuard,
     AuthContextInterceptor,
+    {
+      provide: SPACE_PERMISSION_RESOLVER,
+      useFactory: (db?: NodePgDatabase): SpacePermissionResolver | undefined =>
+        db === undefined ? undefined : new DrizzleSpacePermissionResolver(db),
+      inject: [{ token: DRIZZLE, optional: true }],
+    },
     {
       provide: AUTH_CORE_OPTIONS,
       useValue: {
