@@ -42,7 +42,7 @@ Fork docmost/docmost 开源版
 2. 每月或每个 Phase 结束后 rebase upstream 主分支。
 3. 冲突解决原则：优先保留 upstream，Bridge 路由层适配，不改核心代码。
 4. 每次 rebase 后必须执行：页面保存、附件上传、Space 权限、Bridge webhook、双向同步回归测试。
-5. Fork 改动清单见 [`22_Docmost_Fork_改动清单.md`](22_Docmost_Fork_改动清单.md)。
+5. Fork 改动清单见 [`22_Docmost_Fork_改动清单.md`](../audit/22_Docmost_Fork_改动清单.md)。
 
 ## 3. 集成目标
 

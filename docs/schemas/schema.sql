@@ -491,8 +491,8 @@ CREATE TABLE audit_logs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- ===== P1: Bridge Events & Webhook Delivery =====
--- bridge_events: Cherry API 接收 Docmost webhook 的幂等记录
+-- ===== Phase 2: Bridge Events & Webhook Delivery =====
+-- bridge_events: Cherry API 接收 Docmost webhook 的幂等记录（依赖 Docmost 集成）
 CREATE TABLE bridge_events (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id),
@@ -527,7 +527,7 @@ CREATE TABLE webhook_deliveries (
   delivered_at TIMESTAMPTZ
 );
 
--- ===== P1: Graph Evidence References (normalized) =====
+-- ===== Phase 3: Graph Evidence References (normalized) =====
 -- 将 graph_edges.evidence_refs_json 规范化为独立表，支持反向查询
 CREATE TABLE graph_evidence_refs (
   id TEXT PRIMARY KEY,
@@ -543,7 +543,7 @@ CREATE TABLE graph_evidence_refs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- ===== P1: Permission Versions =====
+-- ===== Phase 1: Permission Versions =====
 -- ACL 变更历史，支持权限审计和回滚
 CREATE TABLE permission_versions (
   id TEXT PRIMARY KEY,
@@ -559,7 +559,7 @@ CREATE TABLE permission_versions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- ===== P2: API Tokens =====
+-- ===== Phase 4: API Tokens =====
 CREATE TABLE api_tokens (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id),
@@ -574,7 +574,7 @@ CREATE TABLE api_tokens (
   UNIQUE (token_hash)
 );
 
--- ===== P2: Sessions =====
+-- ===== Phase 1: Sessions =====
 CREATE TABLE sessions (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id),
@@ -588,7 +588,7 @@ CREATE TABLE sessions (
   UNIQUE (refresh_token_hash)
 );
 
--- ===== P2: Model Usage Logs =====
+-- ===== Phase 3: Model Usage Logs =====
 CREATE TABLE model_usage_logs (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id),
@@ -603,7 +603,7 @@ CREATE TABLE model_usage_logs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- ===== P2: System Settings =====
+-- ===== Phase 1: System Settings =====
 CREATE TABLE system_settings (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id),

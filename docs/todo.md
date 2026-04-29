@@ -41,7 +41,7 @@
 
 ### 文档体系
 
-- [x] **T-13.1** 需求追踪矩阵（Doc 24 project）。
+- [x] **T-13.1** 需求追踪矩阵（Doc 26 project）。
 - [x] **T-13.2** Phase 1 Scope Lock（Doc 25）。
 - [x] **T-13.3** 威胁建模（Doc 24 engineering）。
 - [x] 测试按 Phase 拆分 + 5 个关键安全测试。

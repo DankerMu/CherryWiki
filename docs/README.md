@@ -74,6 +74,7 @@ Cherry Studio Web
 | [13_开发规范](engineering/13_开发规范.md) | 仓库结构、技术栈、编码规范、PR 要求 |
 | [14_测试验收规范](engineering/14_测试验收规范.md) | 测试层级、核心场景、性能指标 |
 | [15_部署运维规范](engineering/15_部署运维规范.md) | Docker Compose、健康检查、备份恢复、监控 |
+| [24_威胁建模与安全用例](engineering/24_威胁建模与安全用例.md) | STRIDE 威胁分析、SSRF/Injection/越权攻击场景、安全测试用例 |
 
 ### project/ — 项目管理
 
@@ -84,6 +85,8 @@ Cherry Studio Web
 | [18_开源许可证与合规](project/18_开源许可证与合规说明.md) | AGPL 合规、SBOM、许可证声明 |
 | [19_资料依据与外部来源](project/19_资料依据与外部来源.md) | Cherry Studio/Graphify/Docmost 参考信息 |
 | [23_补充建议清单](project/23_补充建议清单.md) | 安全、可观测性、数据治理补充建议 |
+| [25_Phase1_Scope_Lock](project/25_Phase1_Scope_Lock.md) | **Phase 1 范围锁定**：做什么、不做什么、临时方案、禁止捷径 |
+| [26_需求追踪矩阵](project/26_需求追踪矩阵.md) | 需求 → API → Schema → 测试追踪矩阵（Phase 1-4） |
 
 ### audit/ — 代码审计与集成
 
@@ -98,7 +101,8 @@ Cherry Studio Web
 |---|---|
 | [docker-compose.skeleton.yml](ops/docker-compose.skeleton.yml) | Docker Compose 骨架 |
 | [env.example](ops/env.example) | 环境变量样例 |
-| [nginx.conf.example](ops/nginx.conf.example) | Nginx 反向代理 |
+| [nginx.conf.example](ops/nginx.conf.example) | Nginx 反向代理（Phase 1，无 Docmost） |
+| [nginx.phase2.conf.example](ops/nginx.phase2.conf.example) | Nginx 反向代理（Phase 2，含 Docmost） |
 | [schema.sql](schemas/schema.sql) | 数据库 Schema 草案 |
 | [openapi.yaml](schemas/openapi.yaml) | OpenAPI 草案 |
 | [todo.md](todo.md) | TODO 合并状态 |
