@@ -11,6 +11,8 @@
   "scripts": {
     "dev": "pnpm -r --parallel --if-present dev",
     "build": "pnpm -r --if-present build",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
     "lint": "pnpm -r --if-present lint",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test"
@@ -19,6 +21,7 @@
     "@eslint/js": "^9.39.1",
     "@redocly/cli": "^2.30.2",
     "@types/node": "^20.19.0",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^9.39.1",
     "prettier": "^3.6.2",
     "tslib": "^2.8.1",

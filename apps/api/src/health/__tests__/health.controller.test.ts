@@ -1,4 +1,4 @@
-import { describe, expect, it, afterEach } from 'vitest';
+import { describe, expect, it, afterEach, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { readFileSync } from 'node:fs';
@@ -8,11 +8,18 @@ import { AppModule } from '../../app.module.js';
 import { configureApp } from '../../main.js';
 
 let app: NestFastifyApplication | undefined;
+const TEST_DATABASE_URL = 'postgresql://cherrygraph:test@localhost:5432/cherrygraph_test';
+const originalDatabaseUrl = process.env.DATABASE_URL;
 
 describe('HealthController', () => {
+  beforeEach(() => {
+    process.env.DATABASE_URL = TEST_DATABASE_URL;
+  });
+
   afterEach(async () => {
     await app?.close();
     app = undefined;
+    restoreDatabaseUrl();
   });
 
   it('returns healthy status, version, and uptime from GET /api/health', async () => {
@@ -60,4 +67,13 @@ function parseJsonObject(text: string): Record<string, unknown> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function restoreDatabaseUrl(): void {
+  if (originalDatabaseUrl === undefined) {
+    delete process.env.DATABASE_URL;
+    return;
+  }
+
+  process.env.DATABASE_URL = originalDatabaseUrl;
 }

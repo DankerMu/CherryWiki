@@ -38,10 +38,28 @@
 - [ ] 5.3 在 AppModule 注册 DrizzleModule
 - [ ] 5.4 验证 API 启动时 DB 连接成功（健康日志确认）
 
-## 6. 验证
+## 6. 自动化测试
 
-- [ ] 6.1 本地 PostgreSQL（或 Docker postgres）可连接
-- [ ] 6.2 `pnpm db:migrate` 成功
-- [ ] 6.3 psql 验证 9 张核心表已建
-- [ ] 6.4 pgvector extension 存在
-- [ ] 6.5 API 启动后 /api/health 正常（DB 连接成功）
+### 6.1 Schema 定义测试 (`packages/shared/src/__tests__/schema.test.ts` 或对应位置)
+
+- [ ] 6.1.1 导出 9 张核心表 schema 对象（tenants, users, groups, group_members, spaces, space_permissions, sessions, audit_logs, model_configs）
+- [ ] 6.1.2 tenants 表包含 id, name, created_at 字段
+- [ ] 6.1.3 users 表包含 permission_version 字段（bigint 类型）
+- [ ] 6.1.4 spaces 表包含 strict_knowledge_only 字段（boolean, default true）
+- [ ] 6.1.5 spaces 表包含 permission_version 字段（bigint 类型）
+- [ ] 6.1.6 group_members 表有复合主键 (group_id, user_id)
+- [ ] 6.1.7 audit_logs 表包含 metadata_json 字段（jsonb 类型）
+- [ ] 6.1.8 model_configs 表包含 visible_group_ids 字段（jsonb 类型）
+
+### 6.2 DrizzleModule 测试 (`apps/api/src/database/__tests__/drizzle.module.test.ts`)
+
+- [ ] 6.2.1 DrizzleModule.forRoot() 可创建并导出 DRIZZLE token
+- [ ] 6.2.2 缺少 DATABASE_URL 时模块初始化应报错
+
+### 6.3 集成验证（手动）
+
+- [ ] 6.3.1 本地 PostgreSQL 可连接
+- [ ] 6.3.2 `pnpm db:migrate` 成功
+- [ ] 6.3.3 psql 验证 9 张核心表已建
+- [ ] 6.3.4 pgvector extension 存在
+- [ ] 6.3.5 API 启动后 /api/health 正常
