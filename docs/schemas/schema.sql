@@ -485,6 +485,132 @@ CREATE TABLE audit_logs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- ===== P1: Bridge Events & Webhook Delivery =====
+-- bridge_events: Cherry API 接收 Docmost webhook 的幂等记录
+CREATE TABLE bridge_events (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  event_id TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'docmost',
+  event_type TEXT NOT NULL,
+  payload_json JSONB NOT NULL,
+  signature_valid BOOLEAN NOT NULL DEFAULT false,
+  deduplicated BOOLEAN NOT NULL DEFAULT false,
+  status TEXT NOT NULL DEFAULT 'received',
+  error_json JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  processed_at TIMESTAMPTZ,
+  UNIQUE (tenant_id, event_id)
+);
+
+-- webhook_deliveries: Cherry API 向外部发送 webhook 的投递记录
+CREATE TABLE webhook_deliveries (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  target_url TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  payload_json JSONB NOT NULL,
+  attempt_count INT NOT NULL DEFAULT 0,
+  max_attempts INT NOT NULL DEFAULT 5,
+  status TEXT NOT NULL DEFAULT 'pending',
+  response_status INT,
+  response_body TEXT,
+  error_message TEXT,
+  next_retry_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  delivered_at TIMESTAMPTZ
+);
+
+-- ===== P1: Graph Evidence References (normalized) =====
+-- 将 graph_edges.evidence_refs_json 规范化为独立表，支持反向查询
+CREATE TABLE graph_evidence_refs (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  space_id TEXT NOT NULL REFERENCES spaces(id),
+  edge_id TEXT NOT NULL REFERENCES graph_edges(id) ON DELETE CASCADE,
+  page_id TEXT REFERENCES wiki_pages(id),
+  page_version_id TEXT REFERENCES wiki_page_versions(id),
+  section_id TEXT REFERENCES wiki_sections(id),
+  source_document_id TEXT REFERENCES source_documents(id),
+  quote_text TEXT,
+  confidence_contribution DOUBLE PRECISION,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ===== P1: Permission Versions =====
+-- ACL 变更历史，支持权限审计和回滚
+CREATE TABLE permission_versions (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  space_id TEXT NOT NULL REFERENCES spaces(id),
+  actor_user_id TEXT REFERENCES users(id),
+  change_type TEXT NOT NULL,
+  subject_type TEXT NOT NULL,
+  subject_id TEXT NOT NULL,
+  old_permissions_json JSONB,
+  new_permissions_json JSONB NOT NULL,
+  reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ===== P2: API Tokens =====
+CREATE TABLE api_tokens (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  user_id TEXT NOT NULL REFERENCES users(id),
+  name TEXT NOT NULL,
+  token_hash TEXT NOT NULL,
+  scopes TEXT[] NOT NULL DEFAULT '{}',
+  last_used_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (token_hash)
+);
+
+-- ===== P2: Sessions =====
+CREATE TABLE sessions (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  user_id TEXT NOT NULL REFERENCES users(id),
+  refresh_token_hash TEXT NOT NULL,
+  ip TEXT,
+  user_agent TEXT,
+  expires_at TIMESTAMPTZ NOT NULL,
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (refresh_token_hash)
+);
+
+-- ===== P2: Model Usage Logs =====
+CREATE TABLE model_usage_logs (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  user_id TEXT REFERENCES users(id),
+  model_config_id TEXT NOT NULL REFERENCES model_configs(id),
+  request_type TEXT NOT NULL,
+  input_tokens INT NOT NULL DEFAULT 0,
+  output_tokens INT NOT NULL DEFAULT 0,
+  latency_ms INT,
+  space_id TEXT REFERENCES spaces(id),
+  conversation_id TEXT REFERENCES chat_conversations(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ===== P2: System Settings =====
+CREATE TABLE system_settings (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  category TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value_json JSONB NOT NULL,
+  updated_by TEXT REFERENCES users(id),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, category, key)
+);
+
+-- ===== Indexes =====
+
 CREATE INDEX idx_spaces_consistency ON spaces(index_consistency_status);
 CREATE INDEX idx_wiki_pages_indexed_version ON wiki_pages(indexed_version_id);
 CREATE INDEX idx_wiki_pages_current_indexed ON wiki_pages(current_version_id, indexed_version_id);
@@ -514,3 +640,21 @@ CREATE INDEX idx_graphify_runs_job ON graphify_runs(job_id);
 CREATE INDEX idx_model_configs_tenant_type ON model_configs(tenant_id, model_type, enabled);
 CREATE INDEX idx_embeddings_model ON embeddings(model_config_id);
 CREATE INDEX idx_audit_logs_tenant_time ON audit_logs(tenant_id, created_at DESC);
+
+-- P1 indexes
+CREATE INDEX idx_bridge_events_lookup ON bridge_events(tenant_id, event_id);
+CREATE INDEX idx_bridge_events_status ON bridge_events(status, created_at);
+CREATE INDEX idx_webhook_deliveries_status ON webhook_deliveries(status, next_retry_at) WHERE status IN ('pending', 'retrying');
+CREATE INDEX idx_graph_evidence_refs_edge ON graph_evidence_refs(edge_id);
+CREATE INDEX idx_graph_evidence_refs_page ON graph_evidence_refs(page_id, page_version_id);
+CREATE INDEX idx_graph_evidence_refs_source_doc ON graph_evidence_refs(source_document_id);
+CREATE INDEX idx_permission_versions_space ON permission_versions(tenant_id, space_id, created_at DESC);
+CREATE INDEX idx_permission_versions_subject ON permission_versions(subject_type, subject_id);
+
+-- P2 indexes
+CREATE INDEX idx_api_tokens_user ON api_tokens(tenant_id, user_id) WHERE revoked_at IS NULL;
+CREATE INDEX idx_sessions_user ON sessions(tenant_id, user_id) WHERE revoked_at IS NULL;
+CREATE INDEX idx_sessions_refresh ON sessions(refresh_token_hash) WHERE revoked_at IS NULL;
+CREATE INDEX idx_model_usage_logs_user ON model_usage_logs(tenant_id, user_id, created_at DESC);
+CREATE INDEX idx_model_usage_logs_model ON model_usage_logs(model_config_id, created_at DESC);
+CREATE INDEX idx_system_settings_lookup ON system_settings(tenant_id, category, key);
