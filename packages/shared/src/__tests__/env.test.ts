@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ZodError } from 'zod';
-import { envSchema, type Env } from '../env.js';
+import { envSchema, parseEnv, type Env } from '../env.js';
 
 const createValidEnv = (): Record<string, string> => ({
   DATABASE_URL: 'postgresql://cherrygraph:password@localhost:5432/cherrygraph',
@@ -92,5 +92,28 @@ describe('envSchema', () => {
 
     expect(parsed.SSRF_BLOCKED_CIDRS).toContain('127.0.0.0/8');
     expect(parsed.URL_FETCH_TIMEOUT_SECONDS).toBe(30);
+  });
+});
+
+describe('parseEnv', () => {
+  it('returns typed config when given valid input', () => {
+    const env = parseEnv({
+      DATABASE_URL: 'postgresql://localhost/test',
+      REDIS_URL: 'redis://localhost:6379',
+      JWT_SECRET: 'a-secret-that-is-at-least-32-characters-long!!',
+      MINIO_ENDPOINT: 'http://localhost:9000',
+      MINIO_ACCESS_KEY: 'minioadmin',
+      MINIO_SECRET_KEY: 'strong-password-here',
+      MODEL_API_BASE_URL: 'https://api.openai.com/v1',
+      MODEL_API_KEY: 'sk-test-key',
+    });
+
+    expect(env.DATABASE_URL).toBe('postgresql://localhost/test');
+    expect(env.LOG_LEVEL).toBe('info');
+  });
+
+  it('throws Error with field names when validation fails', () => {
+    expect(() => parseEnv({})).toThrow(Error);
+    expect(() => parseEnv({})).toThrow(/DATABASE_URL/);
   });
 });

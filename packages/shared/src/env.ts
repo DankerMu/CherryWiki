@@ -51,5 +51,10 @@ export const envSchema = z.object({
 export type Env = z.infer<typeof envSchema>;
 
 export function parseEnv(input: Record<string, unknown> = process.env): Env {
-  return envSchema.parse(input);
+  const result = envSchema.safeParse(input);
+  if (!result.success) {
+    const missing = result.error.issues.map((i) => i.path.join('.')).join(', ');
+    throw new Error(`Environment validation failed [${missing}]: ${result.error.message}`);
+  }
+  return result.data;
 }
