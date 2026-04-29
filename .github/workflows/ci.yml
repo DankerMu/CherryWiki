@@ -41,8 +41,14 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Build
+        run: pnpm build
+
       - name: Test
         run: pnpm test
+
+      - name: Security audit
+        run: pnpm audit --audit-level=high || true
 
       - name: Validate OpenAPI schema
         run: pnpm exec redocly lint docs/schemas/openapi.yaml
