@@ -52,10 +52,61 @@
 
 ## 4. 混合检索
 
-### 4.1 Vector Search
+### 4.1 默认检索配额与 Token Budget
+
+| 参数 | 默认值 | 说明 |
+|---|---|---|
+| `vector_top_k` | 30 | 向量检索召回数 |
+| `bm25_top_k` | 30 | 关键词检索召回数 |
+| `graph_node_top_k` | 20 | 图节点匹配召回数 |
+| `graph_path_top_k` | 5 | 图路径召回数 |
+| `max_path_hops` | 4 | 路径查询最大跳数 |
+| `graph_neighbor_hops` | 2 | 邻居扩展层数 |
+| `rerank_top_k` | 12 | 重排后最终保留数 |
+| `context_token_budget` | 12000 | 注入 prompt 的总 token 上限 |
+| `wiki_context_budget` | 8000 | Wiki chunks 分配 token |
+| `graph_context_budget` | 2500 | Graph 路径/节点分配 token |
+| `community_summary_budget` | 1500 | 社区摘要分配 token |
+| `quote_token_limit_per_citation` | 300 | 单条引用最大 token |
+| `max_citations_per_answer` | 8 | 单次回答最大引用条数 |
+
+Token budget 分配优先级：
+
+```text
+context_token_budget (12000)
+├── wiki_context_budget (8000) — Wiki chunks，按 rerank score 降序填充
+├── graph_context_budget (2500) — 路径 + 节点描述
+│   ├── paths: 前 graph_path_top_k 条路径
+│   └── nodes: 前 graph_node_top_k 节点摘要（路径已覆盖的不重复）
+└── community_summary_budget (1500) — community_first 模式使用；graph_rag 模式仅在剩余 budget > 500 时填入
+```
+
+### 4.2 关系置信度策略
+
+| confidence_label | 权重系数 | Context 准入策略 |
+|---|---|---|
+| `EXTRACTED` | 1.0 | 正常进入 context，可作为事实表述 |
+| `INFERRED` | 0.7 | 正常进入 context，回答中必须标注"推断" |
+| `AMBIGUOUS` | 0.3 | **默认不进入 context**；仅 `ambiguous_edge_policy` 配置允许时以"待确认"形式展示 |
+
+`ambiguous_edge_policy` 可选值：
+
+| 值 | 行为 |
+|---|---|
+| `exclude`（默认） | AMBIGUOUS 边不进入检索候选 |
+| `explain_only` | 进入但在回答中标注"关系待确认，证据不足" |
+| `include` | 与 INFERRED 同等处理（仅 debug 模式建议） |
+
+社区摘要准入：
+
+- `community_first` 模式：社区摘要优先填充，占用 `community_summary_budget`。
+- `graph_rag` 模式：仅当 community 内 top node 与 query entity 命中时，才将该社区摘要纳入，且 budget 从 `graph_context_budget` 中扣除。
+- `wiki_only` / `path_first`：不引入社区摘要。
+
+### 4.3 Vector Search
 
 输入：query embedding。  
-输出：相关 Wiki chunks。
+输出：top `vector_top_k` 相关 Wiki chunks。
 
 过滤条件：
 
@@ -64,21 +115,23 @@
 - `page_status = published`。
 - `page_version = indexed_version`。
 
-### 4.2 BM25 / Full-text Search
+### 4.4 BM25 / Full-text Search
 
-用于术语、编号、专有名词、错误码、接口名。
+用于术语、编号、专有名词、错误码、接口名。召回 `bm25_top_k` 条。
 
-### 4.3 Graph Search
+### 4.5 Graph Search
 
 Graph Search 包含：
 
-1. 实体匹配：query entities → graph_nodes。
-2. 邻居扩展：node → k-hop neighbors。
-3. 路径查询：entity A → entity B。
-4. 社区查询：node → community summary。
-5. god node 查询：高连接核心概念。
+1. 实体匹配：query entities → graph_nodes（top `graph_node_top_k`）。
+2. 邻居扩展：node → `graph_neighbor_hops` 层邻居。
+3. 路径查询：entity A → entity B（max `max_path_hops` 跳，top `graph_path_top_k` 条路径）。
+4. 社区查询：node → community summary（受 `community_summary_budget` 约束）。
+5. god node 查询：高连接核心概念（degree > 10）。
 
-### 4.4 Candidate Merge
+所有图检索结果按 `confidence_score * weight_coefficient` 排序，`AMBIGUOUS` 边按 `ambiguous_edge_policy` 决定是否参与。
+
+### 4.6 Candidate Merge
 
 候选合并时按对象统一为 `RetrievalCandidate`：
 
@@ -130,6 +183,15 @@ Graph Search 包含：
 | page_authority | god node/社区权重。 |
 
 ## 7. Context Packing
+
+上下文包 token 分配规则：
+
+1. 总预算 `context_token_budget`（默认 12000）按以下顺序填充。
+2. Wiki chunks 按 rerank score 降序逐条放入，直到达到 `wiki_context_budget` 或 `rerank_top_k` 条用完。每条 chunk 引用文本截断到 `quote_token_limit_per_citation` token。
+3. Graph context（路径描述 + 节点摘要）填充到 `graph_context_budget` 为止。路径优先于孤立节点。
+4. 社区摘要按模式策略决定是否引入（见 §4.2）。
+5. 若总 token 超预算，按 score 从低到高裁剪直到合规。
+6. 最终注入 prompt 的引用条数不超过 `max_citations_per_answer`。
 
 上下文包结构：
 

@@ -6,8 +6,15 @@ services:
       API_BASE_URL: http://cherry-api:8080
     ports:
       - "8080:80"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     depends_on:
-      - cherry-api
+      cherry-api:
+        condition: service_healthy
 
   cherry-api:
     image: your-registry/cherrygraph-api:latest
@@ -27,10 +34,19 @@ services:
       GRAPHIFY_PINNED_REF: ${GRAPHIFY_PINNED_REF}
     ports:
       - "8081:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     depends_on:
-      - postgres
-      - redis
-      - minio
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
 
   graphify-worker:
     image: your-registry/cherrygraph-graphify-worker:latest
@@ -43,13 +59,23 @@ services:
       MODEL_API_KEY: ${MODEL_API_KEY}
       GRAPHIFY_WORKDIR: /work/graphify
       GRAPHIFY_PINNED_REF: ${GRAPHIFY_PINNED_REF}
+      WORKER_HEALTH_PORT: "9090"
     volumes:
       - graphify_work:/work/graphify
       - wiki_repo:/work/wiki-repo
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     depends_on:
-      - postgres
-      - redis
-      - minio
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
 
   ingestion-worker:
     image: your-registry/cherrygraph-ingestion-worker:latest
@@ -58,10 +84,20 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      WORKER_HEALTH_PORT: "9090"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     depends_on:
-      - postgres
-      - redis
-      - minio
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
 
   # Phase 2 启用：Docmost ↔ Canonical Wiki Repo 同步
   wiki-sync-worker:
@@ -73,12 +109,22 @@ services:
       REDIS_URL: ${REDIS_URL}
       DOCMOST_BASE_URL: ${DOCMOST_BASE_URL}
       DOCMOST_BRIDGE_SECRET: ${DOCMOST_BRIDGE_SECRET}
+      WORKER_HEALTH_PORT: "9090"
     volumes:
       - wiki_repo:/work/wiki-repo
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     depends_on:
-      - postgres
-      - redis
-      - docmost
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      docmost:
+        condition: service_healthy
 
   indexer-worker:
     image: your-registry/cherrygraph-indexer-worker:latest
@@ -88,9 +134,18 @@ services:
       REDIS_URL: ${REDIS_URL}
       MODEL_API_BASE_URL: ${MODEL_API_BASE_URL}
       MODEL_API_KEY: ${MODEL_API_KEY}
+      WORKER_HEALTH_PORT: "9090"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   # Phase 2 启用：Docmost Fork 开源版 + 自建 Bridge endpoint。
   # Phase 1 不启动。启用方式：docker compose --profile phase2 up -d
@@ -111,9 +166,17 @@ services:
       - "3000:3000"
     volumes:
       - docmost_storage:/app/data/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     depends_on:
-      - docmost-db
-      - docmost-redis
+      docmost-db:
+        condition: service_healthy
+      docmost-redis:
+        condition: service_healthy
 
   postgres:
     image: pgvector/pgvector:pg16
@@ -126,6 +189,12 @@ services:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cherrygraph -d cherrygraph"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   docmost-db:
     profiles: ["phase2"]
@@ -137,6 +206,12 @@ services:
       POSTGRES_PASSWORD: ${DOCMOST_DB_PASSWORD}
     volumes:
       - docmost_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U docmost -d docmost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   redis:
     image: redis:8
@@ -144,6 +219,12 @@ services:
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
 
   docmost-redis:
     profiles: ["phase2"]
@@ -152,6 +233,12 @@ services:
     command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
     volumes:
       - docmost_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
 
   minio:
     image: minio/minio:latest
@@ -165,6 +252,12 @@ services:
       - "9001:9001"
     volumes:
       - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   nginx:
     image: nginx:stable
@@ -174,10 +267,42 @@ services:
       - "443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     depends_on:
-      - cherry-web
-      - cherry-api
-      - docmost
+      cherry-web:
+        condition: service_healthy
+      cherry-api:
+        condition: service_healthy
+      # docmost 仅 Phase 2 时存在，nginx 不硬依赖
+      # Phase 2 启用时 nginx.conf 需包含 docmost upstream
+
+  # Phase 4 启用：MCP Gateway
+  mcp-gateway:
+    profiles: ["phase4"]
+    image: your-registry/cherrygraph-mcp-gateway:latest
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      MCP_ALLOWED_TOOLS: ${MCP_ALLOWED_TOOLS}
+    ports:
+      - "8090:8090"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      cherry-api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   postgres_data:

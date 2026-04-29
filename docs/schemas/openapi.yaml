@@ -1,11 +1,15 @@
 openapi: 3.1.0
 info:
   title: CherryGraph Studio API
-  version: 0.2.0
+  version: 0.3.0
+  description: |
+    CherryGraph Studio — 知识图谱驱动的 Wiki + RAG Chat 平台。
+    所有写入类接口支持 X-Idempotency-Key header（24h 去重窗口）。
 servers:
   - url: /api
 security:
   - bearerAuth: []
+
 components:
   securitySchemes:
     bearerAuth:
@@ -21,7 +25,28 @@ components:
       in: header
       name: X-Bridge-Signature
       description: HMAC-SHA256(payload, DOCMOST_BRIDGE_SECRET)
+
   parameters:
+    pageParam:
+      name: page
+      in: query
+      schema: { type: integer, default: 1, minimum: 1 }
+      description: Page number (1-based)
+    perPageParam:
+      name: per_page
+      in: query
+      schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+      description: Items per page
+    sortParam:
+      name: sort
+      in: query
+      schema: { type: string, default: "-created_at" }
+      description: "Sort field. Prefix '-' for descending."
+    idempotencyKey:
+      name: X-Idempotency-Key
+      in: header
+      schema: { type: string, format: uuid }
+      description: Client-generated UUID for idempotent writes (24h dedup window)
     bridgeEventId:
       name: X-Bridge-Event-Id
       in: header
@@ -40,68 +65,627 @@ components:
       required: true
       schema: { type: string }
       description: Random nonce for replay attack prevention
+
   schemas:
+    # --- Common ---
+    Pagination:
+      type: object
+      properties:
+        page: { type: integer }
+        per_page: { type: integer }
+        total: { type: integer }
+        has_next: { type: boolean }
+
+    Meta:
+      type: object
+      properties:
+        request_id: { type: string }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+
     ErrorResponse:
       type: object
+      required: [error, meta]
       properties:
         error:
           type: object
+          required: [code, message]
           properties:
             code: { type: string }
             message: { type: string }
             details: { type: object }
-        meta:
-          type: object
-          properties:
-            request_id: { type: string }
+        meta: { $ref: '#/components/schemas/Meta' }
+
+    # --- Auth ---
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+
+    TokenResponse:
+      type: object
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        expires_in: { type: integer }
+        user: { $ref: '#/components/schemas/User' }
+
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token: { type: string }
+
+    # --- User ---
+    User:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string, format: email }
+        name: { type: string }
+        role: { type: string, enum: [owner, admin, space_admin, editor, viewer, auditor] }
+        status: { type: string, enum: [active, invited, disabled] }
+        groups:
+          type: array
+          items: { $ref: '#/components/schemas/GroupRef' }
+        spaces:
+          type: array
+          items: { $ref: '#/components/schemas/SpaceRef' }
+        last_login_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+
+    GroupRef:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+
+    SpaceRef:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        role: { type: string }
+
+    CreateUserRequest:
+      type: object
+      required: [email, name, role]
+      properties:
+        email: { type: string, format: email }
+        name: { type: string }
+        role: { type: string, enum: [admin, space_admin, editor, viewer, auditor] }
+        groups: { type: array, items: { type: string } }
+        send_invite: { type: boolean, default: true }
+
+    # --- Space ---
     Space:
       type: object
       properties:
         id: { type: string }
         name: { type: string }
         slug: { type: string }
+        description: { type: string }
+        status: { type: string, enum: [active, archived] }
         docmost_space_id: { type: string }
         wiki_repo_path: { type: string }
-        index_consistency_status:
-          type: string
-          enum: [healthy, checking, inconsistent]
-    WikiPage:
+        index_consistency_status: { type: string, enum: [healthy, checking, inconsistent] }
+        config: { $ref: '#/components/schemas/SpaceConfig' }
+        stats: { $ref: '#/components/schemas/SpaceStats' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    SpaceConfig:
       type: object
       properties:
-        id: { type: string }
+        auto_graphify: { type: boolean }
+        graphify_schedule: { type: string, enum: [on_change, daily, manual] }
+        default_retrieval_mode: { type: string, enum: [wiki_only, graph_rag, path_first, community_first] }
+
+    SpaceStats:
+      type: object
+      properties:
+        page_count: { type: integer }
+        source_count: { type: integer }
+        node_count: { type: integer }
+        edge_count: { type: integer }
+        community_count: { type: integer }
+        pending_ingestion_jobs: { type: integer }
+        last_graphify_at: { type: string, format: date-time }
+
+    CreateSpaceRequest:
+      type: object
+      required: [name, slug]
+      properties:
+        name: { type: string }
+        slug: { type: string, pattern: "^[a-z0-9-]+$" }
+        description: { type: string }
+
+    UpdateSpaceRequest:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+        config: { $ref: '#/components/schemas/SpaceConfig' }
+
+    # --- Upload ---
+    SourceDocument:
+      type: object
+      properties:
+        source_document_id: { type: string }
         space_id: { type: string }
-        page_id: { type: string }
+        filename: { type: string }
         title: { type: string }
-        status: { type: string }
-        current_version_id: { type: string }
-        indexed_version_id: { type: string }
-        sync_status: { type: string }
+        mime_type: { type: string }
+        size_bytes: { type: integer }
+        content_hash: { type: string }
+        tags: { type: array, items: { type: string } }
+        status: { type: string, enum: [uploaded, processing, processed, failed] }
+        ingestion_job_id: { type: string }
+        chunk_count: { type: integer }
+        created_at: { type: string, format: date-time }
+        processed_at: { type: string, format: date-time }
+
+    IngestionStatus:
+      type: object
+      properties:
+        source_document_id: { type: string }
+        ingestion_job_id: { type: string }
+        status: { type: string, enum: [uploaded, processing, processed, failed] }
+        progress:
+          type: object
+          properties:
+            stage: { type: string }
+            percent: { type: integer, minimum: 0, maximum: 100 }
+            current_step: { type: string }
+            chunks_created: { type: integer }
+        started_at: { type: string, format: date-time }
+        estimated_completion: { type: string, format: date-time }
+
+    # --- Graphify ---
     GraphifyRun:
       type: object
       properties:
-        id: { type: string }
+        run_id: { type: string }
         space_id: { type: string }
-        trigger_type: { type: string }
-        mode: { type: string }
-        status: { type: string }
-        graph_json_uri: { type: string }
-        report_uri: { type: string }
-        schema_version: { type: string }
+        mode: { type: string, enum: [full, update, incremental] }
+        trigger_type: { type: string, enum: [manual, scheduled, auto] }
+        status: { type: string, enum: [queued, running, completed, failed, cancelled, cancelling] }
+        progress:
+          type: object
+          properties:
+            percent: { type: integer }
+            stage: { type: string }
+        input_scope:
+          type: object
+          properties:
+            page_ids: { type: array, items: { type: string } }
+            source_document_ids: { type: array, items: { type: string } }
+        result:
+          type: object
+          properties:
+            nodes_created: { type: integer }
+            nodes_updated: { type: integer }
+            edges_created: { type: integer }
+            wiki_pages_generated: { type: integer }
+            schema_version: { type: string }
+            graph_json_uri: { type: string }
+            report_uri: { type: string }
+        created_at: { type: string, format: date-time }
+        started_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time }
+
+    CreateGraphifyRunRequest:
+      type: object
+      required: [mode, trigger_type]
+      properties:
+        mode: { type: string, enum: [full, update, incremental] }
+        trigger_type: { type: string, enum: [manual, scheduled, auto] }
+        input_scope:
+          type: object
+          properties:
+            page_ids: { type: array, items: { type: string } }
+            source_document_ids: { type: array, items: { type: string } }
+        options:
+          type: object
+          properties:
+            wiki: { type: boolean, default: true }
+            no_viz: { type: boolean, default: false }
+            directed: { type: boolean, default: false }
+
+    # --- Wiki ---
+    WikiPage:
+      type: object
+      properties:
+        page_id: { type: string }
+        space_id: { type: string }
+        title: { type: string }
+        status: { type: string, enum: [draft, published, archived] }
+        source: { type: string, enum: [graphify, human, import] }
+        current_version_id: { type: string }
+        indexed_version_id: { type: string }
+        sync_status: { type: string, enum: [synced, pending, conflict] }
+        docmost_page_id: { type: string }
+        tags: { type: array, items: { type: string } }
+        citations_count: { type: integer }
+        related_nodes_count: { type: integer }
+        updated_at: { type: string, format: date-time }
+
+    WikiPageVersion:
+      type: object
+      properties:
+        version_id: { type: string }
+        content_hash: { type: string }
+        author: { type: string }
+        source_run_id: { type: string }
+        status: { type: string, enum: [current, archived] }
+        created_at: { type: string, format: date-time }
+
+    PublishRequest:
+      type: object
+      required: [version_id]
+      properties:
+        version_id: { type: string }
+        publish_note: { type: string }
+
+    RollbackRequest:
+      type: object
+      required: [target_version_id]
+      properties:
+        target_version_id: { type: string }
+        reason: { type: string }
+
+    Citation:
+      type: object
+      properties:
+        citation_id: { type: string }
+        source_document_id: { type: string }
+        source_title: { type: string }
+        chunk_id: { type: string }
+        excerpt: { type: string }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        page_section: { type: string }
+
+    # --- Graph ---
+    GraphNode:
+      type: object
+      properties:
+        id: { type: string }
+        label: { type: string }
+        type: { type: string }
+        space_id: { type: string }
+        degree: { type: integer }
+        community_id: { type: string }
+        properties: { type: object }
+
+    GraphEdge:
+      type: object
+      properties:
+        source: { type: string }
+        target: { type: string }
+        relation: { type: string }
+        weight: { type: number }
+
+    GraphPath:
+      type: object
+      properties:
+        path_id: { type: string }
+        hops: { type: integer }
+        total_weight: { type: number }
+        nodes: { type: array, items: { $ref: '#/components/schemas/GraphNode' } }
+        edges: { type: array, items: { $ref: '#/components/schemas/GraphEdge' } }
+
+    PathQueryRequest:
+      type: object
+      required: [space_ids, source_label, target_label]
+      properties:
+        space_ids: { type: array, items: { type: string } }
+        source_label: { type: string }
+        target_label: { type: string }
+        max_hops: { type: integer, default: 4, maximum: 10 }
+        include_inferred: { type: boolean, default: true }
+        include_ambiguous: { type: boolean, default: false }
+
+    GraphQueryRequest:
+      type: object
+      required: [space_ids, query]
+      properties:
+        space_ids: { type: array, items: { type: string } }
+        query: { type: string }
+        max_results: { type: integer, default: 10 }
+
+    Community:
+      type: object
+      properties:
+        community_id: { type: string }
+        label: { type: string }
+        space_id: { type: string }
+        node_count: { type: integer }
+        density: { type: number }
+        top_nodes: { type: array, items: { $ref: '#/components/schemas/GraphNode' } }
+
+    # --- Chat ---
     ChatCompletionRequest:
       type: object
       required: [model_id, message, space_ids]
       properties:
         conversation_id: { type: string }
         model_id: { type: string }
-        space_ids:
-          type: array
-          items: { type: string }
-        message: { type: string }
+        space_ids: { type: array, items: { type: string } }
+        message: { type: string, maxLength: 32000 }
         retrieval_mode:
           type: string
           enum: [wiki_only, graph_rag, path_first, community_first]
-        include_graph_explanation: { type: boolean }
-        stream: { type: boolean }
+          default: graph_rag
+        include_graph_explanation: { type: boolean, default: false }
+        stream: { type: boolean, default: true }
+        options:
+          type: object
+          properties:
+            temperature: { type: number, minimum: 0, maximum: 2, default: 0.7 }
+            max_tokens: { type: integer, default: 2048 }
+
+    ChatCompletionResponse:
+      type: object
+      properties:
+        message_id: { type: string }
+        conversation_id: { type: string }
+        content: { type: string }
+        citations:
+          type: array
+          items: { $ref: '#/components/schemas/Citation' }
+        graph_paths:
+          type: array
+          items: { $ref: '#/components/schemas/GraphPath' }
+        tokens_used:
+          type: object
+          properties:
+            input: { type: integer }
+            output: { type: integer }
+
+    # --- SSE Event Schemas ---
+    SSEEventBase:
+      type: object
+      description: Common metadata present in every SSE event data payload
+      required: [request_id, conversation_id, message_id, seq, timestamp]
+      properties:
+        request_id: { type: string, description: "Request unique ID" }
+        conversation_id: { type: string, description: "Conversation ID" }
+        message_id: { type: string, description: "Reply message ID (assigned in first event)" }
+        seq: { type: integer, minimum: 1, description: "Monotonic sequence number for reconnect recovery" }
+        timestamp: { type: string, format: date-time, description: "ISO 8601 with millisecond precision" }
+
+    SSERetrievalStarted:
+      allOf:
+        - { $ref: '#/components/schemas/SSEEventBase' }
+        - type: object
+          properties:
+            query_id: { type: string }
+            retrieval_mode: { type: string, enum: [wiki_only, graph_rag, path_first, community_first] }
+
+    SSERetrievalCompleted:
+      allOf:
+        - { $ref: '#/components/schemas/SSEEventBase' }
+        - type: object
+          properties:
+            query_id: { type: string }
+            chunks_retrieved: { type: integer }
+            paths_found: { type: integer }
+
+    SSERetrievalFailed:
+      allOf:
+        - { $ref: '#/components/schemas/SSEEventBase' }
+        - type: object
+          properties:
+            error_code: { type: string }
+            message: { type: string }
+            fallback: { type: string, enum: [no_rag, terminate], description: "no_rag=continue without RAG, terminate=abort stream" }
+
+    SSERerankCompleted:
+      allOf:
+        - { $ref: '#/components/schemas/SSEEventBase' }
+        - type: object
+          properties:
+            query_id: { type: string }
+            final_chunks: { type: integer }
+            rerank_model: { type: string }
+
+    SSEMessageDelta:
+      allOf:
+        - { $ref: '#/components/schemas/SSEEventBase' }
+        - type: object
+          required: [text]
+          properties:
+            text: { type: string }
+
+    SSECitationAdded:
+      allOf:
+        - { $ref: '#/components/schemas/SSEEventBase' }
+        - type: object
+          properties:
+            citation_id: { type: string }
+            page_id: { type: string }
+            section_id: { type: string }
+            excerpt: { type: string }
+
+    SSEGraphPathAdded:
+      allOf:
+        - { $ref: '#/components/schemas/SSEEventBase' }
+        - type: object
+          properties:
+            path_id: { type: string }
+            nodes: { type: array, items: { type: string } }
+            relations: { type: array, items: { type: string } }
+
+    SSEMessageCompleted:
+      allOf:
+        - { $ref: '#/components/schemas/SSEEventBase' }
+        - type: object
+          properties:
+            finish_reason: { type: string, enum: [stop, max_tokens, content_filter] }
+
+    SSEMessageError:
+      allOf:
+        - { $ref: '#/components/schemas/SSEEventBase' }
+        - type: object
+          required: [error_code, message]
+          properties:
+            error_code: { type: string }
+            message: { type: string }
+            retryable: { type: boolean }
+            retry_after_ms: { type: integer }
+
+    SSEUsageReported:
+      allOf:
+        - { $ref: '#/components/schemas/SSEEventBase' }
+        - type: object
+          properties:
+            tokens_used:
+              type: object
+              properties:
+                input: { type: integer }
+                output: { type: integer }
+                retrieval: { type: integer }
+            latency_ms:
+              type: object
+              properties:
+                retrieval: { type: integer }
+                rerank: { type: integer }
+                generation: { type: integer }
+                total: { type: integer }
+
+    # --- Admin ---
+    Group:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        member_count: { type: integer }
+        spaces:
+          type: array
+          items:
+            type: object
+            properties:
+              space_id: { type: string }
+              role: { type: string }
+        created_at: { type: string, format: date-time }
+
+    CreateGroupRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        member_ids: { type: array, items: { type: string } }
+        space_permissions:
+          type: array
+          items:
+            type: object
+            required: [space_id, role]
+            properties:
+              space_id: { type: string }
+              role: { type: string, enum: [viewer, editor, space_admin] }
+
+    ModelConfig:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        provider: { type: string, enum: [openai, anthropic, azure, local] }
+        status: { type: string, enum: [active, disabled] }
+        config:
+          type: object
+          properties:
+            endpoint: { type: string }
+            api_key_ref: { type: string }
+            max_tokens: { type: integer }
+            supports_streaming: { type: boolean }
+        allowed_roles: { type: array, items: { type: string } }
+
+    CreateModelRequest:
+      type: object
+      required: [name, provider, config]
+      properties:
+        name: { type: string }
+        provider: { type: string, enum: [openai, anthropic, azure, local] }
+        config:
+          type: object
+          required: [endpoint, api_key_ref]
+          properties:
+            endpoint: { type: string }
+            api_key_ref: { type: string }
+            max_tokens: { type: integer }
+            supports_streaming: { type: boolean }
+        allowed_roles: { type: array, items: { type: string } }
+
+    AuditLog:
+      type: object
+      properties:
+        audit_id: { type: string }
+        action: { type: string }
+        actor_id: { type: string }
+        actor_name: { type: string }
+        space_id: { type: string }
+        resource_type: { type: string }
+        resource_id: { type: string }
+        details: { type: object }
+        ip: { type: string }
+        timestamp: { type: string, format: date-time }
+
+    Job:
+      type: object
+      properties:
+        job_id: { type: string }
+        type: { type: string, enum: [ingestion, graphify, reindex, rebuild, wiki_sync] }
+        status: { type: string, enum: [queued, running, completed, failed, cancelled] }
+        space_id: { type: string }
+        progress:
+          type: object
+          properties:
+            percent: { type: integer }
+            stage: { type: string }
+        created_at: { type: string, format: date-time }
+        started_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time }
+
+    SystemHealth:
+      type: object
+      properties:
+        status: { type: string, enum: [healthy, degraded, unhealthy] }
+        version: { type: string }
+        uptime_seconds: { type: integer }
+        components:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              status: { type: string, enum: [healthy, degraded, unhealthy] }
+              latency_ms: { type: integer }
+        queues:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              pending: { type: integer }
+              processing: { type: integer }
+
+    RetrievalTrace:
+      type: object
+      properties:
+        trace_id: { type: string }
+        query: { type: string }
+        retrieval_mode: { type: string }
+        stages:
+          type: array
+          items:
+            type: object
+            properties:
+              stage: { type: string }
+              duration_ms: { type: integer }
+              output: { type: object }
+        total_duration_ms: { type: integer }
+        created_at: { type: string, format: date-time }
+
+    # --- Bridge Events ---
     DocmostPageSavedEvent:
       type: object
       required: [event_id, docmost_space_id, docmost_page_id, updated_at, content_hash]
@@ -121,6 +705,7 @@ components:
               attachment_id: { type: string }
               filename: { type: string }
               size_bytes: { type: integer }
+
     DocmostAttachmentEvent:
       type: object
       required: [event_id, docmost_space_id, docmost_page_id, attachment_id, filename]
@@ -133,190 +718,1214 @@ components:
         mime_type: { type: string }
         size_bytes: { type: integer }
         download_url: { type: string }
+
+  responses:
+    UnauthorizedError:
+      description: Authentication required
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    ForbiddenError:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFoundError:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    ValidationError:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    RateLimitError:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
 paths:
+  # --- Auth ---
+  /auth/login:
+    post:
+      summary: Login
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/TokenResponse' }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+        '429': { $ref: '#/components/responses/RateLimitError' }
+
+  /auth/logout:
+    post:
+      summary: Logout
+      tags: [Auth]
+      responses:
+        '200':
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      success: { type: boolean }
+
   /auth/me:
     get:
       summary: Get current user
+      tags: [Auth]
       responses:
-        '200': { description: Current user }
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/User' }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+
+  /auth/refresh:
+    post:
+      summary: Refresh token
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/TokenResponse' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+
+  # --- Space ---
   /spaces:
     get:
       summary: List accessible spaces
+      tags: [Space]
+      parameters:
+        - { $ref: '#/components/parameters/pageParam' }
+        - { $ref: '#/components/parameters/perPageParam' }
+        - { $ref: '#/components/parameters/sortParam' }
+        - { name: status, in: query, schema: { type: string, enum: [active, archived] } }
+        - { name: search, in: query, schema: { type: string } }
       responses:
-        '200': { description: Spaces }
+        '200':
+          description: List of spaces
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Space' } }
+                  meta: { $ref: '#/components/schemas/Meta' }
     post:
       summary: Create space
+      tags: [Space]
+      parameters:
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateSpaceRequest' }
       responses:
-        '201': { description: Created }
+        '201':
+          description: Space created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Space' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '409':
+          description: Slug conflict
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /spaces/{space_id}:
+    get:
+      summary: Get space details
+      tags: [Space]
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Space details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Space' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+    patch:
+      summary: Update space
+      tags: [Space]
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateSpaceRequest' }
+      responses:
+        '200':
+          description: Space updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Space' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+
+  /spaces/{space_id}/stats:
+    get:
+      summary: Get space statistics
+      tags: [Space]
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Space stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/SpaceStats' }
+
+  # --- Upload ---
   /spaces/{space_id}/uploads:
     post:
       summary: Upload source document
+      tags: [Upload]
       parameters:
-        - name: space_id
-          in: path
-          required: true
-          schema: { type: string }
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/idempotencyKey' }
       requestBody:
         required: true
         content:
           multipart/form-data:
             schema:
               type: object
+              required: [file]
               properties:
-                file: { type: string, format: binary }
+                file: { type: string, format: binary, description: "Max 50MB" }
+                title: { type: string }
+                tags: { type: array, items: { type: string } }
+                auto_graphify: { type: boolean, default: false }
       responses:
-        '201': { description: Uploaded }
-  /spaces/{space_id}/wiki/pages:
+        '201':
+          description: Document uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/SourceDocument' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '413':
+          description: File too large
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimitError' }
+
+  /uploads/{source_document_id}:
     get:
-      summary: List wiki pages
+      summary: Get source document
+      tags: [Upload]
       parameters:
-        - name: space_id
-          in: path
-          required: true
-          schema: { type: string }
+        - { name: source_document_id, in: path, required: true, schema: { type: string } }
       responses:
-        '200': { description: Wiki pages }
-  /spaces/{space_id}/wiki/pages/{page_id}:
+        '200':
+          description: Source document details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/SourceDocument' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+
+  /uploads/{source_document_id}/status:
     get:
-      summary: Get wiki page with current and indexed versions
+      summary: Get ingestion status
+      tags: [Upload]
       parameters:
-        - { name: space_id, in: path, required: true, schema: { type: string } }
-        - { name: page_id, in: path, required: true, schema: { type: string } }
+        - { name: source_document_id, in: path, required: true, schema: { type: string } }
       responses:
-        '200': { description: Wiki page }
-  /spaces/{space_id}/wiki/pages/{page_id}/versions:
-    get:
-      summary: List wiki page versions
-      parameters:
-        - { name: space_id, in: path, required: true, schema: { type: string } }
-        - { name: page_id, in: path, required: true, schema: { type: string } }
-      responses:
-        '200': { description: Versions }
-  /spaces/{space_id}/wiki/pages/{page_id}/publish:
+        '200':
+          description: Ingestion progress
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/IngestionStatus' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+
+  /uploads/{source_document_id}/reprocess:
     post:
-      summary: Publish wiki page version
+      summary: Reprocess source document
+      tags: [Upload]
       parameters:
-        - { name: space_id, in: path, required: true, schema: { type: string } }
-        - { name: page_id, in: path, required: true, schema: { type: string } }
+        - { name: source_document_id, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
       responses:
-        '200': { description: Published }
-  /spaces/{space_id}/wiki/pages/{page_id}/reindex:
-    post:
-      summary: Reindex wiki page
-      parameters:
-        - { name: space_id, in: path, required: true, schema: { type: string } }
-        - { name: page_id, in: path, required: true, schema: { type: string } }
-      responses:
-        '202': { description: Reindex job created }
-  /spaces/{space_id}/wiki/consistency:
-    get:
-      summary: Get space consistency status
-      parameters:
-        - { name: space_id, in: path, required: true, schema: { type: string } }
-      responses:
-        '200': { description: Consistency status }
+        '202':
+          description: Reprocess job created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/SourceDocument' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+        '409':
+          description: Reprocess already running
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  # --- Graphify ---
   /spaces/{space_id}/graphify/runs:
     post:
       summary: Create Graphify run
+      tags: [Graphify]
       parameters:
-        - name: space_id
-          in: path
-          required: true
-          schema: { type: string }
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateGraphifyRunRequest' }
       responses:
-        '201': { description: Created }
+        '201':
+          description: Graphify run created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/GraphifyRun' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+        '409':
+          description: Run already in progress
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /graphify/runs:
+    get:
+      summary: List Graphify runs
+      tags: [Graphify]
+      parameters:
+        - { $ref: '#/components/parameters/pageParam' }
+        - { $ref: '#/components/parameters/perPageParam' }
+        - { $ref: '#/components/parameters/sortParam' }
+        - { name: space_id, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string, enum: [queued, running, completed, failed, cancelled] } }
+        - { name: trigger_type, in: query, schema: { type: string, enum: [manual, scheduled, auto] } }
+      responses:
+        '200':
+          description: List of runs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/GraphifyRun' } }
+                  meta: { $ref: '#/components/schemas/Meta' }
+
   /graphify/runs/{run_id}:
     get:
-      summary: Get Graphify run
+      summary: Get Graphify run details
+      tags: [Graphify]
       parameters:
-        - name: run_id
-          in: path
-          required: true
-          schema: { type: string }
+        - { name: run_id, in: path, required: true, schema: { type: string } }
       responses:
-        '200': { description: Graphify run }
-  /graph/path:
+        '200':
+          description: Run details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/GraphifyRun' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+
+  /graphify/runs/{run_id}/cancel:
     post:
-      summary: Query graph path
+      summary: Cancel Graphify run
+      tags: [Graphify]
+      parameters:
+        - { name: run_id, in: path, required: true, schema: { type: string } }
       responses:
-        '200': { description: Graph paths }
+        '200':
+          description: Run cancelling
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      run_id: { type: string }
+                      status: { type: string, enum: [cancelling] }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+        '409':
+          description: Run not cancellable
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /graphify/runs/{run_id}/retry:
+    post:
+      summary: Retry Graphify run
+      tags: [Graphify]
+      parameters:
+        - { name: run_id, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      responses:
+        '201':
+          description: New run created from retry
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/GraphifyRun' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+        '409':
+          description: Run not retryable
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /graphify/runs/{run_id}/report:
+    get:
+      summary: Get Graphify run report
+      tags: [Graphify]
+      parameters:
+        - { name: run_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Run report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      run_id: { type: string }
+                      report_format: { type: string }
+                      content: { type: string }
+                      generated_at: { type: string, format: date-time }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+
+  /graphify/runs/{run_id}/graph:
+    get:
+      summary: Get Graphify run graph summary
+      tags: [Graphify]
+      parameters:
+        - { name: run_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Graph summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      run_id: { type: string }
+                      summary:
+                        type: object
+                        properties:
+                          node_count: { type: integer }
+                          edge_count: { type: integer }
+                          community_count: { type: integer }
+                      top_entities: { type: array, items: { $ref: '#/components/schemas/GraphNode' } }
+                      schema_version: { type: string }
+
+  # --- Wiki ---
+  /spaces/{space_id}/wiki/pages:
+    get:
+      summary: List wiki pages
+      tags: [Wiki]
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/pageParam' }
+        - { $ref: '#/components/parameters/perPageParam' }
+        - { $ref: '#/components/parameters/sortParam' }
+        - { name: status, in: query, schema: { type: string, enum: [draft, published, archived] } }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: tag, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Wiki pages
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/WikiPage' } }
+                  meta: { $ref: '#/components/schemas/Meta' }
+
+  /spaces/{space_id}/wiki/pages/{page_id}:
+    get:
+      summary: Get wiki page
+      tags: [Wiki]
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+        - { name: page_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Wiki page details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/WikiPage' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+
+  /spaces/{space_id}/wiki/pages/{page_id}/versions:
+    get:
+      summary: List page versions
+      tags: [Wiki]
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+        - { name: page_id, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/pageParam' }
+        - { $ref: '#/components/parameters/perPageParam' }
+        - { $ref: '#/components/parameters/sortParam' }
+      responses:
+        '200':
+          description: Page versions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/WikiPageVersion' } }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+
+  /spaces/{space_id}/wiki/pages/{page_id}/publish:
+    post:
+      summary: Publish wiki page version
+      tags: [Wiki]
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+        - { name: page_id, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PublishRequest' }
+      responses:
+        '200':
+          description: Page published
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      page_id: { type: string }
+                      version_id: { type: string }
+                      status: { type: string }
+                      published_at: { type: string, format: date-time }
+                      published_by: { type: string }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+        '409':
+          description: Version already published
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /spaces/{space_id}/wiki/pages/{page_id}/rollback:
+    post:
+      summary: Rollback wiki page
+      tags: [Wiki]
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+        - { name: page_id, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RollbackRequest' }
+      responses:
+        '200':
+          description: Rolled back
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      page_id: { type: string }
+                      rolled_back_to: { type: string }
+                      new_version_id: { type: string }
+                      status: { type: string }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+
+  /spaces/{space_id}/wiki/pages/{page_id}/citations:
+    get:
+      summary: Get page citations
+      tags: [Wiki]
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+        - { name: page_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Citations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Citation' } }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+
+  /spaces/{space_id}/wiki/pages/{page_id}/graph:
+    get:
+      summary: Get page related graph
+      tags: [Wiki]
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+        - { name: page_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Related graph nodes and edges
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      page_id: { type: string }
+                      nodes: { type: array, items: { $ref: '#/components/schemas/GraphNode' } }
+                      edges: { type: array, items: { $ref: '#/components/schemas/GraphEdge' } }
+
+  /spaces/{space_id}/wiki/pages/{page_id}/reindex:
+    post:
+      summary: Reindex wiki page
+      tags: [Wiki]
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+        - { name: page_id, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      responses:
+        '202':
+          description: Reindex job created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      page_id: { type: string }
+                      reindex_job_id: { type: string }
+                      status: { type: string }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+        '409':
+          description: Reindex already running
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /spaces/{space_id}/wiki/consistency:
+    get:
+      summary: Get space consistency status
+      tags: [Wiki]
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Consistency status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      space_id: { type: string }
+                      status: { type: string, enum: [healthy, checking, inconsistent] }
+                      checked_at: { type: string, format: date-time }
+                      pages_total: { type: integer }
+                      pages_consistent: { type: integer }
+                      pages_inconsistent: { type: integer }
+
+  # --- Graph ---
   /graph/nodes:
     get:
       summary: Search graph nodes
+      tags: [Graph]
+      parameters:
+        - { $ref: '#/components/parameters/pageParam' }
+        - { $ref: '#/components/parameters/perPageParam' }
+        - { $ref: '#/components/parameters/sortParam' }
+        - { name: space_ids, in: query, schema: { type: string }, description: "Comma-separated space IDs" }
+        - { name: type, in: query, schema: { type: string } }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: min_degree, in: query, schema: { type: integer } }
       responses:
-        '200': { description: Graph nodes }
+        '200':
+          description: Graph nodes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/GraphNode' } }
+                  meta: { $ref: '#/components/schemas/Meta' }
+
+  /graph/nodes/{node_id}:
+    get:
+      summary: Get graph node
+      tags: [Graph]
+      parameters:
+        - { name: node_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Node details with edges
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/GraphNode' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+
+  /graph/nodes/{node_id}/neighbors:
+    get:
+      summary: Get node neighbors
+      tags: [Graph]
+      parameters:
+        - { name: node_id, in: path, required: true, schema: { type: string } }
+        - { name: max_hops, in: query, schema: { type: integer, default: 1, maximum: 3 } }
+        - { name: relation_type, in: query, schema: { type: string } }
+        - { name: min_weight, in: query, schema: { type: number } }
+      responses:
+        '200':
+          description: Neighbor nodes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      center: { type: string }
+                      neighbors:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            node: { $ref: '#/components/schemas/GraphNode' }
+                            relation: { type: string }
+                            weight: { type: number }
+                            hops: { type: integer }
+                      total_neighbors: { type: integer }
+
+  /graph/path:
+    post:
+      summary: Query shortest path
+      tags: [Graph]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PathQueryRequest' }
+      responses:
+        '200':
+          description: Path results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      paths: { type: array, items: { $ref: '#/components/schemas/GraphPath' } }
+                      total_paths_found: { type: integer }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /graph/query:
+    post:
+      summary: Natural language graph query
+      tags: [Graph]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GraphQueryRequest' }
+      responses:
+        '200':
+          description: Query results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      query_id: { type: string }
+                      interpretation: { type: string }
+                      results:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            node: { $ref: '#/components/schemas/GraphNode' }
+                            relevance: { type: number }
+                            context: { type: string }
+
+  /graph/communities:
+    get:
+      summary: List communities
+      tags: [Graph]
+      parameters:
+        - { $ref: '#/components/parameters/pageParam' }
+        - { $ref: '#/components/parameters/perPageParam' }
+        - { name: space_ids, in: query, schema: { type: string } }
+        - { name: min_size, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: Communities
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Community' } }
+                  meta: { $ref: '#/components/schemas/Meta' }
+
+  # --- Chat ---
   /chat/completions:
     post:
       summary: Chat completion with GraphRAG
+      tags: [Chat]
       requestBody:
         required: true
         content:
           application/json:
             schema: { $ref: '#/components/schemas/ChatCompletionRequest' }
       responses:
-        '200': { description: Completion or SSE stream }
+        '200':
+          description: Completion (JSON for non-stream, SSE for stream)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/ChatCompletionResponse' }
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  SSE stream. Each event data payload includes common metadata:
+                  request_id, conversation_id, message_id, seq (monotonic sequence for reconnect), timestamp.
+                  Events: retrieval.started, retrieval.completed, retrieval.failed,
+                  rerank.completed, message.delta, citation.added, graph_path.added,
+                  message.completed, message.error, usage.reported.
+                  Reconnect via Last-Event-ID: {message_id}:{seq} header.
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimitError' }
+
+  # --- Admin ---
   /admin/users:
     get:
       summary: List users
+      tags: [Admin]
+      parameters:
+        - { $ref: '#/components/parameters/pageParam' }
+        - { $ref: '#/components/parameters/perPageParam' }
+        - { $ref: '#/components/parameters/sortParam' }
+        - { name: role, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: search, in: query, schema: { type: string } }
       responses:
-        '200': { description: Users }
+        '200':
+          description: Users
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/User' } }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
     post:
       summary: Create user
+      tags: [Admin]
+      parameters:
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateUserRequest' }
       responses:
-        '201': { description: Created }
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/User' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '409':
+          description: Email conflict
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /admin/groups:
     get:
       summary: List groups
+      tags: [Admin]
+      parameters:
+        - { $ref: '#/components/parameters/pageParam' }
+        - { $ref: '#/components/parameters/perPageParam' }
       responses:
-        '200': { description: Groups }
+        '200':
+          description: Groups
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Group' } }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
     post:
       summary: Create group
+      tags: [Admin]
+      parameters:
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateGroupRequest' }
       responses:
-        '201': { description: Created }
+        '201':
+          description: Group created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Group' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '409':
+          description: Group name conflict
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
   /admin/models:
     get:
       summary: List model configs
+      tags: [Admin]
       responses:
-        '200': { description: Models }
+        '200':
+          description: Models
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/ModelConfig' } }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
     post:
       summary: Create model config
+      tags: [Admin]
+      parameters:
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateModelRequest' }
       responses:
-        '201': { description: Created }
+        '201':
+          description: Model created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/ModelConfig' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '409':
+          description: Model name conflict
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /admin/audit-logs:
+    get:
+      summary: Query audit logs
+      tags: [Admin]
+      parameters:
+        - { $ref: '#/components/parameters/pageParam' }
+        - { $ref: '#/components/parameters/perPageParam' }
+        - { $ref: '#/components/parameters/sortParam' }
+        - { name: actor_id, in: query, schema: { type: string } }
+        - { name: action, in: query, schema: { type: string } }
+        - { name: space_id, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: Audit logs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/AuditLog' } }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+
+  /admin/jobs:
+    get:
+      summary: List jobs
+      tags: [Admin]
+      parameters:
+        - { $ref: '#/components/parameters/pageParam' }
+        - { $ref: '#/components/parameters/perPageParam' }
+        - { $ref: '#/components/parameters/sortParam' }
+        - { name: type, in: query, schema: { type: string, enum: [ingestion, graphify, reindex, rebuild, wiki_sync] } }
+        - { name: status, in: query, schema: { type: string, enum: [queued, running, completed, failed, cancelled] } }
+        - { name: space_id, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Job' } }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+
+  /admin/system/health:
+    get:
+      summary: System health check
+      tags: [Admin]
+      responses:
+        '200':
+          description: System health
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/SystemHealth' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+
   /admin/graphify/runs:
     get:
-      summary: List Graphify runs
+      summary: List all Graphify runs (admin)
+      tags: [Admin]
+      parameters:
+        - { $ref: '#/components/parameters/pageParam' }
+        - { $ref: '#/components/parameters/perPageParam' }
+        - { name: space_id, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string } }
       responses:
-        '200': { description: Runs }
+        '200':
+          description: All runs (no space permission filter)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/GraphifyRun' } }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+
   /admin/graphify/runs/{run_id}/retry:
     post:
-      summary: Retry Graphify run
+      summary: Retry Graphify run (admin)
+      tags: [Admin]
       parameters:
         - { name: run_id, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/idempotencyKey' }
       responses:
-        '202': { description: Retry job created }
+        '202':
+          description: Retry job created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/GraphifyRun' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+
   /admin/consistency-checks:
     get:
       summary: List consistency checks
+      tags: [Admin]
+      parameters:
+        - { $ref: '#/components/parameters/pageParam' }
+        - { $ref: '#/components/parameters/perPageParam' }
       responses:
-        '200': { description: Checks }
+        '200':
+          description: Consistency checks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        check_id: { type: string }
+                        space_id: { type: string }
+                        status: { type: string, enum: [passed, failed, running] }
+                        checked_at: { type: string, format: date-time }
+                        issues_found: { type: integer }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+
   /admin/spaces/{space_id}/rebuild-index:
     post:
       summary: Rebuild space index
+      tags: [Admin]
       parameters:
         - { name: space_id, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scope: { type: string, enum: [full, incremental], default: full }
+                reason: { type: string }
       responses:
-        '202': { description: Rebuild job created }
+        '202':
+          description: Rebuild job created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Job' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+        '409':
+          description: Rebuild already running
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
   /admin/retrieval-traces/{trace_id}:
     get:
       summary: Get retrieval trace
+      tags: [Admin]
       parameters:
         - { name: trace_id, in: path, required: true, schema: { type: string } }
       responses:
-        '200': { description: Trace }
-  # Cherry API 接收 Docmost 事件（Docmost → Cherry API）
+        '200':
+          description: Retrieval trace
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/RetrievalTrace' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+
+  # --- Bridge (Internal) ---
   /internal/docmost/events/page-saved:
     post:
-      summary: Docmost 页面保存事件（Docmost Fork POST 到此）
+      summary: Docmost page saved event
+      tags: [Bridge]
       security:
         - bridgeBearer: []
           bridgeHmacAuth: []
@@ -330,10 +1939,23 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/DocmostPageSavedEvent' }
       responses:
-        '200': { description: Accepted }
+        '200':
+          description: Event accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted: { type: boolean }
+                  deduplicated: { type: boolean }
+                  sync_job_id: { type: string }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+        '429': { $ref: '#/components/responses/RateLimitError' }
+
   /internal/docmost/events/page-deleted:
     post:
-      summary: Docmost 页面删除事件
+      summary: Docmost page deleted event
+      tags: [Bridge]
       security:
         - bridgeBearer: []
           bridgeHmacAuth: []
@@ -342,10 +1964,13 @@ paths:
         - { $ref: '#/components/parameters/bridgeTimestamp' }
         - { $ref: '#/components/parameters/bridgeNonce' }
       responses:
-        '200': { description: Accepted }
+        '200':
+          description: Event accepted
+
   /internal/docmost/events/attachment-created:
     post:
-      summary: Docmost 附件创建事件
+      summary: Docmost attachment created event
+      tags: [Bridge]
       security:
         - bridgeBearer: []
           bridgeHmacAuth: []
@@ -359,12 +1984,13 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/DocmostAttachmentEvent' }
       responses:
-        '200': { description: Accepted }
-  # Docmost Fork 暴露的 Bridge 能力（Cherry API → Docmost Fork）
-  # 运行在 Docmost 服务上，此处做契约文档化，实际 base URL 为 ${DOCMOST_BASE_URL}/api
+        '200':
+          description: Event accepted
+
   /internal/bridge/pages/{docmost_page_id}/export:
     get:
-      summary: 从 Docmost Fork 导出页面 Markdown
+      summary: Export page from Docmost Fork
+      tags: [Bridge]
       security:
         - bridgeBearer: []
           bridgeHmacAuth: []
@@ -374,10 +2000,24 @@ paths:
         - { $ref: '#/components/parameters/bridgeTimestamp' }
         - { $ref: '#/components/parameters/bridgeNonce' }
       responses:
-        '200': { description: Page content }
+        '200':
+          description: Page content
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  docmost_page_id: { type: string }
+                  title: { type: string }
+                  format: { type: string }
+                  content_markdown: { type: string }
+                  updated_at: { type: string, format: date-time }
+                  content_hash: { type: string }
+
   /internal/bridge/pages/{docmost_page_id}/import:
     put:
-      summary: 向 Docmost Fork 导入/更新页面
+      summary: Import page to Docmost Fork
+      tags: [Bridge]
       security:
         - bridgeBearer: []
           bridgeHmacAuth: []
@@ -385,11 +2025,28 @@ paths:
         - { name: docmost_page_id, in: path, required: true, schema: { type: string } }
         - { $ref: '#/components/parameters/bridgeTimestamp' }
         - { $ref: '#/components/parameters/bridgeNonce' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [docmost_space_id, title, content_markdown]
+              properties:
+                docmost_space_id: { type: string }
+                title: { type: string }
+                content_markdown: { type: string }
+                source: { type: string, enum: [graphify, human, import] }
+                page_version_id: { type: string }
+                overwrite_policy: { type: string, enum: [replace_all, preserve_human_blocks] }
       responses:
-        '200': { description: Import accepted }
+        '200':
+          description: Import accepted
+
   /internal/bridge/attachments/{attachment_id}/download:
     get:
-      summary: 从 Docmost Fork 下载附件
+      summary: Download attachment from Docmost Fork
+      tags: [Bridge]
       security:
         - bridgeBearer: []
           bridgeHmacAuth: []
@@ -398,10 +2055,18 @@ paths:
         - { $ref: '#/components/parameters/bridgeTimestamp' }
         - { $ref: '#/components/parameters/bridgeNonce' }
       responses:
-        '200': { description: Attachment binary }
+        '200':
+          description: Attachment binary
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
   /internal/bridge/spaces/{docmost_space_id}/sync-status:
     get:
-      summary: 查询 Docmost Space 同步状态
+      summary: Get Docmost space sync status
+      tags: [Bridge]
       security:
         - bridgeBearer: []
           bridgeHmacAuth: []
@@ -410,11 +2075,32 @@ paths:
         - { $ref: '#/components/parameters/bridgeTimestamp' }
         - { $ref: '#/components/parameters/bridgeNonce' }
       responses:
-        '200': { description: Sync status }
+        '200':
+          description: Sync status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  docmost_space_id: { type: string }
+                  space_id: { type: string }
+                  status: { type: string, enum: [healthy, degraded, error] }
+                  pending_events: { type: integer }
+                  last_success_at: { type: string, format: date-time }
+
   /internal/bridge/health:
     get:
-      summary: Bridge 健康检查
+      summary: Bridge health check
+      tags: [Bridge]
       security:
         - bridgeBearer: []
       responses:
-        '200': { description: Healthy }
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [healthy, unhealthy] }
+                  version: { type: string }
