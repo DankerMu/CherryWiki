@@ -58,13 +58,20 @@ async function createPool(options: DrizzleModuleOptions): Promise<PgPool> {
   const poolConfig: PoolConfig = {
     connectionString: databaseUrl,
     max: options.poolMax ?? DEFAULT_POOL_MAX,
+    connectionTimeoutMillis: 5_000,
+    idleTimeoutMillis: 30_000,
   };
 
   const createPgPool = options.poolFactory ?? ((config: PoolConfig): PgPool => new pg.Pool(config));
   const pool = createPgPool(poolConfig);
 
   if (options.connectionCheck ?? true) {
-    await pool.query('select 1');
+    try {
+      await pool.query('select 1');
+    } catch (err) {
+      await pool.end();
+      throw err;
+    }
   }
 
   return pool;

@@ -28,7 +28,7 @@ describe('DrizzleModule', () => {
     const db = moduleRef.get<DrizzleDatabase>(DRIZZLE);
     expect(db).toBeDefined();
     expect(db.$client).toBe(pool);
-    expect(configs).toEqual([{ connectionString: TEST_DATABASE_URL, max: 20 }]);
+    expect(configs).toEqual([{ connectionString: TEST_DATABASE_URL, max: 20, connectionTimeoutMillis: 5_000, idleTimeoutMillis: 30_000 }]);
 
     await moduleRef.close();
     moduleRef = undefined;
@@ -42,7 +42,7 @@ describe('DrizzleModule', () => {
       imports: [DrizzleModule.forRoot({ databaseUrl: TEST_DATABASE_URL, poolMax: 5, connectionCheck: false, poolFactory })],
     }).compile();
 
-    expect(configs).toEqual([{ connectionString: TEST_DATABASE_URL, max: 5 }]);
+    expect(configs).toEqual([{ connectionString: TEST_DATABASE_URL, max: 5, connectionTimeoutMillis: 5_000, idleTimeoutMillis: 30_000 }]);
   });
 
   it('throws during module initialization when DATABASE_URL is missing', async () => {
