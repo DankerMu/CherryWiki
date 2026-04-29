@@ -7,17 +7,17 @@
 | 序号 | 文件名 | 格式 | 页数 | 用途 |
 |---|---|---|---|---|
 | 1 | auth-design.pdf | PDF | 8 | 认证模块设计文档 |
-| 2 | api-spec.pdf | PDF | 12 | API 规范摘录 |
+| 2 | api-spec.pdf | PDF | 6 | API 规范摘录 |
 | 3 | deploy-guide.pdf | PDF | 5 | 部署指南 |
-| 4 | security-audit.pdf | PDF | 10 | 安全审计报告 |
-| 5 | architecture.pdf | PDF | 15 | 架构设计文档 |
-| 6 | user-manual.docx | DOCX | 6 | 用户手册 |
+| 4 | security-audit.pdf | PDF | 8 | 安全审计报告 |
+| 5 | architecture.pdf | PDF | 8 | 架构设计文档 |
+| 6 | user-manual.docx | DOCX | 5 | 用户手册 |
 | 7 | meeting-notes.docx | DOCX | 3 | 会议纪要 |
-| 8 | changelog.docx | DOCX | 4 | 变更日志 |
+| 8 | changelog.docx | DOCX | 3 | 变更日志 |
 | 9 | quick-start.md | Markdown | 2 | 快速入门指南 |
-| 10 | faq.md | Markdown | 3 | 常见问题 |
+| 10 | faq.md | Markdown | 2 | 常见问题 |
 
-**总计**: 10 文件，约 68 页
+**总计**: 10 文件（5 PDF + 3 DOCX + 2 MD），共 50 页
 
 ## 使用场景
 
