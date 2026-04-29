@@ -2090,6 +2090,370 @@ GET /api/internal/bridge/spaces/{docmost_space_id}/sync-status
 
 ---
 
-## 14. OpenAPI 草案
+## 14. 补充端点
+
+### 14.1 Auth 补充
+
+#### POST `/api/auth/password/change`
+
+| 项目 | 说明 |
+|---|---|
+| 权限点 | 已认证即可 |
+| 审计动作 | `auth.password_change` |
+
+输入：
+
+```json
+{
+  "current_password": "...",
+  "new_password": "..."
+}
+```
+
+输出：`{ "data": { "success": true } }`
+
+错误码：
+
+| Code | 说明 |
+|---|---|
+| `INVALID_CURRENT_PASSWORD` | 当前密码错误 |
+| `PASSWORD_TOO_WEAK` | 新密码不符合强度要求 |
+
+#### GET `/api/auth/sessions`
+
+| 项目 | 说明 |
+|---|---|
+| 权限点 | 已认证即可 |
+| 审计动作 | 无 |
+
+输出：
+
+```json
+{
+  "data": [
+    {
+      "id": "sess_001",
+      "ip": "192.168.1.100",
+      "user_agent": "Mozilla/5.0...",
+      "created_at": "2026-04-28T08:00:00Z",
+      "last_used_at": "2026-04-28T12:00:00Z",
+      "is_current": true
+    }
+  ]
+}
+```
+
+#### DELETE `/api/auth/sessions/{session_id}`
+
+| 项目 | 说明 |
+|---|---|
+| 权限点 | 已认证即可（只能删自己的会话） |
+| 审计动作 | `auth.session_revoke` |
+
+输出：`{ "data": { "revoked": true } }`
+
+错误码：`SESSION_NOT_FOUND`
+
+### 14.2 Jobs API（用户级）
+
+#### GET `/api/jobs/{job_id}`
+
+| 项目 | 说明 |
+|---|---|
+| 权限点 | 对 job 所属 Space 有 `space:view` 权限，或为 job 创建者 |
+| 审计动作 | 无 |
+
+输出：
+
+```json
+{
+  "data": {
+    "job_id": "job_001",
+    "type": "ingestion",
+    "space_id": "space_rd",
+    "status": "running",
+    "progress": { "percent": 65, "stage": "chunking" },
+    "created_at": "2026-04-28T12:01:00Z",
+    "started_at": "2026-04-28T12:01:05Z"
+  }
+}
+```
+
+错误码：`JOB_NOT_FOUND`
+
+#### GET `/api/jobs/{job_id}/events`
+
+| 项目 | 说明 |
+|---|---|
+| 权限点 | 同 GET job |
+| 审计动作 | 无 |
+
+输出：
+
+```json
+{
+  "data": [
+    { "event": "started", "timestamp": "2026-04-28T12:01:05Z", "detail": {} },
+    { "event": "stage_changed", "timestamp": "2026-04-28T12:01:10Z", "detail": { "stage": "chunking" } },
+    { "event": "progress", "timestamp": "2026-04-28T12:02:00Z", "detail": { "percent": 65 } }
+  ]
+}
+```
+
+#### POST `/api/jobs/{job_id}/cancel`
+
+| 项目 | 说明 |
+|---|---|
+| 权限点 | job 创建者 或 `space:admin` |
+| 幂等策略 | 重复取消返回当前状态 |
+| 审计动作 | `job.cancel` |
+
+输出：`{ "data": { "job_id": "job_001", "status": "cancelled" } }`
+
+错误码：
+
+| Code | 说明 |
+|---|---|
+| `JOB_NOT_FOUND` | Job 不存在 |
+| `JOB_NOT_CANCELLABLE` | 已完成/已取消的 job 不可取消 |
+
+### 14.3 Wiki 补充
+
+#### GET `/api/spaces/{space_id}/wiki/pages/{page_id}/content`
+
+| 项目 | 说明 |
+|---|---|
+| 权限点 | `space:view` |
+| 审计动作 | 无 |
+| 参数 | `?version_id=ver_003`（可选，默认当前版本） |
+
+输出：
+
+```json
+{
+  "data": {
+    "page_id": "rd.auth.sso",
+    "version_id": "ver_003",
+    "title": "SSO 认证流程",
+    "content_markdown": "# SSO 认证流程\n...",
+    "content_hash": "sha256:def...",
+    "blocks": [
+      { "block_id": "summary", "owner": "graphify", "editable": false },
+      { "block_id": "implementation-notes", "owner": "human", "editable": true }
+    ]
+  }
+}
+```
+
+错误码：`WIKI_PAGE_NOT_FOUND` / `VERSION_NOT_FOUND`
+
+#### POST `/api/spaces/{space_id}/wiki/pages/{page_id}/proposals/{proposal_id}/accept`
+
+| 项目 | 说明 |
+|---|---|
+| 权限点 | `wiki:publish` |
+| 幂等策略 | `X-Idempotency-Key` |
+| 审计动作 | `wiki.proposal.accept` |
+
+输入：
+
+```json
+{
+  "merge_strategy": "auto",
+  "publish_note": "审核通过，自动合并"
+}
+```
+
+输出：
+
+```json
+{
+  "data": {
+    "proposal_id": "prop_001",
+    "status": "accepted",
+    "new_version_id": "ver_004",
+    "merged_at": "2026-04-28T12:00:00Z"
+  }
+}
+```
+
+错误码：
+
+| Code | 说明 |
+|---|---|
+| `PROPOSAL_NOT_FOUND` | 提案不存在 |
+| `PROPOSAL_ALREADY_RESOLVED` | 提案已接受或拒绝 |
+| `MERGE_CONFLICT` | 自动合并冲突，需手动处理 |
+
+#### POST `/api/spaces/{space_id}/wiki/pages/{page_id}/proposals/{proposal_id}/reject`
+
+| 项目 | 说明 |
+|---|---|
+| 权限点 | `wiki:publish` |
+| 审计动作 | `wiki.proposal.reject` |
+
+输入：
+
+```json
+{
+  "reason": "内容不准确，需要修正"
+}
+```
+
+输出：
+
+```json
+{
+  "data": {
+    "proposal_id": "prop_001",
+    "status": "rejected",
+    "rejected_at": "2026-04-28T12:00:00Z"
+  }
+}
+```
+
+### 14.4 Admin Models 补充
+
+#### PATCH `/api/admin/models/{model_id}`
+
+| 项目 | 说明 |
+|---|---|
+| 权限点 | `admin:model_manage` |
+| 审计动作 | `admin.model.update` |
+
+输入：
+
+```json
+{
+  "status": "disabled",
+  "config": { "max_tokens": 16384 },
+  "allowed_roles": ["admin"]
+}
+```
+
+输出：更新后完整 ModelConfig 对象。
+
+错误码：`MODEL_NOT_FOUND`
+
+#### POST `/api/admin/models/{model_id}/test`
+
+| 项目 | 说明 |
+|---|---|
+| 权限点 | `admin:model_manage` |
+| 审计动作 | `admin.model.test` |
+| 说明 | 发送测试请求到模型 endpoint，验证连通性和 API key |
+
+输入：`{ "test_prompt": "Hello" }`
+
+输出：
+
+```json
+{
+  "data": {
+    "model_id": "model_gpt41",
+    "reachable": true,
+    "latency_ms": 420,
+    "response_preview": "Hello! How can I...",
+    "error": null
+  }
+}
+```
+
+错误码：`MODEL_NOT_FOUND` / `MODEL_UNREACHABLE` / `MODEL_AUTH_FAILED`
+
+### 14.5 Consistency 补充
+
+#### POST `/api/spaces/{space_id}/consistency/check`
+
+| 项目 | 说明 |
+|---|---|
+| 权限点 | `space:admin` |
+| 幂等策略 | `X-Idempotency-Key` |
+| 审计动作 | `space.consistency_check` |
+
+输出：
+
+```json
+{
+  "data": {
+    "check_id": "chk_002",
+    "space_id": "space_rd",
+    "status": "running",
+    "started_at": "2026-04-28T12:00:00Z"
+  }
+}
+```
+
+错误码：`CHECK_ALREADY_RUNNING`
+
+---
+
+## 15. 权限点映射汇总
+
+| Endpoint | Method | 权限点 |
+|---|---|---|
+| `/api/auth/login` | POST | 无（公开） |
+| `/api/auth/logout` | POST | 已认证 |
+| `/api/auth/me` | GET | 已认证 |
+| `/api/auth/refresh` | POST | 无（用 refresh_token） |
+| `/api/auth/password/change` | POST | 已认证 |
+| `/api/auth/sessions` | GET | 已认证 |
+| `/api/auth/sessions/{id}` | DELETE | 已认证（仅自己） |
+| `/api/spaces` | GET | `space:view`（过滤） |
+| `/api/spaces` | POST | `space:admin` 或 Admin |
+| `/api/spaces/{id}` | GET | `space:view` |
+| `/api/spaces/{id}` | PATCH | `space:admin` |
+| `/api/spaces/{id}/stats` | GET | `space:view` |
+| `/api/spaces/{id}/uploads` | POST | `upload:create` |
+| `/api/uploads/{id}` | GET | `upload:read` |
+| `/api/uploads/{id}/status` | GET | `upload:read` |
+| `/api/uploads/{id}/reprocess` | POST | `upload:create` |
+| `/api/spaces/{id}/graphify/runs` | POST | `graphify:run` |
+| `/api/graphify/runs` | GET | `graphify:view` |
+| `/api/graphify/runs/{id}` | GET | `graphify:view` |
+| `/api/graphify/runs/{id}/cancel` | POST | `graphify:run` |
+| `/api/graphify/runs/{id}/retry` | POST | `graphify:run` |
+| `/api/graphify/runs/{id}/report` | GET | `graphify:view` |
+| `/api/graphify/runs/{id}/graph` | GET | `graphify:view` |
+| `/api/spaces/{id}/wiki/pages` | GET | `space:view` |
+| `/api/spaces/{id}/wiki/pages/{pid}` | GET | `space:view` |
+| `/api/spaces/{id}/wiki/pages/{pid}/content` | GET | `space:view` |
+| `/api/spaces/{id}/wiki/pages/{pid}/versions` | GET | `space:view` |
+| `/api/spaces/{id}/wiki/pages/{pid}/publish` | POST | `wiki:publish` |
+| `/api/spaces/{id}/wiki/pages/{pid}/rollback` | POST | `wiki:rollback` |
+| `/api/spaces/{id}/wiki/pages/{pid}/citations` | GET | `space:view` |
+| `/api/spaces/{id}/wiki/pages/{pid}/graph` | GET | `space:view` |
+| `/api/spaces/{id}/wiki/pages/{pid}/reindex` | POST | `space:admin` |
+| `/api/spaces/{id}/wiki/pages/{pid}/proposals/{ppid}/accept` | POST | `wiki:publish` |
+| `/api/spaces/{id}/wiki/pages/{pid}/proposals/{ppid}/reject` | POST | `wiki:publish` |
+| `/api/spaces/{id}/wiki/consistency` | GET | `space:admin` |
+| `/api/spaces/{id}/consistency/check` | POST | `space:admin` |
+| `/api/graph/nodes` | GET | `space:view`（ACL 过滤） |
+| `/api/graph/nodes/{id}` | GET | `space:view` |
+| `/api/graph/nodes/{id}/neighbors` | GET | `space:view` |
+| `/api/graph/path` | POST | `space:view` |
+| `/api/graph/query` | POST | `space:view` |
+| `/api/graph/communities` | GET | `space:view` |
+| `/api/chat/completions` | POST | `chat:use` + `model:use` + `space:view` |
+| `/api/jobs/{id}` | GET | `space:view` 或 job 创建者 |
+| `/api/jobs/{id}/events` | GET | 同上 |
+| `/api/jobs/{id}/cancel` | POST | job 创建者 或 `space:admin` |
+| `/api/admin/users` | GET/POST | `admin:user_manage` |
+| `/api/admin/groups` | GET/POST | `admin:user_manage` |
+| `/api/admin/models` | GET/POST | `admin:model_manage` |
+| `/api/admin/models/{id}` | PATCH | `admin:model_manage` |
+| `/api/admin/models/{id}/test` | POST | `admin:model_manage` |
+| `/api/admin/audit-logs` | GET | `admin:audit_view` |
+| `/api/admin/jobs` | GET | `admin:audit_view` |
+| `/api/admin/system/health` | GET | `admin:audit_view` |
+| `/api/admin/graphify/runs` | GET | `admin:audit_view` |
+| `/api/admin/graphify/runs/{id}/retry` | POST | `admin:model_manage` |
+| `/api/admin/consistency-checks` | GET | `admin:audit_view` |
+| `/api/admin/spaces/{id}/rebuild-index` | POST | `admin:model_manage` |
+| `/api/admin/retrieval-traces/{id}` | GET | `admin:audit_view` |
+
+---
+
+## 16. OpenAPI 草案
 
 详见 [`../schemas/openapi.yaml`](../schemas/openapi.yaml)。
