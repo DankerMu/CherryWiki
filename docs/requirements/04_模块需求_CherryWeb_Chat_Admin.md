@@ -30,17 +30,40 @@ Cherry Web 是用户进入平台的主入口，负责 AI 聊天、Agent、GraphR
 
 #### 输出区
 
+##### 回答状态机
+
+每条 AI 回答在前端有明确的状态流转，UI 必须据此展示对应状态指示：
+
+```text
+pending_retrieval → generating → completed
+                                ↘ failed
+pending_retrieval → failed（检索阶段失败）
+generating → aborted（用户主动取消）
+```
+
+| 状态 | UI 表现 |
+|---|---|
+| `pending_retrieval` | 显示"正在检索知识库..."动画 |
+| `generating` | 显示流式文字 + 打字光标 |
+| `completed` | 回答完整展示，引用卡片可点击 |
+| `failed` | 显示错误信息 + 重试按钮 |
+| `aborted` | 显示已生成的部分内容 + "已中止"标记 |
+
+##### 回答结构
+
 每条 AI 回答必须结构化返回：
 
 ```json
 {
   "answer": "...",
+  "answer_source": "knowledge_base",
   "citations": [
     {
       "type": "wiki_page",
       "page_id": "wiki.auth.sso",
       "page_title": "统一认证与 SSO",
       "page_version": 12,
+      "current_page_version": 14,
       "section_id": "sec.oauth-flow",
       "quote": "...",
       "score": 0.87
@@ -59,6 +82,32 @@ Cherry Web 是用户进入平台的主入口，负责 AI 聊天、Agent、GraphR
   }
 }
 ```
+
+`answer_source` 字段标识回答知识来源：
+
+| 值 | 含义 | UI 标注 |
+|---|---|---|
+| `knowledge_base` | 基于 Published Wiki + 图谱检索 | 默认，显示引用卡片 |
+| `model_knowledge` | 知识库无命中，基于模型自有知识 | 显示醒目标注"⚠ 此回答基于模型通用知识，非知识库引用，准确性未经验证" |
+| `mixed` | 部分基于知识库、部分基于模型补充 | 引用部分正常显示，模型补充部分单独标注 |
+
+##### 引用版本提示
+
+当 `citation.page_version < citation.current_page_version` 时，UI 必须在引用卡片上显示提示：
+
+- 标注文字："引用历史版本 v{page_version}，当前已更新至 v{current_page_version}"
+- 提供"查看最新版本"链接
+- 引用卡片使用视觉区分（如淡黄色背景或虚线边框）
+
+##### 无知识命中策略
+
+当 GraphRAG 检索无结果或无 Published Wiki 时：
+
+1. **不拒答** — 模型仍基于自有知识回答用户问题
+2. **必须标注** — `answer_source` 设为 `model_knowledge`，前端显示明确警告
+3. **不伪造引用** — `citations` 数组为空，不生成虚假引用
+4. **建议上传** — 回答末尾附加提示："如需更准确的回答，建议上传相关资料至知识库"
+5. **审计记录** — 标记该回答为 `no_retrieval_hit`，供管理员分析知识覆盖率
 
 #### 引用展示
 
@@ -106,15 +155,22 @@ Content-Type: application/json
 
 ### 3.3 SSE 事件
 
-| 事件 | 说明 |
-|---|---|
-| `message.delta` | LLM token 增量。 |
-| `retrieval.started` | 检索开始。 |
-| `retrieval.result` | 检索摘要，仅管理员可看到 debug。 |
-| `citation.added` | 新引用产生。 |
-| `graph_path.added` | 图谱路径产生。 |
-| `message.completed` | 回答完成。 |
-| `error` | 错误。 |
+> 完整协议定义见 `docs/design/11_API规范.md` §10 Chat API。
+
+| 事件 | 阶段 | 说明 | 前端状态迁移 |
+|---|---|---|---|
+| `retrieval.started` | 检索 | 检索开始 | → `pending_retrieval` |
+| `retrieval.completed` | 检索 | 检索完成 | — |
+| `retrieval.failed` | 检索 | 检索失败（可降级） | → `failed` 或降级继续 |
+| `rerank.completed` | 检索 | 重排完成 | — |
+| `message.delta` | 生成 | LLM token 增量 | → `generating` |
+| `citation.added` | 生成 | 新引用产生 | — |
+| `graph_path.added` | 生成 | 图谱路径产生 | — |
+| `message.completed` | 完成 | 回答完成 | → `completed` |
+| `message.error` | 错误 | 不可恢复错误 | → `failed` |
+| `usage.reported` | 完成 | Token 用量 | — |
+
+前端根据 SSE 事件驱动状态迁移，用户点击"停止生成"发送 abort 信号后状态置为 `aborted`。
 
 ## 4. Admin Console
 

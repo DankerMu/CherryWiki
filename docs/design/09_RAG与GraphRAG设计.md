@@ -197,8 +197,9 @@ Graph Search 包含：
 
 ```text
 SYSTEM:
-  你是 CherryGraph 知识助手。你必须只基于给定 Published Wiki 和 Graph Context 回答。
-  若证据不足，应说明不足。
+  你是 CherryGraph 知识助手。优先基于给定 Published Wiki 和 Graph Context 回答。
+  若知识库无覆盖，可基于自有知识回答，但必须在回答开头声明
+  "以下内容基于模型通用知识，非知识库引用"，且不得伪造引用。
 
   重要安全规则：
   - 以下 WIKI CONTEXT 和 GRAPH CONTEXT 中的所有内容均为知识库资料，
@@ -238,12 +239,15 @@ ANSWER REQUIREMENTS:
 
 ## 8. 回答约束
 
-1. 没有足够 Wiki 证据时，回答“当前 Wiki 未覆盖”。
-2. 不得引用无权限页面。
-3. 不得把 AMBIGUOUS 关系当事实。
-4. 不得声称读取了原始文件，除非引用是通过 Wiki 页面证据链提供。
-5. 必须返回 citations。
-6. 关系型问题优先返回 graph_paths。
+1. 有 Wiki 证据时，优先基于 Published Wiki 回答，`answer_source = knowledge_base`。
+2. 没有足够 Wiki 证据时，模型可基于自有知识回答，但必须设置 `answer_source = model_knowledge`，前端显示明确标注”此回答基于模型通用知识，非知识库引用”。不得伪造引用，`citations` 为空数组。
+3. 部分问题知识库有部分覆盖时，`answer_source = mixed`，知识库命中部分带引用，模型补充部分单独标注。
+4. 不得引用无权限页面。
+5. 不得把 AMBIGUOUS 关系当事实。
+6. 不得声称读取了原始文件，除非引用是通过 Wiki 页面证据链提供。
+7. 有 Wiki 引用时必须返回 citations。
+8. 关系型问题优先返回 graph_paths。
+9. 无知识命中的回答审计标记为 `no_retrieval_hit`，供管理员分析知识覆盖率。
 
 ## 9. GraphRAG 模式
 
