@@ -8,10 +8,5 @@
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true
   },
-  "include": ["src"],
-  "references": [
-    {
-      "path": "../../packages/shared"
-    }
-  ]
+  "include": ["src"]
 }

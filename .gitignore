@@ -27,3 +27,4 @@ venv/
 # Build
 *.log
 tmp/
+.pnpm-store/

@@ -13,10 +13,6 @@
     "resolveJsonModule": true,
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true,
-    "baseUrl": ".",
-    "paths": {
-      "@cherrygraph/*": ["packages/*/src"]
-    }
+    "sourceMap": true
   }
 }
