@@ -5,12 +5,12 @@ import { envSchema, type Env } from '../env.js';
 const createValidEnv = (): Record<string, string> => ({
   DATABASE_URL: 'postgresql://cherrygraph:password@localhost:5432/cherrygraph',
   REDIS_URL: 'redis://localhost:6379',
-  JWT_SECRET: 'replace-with-long-random-secret',
+  JWT_SECRET: 'a-secret-that-is-at-least-32-characters-long!!',
   MINIO_ENDPOINT: 'http://localhost:9000',
   MINIO_ACCESS_KEY: 'minioadmin',
-  MINIO_SECRET_KEY: 'replace-with-strong-password',
+  MINIO_SECRET_KEY: 'strong-password-here',
   MODEL_API_BASE_URL: 'https://api.openai.com/v1',
-  MODEL_API_KEY: 'replace-with-model-api-key',
+  MODEL_API_KEY: 'sk-replace-with-model-api-key',
 });
 
 describe('envSchema', () => {
@@ -64,5 +64,33 @@ describe('envSchema', () => {
     });
 
     expect(parsed.UPLOAD_MAX_SIZE_MB).toBe(64);
+  });
+
+  it('rejects JWT_SECRET shorter than 32 characters', () => {
+    const input = { ...createValidEnv(), JWT_SECRET: 'short' };
+
+    expect(() => envSchema.parse(input)).toThrow(ZodError);
+  });
+
+  it('rejects WORKER_HEALTH_PORT above 65535', () => {
+    const input = { ...createValidEnv(), WORKER_HEALTH_PORT: '70000' };
+
+    expect(() => envSchema.parse(input)).toThrow(ZodError);
+  });
+
+  it('provides defaults for Phase 1 Graphify fields', () => {
+    const parsed = envSchema.parse(createValidEnv());
+
+    expect(parsed.GRAPHIFY_WORKDIR).toBe('/work/graphify');
+    expect(parsed.GRAPHIFY_DEFAULT_MODE).toBe('deep');
+    expect(parsed.GRAPHIFY_ENABLE_WIKI).toBe(true);
+    expect(parsed.GRAPHIFY_TIMEOUT_SECONDS).toBe(3600);
+  });
+
+  it('provides defaults for SSRF protection fields', () => {
+    const parsed = envSchema.parse(createValidEnv());
+
+    expect(parsed.SSRF_BLOCKED_CIDRS).toContain('127.0.0.0/8');
+    expect(parsed.URL_FETCH_TIMEOUT_SECONDS).toBe(30);
   });
 });
