@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { AppModule } from './app.module.js';
 import { HttpExceptionFilter, validationErrorsToDetails } from './common/filters/http-exception.filter.js';
+import { ResponseWrapperInterceptor } from './common/interceptors/response-wrapper.interceptor.js';
 import { createNestLogger } from './common/logger/logger.module.js';
 
 export function createValidationPipe(): ValidationPipe {
@@ -28,6 +29,7 @@ export function configureApp(app: NestFastifyApplication): void {
   app.setGlobalPrefix('api');
   app.useGlobalPipes(createValidationPipe());
   app.useGlobalFilters(new HttpExceptionFilter());
+  app.useGlobalInterceptors(new ResponseWrapperInterceptor());
 }
 
 function parsePort(value: string | undefined): number {

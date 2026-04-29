@@ -21,8 +21,10 @@ type ErrorPayload = {
   error: {
     code: ErrorCode;
     message: string;
-    request_id: string;
     details?: unknown[];
+  };
+  meta: {
+    request_id: string;
   };
 };
 
@@ -62,9 +64,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
         error: {
           code: ErrorCode.VALIDATION_ERROR,
           message: 'Validation failed',
-          request_id: requestId,
           details: validationErrorsToDetails(normalizeValidationErrors(exception)),
         },
+        meta: { request_id: requestId },
       });
       return;
     }
@@ -78,8 +80,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
           error: {
             code: mapStatusToErrorCode(status),
             message: 'Internal server error',
-            request_id: requestId,
           },
+          meta: { request_id: requestId },
         });
         return;
       }
@@ -91,9 +93,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
         error: {
           code: mapStatusToErrorCode(status),
           message: getHttpExceptionMessage(exception, exceptionResponse),
-          request_id: requestId,
           ...(details === undefined ? {} : { details }),
         },
+        meta: { request_id: requestId },
       });
       return;
     }
@@ -103,8 +105,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
       error: {
         code: ErrorCode.INTERNAL_ERROR,
         message: 'Internal server error',
-        request_id: requestId,
       },
+      meta: { request_id: requestId },
     });
   }
 }
