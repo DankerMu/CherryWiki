@@ -5,7 +5,7 @@ import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 
 import { ROLES } from '../constants.js';
-import { signAccessToken, type AccessTokenPayload } from '../jwt.js';
+import { signAccessToken, signRefreshToken, type AccessTokenPayload } from '../jwt.js';
 import { JwtAuthGuard, type AuthenticatedRequestUser } from '../jwt-auth.guard.js';
 import { PERMISSIONS_METADATA_KEY } from '../permissions.decorator.js';
 import { PUBLIC_METADATA_KEY } from '../public.decorator.js';
@@ -24,8 +24,9 @@ describe('JwtAuthGuard', () => {
     const guard = new JwtAuthGuard(new Reflector(), { jwtSecret: SECRET });
 
     await expect(guard.canActivate(createContext({ request }))).resolves.toBe(true);
-    expect(request.user?.sub).toBe('user-1');
-    expect(request.user?.tenant_id).toBe('tenant-1');
+    const user = request.user as AuthenticatedRequestUser | undefined;
+    expect(user?.sub).toBe('user-1');
+    expect(user?.tenant_id).toBe('tenant-1');
   });
 
   it('throws 401 for a missing token', async () => {
@@ -45,6 +46,23 @@ describe('JwtAuthGuard', () => {
           request: {
             headers: {
               authorization: 'Bearer invalid-token',
+            },
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({ status: 401 });
+  });
+
+  it('throws 401 when a refresh token is used as a bearer token', async () => {
+    const token = await signRefreshToken({ session_id: 'session-1' }, SECRET);
+    const guard = new JwtAuthGuard(new Reflector(), { jwtSecret: SECRET });
+
+    await expect(
+      guard.canActivate(
+        createContext({
+          request: {
+            headers: {
+              authorization: `Bearer ${token}`,
             },
           },
         }),
@@ -115,6 +133,67 @@ describe('RbacGuard', () => {
     ).rejects.toMatchObject({ status: 403 });
   });
 
+  it('throws 403 for a space-scoped permission without a target space', async () => {
+    const guard = new RbacGuard(new Reflector(), {
+      getPermissionsForUser() {
+        return Promise.resolve(['space:view']);
+      },
+    });
+    const handler = withPermissions(['space:view']);
+
+    await expect(
+      guard.canActivate(
+        createContext({
+          handler,
+          request: {
+            params: {},
+            user: createRequestUser(),
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('allows an admin to authorize a space-scoped permission without a target space', async () => {
+    const guard = new RbacGuard(new Reflector());
+    const handler = withPermissions(['space:view']);
+
+    await expect(
+      guard.canActivate(
+        createContext({
+          handler,
+          request: {
+            params: {},
+            user: createRequestUser({ role: ROLES.ADMIN }),
+          },
+        }),
+      ),
+    ).resolves.toBe(true);
+  });
+
+  it('throws 401 for a malformed user without a role', async () => {
+    const guard = new RbacGuard(new Reflector());
+    const handler = withPermissions(['space:view']);
+
+    await expect(
+      guard.canActivate(
+        createContext({
+          handler,
+          request: {
+            params: { space_id: 'space-1' },
+            user: {
+              sub: 'user-1',
+              tenant_id: 'tenant-1',
+              email: 'user@example.com',
+              group_ids: ['group-1'],
+              token_use: 'access',
+            },
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({ status: 401 });
+  });
+
   it('returns PERMISSION_DENIED when authorization fails', async () => {
     const guard = new RbacGuard(new Reflector(), {
       getPermissionsForUser() {
@@ -144,7 +223,7 @@ describe('RbacGuard', () => {
 type TestRequest = {
   headers?: Record<string, string | string[] | undefined>;
   params?: Record<string, string | undefined>;
-  user?: AuthenticatedRequestUser;
+  user?: unknown;
 };
 
 function createContext(input: {
@@ -180,8 +259,12 @@ function createAccessPayload(): AccessTokenPayload {
   };
 }
 
-function createRequestUser(): AuthenticatedRequestUser {
-  return createAccessPayload();
+function createRequestUser(overrides: Partial<AuthenticatedRequestUser> = {}): AuthenticatedRequestUser {
+  return {
+    ...createAccessPayload(),
+    token_use: 'access',
+    ...overrides,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

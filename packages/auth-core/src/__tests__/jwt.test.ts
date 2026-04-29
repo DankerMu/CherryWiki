@@ -5,6 +5,7 @@ import { ROLES } from '../constants.js';
 import {
   signAccessToken,
   signRefreshToken,
+  verifyAccessToken,
   verifyToken,
   type AccessTokenPayload,
   type RefreshTokenPayload,
@@ -22,6 +23,7 @@ describe('jwt utilities', () => {
     expect(decoded.email).toBe('user@example.com');
     expect(decoded.role).toBe(ROLES.VIEWER);
     expect(decoded.group_ids).toEqual(['group-1', 'group-2']);
+    expect(decoded.token_use).toBe('access');
     expect(typeof decoded.iat).toBe('number');
     expect(typeof decoded.exp).toBe('number');
   });
@@ -41,10 +43,11 @@ describe('jwt utilities', () => {
   it('verifies a valid token', async () => {
     const token = await signAccessToken(createAccessPayload(), SECRET);
 
-    await expect(verifyToken<AccessTokenPayload>(token, SECRET)).resolves.toMatchObject({
+    await expect(verifyAccessToken(token, SECRET)).resolves.toMatchObject({
       sub: 'user-1',
       tenant_id: 'tenant-1',
       email: 'user@example.com',
+      token_use: 'access',
     });
   });
 
@@ -59,7 +62,14 @@ describe('jwt utilities', () => {
 
     await expect(verifyToken<RefreshTokenPayload>(token, SECRET)).resolves.toMatchObject({
       session_id: 'session-1',
+      token_use: 'refresh',
     });
+  });
+
+  it('rejects a refresh token as an access token', async () => {
+    const token = await signRefreshToken({ session_id: 'session-1' }, SECRET);
+
+    await expect(verifyAccessToken(token, SECRET)).rejects.toThrow();
   });
 });
 

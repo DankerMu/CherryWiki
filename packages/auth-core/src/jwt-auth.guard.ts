@@ -2,8 +2,8 @@ import { Inject, Injectable, Optional, UnauthorizedException, type CanActivate, 
 import { Reflector } from '@nestjs/core';
 import { ErrorCode } from '@cherrygraph/shared';
 
-import type { AccessTokenPayload } from './jwt.js';
-import { verifyToken } from './jwt.js';
+import type { VerifiedAccessTokenPayload } from './jwt.js';
+import { verifyAccessToken } from './jwt.js';
 import { PUBLIC_METADATA_KEY } from './public.decorator.js';
 
 export const AUTH_CORE_OPTIONS = Symbol('AUTH_CORE_OPTIONS');
@@ -14,7 +14,7 @@ export type AuthCoreOptions = {
   getJwtSecret?: () => string | Promise<string>;
 };
 
-export type AuthenticatedRequestUser = AccessTokenPayload & {
+export type AuthenticatedRequestUser = VerifiedAccessTokenPayload & {
   iat?: number;
   exp?: number;
 };
@@ -43,7 +43,7 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     try {
-      request.user = await verifyToken<AuthenticatedRequestUser>(token, await this.resolveJwtSecret());
+      request.user = await verifyAccessToken(token, await this.resolveJwtSecret());
       return true;
     } catch {
       throwUnauthenticated();

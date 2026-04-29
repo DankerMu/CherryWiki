@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { PermissionCache, type PermissionCacheKey, type PermissionCacheRedis } from '../permission-cache.js';
+import {
+  buildPermissionCacheKey,
+  PermissionCache,
+  sanitizeKeyComponent,
+  type PermissionCacheKey,
+  type PermissionCacheRedis,
+} from '../permission-cache.js';
 import { PermissionSubscriber } from '../permission-subscriber.js';
 
 describe('PermissionCache', () => {
@@ -31,6 +37,27 @@ describe('PermissionCache', () => {
 
     await expect(cache.getPermissions(userKey)).resolves.toBeNull();
     await expect(cache.getPermissions(otherUserKey)).resolves.toEqual(['space:view']);
+  });
+
+  it('sanitizes special characters in cache keys and invalidation patterns', async () => {
+    const redis = new MapPermissionRedis();
+    const cache = new PermissionCache(redis);
+    const key = createKey({
+      tenant_id: 'tenant:1',
+      user_id: 'user*1?',
+      space_id: 'space[1]',
+      hash: 'query:hash*',
+    });
+
+    await cache.setPermissions(key, ['space:view']);
+
+    expect(sanitizeKeyComponent('tenant:1*?[x]')).toBe('tenant%3A1%2A%3F%5Bx%5D');
+    expect(buildPermissionCacheKey(key)).toBe('perm:tenant%3A1:user%2A1%3F:1:space%5B1%5D:1:query%3Ahash%2A');
+    expect([...redis.values.keys()]).toEqual([buildPermissionCacheKey(key)]);
+
+    await cache.invalidateUserPermissions('tenant:1', 'user*1?');
+
+    await expect(cache.getPermissions(key)).resolves.toBeNull();
   });
 
   it('invalidates cached space permissions from pub/sub messages', async () => {

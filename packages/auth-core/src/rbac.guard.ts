@@ -17,7 +17,6 @@ import {
   normalizeRole,
   type Role,
 } from './constants.js';
-import type { AuthenticatedRequestUser } from './jwt-auth.guard.js';
 import { PERMISSIONS_METADATA_KEY } from './permissions.decorator.js';
 
 export const SPACE_PERMISSION_RESOLVER = Symbol('SPACE_PERMISSION_RESOLVER');
@@ -34,14 +33,18 @@ export type SpacePermissionResolver = {
   getPermissionsForUser: (input: SpacePermissionResolverInput) => Promise<readonly string[]>;
 };
 
-type RequestUser = AuthenticatedRequestUser & {
+type RequestUser = {
+  sub?: string;
+  tenant_id?: string;
+  role: string;
+  group_ids: string[];
   permissions?: string[];
   space_permissions?: Record<string, string[]>;
 };
 
 type RequestWithAuth = {
-  user?: RequestUser;
-  params?: Record<string, string | undefined>;
+  user?: unknown;
+  params?: Record<string, string | null | undefined>;
   routeOptions?: {
     url?: string;
   };
@@ -68,13 +71,7 @@ export class RbacGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest<RequestWithAuth>();
-    const user = request.user;
-    if (user === undefined) {
-      throw new UnauthorizedException({
-        code: ErrorCode.UNAUTHENTICATED,
-        message: 'Unauthenticated',
-      });
-    }
+    const user = getValidatedRequestUser(request.user);
 
     const role = normalizeRole(user.role);
     if (role === ROLES.OWNER) {
@@ -87,6 +84,18 @@ export class RbacGuard implements CanActivate {
 
     const spaceId = getTargetSpaceId(request);
     const rolePermissions = new Set<string>(ROLE_PERMISSIONS[role]);
+
+    if (spaceId === undefined && requiredPermissions.some(isSpaceScopedPermission)) {
+      if (
+        role !== ROLES.ADMIN ||
+        !requiredPermissions.every((permission) => isSpaceScopedPermission(permission) || rolePermissions.has(permission))
+      ) {
+        throwPermissionDenied();
+      }
+
+      return true;
+    }
+
     const requestPermissions = await getRequestPermissions(request, user, spaceId, requiredPermissions, this.resolver);
 
     const allowed = requiredPermissions.every((permission) =>
@@ -149,6 +158,10 @@ async function getRequestPermissions(
     }
 
     if (resolver !== undefined) {
+      if (!isNonEmptyString(user.tenant_id) || !isNonEmptyString(user.sub)) {
+        throwUnauthenticated();
+      }
+
       return resolver.getPermissionsForUser({
         tenantId: user.tenant_id,
         userId: user.sub,
@@ -188,8 +201,69 @@ function isSpaceRoute(request: RequestWithAuth): boolean {
   return routePath === undefined || routePath.includes('/spaces') || routePath.includes(':space_id');
 }
 
-function isNonEmptyString(value: string | undefined): value is string {
-  return value !== undefined && value.length > 0;
+function getValidatedRequestUser(user: unknown): RequestUser {
+  if (!isRecord(user) || !isNonEmptyString(user.role)) {
+    throwUnauthenticated();
+  }
+
+  const groupIds = user.group_ids;
+  if (groupIds !== undefined && !isStringArray(groupIds)) {
+    throwUnauthenticated();
+  }
+
+  const requestUser: RequestUser = {
+    role: user.role,
+    group_ids: groupIds ?? [],
+  };
+
+  if (isNonEmptyString(user.sub)) {
+    requestUser.sub = user.sub;
+  }
+
+  if (isNonEmptyString(user.tenant_id)) {
+    requestUser.tenant_id = user.tenant_id;
+  }
+
+  if (user.permissions !== undefined) {
+    if (!isStringArray(user.permissions)) {
+      throwUnauthenticated();
+    }
+
+    requestUser.permissions = user.permissions;
+  }
+
+  if (user.space_permissions !== undefined) {
+    if (!isPermissionMap(user.space_permissions)) {
+      throwUnauthenticated();
+    }
+
+    requestUser.space_permissions = user.space_permissions;
+  }
+
+  return requestUser;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
+function isPermissionMap(value: unknown): value is Record<string, string[]> {
+  return isRecord(value) && Object.values(value).every(isStringArray);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function throwUnauthenticated(): never {
+  throw new UnauthorizedException({
+    code: ErrorCode.UNAUTHENTICATED,
+    message: 'Unauthenticated',
+  });
 }
 
 function throwPermissionDenied(): never {

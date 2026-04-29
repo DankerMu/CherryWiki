@@ -1,3 +1,5 @@
+import { TextEncoder } from 'node:util';
+
 export type PermissionCacheKey = {
   tenant_id: string;
   user_id: string;
@@ -16,6 +18,8 @@ export type PermissionCacheRedis = {
 
 export const DEFAULT_PERMISSION_CACHE_TTL_SECONDS = 60;
 export const MAX_PERMISSION_CACHE_TTL_SECONDS = 300;
+
+const keyComponentEncoder = new TextEncoder();
 
 export class PermissionCache {
   constructor(private readonly redis?: PermissionCacheRedis) {}
@@ -51,7 +55,7 @@ export class PermissionCache {
       return;
     }
 
-    await deleteByPattern(this.redis, `perm:${tenantId}:${userId}:*`);
+    await deleteByPattern(this.redis, `perm:${buildPatternLiteral(tenantId)}:${buildPatternLiteral(userId)}:*`);
   }
 
   async invalidateSpacePermissions(tenantId: string, spaceId: string): Promise<void> {
@@ -59,7 +63,7 @@ export class PermissionCache {
       return;
     }
 
-    await deleteByPattern(this.redis, `perm:${tenantId}:*:*:${spaceId}:*`);
+    await deleteByPattern(this.redis, `perm:${buildPatternLiteral(tenantId)}:*:*:${buildPatternLiteral(spaceId)}:*`);
   }
 
   async invalidateUserPermissionsAcrossTenants(userId: string): Promise<void> {
@@ -67,7 +71,7 @@ export class PermissionCache {
       return;
     }
 
-    await deleteByPattern(this.redis, `perm:*:${userId}:*`);
+    await deleteByPattern(this.redis, `perm:*:${buildPatternLiteral(userId)}:*`);
   }
 
   async invalidateSpacePermissionsAcrossTenants(spaceId: string): Promise<void> {
@@ -75,7 +79,7 @@ export class PermissionCache {
       return;
     }
 
-    await deleteByPattern(this.redis, `perm:*:*:*:${spaceId}:*`);
+    await deleteByPattern(this.redis, `perm:*:*:*:${buildPatternLiteral(spaceId)}:*`);
   }
 }
 
@@ -87,7 +91,31 @@ export function configurePermissionCache(redis?: PermissionCacheRedis): Permissi
 }
 
 export function buildPermissionCacheKey(key: PermissionCacheKey): string {
-  return `perm:${key.tenant_id}:${key.user_id}:${key.user_pv}:${key.space_id}:${key.space_pv}:${key.hash}`;
+  return [
+    'perm',
+    sanitizeKeyComponent(key.tenant_id),
+    sanitizeKeyComponent(key.user_id),
+    sanitizeKeyComponent(String(key.user_pv)),
+    sanitizeKeyComponent(key.space_id),
+    sanitizeKeyComponent(String(key.space_pv)),
+    sanitizeKeyComponent(key.hash),
+  ].join(':');
+}
+
+export function sanitizeKeyComponent(value: string): string {
+  let sanitized = '';
+  for (const char of value) {
+    if (/^[A-Za-z0-9_-]$/.test(char)) {
+      sanitized += char;
+      continue;
+    }
+
+    for (const byte of keyComponentEncoder.encode(char)) {
+      sanitized += `%${byte.toString(16).toUpperCase().padStart(2, '0')}`;
+    }
+  }
+
+  return sanitized;
 }
 
 export async function getPermissions(key: PermissionCacheKey): Promise<string[] | null> {
@@ -132,4 +160,12 @@ async function deleteByPattern(redis: PermissionCacheRedis, pattern: string): Pr
       await redis.del(...keys);
     }
   } while (cursor !== '0');
+}
+
+function buildPatternLiteral(value: string): string {
+  return escapeRedisGlobPattern(sanitizeKeyComponent(value));
+}
+
+function escapeRedisGlobPattern(value: string): string {
+  return value.replace(/\\|\*|\?|\[|\]/g, '\\$&');
 }
