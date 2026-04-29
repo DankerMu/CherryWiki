@@ -18,6 +18,11 @@
     "test": "vitest run --config ../../vitest.config.ts"
   },
   "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.20.0",
     "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.20.0"
   }
 }
