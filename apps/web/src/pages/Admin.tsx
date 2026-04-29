@@ -1,3 +1,5 @@
+import { Navigate } from 'react-router';
+
 export default function Admin() {
-  return <h1>Admin</h1>;
+  return <Navigate to="/admin/users" replace />;
 }

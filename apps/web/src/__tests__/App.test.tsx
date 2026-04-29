@@ -1,16 +1,36 @@
 import '@testing-library/jest-dom/vitest';
-import { render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppRoutes } from '../App';
+import { AuthProvider, useAuth, type AuthUser } from '../lib/auth';
 
-function renderRoute(path: string) {
+const ADMIN_USER: AuthUser = {
+  id: 'user-admin',
+  email: 'admin@example.com',
+  name: 'Admin User',
+  role: 'admin',
+  groups: [],
+};
+
+function renderRoute(path: string, user?: AuthUser) {
+  const routes = <AppRoutes />;
+
   render(
     <MemoryRouter initialEntries={[path]}>
-      <AppRoutes />
+      {user === undefined ? (
+        <AuthProvider>{routes}</AuthProvider>
+      ) : (
+        <AuthProvider initialSession={{ user, accessToken: 'test-token' }}>{routes}</AuthProvider>
+      )}
     </MemoryRouter>,
   );
 }
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe('App routing', () => {
   it('renders Home for /', () => {
@@ -37,10 +57,51 @@ describe('App routing', () => {
     expect(screen.getByRole('heading', { name: 'Wiki' })).toBeInTheDocument();
   });
 
-  it('renders Admin for /admin', () => {
+  it('redirects unauthenticated admin users to /login', () => {
     renderRoute('/admin');
 
-    expect(screen.getByRole('heading', { name: 'Admin' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  });
+
+  it('shows 403 for authenticated non-admin users', () => {
+    renderRoute('/admin/users', {
+      ...ADMIN_USER,
+      role: 'viewer',
+    });
+
+    expect(screen.getByRole('heading', { name: 'Access denied' })).toBeInTheDocument();
+  });
+
+  it('renders Users for /admin and /admin/users when authorized', async () => {
+    mockAdminApi();
+    renderRoute('/admin', ADMIN_USER);
+
+    expect(await screen.findByRole('heading', { name: 'Users' })).toBeInTheDocument();
+  });
+
+  it('renders all admin sub-pages when authorized', async () => {
+    mockAdminApi();
+
+    const routes = [
+      ['/admin/users', 'Users'],
+      ['/admin/groups', 'Groups'],
+      ['/admin/spaces', 'Spaces'],
+      ['/admin/models', 'Models'],
+      ['/admin/audit', 'Audit Logs'],
+      ['/admin/health', 'System Health'],
+    ] as const;
+
+    for (const [path, heading] of routes) {
+      const { unmount } = render(
+        <MemoryRouter initialEntries={[path]}>
+          <AuthProvider initialSession={{ user: ADMIN_USER, accessToken: 'test-token' }}>
+            <AppRoutes />
+          </AuthProvider>
+        </MemoryRouter>,
+      );
+      expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument();
+      unmount();
+    }
   });
 
   it('renders Chat for /chat/:id', () => {
@@ -55,21 +116,217 @@ describe('App routing', () => {
     expect(screen.queryAllByRole('heading', { name: 'Wiki' }).length).toBeGreaterThan(0);
   });
 
-  it('renders Admin for /admin/users', () => {
-    renderRoute('/admin/users');
-
-    expect(screen.queryAllByRole('heading', { name: 'Admin' }).length).toBeGreaterThan(0);
-  });
-
-  it('renders Admin for /admin/models', () => {
-    renderRoute('/admin/models');
-
-    expect(screen.queryAllByRole('heading', { name: 'Admin' }).length).toBeGreaterThan(0);
-  });
-
   it('renders NotFound for /nonexistent', () => {
     renderRoute('/nonexistent');
 
     expect(screen.getByRole('heading', { name: '404 — Page Not Found' })).toBeInTheDocument();
   });
 });
+
+describe('AuthProvider', () => {
+  it('logs in, injects the access token, and logs out in memory', async () => {
+    const fetchMock = vi.fn<typeof fetch>((input, init) => {
+      const path = getRequestPath(input);
+
+      if (path === '/api/auth/login') {
+        return Promise.resolve(jsonResponse({
+          data: {
+            access_token: 'access-123',
+            expires_in: 3600,
+            user: ADMIN_USER,
+          },
+          meta: { request_id: 'req-login' },
+        }));
+      }
+
+      if (path === '/api/auth/logout') {
+        expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer access-123');
+        return Promise.resolve(jsonResponse({ data: { success: true }, meta: { request_id: 'req-logout' } }));
+      }
+
+      return Promise.resolve(jsonResponse({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <AuthHarness />
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Login' }));
+
+    expect(await screen.findByText('admin@example.com')).toBeInTheDocument();
+    expect(screen.getByText('authenticated')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Logout' }));
+
+    await waitFor(() => expect(screen.getByText('anonymous')).toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+function AuthHarness() {
+  const { user, isAuthenticated, login, logout } = useAuth();
+
+  return (
+    <div>
+      <span>{isAuthenticated ? 'authenticated' : 'anonymous'}</span>
+      <span>{user?.email ?? 'No user'}</span>
+      <button
+        type="button"
+        onClick={() => {
+          void login('admin@example.com', 'password');
+        }}
+      >
+        Login
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void logout();
+        }}
+      >
+        Logout
+      </button>
+    </div>
+  );
+}
+
+function mockAdminApi(): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn<typeof fetch>((input) => {
+      const path = getRequestPath(input);
+
+      if (path.startsWith('/api/admin/users')) {
+        return Promise.resolve(jsonResponse({
+          data: [
+            {
+              id: 'user-admin',
+              email: 'admin@example.com',
+              name: 'Admin User',
+              role: 'admin',
+              status: 'active',
+              groups: ['group-admin'],
+              last_login_at: null,
+              created_at: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+          meta: { request_id: 'req-users' },
+        }));
+      }
+
+      if (path.startsWith('/api/admin/groups')) {
+        return Promise.resolve(jsonResponse({
+          data: [
+            {
+              id: 'group-admin',
+              name: 'Administrators',
+              description: 'Admin group',
+              member_count: 1,
+              spaces: [{ space_id: 'space-main', permissions: ['space:admin'] }],
+              created_at: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+          meta: { request_id: 'req-groups' },
+        }));
+      }
+
+      if (path.startsWith('/api/spaces')) {
+        return Promise.resolve(jsonResponse({
+          data: [
+            {
+              id: 'space-main',
+              name: 'Main Space',
+              slug: 'main-space',
+              status: 'active',
+              description: 'Primary space',
+              stats: { page_count: 0, source_count: 0, node_count: 0 },
+              created_at: '2026-01-01T00:00:00.000Z',
+              updated_at: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+          meta: { request_id: 'req-spaces' },
+        }));
+      }
+
+      if (path.startsWith('/api/admin/models')) {
+        return Promise.resolve(jsonResponse({
+          data: [
+            {
+              id: 'model-1',
+              name: 'GPT',
+              provider: 'openai',
+              model_id: 'gpt-4.1',
+              model_type: 'chat',
+              status: 'active',
+              config: { base_url: null, embedding_dim: null, max_tokens: 4096, rate_limit_rpm: null },
+              visible_group_ids: [],
+            },
+          ],
+          meta: { request_id: 'req-models' },
+        }));
+      }
+
+      if (path.startsWith('/api/admin/audit-logs')) {
+        return Promise.resolve(jsonResponse({
+          data: [
+            {
+              id: 'audit-1',
+              actor_user_id: 'user-admin',
+              action: 'auth.login',
+              resource_type: 'auth',
+              resource_id: null,
+              space_id: null,
+              ip: null,
+              user_agent: null,
+              request_id: 'req-audit',
+              metadata_json: {},
+              created_at: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+          meta: { request_id: 'req-audit-list' },
+        }));
+      }
+
+      if (path.startsWith('/api/admin/system/health')) {
+        return Promise.resolve(jsonResponse({
+          data: {
+            status: 'healthy',
+            uptime: 120,
+            components: {
+              database: { status: 'healthy', latency_ms: 2 },
+              redis: { status: 'healthy', latency_ms: 1 },
+              minio: { status: 'not_configured' },
+            },
+          },
+          meta: { request_id: 'req-health' },
+        }));
+      }
+
+      return Promise.resolve(jsonResponse({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404));
+    }),
+  );
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+function getRequestPath(input: RequestInfo | URL): string {
+  if (typeof input === 'string') {
+    return input.split('?')[0] ?? input;
+  }
+
+  if (input instanceof URL) {
+    return input.pathname;
+  }
+
+  return input.url.split('?')[0] ?? input.url;
+}
