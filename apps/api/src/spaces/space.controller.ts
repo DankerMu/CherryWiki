@@ -111,7 +111,7 @@ export class SpaceController {
     });
   }
 
-  @Permissions('space:admin')
+  @Permissions('admin:user_manage')
   @Post()
   async createSpace(
     @Body() body: CreateSpaceDto,

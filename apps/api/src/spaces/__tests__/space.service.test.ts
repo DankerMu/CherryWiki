@@ -200,6 +200,7 @@ describe('SpaceService', () => {
   it('gets placeholder stats', async () => {
     const { service, db } = createServiceContext();
     db.queueSelect([createSpaceRow({ index_consistency_status: 'stale' })]);
+    db.queueSelect([{ space_id: TEST_SPACE_ID }]);
 
     await expect(service.getStats(TEST_SPACE_ID, createViewerContext())).resolves.toEqual({
       space_id: TEST_SPACE_ID,

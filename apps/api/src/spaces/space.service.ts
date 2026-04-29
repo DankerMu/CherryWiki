@@ -91,7 +91,7 @@ type SpaceSortField = keyof Pick<typeof spaces, 'created_at' | 'updated_at' | 'n
 const DEFAULT_PAGE = 1;
 const DEFAULT_PER_PAGE = 20;
 const MAX_PER_PAGE = 100;
-const VIEW_PERMISSION = 'space:view';
+const VIEW_SATISFYING_PERMISSIONS = ['space:view', 'space:edit', 'space:admin'] as const;
 
 @Injectable()
 export class SpaceService {
@@ -302,6 +302,14 @@ export class SpaceService {
       throwSpaceNotFound();
     }
 
+    if (!hasImplicitSpaceAccess(context.actorRole)) {
+      const userId = resolveContextUserId(context);
+      const allowed = await this.hasSpaceViewPermission(tenantId, userId, spaceId);
+      if (!allowed) {
+        throwSpaceNotFound();
+      }
+    }
+
     return toSpaceStats(space);
   }
 
@@ -327,7 +335,7 @@ export class SpaceService {
     }
 
     if (input.search !== undefined && input.search.trim().length > 0) {
-      const pattern = `%${input.search.trim()}%`;
+      const pattern = `%${escapeLikePattern(input.search.trim())}%`;
       const searchFilter = or(
         ilike(spaces.name, pattern),
         ilike(spaces.slug, pattern),
@@ -358,7 +366,7 @@ export class SpaceService {
         and(
           eq(group_members.tenant_id, tenantId),
           eq(group_members.user_id, userId),
-          eq(space_permissions.permission, VIEW_PERMISSION),
+          inArray(space_permissions.permission, [...VIEW_SATISFYING_PERMISSIONS]),
         ),
       );
 
@@ -387,7 +395,7 @@ export class SpaceService {
           eq(group_members.tenant_id, tenantId),
           eq(group_members.user_id, userId),
           eq(space_permissions.space_id, spaceId),
-          eq(space_permissions.permission, VIEW_PERMISSION),
+          inArray(space_permissions.permission, [...VIEW_SATISFYING_PERMISSIONS]),
         ),
       )
       .limit(1);
@@ -538,6 +546,10 @@ function toSpaceStats(row: SpaceRow): SpaceStatsResponse {
     edge_count: 0,
     index_consistency: row.index_consistency_status,
   };
+}
+
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, '\\$&');
 }
 
 function normalizeSlug(slug: string): string {
