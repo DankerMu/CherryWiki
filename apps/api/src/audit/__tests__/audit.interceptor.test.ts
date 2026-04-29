@@ -5,6 +5,7 @@ import type { RequestContext } from '@cherrygraph/shared';
 import { lastValueFrom, of, throwError } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { getApiLogger } from '../../common/logger/logger.module.js';
 import { requestContextStorage } from '../../common/middleware/request-context.middleware.js';
 import { Audited } from '../audit.decorator.js';
 import { AuditInterceptor } from '../audit.interceptor.js';
@@ -88,6 +89,18 @@ describe('AuditInterceptor', () => {
     });
 
     expect(push).not.toHaveBeenCalled();
+  });
+
+  it('does not push an audit entry when tenant_id is empty', async () => {
+    const { interceptor, push } = createInterceptor();
+    const debug = vi.spyOn(getApiLogger(), 'debug').mockImplementation(() => undefined);
+
+    await requestContextStorage.run(createRequestContext({ tenant_id: '' }), async () => {
+      await lastValueFrom(interceptor.intercept(createContext(AuthController.prototype.login), createNext()));
+    });
+
+    expect(push).not.toHaveBeenCalled();
+    expect(debug).toHaveBeenCalledWith({ action: 'auth.login' }, 'Audit interceptor skipped entry without tenant context');
   });
 });
 

@@ -43,6 +43,12 @@ export class AuditInterceptor implements NestInterceptor {
 
   private pushAuditEntry(context: ExecutionContext, action: string): void {
     try {
+      const requestContext = requestContextStorage.getStore();
+      if (requestContext?.tenant_id === undefined || requestContext.tenant_id.trim().length === 0) {
+        getApiLogger().debug({ action }, 'Audit interceptor skipped entry without tenant context');
+        return;
+      }
+
       this.auditService.push(buildAuditEntry(context, action));
     } catch (err) {
       getApiLogger().warn({ err, action }, 'Audit interceptor failed to enqueue entry');
