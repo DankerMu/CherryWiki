@@ -4,6 +4,7 @@ import { PinoHttpLoggerMiddleware, LoggerModule } from './common/logger/logger.m
 import { IdempotencyMiddleware } from './common/middleware/idempotency.middleware.js';
 import { RequestContextMiddleware } from './common/middleware/request-context.middleware.js';
 import { RedisModule } from './common/redis/redis.module.js';
+import { AdminHealthModule } from './admin/admin-health.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { DrizzleModule } from './database/drizzle.module.js';
@@ -25,6 +26,7 @@ import { UserModule } from './users/user.module.js';
     SpaceModule,
     ModelConfigModule,
     HealthModule,
+    AdminHealthModule,
   ],
 })
 export class AppModule implements NestModule {
