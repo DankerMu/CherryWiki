@@ -52,19 +52,16 @@
 
 ### P0：开发前必须完成
 
-- [ ] **T-14.1** 定义 Graphify Wiki Normalization Algorithm。
-  - wiki-core 中从 Graphify 扁平 wiki/ 目录到 Canonical Wiki Repo 层级结构的映射算法。
-  - 包括：slug 生成规则、page_id 分配、community/god-node 页面路径、冲突处理。
-  - 文件：`docs/design/21_Graphify_输出Schema契约.md` 新增 §10 或独立文档。
+- [x] **T-14.1** 定义 Graphify Wiki Normalization Algorithm。
+  - 已在 `docs/design/21_Graphify_输出Schema契约.md` 中完成，包含页面类型识别、page_id 规则、frontmatter、section anchor、block ownership、冲突策略和转换流程。
 
 - [ ] **T-14.2** 定义 Docmost Markdown ↔ 富文本 round-trip 验证用例。
   - Docmost 使用 Tiptap 编辑器，Markdown → Tiptap JSON → Markdown 可能有信息损耗。
   - 需验证：HTML 注释保留、Frontmatter 保留、表格格式、代码块、Mermaid。
   - 文件：`docs/requirements/06_模块需求_Docmost集成.md` 新增验证矩阵。
 
-- [ ] **T-14.3** 完善 openapi.yaml 补充端点 schema。
-  - §14 新增的端点（password/change, sessions, jobs, content, proposals, models PATCH/test, consistency/check）需同步到 openapi.yaml paths + schemas。
-  - 当前只在 11_API规范.md 中有定义，openapi.yaml 尚未同步。
+- [x] **T-14.3** 完善 openapi.yaml 补充端点 schema。
+  - 所有新增端点（password/change, sessions, jobs, content, proposals accept/reject, models PATCH/test, consistency/check）已同步到 openapi.yaml。
 
 ### P1：Phase 1 开发中补充
 
