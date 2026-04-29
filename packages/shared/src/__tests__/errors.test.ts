@@ -23,6 +23,14 @@ describe('ErrorCode', () => {
     expect(ErrorCode.SESSION_NOT_FOUND).toBe('SESSION_NOT_FOUND');
   });
 
+  it('contains user and group management error codes', () => {
+    expect(ErrorCode.USER_EMAIL_CONFLICT).toBe('USER_EMAIL_CONFLICT');
+    expect(ErrorCode.USER_NOT_FOUND).toBe('USER_NOT_FOUND');
+    expect(ErrorCode.INVALID_ROLE).toBe('INVALID_ROLE');
+    expect(ErrorCode.GROUP_NOT_FOUND).toBe('GROUP_NOT_FOUND');
+    expect(ErrorCode.GROUP_NAME_CONFLICT).toBe('GROUP_NAME_CONFLICT');
+  });
+
   it('uses uppercase snake case for every value', () => {
     const uppercaseSnakeCase = /^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$/;
 
