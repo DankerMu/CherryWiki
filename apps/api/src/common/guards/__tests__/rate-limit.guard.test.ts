@@ -16,29 +16,30 @@ class MapRateLimitRedisStore implements RateLimitRedisStore {
   readonly values = new Map<string, Array<{ score: number; member: string }>>();
   readonly expirations = new Map<string, number>();
 
-  zremrangebyscore(key: string, min: number | string, max: number | string): Promise<number> {
-    const minScore = Number(min);
-    const maxScore = Number(max);
+  eval(script: string, numberOfKeys: number, ...args: Array<string | number>): Promise<[number, number]> {
+    expect(script).toContain('ZREMRANGEBYSCORE');
+    expect(numberOfKeys).toBe(1);
+
+    const [key, nowValue, windowMsValue, limitValue, memberValue, ttlValue] = args;
+    if (typeof key !== 'string' || typeof memberValue !== 'string') {
+      return Promise.reject(new Error('Invalid eval arguments'));
+    }
+
+    const now = Number(nowValue);
+    const windowMs = Number(windowMsValue);
+    const limit = Number(limitValue);
+    const ttl = Number(ttlValue);
     const entries = this.values.get(key) ?? [];
-    const kept = entries.filter((entry) => entry.score < minScore || entry.score > maxScore);
+    const kept = entries.filter((entry) => entry.score < 0 || entry.score > now - windowMs);
     this.values.set(key, kept);
-    return Promise.resolve(entries.length - kept.length);
-  }
 
-  zcard(key: string): Promise<number> {
-    return Promise.resolve(this.values.get(key)?.length ?? 0);
-  }
+    if (kept.length >= limit) {
+      return Promise.resolve([0, kept.length]);
+    }
 
-  zadd(key: string, score: number, member: string): Promise<number> {
-    const entries = this.values.get(key) ?? [];
-    entries.push({ score, member });
-    this.values.set(key, entries);
-    return Promise.resolve(1);
-  }
-
-  expire(key: string, seconds: number): Promise<number> {
-    this.expirations.set(key, seconds);
-    return Promise.resolve(1);
+    kept.push({ score: now, member: memberValue });
+    this.expirations.set(key, ttl);
+    return Promise.resolve([1, kept.length]);
   }
 }
 
@@ -118,9 +119,38 @@ describe('RateLimitGuard', () => {
     vi.setSystemTime(61_000);
     await expect(guard.canActivate(createContext(options, createResponse()))).resolves.toBe(true);
   });
+
+  it('uses request.ip instead of trusting x-forwarded-for directly', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const redis = new MapRateLimitRedisStore();
+    const guard = new RateLimitGuard(new Reflector(), redis);
+
+    await expect(
+      guard.canActivate(
+        createContext({ limit: 2, windowSec: 60, mode: 'ip' }, createResponse(), undefined, {
+          headers: { 'x-forwarded-for': '198.51.100.200' },
+          ip: '203.0.113.10',
+        }),
+      ),
+    ).resolves.toBe(true);
+
+    expect(redis.values.has('ratelimit::ip:203.0.113.10:60:2')).toBe(true);
+    expect(redis.values.has('ratelimit::ip:198.51.100.200:60:2')).toBe(false);
+  });
 });
 
-function createContext(options: RateLimitOptions, response: FakeResponse, userId?: string): ExecutionContext {
+type RequestOverrides = {
+  headers?: Record<string, string>;
+  ip?: string;
+};
+
+function createContext(
+  options: RateLimitOptions,
+  response: FakeResponse,
+  userId?: string,
+  requestOverrides: RequestOverrides = {},
+): ExecutionContext {
   const handler = () => undefined;
   Reflect.defineMetadata(RATE_LIMIT_METADATA_KEY, options, handler);
 
@@ -129,7 +159,8 @@ function createContext(options: RateLimitOptions, response: FakeResponse, userId
     getClass: () => class TestController {},
     switchToHttp: () => ({
       getRequest: () => ({
-        ip: '203.0.113.10',
+        ip: requestOverrides.ip ?? '203.0.113.10',
+        headers: requestOverrides.headers,
         user: userId === undefined ? undefined : { user_id: userId },
       }),
       getResponse: () => response,

@@ -35,6 +35,7 @@ type HttpResponseLike = {
 };
 
 type HttpExceptionResponse = {
+  code?: unknown;
   message?: unknown;
   error?: unknown;
   details?: unknown;
@@ -49,6 +50,7 @@ const ERROR_CODE_BY_STATUS = new Map<number, ErrorCode>([
   [HttpStatus.TOO_MANY_REQUESTS, ErrorCode.RATE_LIMITED],
   [HttpStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_ERROR],
 ]);
+const ERROR_CODE_VALUES = new Set<ErrorCode>(Object.values(ErrorCode));
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
@@ -91,7 +93,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
       response.status(status).send({
         error: {
-          code: mapStatusToErrorCode(status),
+          code: getHttpExceptionErrorCode(status, exceptionResponse),
           message: getHttpExceptionMessage(exception, exceptionResponse),
           ...(details === undefined ? {} : { details }),
         },
@@ -141,6 +143,10 @@ function mapStatusToErrorCode(status: number): ErrorCode {
   return ERROR_CODE_BY_STATUS.get(status) ?? (status >= 500 ? ErrorCode.INTERNAL_ERROR : ErrorCode.VALIDATION_ERROR);
 }
 
+function getHttpExceptionErrorCode(status: number, response: HttpExceptionResponse): ErrorCode {
+  return isErrorCode(response.code) ? response.code : mapStatusToErrorCode(status);
+}
+
 function getHttpExceptionMessage(exception: HttpException, response: HttpExceptionResponse): string {
   if (typeof response.message === 'string') {
     return response.message;
@@ -167,10 +173,15 @@ function normalizeHttpExceptionResponse(response: string | object): HttpExceptio
   }
 
   return {
+    code: response.code,
     message: response.message,
     error: response.error,
     details: response.details,
   };
+}
+
+function isErrorCode(value: unknown): value is ErrorCode {
+  return typeof value === 'string' && ERROR_CODE_VALUES.has(value as ErrorCode);
 }
 
 function normalizeValidationErrors(exception: ValidationError | ValidationError[]): ValidationError[] {

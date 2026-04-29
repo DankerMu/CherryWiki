@@ -27,7 +27,15 @@ export type PaginationMeta = {
   has_next: boolean;
 };
 
+export type SortDirection = 'asc' | 'desc';
+
+export type ParsedSortField = {
+  field: string;
+  direction: SortDirection;
+};
+
 const PAGINATED_RESPONSE_MARKER = Symbol('PAGINATED_RESPONSE_MARKER');
+const SORT_FIELD_PATTERN = /^[A-Za-z0-9_]+$/;
 
 export type PaginatedResponse<T> = {
   readonly [PAGINATED_RESPONSE_MARKER]: true;
@@ -42,6 +50,17 @@ export function buildPaginationMeta(page: number, perPage: number, total: number
     total,
     has_next: page * perPage < total,
   };
+}
+
+export function parseSortField(sort: string): ParsedSortField {
+  const direction: SortDirection = sort.startsWith('-') ? 'desc' : 'asc';
+  const field = direction === 'desc' ? sort.slice(1) : sort;
+
+  if (!SORT_FIELD_PATTERN.test(field)) {
+    throw new Error('Invalid sort field');
+  }
+
+  return { field, direction };
 }
 
 export function paginatedResponse<T>(data: T[], pagination: PaginationMeta): PaginatedResponse<T> {

@@ -3,6 +3,8 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  HttpException,
+  HttpStatus,
   Module,
   NotFoundException,
   Post,
@@ -37,6 +39,17 @@ class ErrorTestController {
   @Get('forbidden')
   forbidden(): never {
     throw new ForbiddenException('Access denied');
+  }
+
+  @Get('invalid-credentials')
+  invalidCredentials(): never {
+    throw new HttpException(
+      {
+        code: ErrorCode.INVALID_CREDENTIALS,
+        message: 'Invalid credentials',
+      },
+      HttpStatus.UNAUTHORIZED,
+    );
   }
 
   @Get('unknown')
@@ -90,6 +103,19 @@ describe('HttpExceptionFilter', () => {
     const error = getErrorPayload(response.text);
     expect(error.code).toBe(ErrorCode.PERMISSION_DENIED);
     expect(error.message).toBe('Access denied');
+    expect(getMetaPayload(response.text).request_id).toBe(REQUEST_ID);
+  });
+
+  it('preserves valid custom error codes from HttpException response bodies', async () => {
+    app = await createTestApp();
+    const response = await request(app.getHttpAdapter().getInstance().server)
+      .get('/api/error-test/invalid-credentials')
+      .set('X-Request-Id', REQUEST_ID)
+      .expect(401);
+
+    const error = getErrorPayload(response.text);
+    expect(error.code).toBe(ErrorCode.INVALID_CREDENTIALS);
+    expect(error.message).toBe('Invalid credentials');
     expect(getMetaPayload(response.text).request_id).toBe(REQUEST_ID);
   });
 

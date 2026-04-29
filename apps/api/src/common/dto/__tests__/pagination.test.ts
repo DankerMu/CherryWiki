@@ -4,7 +4,7 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { describe, expect, it } from 'vitest';
 
-import { buildPaginationMeta, PaginationQueryDto } from '../pagination.dto.js';
+import { buildPaginationMeta, PaginationQueryDto, parseSortField } from '../pagination.dto.js';
 
 describe('PaginationQueryDto', () => {
   it('uses default values', async () => {
@@ -46,5 +46,27 @@ describe('buildPaginationMeta', () => {
       total: 100,
       has_next: false,
     });
+  });
+});
+
+describe('parseSortField', () => {
+  it('parses ascending sort fields', () => {
+    expect(parseSortField('created_at')).toEqual({
+      field: 'created_at',
+      direction: 'asc',
+    });
+  });
+
+  it('parses descending sort fields', () => {
+    expect(parseSortField('-created_at')).toEqual({
+      field: 'created_at',
+      direction: 'desc',
+    });
+  });
+
+  it('rejects invalid sort field names', () => {
+    expect(() => parseSortField('-')).toThrow('Invalid sort field');
+    expect(() => parseSortField('created-at')).toThrow('Invalid sort field');
+    expect(() => parseSortField('created at')).toThrow('Invalid sort field');
   });
 });
