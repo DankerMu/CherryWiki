@@ -1,4 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
+import { Public } from '@cherrygraph/auth-core';
 import { APP_VERSION } from '@cherrygraph/shared';
 import { readFileSync } from 'node:fs';
 
@@ -13,6 +14,7 @@ const API_VERSION = readApiPackageVersion();
 @Controller('health')
 export class HealthController {
   @Get()
+  @Public()
   getHealth(): HealthResponse {
     return {
       status: 'healthy',
