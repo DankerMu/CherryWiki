@@ -20,11 +20,14 @@
 | | 13_开发规范.md | 仓库结构、技术栈、编码规范 |
 | | 14_测试验收规范.md | 测试层级、性能指标 |
 | | 15_部署运维规范.md | Docker Compose、备份恢复 |
+| | 24_威胁建模与安全用例.md | 8 类威胁场景、风险矩阵、防御映射 |
 | **project/** | 16_实施路线图与里程碑.md | Phase 1-4 交付物与退出标准 |
 | | 17_风险清单与决策记录.md | R1-R14、ADR-001~009 |
 | | 18_开源许可证与合规说明.md | AGPL、SBOM |
 | | 19_资料依据与外部来源.md | 参考来源 |
 | | 23_补充建议清单.md | 安全、可观测性补充 |
+| | 24_需求追踪矩阵.md | 需求→API→Schema→测试全链路追踪 |
+| | 25_Phase1_Scope_Lock.md | Phase 1 做什么/不做什么/禁止捷径 |
 | **audit/** | 20_Cherry_Studio_代码审计.md | 345K LOC 扫描、复用评级 |
 | | 22_Docmost_Fork_改动清单.md | baseline v0.80.1、Bridge 路由 |
 | **schemas/** | schema.sql | PostgreSQL DDL 草案 |
