@@ -16,8 +16,11 @@ export const users = pgTable(
       .references(() => tenants.id),
     email: text('email').notNull(),
     display_name: text('display_name').notNull(),
+    password_hash: text('password_hash').notNull(),
+    role: text('role').notNull().default('viewer'),
     status: text('status').notNull().default('active'),
     permission_version: bigint('permission_version', { mode: 'number' }).notNull().default(1),
+    last_login_at: timestamp('last_login_at', { withTimezone: true }),
     created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -71,6 +74,8 @@ export const spaces = pgTable(
       .references(() => tenants.id),
     name: text('name').notNull(),
     slug: text('slug').notNull(),
+    description: text('description'),
+    status: text('status').notNull().default('active'),
     docmost_space_id: text('docmost_space_id'),
     wiki_repo_path: text('wiki_repo_path').notNull(),
     active_graphify_run_id: text('active_graphify_run_id'),
@@ -107,6 +112,31 @@ export const space_permissions = pgTable(
     created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [unique('space_permissions_space_id_group_id_permission_unique').on(table.space_id, table.group_id, table.permission)],
+);
+
+export const permission_versions = pgTable(
+  'permission_versions',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    space_id: text('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    actor_user_id: text('actor_user_id').references(() => users.id),
+    change_type: text('change_type').notNull(),
+    subject_type: text('subject_type').notNull(),
+    subject_id: text('subject_id').notNull(),
+    old_permissions_json: jsonb('old_permissions_json'),
+    new_permissions_json: jsonb('new_permissions_json').notNull(),
+    reason: text('reason'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_permission_versions_space').on(table.tenant_id, table.space_id, table.created_at.desc()),
+    index('idx_permission_versions_subject').on(table.subject_type, table.subject_id),
+  ],
 );
 
 export const model_configs = pgTable(
@@ -170,6 +200,7 @@ export const sessions = pgTable(
     refresh_token_hash: text('refresh_token_hash').notNull(),
     ip: text('ip'),
     user_agent: text('user_agent'),
+    last_used_at: timestamp('last_used_at', { withTimezone: true }),
     expires_at: timestamp('expires_at', { withTimezone: true }).notNull(),
     revoked_at: timestamp('revoked_at', { withTimezone: true }),
     created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -179,4 +210,20 @@ export const sessions = pgTable(
     index('idx_sessions_user').on(table.tenant_id, table.user_id).where(sql`${table.revoked_at} IS NULL`),
     index('idx_sessions_refresh').on(table.refresh_token_hash).where(sql`${table.revoked_at} IS NULL`),
   ],
+);
+
+export const system_settings = pgTable(
+  'system_settings',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    category: text('category').notNull(),
+    key: text('key').notNull(),
+    value_json: jsonb('value_json').notNull(),
+    updated_by: text('updated_by').references(() => users.id),
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique('system_settings_tenant_id_category_key_unique').on(table.tenant_id, table.category, table.key)],
 );

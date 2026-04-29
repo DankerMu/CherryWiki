@@ -1,0 +1,166 @@
+import { z } from 'zod';
+
+export const userRoleSchema = z.enum(['owner', 'admin', 'space_admin', 'editor', 'viewer', 'auditor']);
+export const userStatusSchema = z.enum(['active', 'disabled']);
+export const spaceStatusSchema = z.enum(['active', 'archived']);
+export const modelTypeSchema = z.enum(['chat', 'embedding', 'rerank']);
+
+const nonEmptyString = z.string().trim().min(1);
+const idSchema = nonEmptyString.max(200);
+const optionalIdSchema = z.string().max(200);
+const emailSchema = z.string().trim().email().max(254);
+const displayNameSchema = nonEmptyString.max(200);
+const optionalDisplayNameSchema = z.string().max(200);
+const nameSchema = nonEmptyString.max(200);
+const descriptionSchema = z.string().max(5000);
+const passwordSchema = z.string().min(8).max(128);
+const slugSchema = z
+  .string()
+  .trim()
+  .max(100)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+const providerSchema = nonEmptyString.max(200);
+const modelIdSchema = nonEmptyString.max(200);
+const baseUrlSchema = z.string().url().max(2048);
+const encryptedApiKeyRefSchema = z.string().max(500);
+const visibleGroupIdsSchema = z.array(z.string()).max(100);
+const requestMetadataStringSchema = z.string().max(500);
+const shortTextSchema = nonEmptyString.max(100);
+
+// Accept unstructured JSON object records here; feature-specific schemas own deeper shape validation.
+const unstructuredJsonRecordSchema = z.record(z.unknown());
+
+export const insertUserSchema = z.object({
+  id: optionalIdSchema.optional(),
+  tenant_id: idSchema,
+  email: emailSchema,
+  display_name: displayNameSchema,
+  password: passwordSchema,
+  role: userRoleSchema.default('viewer'),
+  status: userStatusSchema.default('active'),
+});
+
+export const updateUserSchema = z
+  .object({
+    email: emailSchema.optional(),
+    display_name: displayNameSchema.optional(),
+    password: passwordSchema.optional(),
+    role: userRoleSchema.optional(),
+    status: userStatusSchema.optional(),
+  })
+  .partial();
+
+export const insertSpaceSchema = z.object({
+  id: optionalIdSchema.optional(),
+  tenant_id: idSchema,
+  name: nameSchema,
+  slug: slugSchema,
+  description: descriptionSchema.optional(),
+  status: spaceStatusSchema.default('active'),
+  strict_knowledge_only: z.boolean().default(true),
+  graphify_config: unstructuredJsonRecordSchema.default({}),
+  default_publish_policy: shortTextSchema.default('editor_publish'),
+});
+
+export const updateSpaceSchema = z
+  .object({
+    name: nameSchema.optional(),
+    slug: slugSchema.optional(),
+    description: descriptionSchema.optional(),
+    status: spaceStatusSchema.optional(),
+    strict_knowledge_only: z.boolean().optional(),
+    graphify_config: unstructuredJsonRecordSchema.optional(),
+    default_publish_policy: shortTextSchema.optional(),
+  })
+  .partial();
+
+export const insertModelConfigSchema = z.object({
+  id: optionalIdSchema.optional(),
+  tenant_id: idSchema,
+  provider: providerSchema,
+  model_id: modelIdSchema,
+  model_type: modelTypeSchema,
+  display_name: optionalDisplayNameSchema.optional(),
+  base_url: baseUrlSchema.optional(),
+  encrypted_api_key_ref: encryptedApiKeyRefSchema.optional(),
+  embedding_dim: z.number().int().positive().optional(),
+  max_tokens: z.number().int().positive().optional(),
+  rate_limit_rpm: z.number().int().positive().optional(),
+  enabled: z.boolean().default(true),
+  visible_group_ids: visibleGroupIdsSchema.default([]),
+});
+
+export const updateModelConfigSchema = z
+  .object({
+    provider: providerSchema.optional(),
+    model_id: modelIdSchema.optional(),
+    model_type: modelTypeSchema.optional(),
+    display_name: optionalDisplayNameSchema.optional(),
+    base_url: baseUrlSchema.optional(),
+    encrypted_api_key_ref: encryptedApiKeyRefSchema.optional(),
+    embedding_dim: z.number().int().positive().optional(),
+    max_tokens: z.number().int().positive().optional(),
+    rate_limit_rpm: z.number().int().positive().optional(),
+    enabled: z.boolean().optional(),
+    visible_group_ids: visibleGroupIdsSchema.optional(),
+  })
+  .partial();
+
+export const insertGroupSchema = z.object({
+  id: optionalIdSchema.optional(),
+  tenant_id: idSchema,
+  name: nameSchema,
+  description: descriptionSchema.optional(),
+});
+
+export const updateGroupSchema = z
+  .object({
+    name: nameSchema.optional(),
+    description: descriptionSchema.optional(),
+  })
+  .partial();
+
+export const insertSessionSchema = z.object({
+  id: optionalIdSchema.optional(),
+  tenant_id: idSchema,
+  user_id: idSchema,
+  refresh_token_hash: nonEmptyString.max(500),
+  ip: requestMetadataStringSchema.optional(),
+  user_agent: requestMetadataStringSchema.optional(),
+  expires_at: z.coerce.date(),
+});
+
+export const insertAuditLogSchema = z.object({
+  id: optionalIdSchema.optional(),
+  tenant_id: idSchema,
+  actor_user_id: optionalIdSchema.optional(),
+  action: shortTextSchema,
+  resource_type: shortTextSchema,
+  resource_id: optionalIdSchema.optional(),
+  space_id: optionalIdSchema.optional(),
+  ip: requestMetadataStringSchema.optional(),
+  user_agent: requestMetadataStringSchema.optional(),
+  request_id: requestMetadataStringSchema.optional(),
+  metadata_json: unstructuredJsonRecordSchema.default({}),
+});
+
+export const insertSystemSettingSchema = z.object({
+  id: optionalIdSchema.optional(),
+  tenant_id: idSchema,
+  category: shortTextSchema,
+  key: shortTextSchema,
+  value_json: unstructuredJsonRecordSchema,
+  updated_by: optionalIdSchema.optional(),
+});
+
+export type InsertUserInput = z.infer<typeof insertUserSchema>;
+export type UpdateUserInput = z.infer<typeof updateUserSchema>;
+export type InsertSpaceInput = z.infer<typeof insertSpaceSchema>;
+export type UpdateSpaceInput = z.infer<typeof updateSpaceSchema>;
+export type InsertModelConfigInput = z.infer<typeof insertModelConfigSchema>;
+export type UpdateModelConfigInput = z.infer<typeof updateModelConfigSchema>;
+export type InsertGroupInput = z.infer<typeof insertGroupSchema>;
+export type UpdateGroupInput = z.infer<typeof updateGroupSchema>;
+export type InsertSessionInput = z.infer<typeof insertSessionSchema>;
+export type InsertAuditLogInput = z.infer<typeof insertAuditLogSchema>;
+export type InsertSystemSettingInput = z.infer<typeof insertSystemSettingSchema>;

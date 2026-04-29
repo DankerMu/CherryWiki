@@ -19,6 +19,13 @@
 - [ ] 1.2 创建 seed 脚本：默认 tenant + admin 用户（邮箱/密码从环境变量 `ADMIN_EMAIL` / `ADMIN_PASSWORD` 读取），幂等执行
 - [ ] 1.3 在 packages/shared 中定义 Drizzle schema 文件（TypeScript schema-first），导出所有 Stage 1 表的 Drizzle table 定义和 Zod validation schema
 
+### 1.T Database Migration Tests
+
+- [ ] 1.T1 Schema 完整性测试：users 含 password_hash/role/last_login_at 列，spaces 含 description/status 列，sessions 含 last_used_at 列，permission_versions 和 system_settings 表存在
+- [ ] 1.T2 Seed 幂等性测试：seed 脚本首次运行创建默认 tenant + admin 用户，第二次运行不报错且不创建重复数据
+- [ ] 1.T3 Zod schema 验证测试：合法输入通过验证（完整 user/space/model_config 对象），非法输入被拒绝（空 email、缺少 tenant_id、无效 role 等），导出类型与 Drizzle table 定义一致
+- [ ] 1.T4 tenant_id 覆盖测试：验证所有核心业务表的 Drizzle schema 都包含 notNull 的 tenant_id 字段
+
 ## 2. Audit Infrastructure（前置，所有审计依赖）
 
 - [ ] 2.1 创建 AuditModule：实现 AuditService（内存队列 + 每 1s 或满 50 条 flush 到 DB + graceful drain）
