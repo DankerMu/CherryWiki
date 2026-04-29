@@ -6,6 +6,13 @@
 - [ ] 0.4 实现 X-Idempotency-Key 中间件：Redis 存储（TTL=24h），重复 key 返回 200 + X-Idempotent-Replayed: true
 - [ ] 0.5 实现通用 API rate limit guard：支持按 user 和按 IP 两种模式，配置项：public API 600 req/min/user、Admin API 300 req/min/user（login 单独 10 req/min/IP 在 Auth 模块实现）
 
+### 0.T Request Infrastructure Tests
+
+- [ ] 0.T1 统一响应格式测试：成功响应 `{ data, meta: { request_id } }`，错误响应 `{ error: { code, message }, meta: { request_id } }`，request_id 从 AsyncLocalStorage 正确获取
+- [ ] 0.T2 分页 DTO 测试：默认值（page=1, per_page=20, sort=-created_at），边界值（page=0 → 422, per_page > 100 → 422），排序方向解析（`-created_at` → DESC, `created_at` → ASC），响应 meta.pagination 含 page/per_page/total/has_next
+- [ ] 0.T3 幂等性中间件测试：首次请求正常处理返回 200，重复 key 返回 200 + `X-Idempotent-Replayed: true` header，不同 key 独立处理，无 key 的请求跳过幂等检查，key 格式校验（UUID）
+- [ ] 0.T4 Rate limit guard 测试：正常请求通过并返回 `X-RateLimit-Limit/Remaining/Reset` headers，超限返回 429 + RATE_LIMITED 错误码，不同用户独立计数（user 模式），不同 IP 独立计数（IP 模式），计数窗口滑动重置
+
 ## 1. Database Migration
 
 - [ ] 1.1 创建 Stage 1 Drizzle migration：tenants, users（含 password_hash, role, last_login_at）, groups, group_members, spaces（含 description, status）, space_permissions, model_configs, sessions（含 last_used_at）, audit_logs, permission_versions, system_settings 表及所有索引

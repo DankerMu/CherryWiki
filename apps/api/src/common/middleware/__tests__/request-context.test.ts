@@ -48,7 +48,7 @@ describe('RequestContextMiddleware', () => {
 
     const requestId = getHeader(response.headers, 'x-request-id');
     expect(requestId).toMatch(UUID_V4_PATTERN);
-    expect(parseJsonObject(response.text).request_id).toBe(requestId);
+    expect(getWrappedData(response.text).request_id).toBe(requestId);
   });
 
   it('uses the provided X-Request-Id header value', async () => {
@@ -60,7 +60,7 @@ describe('RequestContextMiddleware', () => {
       .expect(200);
 
     expect(getHeader(response.headers, 'x-request-id')).toBe(providedRequestId);
-    expect(parseJsonObject(response.text).request_id).toBe(providedRequestId);
+    expect(getWrappedData(response.text).request_id).toBe(providedRequestId);
   });
 
   it('rejects oversized X-Request-Id values and generates a fresh UUID', () => {
@@ -160,6 +160,15 @@ function parseJsonObject(text: string): Record<string, unknown> {
   }
 
   return parsed;
+}
+
+function getWrappedData(text: string): Record<string, unknown> {
+  const body = parseJsonObject(text);
+  if (!isRecord(body.data)) {
+    throw new Error('Expected wrapped data payload');
+  }
+
+  return body.data;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

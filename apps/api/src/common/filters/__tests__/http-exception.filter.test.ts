@@ -3,6 +3,8 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  HttpException,
+  HttpStatus,
   Module,
   NotFoundException,
   Post,
@@ -37,6 +39,17 @@ class ErrorTestController {
   @Get('forbidden')
   forbidden(): never {
     throw new ForbiddenException('Access denied');
+  }
+
+  @Get('invalid-credentials')
+  invalidCredentials(): never {
+    throw new HttpException(
+      {
+        code: ErrorCode.INVALID_CREDENTIALS,
+        message: 'Invalid credentials',
+      },
+      HttpStatus.UNAUTHORIZED,
+    );
   }
 
   @Get('unknown')
@@ -77,7 +90,7 @@ describe('HttpExceptionFilter', () => {
     const error = getErrorPayload(response.text);
     expect(error.code).toBe(ErrorCode.NOT_FOUND);
     expect(error.message).toBe('Missing resource');
-    expect(error.request_id).toBe(REQUEST_ID);
+    expect(getMetaPayload(response.text).request_id).toBe(REQUEST_ID);
   });
 
   it('maps HttpException 403 to PERMISSION_DENIED response format', async () => {
@@ -90,7 +103,20 @@ describe('HttpExceptionFilter', () => {
     const error = getErrorPayload(response.text);
     expect(error.code).toBe(ErrorCode.PERMISSION_DENIED);
     expect(error.message).toBe('Access denied');
-    expect(error.request_id).toBe(REQUEST_ID);
+    expect(getMetaPayload(response.text).request_id).toBe(REQUEST_ID);
+  });
+
+  it('preserves valid custom error codes from HttpException response bodies', async () => {
+    app = await createTestApp();
+    const response = await request(app.getHttpAdapter().getInstance().server)
+      .get('/api/error-test/invalid-credentials')
+      .set('X-Request-Id', REQUEST_ID)
+      .expect(401);
+
+    const error = getErrorPayload(response.text);
+    expect(error.code).toBe(ErrorCode.INVALID_CREDENTIALS);
+    expect(error.message).toBe('Invalid credentials');
+    expect(getMetaPayload(response.text).request_id).toBe(REQUEST_ID);
   });
 
   it('maps unknown exceptions to INTERNAL_ERROR without leaking stack details', async () => {
@@ -103,7 +129,7 @@ describe('HttpExceptionFilter', () => {
     const error = getErrorPayload(response.text);
     expect(error.code).toBe(ErrorCode.INTERNAL_ERROR);
     expect(error.message).toBe('Internal server error');
-    expect(error.request_id).toBe(REQUEST_ID);
+    expect(getMetaPayload(response.text).request_id).toBe(REQUEST_ID);
     expect(response.text).not.toContain('secret implementation detail');
     expect(response.text).not.toContain('ErrorTestController');
   });
@@ -119,7 +145,7 @@ describe('HttpExceptionFilter', () => {
     const error = getErrorPayload(response.text);
     expect(error.code).toBe(ErrorCode.VALIDATION_ERROR);
     expect(error.message).toBe('Validation failed');
-    expect(error.request_id).toBe(REQUEST_ID);
+    expect(getMetaPayload(response.text).request_id).toBe(REQUEST_ID);
     expect(Array.isArray(error.details)).toBe(true);
     expect(Array.isArray(error.details) && error.details.length > 0).toBe(true);
   });
@@ -135,7 +161,7 @@ describe('HttpExceptionFilter', () => {
 
     const responses = await Promise.all(cases);
     for (const response of responses) {
-      expect(getErrorPayload(response.text).request_id).toBe(REQUEST_ID);
+      expect(getMetaPayload(response.text).request_id).toBe(REQUEST_ID);
     }
   });
 
@@ -148,7 +174,7 @@ describe('HttpExceptionFilter', () => {
 
     const error = getErrorPayload(response.text);
     expect(error.code).toBe(ErrorCode.NOT_FOUND);
-    expect(error.request_id).toBe(REQUEST_ID);
+    expect(getMetaPayload(response.text).request_id).toBe(REQUEST_ID);
   });
 
   it('stops validation error detail recursion at the depth limit', () => {
@@ -183,6 +209,16 @@ function getErrorPayload(text: string): Record<string, unknown> {
   }
 
   return error;
+}
+
+function getMetaPayload(text: string): Record<string, unknown> {
+  const body = parseJsonObject(text);
+  const meta = body.meta;
+  if (!isRecord(meta)) {
+    throw new Error('Expected meta payload');
+  }
+
+  return meta;
 }
 
 function createNestedValidationError(maxLevel: number, currentLevel = 0): ValidationError {
