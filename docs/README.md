@@ -1,7 +1,8 @@
 # CherryGraph Studio 方案文档包
 
-版本：v0.3  
+版本：v0.4  
 日期：2026-04-28  
+变更：GPT Pro 审查整改 — API 契约化、SSE 协议、RAG 配额、Worker 协议、安全加固、测试重构、文档体系补全。  
 定位：基于 Cherry Studio 社区版 Fork 重构的 Docker 化 Web 端，强耦合 Graphify Wiki、Docmost Fork 协作编辑和 GraphRAG 能力。
 
 ## 1. 方案一句话

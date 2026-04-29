@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: CherryGraph Studio API
-  version: 0.3.0
+  version: 0.4.0
   description: |
     CherryGraph Studio — 知识图谱驱动的 Wiki + RAG Chat 平台。
     所有写入类接口支持 X-Idempotency-Key header（24h 去重窗口）。
