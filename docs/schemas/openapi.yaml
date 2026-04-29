@@ -180,7 +180,7 @@ components:
       properties:
         auto_graphify: { type: boolean }
         graphify_schedule: { type: string, enum: [on_change, daily, manual] }
-        default_retrieval_mode: { type: string, enum: [wiki_only, graph_rag, path_first, community_first] }
+        default_retrieval_mode: { type: string, enum: [wiki_only, hybrid_text], default: hybrid_text, description: "Phase 1: wiki_only / hybrid_text. Phase 3 adds: graph_rag / path_first / community_first" }
 
     SpaceStats:
       type: object
@@ -415,8 +415,9 @@ components:
         message: { type: string, maxLength: 32000 }
         retrieval_mode:
           type: string
-          enum: [wiki_only, graph_rag, path_first, community_first]
-          default: graph_rag
+          enum: [wiki_only, hybrid_text]
+          default: hybrid_text
+          description: "Phase 1: wiki_only / hybrid_text (Vector + BM25). Phase 3 adds: graph_rag / path_first / community_first"
         include_graph_explanation: { type: boolean, default: false }
         stream: { type: boolean, default: true }
         options:
@@ -461,7 +462,7 @@ components:
         - type: object
           properties:
             query_id: { type: string }
-            retrieval_mode: { type: string, enum: [wiki_only, graph_rag, path_first, community_first] }
+            retrieval_mode: { type: string, enum: [wiki_only, hybrid_text] }
 
     SSERetrievalCompleted:
       allOf:

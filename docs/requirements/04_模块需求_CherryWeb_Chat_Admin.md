@@ -158,8 +158,8 @@ Content-Type: application/json
   "model_id": "gpt-4.1",
   "space_ids": ["space_rd"],
   "message": "我们的单点登录流程是什么？",
-  "retrieval_mode": "graph_rag",
-  "include_graph_explanation": true,
+  "retrieval_mode": "hybrid_text",
+  "include_graph_explanation": false,
   "stream": true
 }
 ```

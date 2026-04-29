@@ -259,6 +259,7 @@ Python Worker 从 cherry-api Job API 拉取任务，payload 格式：
     "directed": false
   },
   "timeout_seconds": 3600,
+  "manifest_uri": "s3://cherry/graphify/gf_001/graphify_input_manifest.json",
   "output_uri": "s3://cherry/graphify/gf_001/",
   "callback_url": "http://cherry-api:8080/internal/jobs/gf_001/complete"
 }
@@ -271,14 +272,148 @@ Python Worker 从 cherry-api Job API 拉取任务，payload 格式：
 | `graphify_ref` | Graphify CLI/library 的 pinned 版本（git ref），确保行为可复现 |
 | `mode` | `build`（全量）/ `update`（增量）/ `rebuild`（全量 + 清除旧图） |
 | `timeout_seconds` | Worker 超时上限（默认 3600s），超时自动标记 failed |
+| `manifest_uri` | 输入 manifest 的 MinIO URI（见 §5.1A），Worker 据此组装输入目录 |
 | `output_uri` | 输出上传目标（MinIO/S3 前缀） |
 | `callback_url` | 完成时回调 cherry-api 的内部 URL |
 
-### 5.2 状态机
+### 5.1A 输入 Corpus 组装规则
+
+Graphify Worker 在 `preparing` 阶段组装输入目录。**Worker 只读取 `graphify_input_manifest.json` 指定的内容**，不自行扫描文件系统。
+
+#### 输入目录结构
 
 ```text
-pending → preparing → running_graphify → parsing_output → importing_graph → indexing → syncing_docmost → completed
-                                                                                                      ↘ quarantine
+/work/graphify/input/
+  graphify_input_manifest.json     # cherry-api 生成，Worker 只读
+  wiki/                            # 来自 Canonical Wiki Repo
+    pages/
+      auth/sso.md
+      auth/oauth2.md
+  sources/                         # 来自 Source Archive 的解析产物
+    src_001_sso-design.md
+    src_002_token-spec.md
+  previous/                        # 上一次成功 run 的输出（仅 update/rebuild 模式）
+    graph.json
+    wiki/
+```
+
+#### `graphify_input_manifest.json`
+
+cherry-api 在创建 Graphify run 时生成 manifest，上传到 MinIO，Worker 下载后按 manifest 组装输入。
+
+```json
+{
+  "schema_version": "1.0.0",
+  "run_id": "gf_001",
+  "tenant_id": "tenant_001",
+  "space_id": "space_rd",
+  "mode": "update",
+  "wiki_repo_commit": "abc123",
+  "previous_run_id": "gf_000",
+  "previous_output_uri": "s3://cherry/graphify/gf_000/",
+  "inputs": [
+    {
+      "type": "wiki_page",
+      "page_id": "rd.auth.sso",
+      "page_version_id": "ver_003",
+      "source_path": "spaces/rd-platform/pages/auth/sso.md",
+      "target_path": "wiki/pages/auth/sso.md",
+      "content_hash": "sha256:abc...",
+      "source_document_ids": ["src_001", "src_002"]
+    },
+    {
+      "type": "source_document",
+      "source_document_id": "src_003",
+      "parsed_uri": "s3://archive/tenant_001/space_rd/2026/04/28/sha256.parsed.md",
+      "target_path": "sources/src_003_new-upload.md",
+      "original_filename": "new-upload.pdf",
+      "content_hash": "sha256:def..."
+    }
+  ],
+  "exclude_page_ids": ["rd.deprecated.old-page"],
+  "ignore_rules": [".graphifyignore"],
+  "acl_scope": {
+    "tenant_id": "tenant_001",
+    "space_id": "space_rd"
+  }
+}
+```
+
+#### Manifest 字段说明
+
+| 字段 | 说明 |
+|---|---|
+| `wiki_repo_commit` | Canonical Wiki Repo 的精确 commit SHA，Worker checkout 此版本 |
+| `previous_run_id` | 上一次成功 run（仅 `update`/`rebuild` 模式），Worker 下载其输出作为增量基准 |
+| `previous_output_uri` | 上一次成功 run 的 MinIO 输出前缀 |
+| `inputs[].type` | `wiki_page`（已有 Wiki 页面）或 `source_document`（新上传解析产物） |
+| `inputs[].source_path` | Wiki 页面在 Repo 中的相对路径 |
+| `inputs[].parsed_uri` | 解析产物在 MinIO 中的 URI |
+| `inputs[].target_path` | Worker 输入目录中的目标路径（Worker 按此路径读取） |
+| `inputs[].content_hash` | 文件内容 SHA256，Worker 下载后校验，不匹配则 fail |
+| `inputs[].source_document_ids` | Wiki 页面关联的源文档 ID，用于 Graphify 输出的 source_refs 回填 |
+| `exclude_page_ids` | 显式排除的页面（deprecated/archived） |
+
+#### 三类输入的准入规则
+
+| 输入类型 | 何时进入 Graphify 输入 | 何时排除 |
+|---|---|---|
+| **Published Wiki 页面** | `status=published` 且在 `input_scope.page_ids` 内（或 scope 为空时全量） | `status` 为 draft/deprecated/archived；或在 `exclude_page_ids` 中 |
+| **新上传解析产物** | `source_documents.status=parsed` 且在 `input_scope.source_document_ids` 内 | 未完成解析（`parse_failed`/`processing`）；已有对应 Wiki 页面且页面已 published（避免重复消费） |
+| **上一次 run 输出** | `mode=update`：下载 `previous_output_uri` 的 graph.json 和 wiki/，作为增量基准 | `mode=build`：不使用历史输出，全量重建 |
+
+#### 防重复消费规则
+
+```text
+对每个 source_document_id in input_scope：
+  1. 查询是否已有 Published Wiki 页面的 frontmatter.source_document_ids 包含该 ID
+  2. 若已有 → 该 source_document 不进入 sources/，对应 Wiki 页面通过 wiki/ 进入
+  3. 若没有 → 该 source_document 的 parsed.md 进入 sources/
+```
+
+这确保 Graphify 不会同时收到一份资料的原始解析产物和已经生成的 Wiki 页面，避免重复生成。
+
+#### source_document_id 溯源保证
+
+Graphify 输出的 Wiki 页面 frontmatter 中的 `source_document_ids` 来源于 manifest：
+
+```text
+manifest.inputs[].source_document_ids → Graphify 输出 wiki/{slug}.md
+  → wiki-core 导入时写入 frontmatter.source_document_ids
+  → 索引时写入 wiki_chunks.source_chain.source_document_ids
+  → Chat 引用时可追溯到原始上传文件
+```
+
+#### Manifest 生成时机
+
+| 触发场景 | cherry-api 行为 |
+|---|---|
+| 管理员手动触发 Graphify | 根据 `input_scope` 查询 DB，生成 manifest |
+| 上传文件解析完成 | 自动创建 Graphify run，manifest 中 `inputs` 仅包含新 parsed 文件 |
+| 定时全量重建 | manifest 包含该 Space 所有 Published 页面 + 所有已解析未进入 Wiki 的 source_documents |
+
+#### Worker 组装流程
+
+```text
+preparing 阶段：
+  1. 下载 graphify_input_manifest.json
+  2. git checkout wiki_repo 到 wiki_repo_commit
+  3. 按 manifest.inputs 逐条：
+     a. type=wiki_page → 从 wiki_repo checkout 中复制到 target_path
+     b. type=source_document → 从 MinIO parsed_uri 下载到 target_path
+     c. 校验 content_hash，不匹配则标记该条 input 为 skipped + warning
+  4. 若 mode=update → 下载 previous_output_uri 到 previous/
+  5. 应用 .graphifyignore 规则
+  6. 写入 /work/graphify/input/ 完成，状态 → running_graphify
+```
+
+### 5.2 状态机
+
+#### Phase 1 状态机
+
+```text
+pending → preparing → running_graphify → parsing_output → importing_wiki → indexing → completed
+                                                                                   ↘ quarantine
 任意阶段 → failed
 pending → cancelled
 ```
@@ -286,22 +421,40 @@ pending → cancelled
 | 状态 | Worker 行为 |
 |---|---|
 | `pending` | 等待 Worker 拉取 |
-| `preparing` | 拉取 Wiki Repo snapshot、校验输入 |
+| `preparing` | 下载 manifest、checkout Wiki Repo、组装输入目录（见 §5.1A） |
 | `running_graphify` | 执行 Graphify CLI |
 | `parsing_output` | 校验输出 schema（graph.json、wiki/、report） |
-| `importing_graph` | 写入 graph_nodes / graph_edges / graph_communities |
+| `importing_wiki` | 写入 Canonical Wiki Repo + graph_nodes / graph_edges / graph_communities |
 | `indexing` | 生成 chunks、embeddings、构建新 index_snapshot |
-| `syncing_docmost` | 同步 Wiki 页面到 Docmost（Phase 2 才激活） |
 | `completed` | 全部成功，激活新 index_snapshot |
 | `quarantine` | 输出校验失败，数据隔离不进入索引 |
 | `failed` | 不可恢复错误 |
 | `cancelled` | 用户/系统取消 |
 
+#### Phase 2+ 状态机
+
+```text
+pending → preparing → running_graphify → parsing_output → importing_wiki → indexing → completed → docmost_syncing → docmost_synced
+                                                                                   ↘ quarantine
+任意阶段 → failed
+pending → cancelled
+completed → docmost_sync_failed（不影响 completed 状态，Chat 继续使用新索引）
+```
+
+Phase 2 新增的 `docmost_syncing` / `docmost_synced` / `docmost_sync_failed` 是 **completed 之后的异步补偿阶段**，不阻断索引激活：
+
+| 设计决策 | 说明 |
+|---|---|
+| Docmost sync 在 `completed` 之后 | Canonical Wiki Repo 写入成功 + index_snapshot 激活 = completed。Docmost 只是展示壳层，不影响 Chat 检索 |
+| sync 失败不回滚 | `docmost_sync_failed` 不改变 `completed` 状态，Chat 继续使用新 Published Wiki。管理员可手动重试 sync |
+| 异步补偿 | cherry-api 在收到 completed 回调后异步发起 Docmost sync，不在 Graphify Worker 内执行 |
+| 人工编辑回写例外 | 当 Docmost → Canonical Repo 方向的人工编辑回写场景（Phase 2 wiki-sync-worker 负责），sync 失败需要人工介入而非自动忽略 |
+
 ### 5.3 并发与互斥规则
 
 | 规则 | 实现 |
 |---|---|
-| **同一 Space 同一时间只允许一个 active run** | cherry-api 创建 run 前检查是否有 `status IN (pending, preparing, running_graphify, parsing_output, importing_graph, indexing, syncing_docmost)` 的 run；有则拒绝，返回 `GRAPHIFY_RUN_ALREADY_RUNNING` |
+| **同一 Space 同一时间只允许一个 active run** | cherry-api 创建 run 前检查是否有 `status IN (pending, preparing, running_graphify, parsing_output, importing_wiki, indexing)` 的 run；有则拒绝，返回 `GRAPHIFY_RUN_ALREADY_RUNNING`。`completed` / `docmost_syncing` 状态不阻塞新 run |
 | **新 run 不覆盖 active graph** | importing_graph 写入新的 `graph_version_id`，不修改当前 `active_index_snapshot_id` 指向的数据 |
 | **原子激活** | 只有 parse + import + index 全部成功，才 `UPDATE spaces SET active_index_snapshot_id = new_snapshot_id`。任何阶段失败，`active_index_snapshot_id` 保持不变，Chat 继续使用旧快照 |
 | **Worker 独占锁** | Worker 拉取任务时 `SETNX graphify_lock:{space_id} {run_id} EX {timeout_seconds}`，执行完成或失败后释放。异常退出由 TTL 兜底 |

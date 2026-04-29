@@ -69,12 +69,15 @@ services:
       MODEL_API_KEY: ${MODEL_API_KEY}
       GRAPHIFY_WORKDIR: /work/graphify
       GRAPHIFY_PINNED_REF: ${GRAPHIFY_PINNED_REF}
-      WORKER_HEALTH_PORT: "9090"
+      GRAPHIFY_TIMEOUT_SECONDS: ${GRAPHIFY_TIMEOUT_SECONDS:-3600}
+      GRAPHIFY_MAX_NODES: ${GRAPHIFY_MAX_NODES:-50000}
+      GRAPHIFY_MAX_EDGES: ${GRAPHIFY_MAX_EDGES:-200000}
+      WORKER_HEALTH_PORT: ${WORKER_HEALTH_PORT:-9090}
     volumes:
       - graphify_work:/work/graphify        # 可写：Graphify 输出目录
       - wiki_repo:/work/wiki-repo:ro        # 只读：增量更新时读取当前 Wiki
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:${WORKER_HEALTH_PORT:-9090}/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -107,9 +110,11 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT}
-      WORKER_HEALTH_PORT: "9090"
+      UPLOAD_MAX_SIZE_MB: ${UPLOAD_MAX_SIZE_MB:-50}
+      UPLOAD_HARD_LIMIT_MB: ${UPLOAD_HARD_LIMIT_MB:-200}
+      WORKER_HEALTH_PORT: ${WORKER_HEALTH_PORT:-9090}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:${WORKER_HEALTH_PORT:-9090}/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -143,11 +148,12 @@ services:
       REDIS_URL: ${REDIS_URL}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT}
       EGRESS_PROXY_URL: ${EGRESS_PROXY_URL:-}
-      URL_FETCH_TIMEOUT_SECONDS: "30"
-      URL_FETCH_MAX_RESPONSE_BYTES: "52428800"
-      WORKER_HEALTH_PORT: "9090"
+      URL_FETCH_TIMEOUT_SECONDS: ${URL_FETCH_TIMEOUT_SECONDS:-30}
+      URL_FETCH_MAX_RESPONSE_BYTES: ${URL_FETCH_MAX_RESPONSE_BYTES:-52428800}
+      SSRF_BLOCKED_CIDRS: ${SSRF_BLOCKED_CIDRS:-127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,::1/128,fc00::/7}
+      WORKER_HEALTH_PORT: ${WORKER_HEALTH_PORT:-9090}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:${WORKER_HEALTH_PORT:-9090}/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -170,11 +176,11 @@ services:
       REDIS_URL: ${REDIS_URL}
       DOCMOST_BASE_URL: ${DOCMOST_BASE_URL}
       DOCMOST_BRIDGE_SECRET: ${DOCMOST_BRIDGE_SECRET}
-      WORKER_HEALTH_PORT: "9090"
+      WORKER_HEALTH_PORT: ${WORKER_HEALTH_PORT:-9090}
     volumes:
       - wiki_repo:/work/wiki-repo
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:${WORKER_HEALTH_PORT:-9090}/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -205,9 +211,9 @@ services:
       REDIS_URL: ${REDIS_URL}
       MODEL_API_BASE_URL: ${MODEL_API_BASE_URL}
       MODEL_API_KEY: ${MODEL_API_KEY}
-      WORKER_HEALTH_PORT: "9090"
+      WORKER_HEALTH_PORT: ${WORKER_HEALTH_PORT:-9090}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:${WORKER_HEALTH_PORT:-9090}/health"]
       interval: 30s
       timeout: 5s
       retries: 3

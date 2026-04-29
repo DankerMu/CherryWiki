@@ -70,7 +70,7 @@ graphify-out/
 | `norm_label` 节点字段 | **存在**（去音标规范化） | 未定义 | 导入时写入 `graph_nodes` 备用搜索字段 |
 | Wiki frontmatter | **不存在**（纯 Markdown，无 YAML frontmatter） | 需要 page_id/space_id/source 等 | wiki-core 导入时自动生成 frontmatter |
 | Wiki 目录结构 | **扁平**（所有文件在 wiki/ 根） | 需要 communities/god-nodes/pages 子目录 | wiki-core 导入时按类型归类到 Canonical Wiki Repo |
-| 置信度默认值 | EXTRACTED=1.0, INFERRED=0.5, AMBIGUOUS=0.2 | 0.90 / 0.70 / 0.40 | **采用 Graphify 实际值**（见 4.2 更新） |
+| 置信度默认值 | EXTRACTED=1.0, INFERRED=0.5, AMBIGUOUS=0.2 | 双分数：raw 保留原始，effective 归一化 | graph-core 导入时 `raw_confidence_score` 保留 Graphify 值，`effective_confidence_score` 按 Doc 09 §12.2 映射 |
 | graph.html 节点上限 | >5000 节点时跳过生成 | 未标注 | 补充到 3.1 |
 
 **处理原则**：Graphify 输出按原样接受，所有不足由 `graph-core` 和 `wiki-core` 导入层补齐。不要求修改 Graphify 源码。
@@ -190,7 +190,7 @@ wiki-core 通过文件名和 index.md 中的引用关系判断页面类型（com
 |---|---|
 | `node.type` | `concept` |
 | `node.community` | `null` |
-| `edge.confidence_score` | 按 label 映射（Graphify 实际值）：EXTRACTED=1.0 / INFERRED=0.5 / AMBIGUOUS=0.2 |
+| `edge.confidence_score` | Graphify 实际值保留为 `raw_confidence_score`：EXTRACTED=1.0 / INFERRED=0.5 / AMBIGUOUS=0.2。graph-core 导入时同时计算 `effective_confidence_score`（见 Doc 09 §12.2） |
 | `edge.evidence` | `[]` |
 | `node.norm_label` | 使用 `label` 小写去音标 |
 | `metadata.graphify_version` | 从 `GRAPHIFY_PINNED_REF` 或 `graphify --version` 获取 |
@@ -257,7 +257,7 @@ tests/fixtures/graphify-output/v1/invalid-confidence/
 | `edge.target` | `graph_edges.target_node_id` |
 | `edge.relation` | `graph_edges.relation_type` |
 | `edge.confidence` | `graph_edges.confidence_label` |
-| `edge.confidence_score` | `graph_edges.confidence_score` |
+| `edge.confidence_score` | `graph_edges.raw_confidence_score`（保留 Graphify 原始分数） |
 | `edge.evidence` | `graph_edges.evidence_refs_json` |
 
 ## 8A. 图谱节点身份稳定性

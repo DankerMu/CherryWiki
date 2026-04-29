@@ -326,13 +326,14 @@ answer_span → citation → chunk/section → page_id + page_version_id → sou
 
 ## 9. GraphRAG 模式
 
-| 模式 | 使用场景 | 检索策略 |
-|---|---|---|
-| `wiki_only` | 简单事实 | Vector + BM25。 |
-| `graph_rag` | 默认 | Vector + BM25 + graph nodes/edges。 |
-| `path_first` | 关系解释 | 先找路径，再补 Wiki chunks。 |
-| `community_first` | 总览/架构 | 先社区摘要和 god nodes，再找 chunks。 |
-| `debug` | 管理员调试 | 返回检索 debug。 |
+| 模式 | Phase | 使用场景 | 检索策略 |
+|---|---|---|---|
+| `wiki_only` | **Phase 1** | 纯文本事实 | Vector + BM25。 |
+| `hybrid_text` | **Phase 1**（默认） | 混合文本检索 | Vector + BM25，ACL 过滤。 |
+| `graph_rag` | Phase 3 | 图谱增强 | Vector + BM25 + graph nodes/edges。 |
+| `path_first` | Phase 3 | 关系解释 | 先找路径，再补 Wiki chunks。 |
+| `community_first` | Phase 3 | 总览/架构 | 先社区摘要和 god nodes，再找 chunks。 |
+| `debug` | Phase 3 | 管理员调试 | 返回检索 debug（Retrieval trace UI）。 |
 
 ## 10. 质量反馈闭环
 
@@ -372,33 +373,53 @@ feedback → issue → assigned editor → wiki edit/proposal → graphify updat
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `confidence_label` | enum | `EXTRACTED`、`INFERRED`、`AMBIGUOUS`，用于 UI 和回答约束。 |
-| `confidence_score` | float | 0.0-1.0，参与检索排序和 rerank。 |
+| `raw_confidence_score` | float | Graphify 原始分数，导入时保留不修改。EXTRACTED=1.0 / INFERRED=0.5 / AMBIGUOUS=0.2（见 Doc 21 §4.2）。 |
+| `effective_confidence_score` | float | 平台归一化后的分数，用于 RAG 排序和 rerank。初始值见 §12.2，后续可由知识治理调整。 |
 | `evidence_count` | int | 支撑该关系的证据数量。 |
 | `evidence_refs_json` | JSON array | 证据页面、section、source span。 |
 
-### 12.2 score 与 label 映射
+### 12.2 双分数模型
 
-| score 区间 | 默认 label | 说明 |
+graph-core 导入 Graphify 输出时，同时写入两个分数：
+
+| 字段 | 来源 | 用途 |
+|---|---|---|
+| `raw_confidence_score` | Graphify 原始 `edge.confidence_score`，按原样保留 | 审计、溯源、Graphify 行为分析 |
+| `effective_confidence_score` | 平台归一化初始值（见下表），后续可由治理/反馈调整 | RAG 排序、rerank、context 准入、引用降权 |
+
+**`effective_confidence_score` 初始值**（Graphify 只输出 label 无 score 时）：
+
+| label | `raw_confidence_score` | `effective_confidence_score` 初始值 |
+|---|---:|---:|
+| `EXTRACTED` | 1.0 | 0.90 |
+| `INFERRED` | 0.5 | 0.70 |
+| `AMBIGUOUS` | 0.2 | 0.40 |
+
+**当 Graphify 输出连续 score 时**（非默认值），`effective_confidence_score` 按以下公式从 `raw_confidence_score` 映射：
+
+```text
+effective_confidence_score = clamp(raw_confidence_score * 0.9, 0.0, 1.0)
+```
+
+知识治理和用户反馈可后续直接修改 `effective_confidence_score`，不影响 `raw_confidence_score`。
+
+**`effective_confidence_score` 区间与 label 的对应关系**（用于反向推断 label）：
+
+| effective score 区间 | 默认 label | 说明 |
 |---|---|---|
 | `>= 0.85` | `EXTRACTED` | 源文本或代码结构明确表达。 |
 | `0.55 - 0.849` | `INFERRED` | 由上下文、共现、二跳调用、语义关系推断。 |
 | `< 0.55` | `AMBIGUOUS` | 证据不足或关系方向不确定。 |
 
-Graphify 原始输出若只有 label，则导入时按默认分数初始化：
-
-| label | 初始 score |
-|---|---:|
-| `EXTRACTED` | 0.90 |
-| `INFERRED` | 0.70 |
-| `AMBIGUOUS` | 0.40 |
-
 ### 12.3 排序公式
+
+RAG 排序统一使用 `effective_confidence_score`，不使用 `raw_confidence_score`。
 
 ```text
 graph_score =
   0.40 * entity_match_score +
   0.25 * path_relevance_score +
-  0.20 * confidence_score +
+  0.20 * effective_confidence_score +
   0.10 * log1p(evidence_count) +
   0.05 * recency_score
 ```
@@ -412,4 +433,4 @@ graph_score =
 
 ### 12.4 Schema 对齐
 
-`schemas/schema.sql` 中 `graph_edges.confidence_score` 已使用 `DOUBLE PRECISION`。本版本新增 `evidence_count INT NOT NULL DEFAULT 1`。
+`schemas/schema.sql` 中 `graph_edges` 使用双分数字段：`raw_confidence_score DOUBLE PRECISION`（Graphify 原始）和 `effective_confidence_score DOUBLE PRECISION`（平台归一化，RAG 排序使用）。索引建在 `(confidence_label, effective_confidence_score)` 上。`evidence_count INT NOT NULL DEFAULT 1`。

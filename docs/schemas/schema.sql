@@ -258,7 +258,8 @@ CREATE TABLE graph_edges (
   target_node_id TEXT NOT NULL REFERENCES graph_nodes(id),
   relation_type TEXT NOT NULL,
   confidence_label TEXT NOT NULL,
-  confidence_score DOUBLE PRECISION,
+  raw_confidence_score DOUBLE PRECISION,
+  effective_confidence_score DOUBLE PRECISION,
   evidence_count INT NOT NULL DEFAULT 1,
   evidence_refs_json JSONB NOT NULL DEFAULT '[]'::jsonb,
   acl_json JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -330,6 +331,7 @@ CREATE TABLE wiki_chunks (
   index_version TEXT,
   indexed_at TIMESTAMPTZ,
   embedding_model_id TEXT,
+  source_chain_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   acl_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (page_version_id, chunk_index)
@@ -624,7 +626,7 @@ CREATE INDEX idx_wiki_chunks_fts ON wiki_chunks USING GIN (to_tsvector('simple',
 CREATE INDEX idx_graph_nodes_label_trgm ON graph_nodes USING GIN (label gin_trgm_ops);
 CREATE INDEX idx_graph_edges_source ON graph_edges(source_node_id);
 CREATE INDEX idx_graph_edges_target ON graph_edges(target_node_id);
-CREATE INDEX idx_graph_edges_confidence ON graph_edges(confidence_label, confidence_score);
+CREATE INDEX idx_graph_edges_confidence ON graph_edges(confidence_label, effective_confidence_score);
 CREATE INDEX idx_wiki_chunks_index_status ON wiki_chunks(index_status, index_snapshot_id);
 CREATE INDEX idx_index_snapshots_space ON index_snapshots(tenant_id, space_id, status);
 CREATE INDEX idx_index_snapshots_active ON index_snapshots(space_id, activated_at DESC);
