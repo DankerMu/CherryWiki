@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { DrizzleModule } from './database/drizzle.module.js';
 import { GroupModule } from './groups/group.module.js';
 import { HealthModule } from './health/health.module.js';
+import { ModelConfigModule } from './models/model-config.module.js';
 import { SpaceModule } from './spaces/space.module.js';
 import { UserModule } from './users/user.module.js';
 
@@ -22,6 +23,7 @@ import { UserModule } from './users/user.module.js';
     UserModule,
     GroupModule,
     SpaceModule,
+    ModelConfigModule,
     HealthModule,
   ],
 })
