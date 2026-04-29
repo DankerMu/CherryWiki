@@ -46,6 +46,10 @@
 - [x] **T-13.3** 威胁建模（Doc 24 engineering）。
 - [x] 测试按 Phase 拆分 + 5 个关键安全测试。
 
+### Stage 实现状态
+
+- [x] **I-01** Stage 1 Auth/RBAC/Space/Admin 基础已完成；文档追踪矩阵、Docker Compose 和环境变量样例已收口。
+
 ---
 
 ## 待完成 TODO
