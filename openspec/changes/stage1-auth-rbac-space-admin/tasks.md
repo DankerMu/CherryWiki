@@ -50,6 +50,16 @@
 - [ ] 3.5 实现 permission_version 缓存逻辑：Redis 缓存 key = `tenant_id:user_id:user_pv:space_id:space_pv:query_hash`，TTL 60s，permission 变更时 increment + 发布 Redis Pub/Sub 事件
 - [ ] 3.6 实现 Redis Pub/Sub 订阅端：API 实例启动时订阅 permission_changed / user_permission_changed 事件，收到后清理本地 + Redis 缓存
 
+### 3.T Auth Core Tests
+
+- [ ] 3.T1 argon2id hash/verify 测试：hash 生成后 verify 返回 true，错误密码 verify 返回 false，hash 不等于明文
+- [ ] 3.T2 JWT 签发/校验测试：签发 access_token 含 sub/tenant_id/email/role/group_ids/iat/exp，校验通过返回 payload，过期 token 校验失败
+- [ ] 3.T3 JWT payload 安全测试：payload 不含 password_hash、refresh_token 等敏感字段（负面测试）
+- [ ] 3.T4 JwtAuthGuard 测试：有效 token 注入 user context，无/过期/无效 token 返回 401
+- [ ] 3.T5 RbacGuard + @Permissions 测试：有权限通过，无权限返回 403，未认证返回 401
+- [ ] 3.T6 permission_version 缓存测试：首次查询 cache miss 走 DB，第二次 cache hit，version 变更后 cache miss
+- [ ] 3.T7 Redis Pub/Sub 测试：收到 permission_changed 事件后清理对应缓存
+
 ## 4. Auth Module (apps/api)（依赖 0.x, 1.x, 2.x, 3.x）
 
 - [ ] 4.1 创建 AuthModule：注入 AuthService, SessionService, JwtService
