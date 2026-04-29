@@ -1,16 +1,19 @@
-# 05. 模块需求：Graphify Wiki 唯一知识源
+# 05. 模块需求：Graphify Wiki 唯一企业知识引用源
 
 ## 1. 模块定位
 
-Graphify Wiki 是本项目唯一知识源。它既不是传统静态文档站，也不是 Docmost 原生页面集合，而是一套由 Graphify 生成、人工可修订、可版本化、可索引、可追溯的 Wiki 体系。
+Graphify Wiki 是本项目**唯一企业知识引用源**。它既不是传统静态文档站，也不是 Docmost 原生页面集合，而是一套由 Graphify 生成、人工可修订、可版本化、可索引、可追溯的 Wiki 体系。
 
 核心原则：
 
 ```text
-AI 回答依据 = Published Graphify Wiki + 从 Wiki 派生的 graph/chunk/index
+企业知识引用源 = Published Graphify Wiki + 从 Wiki 派生的 graph/chunk/index
 上传原文件 = 证据归档，不直接作为问答源
 Docmost 页面 = Graphify Wiki 的编辑和展示壳层，不是独立知识源
+模型通用知识 = 非企业知识，不可作为引用依据，仅在管理员开启 allow_model_knowledge_fallback 时作为补充回答
 ```
+
+> **"唯一企业知识引用源"与"模型通用知识"的边界**：所有带 `citations` 的回答必须且只能引用 Published Wiki。当知识库无命中时，系统行为由 Space 级配置 `strict_knowledge_only`（默认 `true`）决定：严格模式拒答并引导上传；宽松模式允许模型通用知识补充但必须标注且不计入企业知识审计。详见 Doc 04 §2.2 和 Doc 09 §8.1。
 
 ## 2. 主要职责
 
@@ -458,12 +461,19 @@ Graphify 输出的关系应分层进入 Wiki 和问答：
 |---|---|---|
 | Canonical Wiki Repo | P0 | 每个 Space 有独立目录和页面元数据。 |
 | Graphify 输出导入 | P0 | 可导入 wiki、graph.json、report。 |
-| Docmost 页面同步 | P0 | 页面可导入 Docmost。 |
-| 人工修订回写 | P0 | Docmost 编辑后回写 Repo。 |
 | Published Wiki 索引 | P0 | Chat 只检索发布版本。 |
-| 区块所有权 | P1 | Graphify 不覆盖人工区块。 |
-| 候选更新审核 | P1 | 管理员可接受/拒绝。 |
+| Cherry Web 只读 Wiki | P0 | 用户可在 Cherry Web 浏览页面列表和内容。 |
+| 管理员发布/回滚 | P0 | 管理员可发布或回滚页面版本。 |
 | 关系置信分级 | P1 | 回答中标注推断/歧义。 |
+
+### Phase 2 功能（本阶段不做）
+
+| 功能 | 验收 |
+|---|---|
+| Docmost 页面同步 | 页面可导入 Docmost。 |
+| 人工修订回写 | Docmost 编辑后回写 Repo。 |
+| 区块所有权 | Graphify 不覆盖人工区块。 |
+| 候选更新审核 | 管理员可接受/拒绝。 |
 
 ## 12. 重要约束
 

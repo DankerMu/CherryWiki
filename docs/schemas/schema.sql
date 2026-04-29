@@ -13,6 +13,7 @@ CREATE TABLE users (
   email TEXT NOT NULL,
   display_name TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'active',
+  permission_version BIGINT NOT NULL DEFAULT 1,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (tenant_id, email)
@@ -23,6 +24,7 @@ CREATE TABLE groups (
   tenant_id TEXT NOT NULL REFERENCES tenants(id),
   name TEXT NOT NULL,
   description TEXT,
+  permission_version BIGINT NOT NULL DEFAULT 1,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (tenant_id, name)
 );
@@ -45,6 +47,8 @@ CREATE TABLE spaces (
   active_graphify_run_id TEXT,
   active_index_snapshot_id TEXT,
   index_consistency_status TEXT NOT NULL DEFAULT 'healthy',
+  permission_version BIGINT NOT NULL DEFAULT 1,
+  strict_knowledge_only BOOLEAN NOT NULL DEFAULT true,
   graphify_config JSONB NOT NULL DEFAULT '{}'::jsonb,
   default_publish_policy TEXT NOT NULL DEFAULT 'editor_publish',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -650,6 +654,9 @@ CREATE INDEX idx_graph_evidence_refs_page ON graph_evidence_refs(page_id, page_v
 CREATE INDEX idx_graph_evidence_refs_source_doc ON graph_evidence_refs(source_document_id);
 CREATE INDEX idx_permission_versions_space ON permission_versions(tenant_id, space_id, created_at DESC);
 CREATE INDEX idx_permission_versions_subject ON permission_versions(subject_type, subject_id);
+CREATE INDEX idx_spaces_permission_version ON spaces(tenant_id, id, permission_version);
+CREATE INDEX idx_users_permission_version ON users(tenant_id, id, permission_version);
+CREATE INDEX idx_groups_permission_version ON groups(tenant_id, id, permission_version);
 
 -- P2 indexes
 CREATE INDEX idx_api_tokens_user ON api_tokens(tenant_id, user_id) WHERE revoked_at IS NULL;

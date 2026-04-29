@@ -85,11 +85,32 @@ generating → aborted（用户主动取消）
 
 `answer_source` 字段标识回答知识来源：
 
-| 值 | 含义 | UI 标注 |
-|---|---|---|
-| `knowledge_base` | 基于 Published Wiki + 图谱检索 | 默认，显示引用卡片 |
-| `model_knowledge` | 知识库无命中，基于模型自有知识 | 显示醒目标注"⚠ 此回答基于模型通用知识，非知识库引用，准确性未经验证" |
-| `mixed` | 部分基于知识库、部分基于模型补充 | 引用部分正常显示，模型补充部分单独标注 |
+| 值 | 含义 | UI 标注 | 条件 |
+|---|---|---|---|
+| `knowledge_base` | 基于 Published Wiki 检索 | 默认，显示引用卡片 | — |
+| `model_knowledge` | 知识库无命中，基于模型自有知识 | 显示醒目标注"⚠ 此回答基于模型通用知识，非知识库引用，准确性未经验证" | 仅当 `strict_knowledge_only = false` |
+| `mixed` | 部分基于知识库、部分基于模型补充 | 引用部分正常显示，模型补充部分单独标注 | 仅当 `strict_knowledge_only = false` |
+| `no_hit` | 知识库无命中且严格模式 | 显示"当前知识库没有可引用资料，请上传或发布相关 Wiki" | 当 `strict_knowledge_only = true` |
+
+##### 无知识命中策略
+
+行为由 Space 级配置 `strict_knowledge_only` 决定（默认 `true`），管理员可在 Admin Console 按 Space 切换。
+
+**严格模式（`strict_knowledge_only = true`，默认）：**
+
+1. **拒答事实性内容** — 不使用模型通用知识回答企业知识类问题
+2. **引导上传** — 返回提示："当前知识库没有可引用资料，请上传或发布相关 Wiki"
+3. **`answer_source = no_hit`** — 不伪造引用，`citations` 为空数组
+4. **审计记录** — 标记为 `no_retrieval_hit`，供管理员分析知识覆盖率
+
+**宽松模式（`strict_knowledge_only = false`，管理员手动开启）：**
+
+1. **允许模型补充** — 模型可基于自有知识回答，但必须标注
+2. **必须标注** — `answer_source` 设为 `model_knowledge`，前端显示明确警告
+3. **不伪造引用** — `citations` 数组为空，不生成虚假引用
+4. **不计入企业知识审计** — `model_knowledge` 回答不纳入"知识库回答"统计
+5. **建议上传** — 回答末尾附加提示："如需更准确的回答，建议上传相关资料至知识库"
+6. **审计记录** — 标记为 `no_retrieval_hit`
 
 ##### 引用版本提示
 
@@ -98,16 +119,6 @@ generating → aborted（用户主动取消）
 - 标注文字："引用历史版本 v{page_version}，当前已更新至 v{current_page_version}"
 - 提供"查看最新版本"链接
 - 引用卡片使用视觉区分（如淡黄色背景或虚线边框）
-
-##### 无知识命中策略
-
-当 GraphRAG 检索无结果或无 Published Wiki 时：
-
-1. **不拒答** — 模型仍基于自有知识回答用户问题
-2. **必须标注** — `answer_source` 设为 `model_knowledge`，前端显示明确警告
-3. **不伪造引用** — `citations` 数组为空，不生成虚假引用
-4. **建议上传** — 回答末尾附加提示："如需更准确的回答，建议上传相关资料至知识库"
-5. **审计记录** — 标记该回答为 `no_retrieval_hit`，供管理员分析知识覆盖率
 
 #### 引用展示
 
@@ -288,8 +299,12 @@ Admin API        只处理管理配置。
 
 1. 用户登录后可以发起流式聊天。
 2. 用户可以选择自己有权限的 Space。
-3. Chat Engine 可以调用 GraphRAG 检索。
+3. Chat Engine 调用 wiki_only / hybrid_text 检索（即 Vector + BM25）。
 4. 回答带 Wiki 引用。
 5. 管理员可以创建用户、Group、Space。
 6. 管理员可以查看 Graphify 任务和索引状态。
 7. 权限过滤有效。
+
+### Phase 3 验收（本阶段不做）
+
+- Chat Engine 调用 graph_rag / path_first / community_first 检索。

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: CherryGraph Studio API
-  version: 0.4.0
+  version: 0.5.0
   description: |
     CherryGraph Studio — 知识图谱驱动的 Wiki + RAG Chat 平台。
     所有写入类接口支持 X-Idempotency-Key header（24h 去重窗口）。
@@ -719,6 +719,96 @@ components:
         size_bytes: { type: integer }
         download_url: { type: string }
 
+    # --- Supplemental Schemas (Section 14) ---
+    PasswordChangeRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password: { type: string }
+        new_password: { type: string, minLength: 8 }
+
+    Session:
+      type: object
+      properties:
+        id: { type: string }
+        ip: { type: string }
+        user_agent: { type: string }
+        created_at: { type: string, format: date-time }
+        last_used_at: { type: string, format: date-time }
+        is_current: { type: boolean }
+
+    JobEvent:
+      type: object
+      properties:
+        event: { type: string }
+        timestamp: { type: string, format: date-time }
+        detail: { type: object }
+
+    WikiPageContent:
+      type: object
+      properties:
+        page_id: { type: string }
+        version_id: { type: string }
+        title: { type: string }
+        content_markdown: { type: string }
+        content_hash: { type: string }
+        blocks:
+          type: array
+          items:
+            type: object
+            properties:
+              block_id: { type: string }
+              owner: { type: string, enum: [graphify, human] }
+              editable: { type: boolean }
+
+    ProposalAcceptRequest:
+      type: object
+      properties:
+        merge_strategy: { type: string, enum: [auto, manual], default: auto }
+        publish_note: { type: string }
+
+    ProposalRejectRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string }
+
+    ProposalResponse:
+      type: object
+      properties:
+        proposal_id: { type: string }
+        status: { type: string, enum: [accepted, rejected] }
+        new_version_id: { type: string }
+        merged_at: { type: string, format: date-time }
+        rejected_at: { type: string, format: date-time }
+
+    UpdateModelRequest:
+      type: object
+      properties:
+        status: { type: string, enum: [active, disabled] }
+        config:
+          type: object
+          properties:
+            endpoint: { type: string }
+            api_key_ref: { type: string }
+            max_tokens: { type: integer }
+            supports_streaming: { type: boolean }
+        allowed_roles: { type: array, items: { type: string } }
+
+    ModelTestRequest:
+      type: object
+      properties:
+        test_prompt: { type: string, default: "Hello" }
+
+    ModelTestResponse:
+      type: object
+      properties:
+        model_id: { type: string }
+        reachable: { type: boolean }
+        latency_ms: { type: integer }
+        response_preview: { type: string }
+        error: { type: string, nullable: true }
+
   responses:
     UnauthorizedError:
       description: Authentication required
@@ -824,6 +914,66 @@ paths:
                 properties:
                   data: { $ref: '#/components/schemas/TokenResponse' }
         '401': { $ref: '#/components/responses/UnauthorizedError' }
+
+  /auth/password/change:
+    post:
+      summary: Change password
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordChangeRequest' }
+      responses:
+        '200':
+          description: Password changed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      success: { type: boolean }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /auth/sessions:
+    get:
+      summary: List active sessions
+      tags: [Auth]
+      responses:
+        '200':
+          description: Active sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Session' } }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+
+  /auth/sessions/{session_id}:
+    delete:
+      summary: Revoke session
+      tags: [Auth]
+      parameters:
+        - { name: session_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Session revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      revoked: { type: boolean }
+        '404': { $ref: '#/components/responses/NotFoundError' }
 
   # --- Space ---
   /spaces:
@@ -1026,6 +1176,67 @@ paths:
         '404': { $ref: '#/components/responses/NotFoundError' }
         '409':
           description: Reprocess already running
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  # --- Jobs (User-level) ---
+  /jobs/{job_id}:
+    get:
+      summary: Get job status
+      tags: [Jobs]
+      parameters:
+        - { name: job_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Job status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Job' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+
+  /jobs/{job_id}/events:
+    get:
+      summary: Get job events
+      tags: [Jobs]
+      parameters:
+        - { name: job_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Job events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/JobEvent' } }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+
+  /jobs/{job_id}/cancel:
+    post:
+      summary: Cancel job
+      tags: [Jobs]
+      parameters:
+        - { name: job_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Job cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      job_id: { type: string }
+                      status: { type: string, enum: [cancelled] }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+        '409':
+          description: Job not cancellable
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -1424,6 +1635,113 @@ paths:
                       pages_consistent: { type: integer }
                       pages_inconsistent: { type: integer }
 
+  /spaces/{space_id}/wiki/pages/{page_id}/content:
+    get:
+      summary: Get wiki page content (Markdown)
+      tags: [Wiki]
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+        - { name: page_id, in: path, required: true, schema: { type: string } }
+        - { name: version_id, in: query, schema: { type: string }, description: "Optional version ID, defaults to current" }
+      responses:
+        '200':
+          description: Page content with block ownership
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/WikiPageContent' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+
+  /spaces/{space_id}/wiki/pages/{page_id}/proposals/{proposal_id}/accept:
+    post:
+      summary: Accept wiki proposal
+      tags: [Wiki]
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+        - { name: page_id, in: path, required: true, schema: { type: string } }
+        - { name: proposal_id, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProposalAcceptRequest' }
+      responses:
+        '200':
+          description: Proposal accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/ProposalResponse' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+        '409':
+          description: Proposal already resolved or merge conflict
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /spaces/{space_id}/wiki/pages/{page_id}/proposals/{proposal_id}/reject:
+    post:
+      summary: Reject wiki proposal
+      tags: [Wiki]
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+        - { name: page_id, in: path, required: true, schema: { type: string } }
+        - { name: proposal_id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProposalRejectRequest' }
+      responses:
+        '200':
+          description: Proposal rejected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/ProposalResponse' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+        '409':
+          description: Proposal already resolved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /spaces/{space_id}/consistency/check:
+    post:
+      summary: Trigger consistency check
+      tags: [Wiki]
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      responses:
+        '202':
+          description: Check started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      check_id: { type: string }
+                      space_id: { type: string }
+                      status: { type: string, enum: [running] }
+                      started_at: { type: string, format: date-time }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+        '409':
+          description: Check already running
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
   # --- Graph ---
   /graph/nodes:
     get:
@@ -1740,6 +2058,51 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /admin/models/{model_id}:
+    patch:
+      summary: Update model config
+      tags: [Admin]
+      parameters:
+        - { name: model_id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateModelRequest' }
+      responses:
+        '200':
+          description: Model updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/ModelConfig' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+
+  /admin/models/{model_id}/test:
+    post:
+      summary: Test model connectivity
+      tags: [Admin]
+      parameters:
+        - { name: model_id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ModelTestRequest' }
+      responses:
+        '200':
+          description: Test result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/ModelTestResponse' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
 
   /admin/audit-logs:
     get:

@@ -23,7 +23,7 @@ http {
 
     client_max_body_size 200m;
 
-    # --- Phase 1: Cherry Web 前端 ---
+    # --- Cherry Web 前端 ---
     location / {
       proxy_pass http://cherry-web:80;
       proxy_set_header Host $host;
@@ -32,7 +32,7 @@ http {
       proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # --- Phase 1: Cherry API ---
+    # --- Cherry API ---
     location /api/ {
       proxy_pass http://cherry-api:8080;
       proxy_http_version 1.1;
@@ -42,7 +42,7 @@ http {
       proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # --- Phase 1: Chat SSE 流式端点 ---
+    # --- Chat SSE 流式端点 ---
     location /api/chat/ {
       proxy_pass http://cherry-api:8080;
       proxy_http_version 1.1;
@@ -56,10 +56,16 @@ http {
       proxy_read_timeout 300s;
     }
 
-    # --- Phase 1: Docmost 不可用，返回明确提示 ---
+    # --- Phase 2: Docmost 协作编辑 ---
     location /docmost/ {
-      return 503 '{"error": "Docmost is not available in Phase 1. It will be enabled in Phase 2."}';
-      add_header Content-Type application/json always;
+      proxy_pass http://docmost:3000/;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection $connection_upgrade;
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
     }
   }
 }

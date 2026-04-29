@@ -241,14 +241,17 @@ ANSWER REQUIREMENTS:
 
 ### 8.1 知识来源规则
 
-1. 有 Wiki 证据时，优先基于 Published Wiki 回答，`answer_source = knowledge_base`。
-2. 没有足够 Wiki 证据时，模型可基于自有知识回答，但必须设置 `answer_source = model_knowledge`，前端显示明确标注”此回答基于模型通用知识，非知识库引用”。不得伪造引用，`citations` 为空数组。
-3. 部分问题知识库有部分覆盖时，`answer_source = mixed`，知识库命中部分带引用，模型补充部分单独标注。
+Graphify Wiki 是唯一企业知识引用源。模型通用知识的使用由 Space 级配置 `strict_knowledge_only` 控制（默认 `true`）。
+
+1. 有 Wiki 证据时，基于 Published Wiki 回答，`answer_source = knowledge_base`。
+2. 无 Wiki 证据时，行为取决于 `strict_knowledge_only`：
+   - `true`（默认）：`answer_source = no_hit`，不回答事实性内容，返回引导上传提示。
+   - `false`：`answer_source = model_knowledge`，模型可基于自有知识回答，但必须标注”此回答基于模型通用知识，非知识库引用”。不得伪造引用，`citations` 为空数组。`model_knowledge` 回答不纳入企业知识审计统计。
+3. 部分覆盖时（仅 `strict_knowledge_only = false`），`answer_source = mixed`，知识库命中部分带引用，模型补充部分单独标注。
 4. 不得引用无权限页面。
 5. 不得声称读取了原始文件，除非引用是通过 Wiki 页面证据链提供。
 6. 有 Wiki 引用时必须返回 citations。
-7. 关系型问题优先返回 graph_paths。
-8. 无知识命中的回答审计标记为 `no_retrieval_hit`，供管理员分析知识覆盖率。
+7. 无知识命中的回答审计标记为 `no_retrieval_hit`，供管理员分析知识覆盖率。
 
 ### 8.2 置信度与引用约束
 
@@ -348,12 +351,17 @@ feedback → issue → assigned editor → wiki edit/proposal → graphify updat
 
 ## 11. Phase 1 验收
 
-1. 查询能返回 Wiki chunk 引用。
-2. 查询能返回至少一条图谱路径或相关节点。
-3. 无权限内容不会进入候选结果。
-4. 回答中能区分 EXTRACTED/INFERRED。
-5. 管理员能查看检索 debug。
-6. 用户能点击引用打开 Docmost 页面。
+1. 查询能返回 Wiki chunk 引用（Vector + BM25）。
+2. 无权限内容不会进入候选结果。
+3. 用户能点击引用跳转 Cherry Web 内置只读 Wiki 页面。
+
+### Phase 3 验收（本阶段不做）
+
+- 查询能返回至少一条图谱路径或相关节点（graph_paths / related nodes）。
+- 回答中能区分 EXTRACTED/INFERRED。
+- 管理员能查看检索 debug（Retrieval trace UI）。
+- 用户能点击引用打开 Docmost 页面（依赖 Phase 2 Docmost 集成）。
+- GraphRAG 完整闭环。
 
 ## 12. 关系置信度模型增强
 

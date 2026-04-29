@@ -399,7 +399,10 @@ page_id = {space_id}.{type_prefix}.{stable_key}
 | `god_node` | `god-node` | `{stable_key[:12]}`（跨 run 稳定，见 8A.3） | `rd-platform.god-node.a1b2c3d4e5f6` |
 | `generated_article` | `page` | SHA256(slug)[:12] | `rd-platform.page.a1b2c3d4e5f6` |
 
-**关键决策**：page_id 绑定 graph.json 中的 ID（community ID、node ID），不绑定 label。label 改名时 page_id 不变。
+**关键决策**：page_id 不绑定 label，label 改名时 page_id 不变。具体绑定策略按类型区分：
+- `community`：绑定 graph.json 中的 community ID（聚类 ID 在合理范围内稳定）。
+- `god_node`：绑定 graph-core 计算的 `stable_key`（见 §8A.3），**不绑定 graph.json node.id**（node.id 跨 run 可能漂移）。
+- `generated_article`：绑定 slug 的 SHA256（无图谱节点对应）。
 
 ### 9.5 frontmatter 生成
 
@@ -516,8 +519,8 @@ Canonical Wiki Repo 中的 Markdown 正文仍包含 HTML 注释标记：
 | 场景 | 策略 |
 |---|---|
 | **Graphify slug 与现有页面 slug 冲突** | 查 Canonical Wiki Repo 的 `page_id`。如果 page_id 匹配（同一逻辑页面），执行更新；如果 page_id 不匹配（不同页面撞 slug），Graphify 侧 slug 追加 `_gf_{run_id_short}` 后缀。 |
-| **Graphify 节点 label 改名** | page_id 绑定 node.id 而非 label，所以 page_id 不变。frontmatter `title` 更新为新 label，文件名 slug 如果变化则执行 rename（git mv），旧路径写 redirect。 |
-| **同一 god node 多次生成** | page_id = `{space}.god-node.node_{node_id}`，天然稳定。多次运行只更新 `graphify:managed` 区块和 frontmatter `version`、`graphify_run_id`。 |
+| **Graphify 节点 label 改名** | god_node page_id 绑定 `stable_key`（基于 `norm_label + type`，见 §8A.3），不绑定 graph.json `node.id`。若 label 改名但 `norm_label` 不变，page_id 不变；若 `norm_label` 变化导致 `stable_key` 变化，graph-core 通过 `graph_node_aliases` 匹配旧身份（见 §8A.4）。frontmatter `title` 更新为新 label，文件名 slug 如果变化则执行 rename（git mv），旧路径写 redirect。 |
+| **同一 god node 多次生成** | page_id = `{space}.god-node.{stable_key[:12]}`，绑定 graph-core `stable_key`（见 §8A.3），不绑定 graph.json `node.id`。graph.json `node.id` 仅作为 `node_key`（run 内保真），跨 run 页面身份、反馈、治理、citation 均绑定 `stable_key`。多次运行只更新 `graphify:managed` 区块和 frontmatter `version`、`graphify_run_id`。 |
 | **社区 ID 变化（Graphify 重新聚类）** | community page_id 绑定 community ID。如果 Graphify 重新聚类导致 ID 变化：旧页面标记 `status: deprecated`，新页面创建 draft，不自动删除旧页面。管理员可手动合并或确认。 |
 | **扁平 community/god-node 归入嵌套目录** | wiki-core 根据 9.3 的类型识别将文件写入对应子目录。Graphify 的扁平输出不直接写入 Repo。 |
 | **GRAPH_REPORT.md 的定位** | 不作为 Wiki 页面，不进入 Canonical Wiki Repo 页面目录。存入 `graphify_runs` 表的 `report_uri` 字段（MinIO），管理后台可查看。Space 概览从 report 摘要提取。 |
