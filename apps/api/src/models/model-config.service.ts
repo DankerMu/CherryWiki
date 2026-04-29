@@ -149,6 +149,11 @@ export class ModelConfigService {
       await assertSingleEnabledEmbedding(this.db, tenantId);
     }
 
+    const apiKeyRef = normalizeOptionalString(input.encrypted_api_key_ref);
+    if (apiKeyRef !== null) {
+      validateSecretRefFormat(apiKeyRef);
+    }
+
     const now = new Date();
 
     try {
@@ -162,7 +167,7 @@ export class ModelConfigService {
           model_type: modelType,
           display_name: normalizeOptionalString(input.display_name),
           base_url: normalizeOptionalString(input.base_url),
-          encrypted_api_key_ref: normalizeOptionalString(input.encrypted_api_key_ref),
+          encrypted_api_key_ref: apiKeyRef,
           embedding_dim: input.embedding_dim ?? null,
           max_tokens: input.max_tokens ?? null,
           rate_limit_rpm: input.rate_limit_rpm ?? null,
@@ -268,6 +273,9 @@ export class ModelConfigService {
 
     if (input.encrypted_api_key_ref !== undefined) {
       const encryptedApiKeyRef = normalizeOptionalString(input.encrypted_api_key_ref);
+      if (encryptedApiKeyRef !== null) {
+        validateSecretRefFormat(encryptedApiKeyRef);
+      }
       if (encryptedApiKeyRef !== existing.encrypted_api_key_ref) {
         updateValues.encrypted_api_key_ref = encryptedApiKeyRef;
         changedFields.push('encrypted_api_key_ref');
@@ -555,6 +563,16 @@ function parseSortSafely(sort: string): ReturnType<typeof parseSortField> {
     return parseSortField(sort);
   } catch {
     throwApiError(ErrorCode.VALIDATION_ERROR, 'Invalid sort field', HttpStatus.UNPROCESSABLE_ENTITY);
+  }
+}
+
+function validateSecretRefFormat(ref: string): void {
+  if (!ref.startsWith('secret:') || ref.slice('secret:'.length).trim().length === 0) {
+    throwApiError(
+      ErrorCode.VALIDATION_ERROR,
+      'encrypted_api_key_ref must use "secret:<name>" format',
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
   }
 }
 
