@@ -22,6 +22,7 @@ import {
   parseSortField,
   type PaginatedResponse,
 } from '../common/dto/pagination.dto.js';
+import { getApiLogger } from '../common/logger/logger.module.js';
 import { REDIS_CLIENT } from '../common/redis/redis.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 
@@ -570,11 +571,19 @@ export class GroupService {
   }
 
   private async publishSpacePermissionChanged(tenantId: string, spaceId: string): Promise<void> {
-    await this.redis?.publish(`permission_changed:${spaceId}`, JSON.stringify({ tenant_id: tenantId }));
+    await this.publishRedisEvent(`permission_changed:${spaceId}`, JSON.stringify({ tenant_id: tenantId }));
   }
 
   private async publishUserPermissionChanged(tenantId: string, userId: string): Promise<void> {
-    await this.redis?.publish(`user_permission_changed:${userId}`, JSON.stringify({ tenant_id: tenantId }));
+    await this.publishRedisEvent(`user_permission_changed:${userId}`, JSON.stringify({ tenant_id: tenantId }));
+  }
+
+  private async publishRedisEvent(channel: string, message: string): Promise<void> {
+    try {
+      await this.redis?.publish(channel, message);
+    } catch (err) {
+      getApiLogger().warn({ err, redis_channel: channel }, 'Redis publish failed');
+    }
   }
 }
 

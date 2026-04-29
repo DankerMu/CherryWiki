@@ -1,7 +1,7 @@
-import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
-import { hashPassword, normalizeRole, type Role } from '@cherrygraph/auth-core';
+import { HttpException, HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
+import { ROLES, hashPassword, normalizeRole, type Role } from '@cherrygraph/auth-core';
 import { ErrorCode, group_members, groups, tenants, users } from '@cherrygraph/shared';
-import { and, asc, count, desc, eq, ilike, inArray, or, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { randomUUID } from 'node:crypto';
 
@@ -13,15 +13,22 @@ import {
   parseSortField,
   type PaginatedResponse,
 } from '../common/dto/pagination.dto.js';
+import { getApiLogger } from '../common/logger/logger.module.js';
+import { REDIS_CLIENT } from '../common/redis/redis.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { SessionService } from '../auth/session.service.js';
 
 type UserDatabase = NodePgDatabase;
 type UserRow = typeof users.$inferSelect;
 
+type RedisPublisher = {
+  publish: (channel: string, message: string) => Promise<number>;
+};
+
 export type AdminContext = {
   tenantId?: string;
   actorUserId?: string;
+  actorRole?: string;
 };
 
 export type ListUsersInput = {
@@ -67,6 +74,14 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_PER_PAGE = 20;
 const MAX_PER_PAGE = 100;
 const VALID_STATUSES = new Set(['active', 'disabled']);
+const ROLE_RANK: Record<Role, number> = {
+  [ROLES.OWNER]: 6,
+  [ROLES.ADMIN]: 5,
+  [ROLES.SPACE_ADMIN]: 4,
+  [ROLES.EDITOR]: 3,
+  [ROLES.VIEWER]: 2,
+  [ROLES.AUDITOR]: 1,
+};
 
 @Injectable()
 export class UserService {
@@ -74,6 +89,7 @@ export class UserService {
     @Inject(DRIZZLE) private readonly db: UserDatabase,
     private readonly auditService: AuditService,
     private readonly sessionService: SessionService,
+    @Optional() @Inject(REDIS_CLIENT) private readonly redis?: RedisPublisher,
   ) {}
 
   async listUsers(
@@ -111,6 +127,7 @@ export class UserService {
   ): Promise<AdminUserResponse> {
     const tenantId = await this.resolveTenantId(context);
     const role = normalizeRoleOrThrow(input.role);
+    assertCanAssignRole(context, role);
     const groupIds = normalizeIdList(input.groups ?? []);
     const now = new Date();
     const passwordHash = await hashPassword(input.password);
@@ -192,6 +209,7 @@ export class UserService {
       display_name?: string;
       role?: string;
       status?: string;
+      permission_version?: SQL<number>;
       updated_at: Date;
     } = {
       updated_at: now,
@@ -206,6 +224,10 @@ export class UserService {
     if (input.role !== undefined) {
       const role = normalizeRoleOrThrow(input.role);
       if (role !== existing.role) {
+        assertCanAssignRole(context, role, {
+          userId,
+          existingRole: existing.role,
+        });
         updateValues.role = role;
         changedFields.push('role');
       }
@@ -226,16 +248,36 @@ export class UserService {
       );
     }
 
+    const permissionSensitiveChange = changedFields.includes('role') || changedFields.includes('status');
+    if (permissionSensitiveChange) {
+      updateValues.permission_version = sql<number>`${users.permission_version} + 1`;
+    }
+
     const [updated] = await this.db
       .update(users)
       .set(updateValues)
       .where(and(eq(users.tenant_id, tenantId), eq(users.id, userId)))
       .returning();
-    const updatedUser = updated ?? { ...existing, ...updateValues };
+    const updatedUser =
+      updated ??
+      ({
+        ...existing,
+        display_name: updateValues.display_name ?? existing.display_name,
+        role: updateValues.role ?? existing.role,
+        status: updateValues.status ?? existing.status,
+        permission_version: permissionSensitiveChange
+          ? existing.permission_version + 1
+          : existing.permission_version,
+        updated_at: now,
+      } satisfies UserRow);
 
     const disabledTransition = existing.status !== 'disabled' && updatedUser.status === 'disabled';
     if (disabledTransition) {
       await this.sessionService.revokeAllActiveSessionsForUser(tenantId, userId, now);
+    }
+
+    if (permissionSensitiveChange) {
+      await this.publishUserPermissionChanged(tenantId, userId);
     }
 
     this.auditService.push({
@@ -294,6 +336,15 @@ export class UserService {
     }
 
     return tenant.id;
+  }
+
+  private async publishUserPermissionChanged(tenantId: string, userId: string): Promise<void> {
+    const channel = `user_permission_changed:${userId}`;
+    try {
+      await this.redis?.publish(channel, JSON.stringify({ tenant_id: tenantId }));
+    } catch (err) {
+      getApiLogger().warn({ err, redis_channel: channel }, 'Redis publish failed');
+    }
   }
 }
 
@@ -408,6 +459,51 @@ function normalizeRoleOrThrow(role: string): Role {
   }
 
   return normalized;
+}
+
+function assertCanAssignRole(
+  context: AdminContext,
+  targetRole: Role,
+  options: { userId: string; existingRole: string } | undefined = undefined,
+): void {
+  const actorRole = normalizeActorRoleOrThrow(context.actorRole);
+  if (isHighPrivilegeRole(targetRole) && actorRole !== ROLES.OWNER) {
+    throwApiError(ErrorCode.PERMISSION_DENIED, 'Cannot assign requested role', HttpStatus.FORBIDDEN);
+  }
+
+  if (ROLE_RANK[actorRole] < ROLE_RANK[targetRole]) {
+    throwApiError(ErrorCode.PERMISSION_DENIED, 'Cannot assign requested role', HttpStatus.FORBIDDEN);
+  }
+
+  if (
+    options !== undefined &&
+    context.actorUserId === options.userId &&
+    isRoleElevation(options.existingRole, targetRole)
+  ) {
+    throwApiError(ErrorCode.PERMISSION_DENIED, 'Cannot elevate own role', HttpStatus.FORBIDDEN);
+  }
+}
+
+function normalizeActorRoleOrThrow(role: string | undefined): Role {
+  if (role === undefined) {
+    throwApiError(ErrorCode.PERMISSION_DENIED, 'Cannot assign role without actor role', HttpStatus.FORBIDDEN);
+  }
+
+  const normalized = normalizeRole(role);
+  if (normalized === undefined) {
+    throwApiError(ErrorCode.PERMISSION_DENIED, 'Invalid actor role', HttpStatus.FORBIDDEN);
+  }
+
+  return normalized;
+}
+
+function isHighPrivilegeRole(role: Role): boolean {
+  return role === ROLES.OWNER || role === ROLES.ADMIN;
+}
+
+function isRoleElevation(existingRole: string, targetRole: Role): boolean {
+  const normalizedExistingRole = normalizeRole(existingRole);
+  return normalizedExistingRole !== undefined && ROLE_RANK[targetRole] > ROLE_RANK[normalizedExistingRole];
 }
 
 function normalizeStatusOrThrow(status: string): string {

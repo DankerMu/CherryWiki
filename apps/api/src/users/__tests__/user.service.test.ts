@@ -10,6 +10,7 @@ import {
   TEST_USER_ID,
   ScriptedDb,
   createAuditMock,
+  createRedisMock,
   createSessionMock,
   createUniqueViolation,
   createUserRow,
@@ -99,6 +100,26 @@ describe('UserService', () => {
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.USER_EMAIL_CONFLICT);
   });
 
+  it('denies creating users at or above the actor role', async () => {
+    const { service, db } = createServiceContext();
+
+    const err = await getRejectedHttpException(
+      service.createUser(
+        {
+          email: 'owner@example.com',
+          name: 'Owner User',
+          password: 'Correct1!',
+          role: 'owner',
+        },
+        createContext(),
+      ),
+    );
+
+    expect(err.getStatus()).toBe(403);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.PERMISSION_DENIED);
+    expect(db.inserts).toHaveLength(0);
+  });
+
   it('rejects missing group ids on create with GROUP_NOT_FOUND', async () => {
     const { service, db } = createServiceContext();
     db.queueSelect([]);
@@ -122,7 +143,7 @@ describe('UserService', () => {
   });
 
   it('updates a user role and records admin.user.update', async () => {
-    const { service, db, audit } = createServiceContext();
+    const { service, db, audit, redis } = createServiceContext();
     db.queueSelect([createUserRow({ role: 'viewer' })]);
     db.queueUpdate([createUserRow({ role: 'editor' })]);
     db.queueSelect([{ user_id: TEST_USER_ID, group_id: TEST_GROUP_ID }]);
@@ -131,6 +152,11 @@ describe('UserService', () => {
 
     expect(result.role).toBe('editor');
     expect(requireRecord(db.updates[0]?.value).role).toBe('editor');
+    expect(hasPermissionVersionIncrement(db.updates[0]?.value)).toBe(true);
+    expect(redis.publish).toHaveBeenCalledWith(
+      `user_permission_changed:${TEST_USER_ID}`,
+      JSON.stringify({ tenant_id: TEST_TENANT_ID }),
+    );
     expect(audit.push).toHaveBeenCalledWith(
       expect.objectContaining({
         action: AUDIT_EVENTS.ADMIN_USER_UPDATE,
@@ -139,8 +165,34 @@ describe('UserService', () => {
     );
   });
 
+  it('denies admin promotion to owner', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createUserRow({ role: 'viewer' })]);
+
+    const err = await getRejectedHttpException(
+      service.updateUser(TEST_USER_ID, { role: 'owner' }, createContext()),
+    );
+
+    expect(err.getStatus()).toBe(403);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.PERMISSION_DENIED);
+    expect(db.updates).toHaveLength(0);
+  });
+
+  it('denies self-role elevation', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createUserRow({ role: 'viewer' })]);
+
+    const err = await getRejectedHttpException(
+      service.updateUser(TEST_USER_ID, { role: 'space_admin' }, createContext({ actorUserId: TEST_USER_ID })),
+    );
+
+    expect(err.getStatus()).toBe(403);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.PERMISSION_DENIED);
+    expect(db.updates).toHaveLength(0);
+  });
+
   it('disables a user, revokes sessions, and records admin.user.disable', async () => {
-    const { service, db, audit, session } = createServiceContext();
+    const { service, db, audit, session, redis } = createServiceContext();
     db.queueSelect([createUserRow({ status: 'active' })]);
     db.queueUpdate([createUserRow({ status: 'disabled' })]);
     db.queueSelect([]);
@@ -152,6 +204,11 @@ describe('UserService', () => {
       TEST_USER_ID,
       expect.any(Date),
     );
+    expect(hasPermissionVersionIncrement(db.updates[0]?.value)).toBe(true);
+    expect(redis.publish).toHaveBeenCalledWith(
+      `user_permission_changed:${TEST_USER_ID}`,
+      JSON.stringify({ tenant_id: TEST_TENANT_ID }),
+    );
     expect(audit.push).toHaveBeenCalledWith(
       expect.objectContaining({
         action: AUDIT_EVENTS.ADMIN_USER_DISABLE,
@@ -161,7 +218,7 @@ describe('UserService', () => {
   });
 
   it('re-enables a user and records admin.user.update', async () => {
-    const { service, db, audit, session } = createServiceContext();
+    const { service, db, audit, session, redis } = createServiceContext();
     db.queueSelect([createUserRow({ status: 'disabled' })]);
     db.queueUpdate([createUserRow({ status: 'active' })]);
     db.queueSelect([]);
@@ -170,6 +227,11 @@ describe('UserService', () => {
 
     expect(result.status).toBe('active');
     expect(session.revokeAllActiveSessionsForUser).not.toHaveBeenCalled();
+    expect(hasPermissionVersionIncrement(db.updates[0]?.value)).toBe(true);
+    expect(redis.publish).toHaveBeenCalledWith(
+      `user_permission_changed:${TEST_USER_ID}`,
+      JSON.stringify({ tenant_id: TEST_TENANT_ID }),
+    );
     expect(audit.push).toHaveBeenCalledWith(
       expect.objectContaining({
         action: AUDIT_EVENTS.ADMIN_USER_UPDATE,
@@ -196,18 +258,28 @@ function createServiceContext(): {
   db: ScriptedDb;
   audit: ReturnType<typeof createAuditMock>;
   session: ReturnType<typeof createSessionMock>;
+  redis: ReturnType<typeof createRedisMock>;
 } {
   const db = new ScriptedDb();
   const audit = createAuditMock();
   const session = createSessionMock();
-  const service = new UserService(db.asDrizzle(), audit.service, session.service);
+  const redis = createRedisMock();
+  const service = new UserService(db.asDrizzle(), audit.service, session.service, redis);
 
-  return { service, db, audit, session };
+  return { service, db, audit, session, redis };
 }
 
-function createContext(): { tenantId: string; actorUserId: string } {
+function createContext(
+  overrides: Partial<{ tenantId: string; actorUserId: string; actorRole: string }> = {},
+): { tenantId: string; actorUserId: string; actorRole: string } {
   return {
     tenantId: TEST_TENANT_ID,
     actorUserId: TEST_ACTOR_ID,
+    actorRole: 'admin',
+    ...overrides,
   };
+}
+
+function hasPermissionVersionIncrement(value: unknown): boolean {
+  return 'permission_version' in requireRecord(value);
 }

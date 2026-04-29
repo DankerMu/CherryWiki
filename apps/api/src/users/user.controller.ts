@@ -1,7 +1,17 @@
 import { Body, Controller, Get, HttpCode, HttpException, HttpStatus, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { Permissions, type AuthenticatedRequestUser } from '@cherrygraph/auth-core';
 import { ErrorCode } from '@cherrygraph/shared';
-import { IsArray, IsEmail, IsIn, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayUnique,
+  IsArray,
+  IsEmail,
+  IsIn,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 
 import { PaginationQueryDto } from '../common/dto/pagination.dto.js';
 import { UserService, type AdminUserResponse } from './user.service.js';
@@ -42,7 +52,10 @@ class CreateUserDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(100)
+  @ArrayUnique()
   @IsString({ each: true })
+  @MaxLength(200, { each: true })
   groups?: string[];
 }
 
@@ -92,6 +105,7 @@ export class UserController {
     return this.userService.createUser(body, {
       tenantId: user.tenant_id,
       actorUserId: user.sub,
+      actorRole: user.role,
     });
   }
 
@@ -106,6 +120,7 @@ export class UserController {
     return this.userService.updateUser(userId, body, {
       tenantId: user.tenant_id,
       actorUserId: user.sub,
+      actorRole: user.role,
     });
   }
 }

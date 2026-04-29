@@ -1,7 +1,16 @@
 import { Body, Controller, Get, HttpCode, HttpException, HttpStatus, Param, Post, Put, Query, Req } from '@nestjs/common';
 import { Permissions, type AuthenticatedRequestUser } from '@cherrygraph/auth-core';
 import { ErrorCode } from '@cherrygraph/shared';
-import { IsArray, IsNotEmpty, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayUnique,
+  IsArray,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 import { PaginationQueryDto } from '../common/dto/pagination.dto.js';
@@ -13,7 +22,10 @@ class SpacePermissionDto {
   space_id!: string;
 
   @IsArray()
+  @ArrayMaxSize(100)
+  @ArrayUnique()
   @IsString({ each: true })
+  @MaxLength(200, { each: true })
   permissions!: string[];
 }
 
@@ -30,11 +42,16 @@ class CreateGroupDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(100)
+  @ArrayUnique()
   @IsString({ each: true })
+  @MaxLength(200, { each: true })
   member_ids?: string[];
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(100)
+  @ArrayUnique((permission: SpacePermissionDto | undefined) => permission?.space_id)
   @ValidateNested({ each: true })
   @Type(() => SpacePermissionDto)
   space_permissions?: SpacePermissionDto[];
@@ -54,11 +71,16 @@ class UpdateGroupDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(100)
+  @ArrayUnique()
   @IsString({ each: true })
+  @MaxLength(200, { each: true })
   member_ids?: string[];
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(100)
+  @ArrayUnique((permission: SpacePermissionDto | undefined) => permission?.space_id)
   @ValidateNested({ each: true })
   @Type(() => SpacePermissionDto)
   space_permissions?: SpacePermissionDto[];

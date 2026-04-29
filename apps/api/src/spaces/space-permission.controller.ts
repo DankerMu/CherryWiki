@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, HttpException, HttpStatus, Param, Put, Req } from '@nestjs/common';
 import { Permissions, type AuthenticatedRequestUser } from '@cherrygraph/auth-core';
 import { ErrorCode } from '@cherrygraph/shared';
-import { IsArray, IsNotEmpty, IsString, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayUnique, IsArray, IsNotEmpty, IsString, MaxLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 import { GroupService, type SpacePermissionGroupResponse } from '../groups/group.service.js';
@@ -12,12 +12,17 @@ class SpaceGroupPermissionDto {
   group_id!: string;
 
   @IsArray()
+  @ArrayMaxSize(100)
+  @ArrayUnique()
   @IsString({ each: true })
+  @MaxLength(200, { each: true })
   permissions!: string[];
 }
 
 class ReplaceSpacePermissionsDto {
   @IsArray()
+  @ArrayMaxSize(100)
+  @ArrayUnique((permission: SpaceGroupPermissionDto | undefined) => permission?.group_id)
   @ValidateNested({ each: true })
   @Type(() => SpaceGroupPermissionDto)
   permissions!: SpaceGroupPermissionDto[];

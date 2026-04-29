@@ -1,7 +1,8 @@
 import { ErrorCode } from '@cherrygraph/shared';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AUDIT_EVENTS } from '../../audit/audit-events.js';
+import { getApiLogger } from '../../common/logger/logger.module.js';
 import { GroupService } from '../group.service.js';
 import {
   TEST_ACTOR_ID,
@@ -122,6 +123,39 @@ describe('GroupService', () => {
     expect(findAuditMetadata(audit, AUDIT_EVENTS.USER_GROUP_CHANGE, 'user-2')).toMatchObject({
       action: 'added',
     });
+  });
+
+  it('records audit events when Redis publish fails after group member changes', async () => {
+    const { service, db, audit, redis } = createServiceContext();
+    const warn = vi.spyOn(getApiLogger(), 'warn').mockImplementation(() => undefined);
+    redis.publish.mockRejectedValueOnce(new Error('redis down'));
+    db.queueSelect([createGroupRow()]);
+    db.queueSelect([{ id: TEST_USER_ID }, { id: 'user-2' }]);
+    db.queueSelect([{ user_id: TEST_USER_ID }]);
+    db.queueSelect([createGroupRow()]);
+    db.queueSelect([{ group_id: TEST_GROUP_ID, member_count: 2 }]);
+    db.queueSelect([]);
+
+    try {
+      await service.updateGroup(
+        TEST_GROUP_ID,
+        { member_ids: [TEST_USER_ID, 'user-2'] },
+        createContext(),
+      );
+
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({ redis_channel: 'user_permission_changed:user-2' }),
+        'Redis publish failed',
+      );
+      expect(audit.push).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AUDIT_EVENTS.USER_GROUP_CHANGE,
+          resource_id: 'user-2',
+        }),
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('updates a group by removing a member without session revocation', async () => {
