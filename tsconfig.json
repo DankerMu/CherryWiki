@@ -19,6 +19,18 @@
     },
     {
       "path": "./packages/ai-core"
+    },
+    {
+      "path": "./packages/job-core"
+    },
+    {
+      "path": "./apps/ingestion-worker"
+    },
+    {
+      "path": "./apps/url-fetcher-worker"
+    },
+    {
+      "path": "./apps/indexer-worker"
     }
   ]
 }

@@ -32,10 +32,24 @@
 - [ ] 4.6 创建 `apps/graphify-worker/src/lock.py`：Redis SETNX lock:job:{job_id}（worker_id, TTL=10min）
 - [ ] 4.7 创建 `apps/graphify-worker/src/runner.py`：空 run() 函数，日志 "job received, no-op"
 
-## 5. 验证
+## 5. 自动化测试
 
-- [ ] 5.1 `pnpm --filter ingestion-worker dev` 启动成功，/health 返回 200
-- [ ] 5.2 `pnpm --filter url-fetcher-worker dev` 启动成功，/health 返回 200
-- [ ] 5.3 `pnpm --filter indexer-worker dev` 启动成功，/health 返回 200
-- [ ] 5.4 `python apps/graphify-worker/src/main.py` 启动成功，/health 返回 200
-- [ ] 5.5 BullMQ 连接 Redis 日志确认成功
+### 5.1 job-core 测试 (`packages/job-core/src/__tests__/`)
+- [ ] 5.1.1 队列名常量 QUEUE_INGESTION/QUEUE_URL_FETCH/QUEUE_INDEXING/QUEUE_GRAPHIFY_NOTIFY 已导出
+- [ ] 5.1.2 JobStatus 枚举包含 pending/running/succeeded/failed/cancelled
+- [ ] 5.1.3 createBullMQConnection 返回有效连接配置对象
+
+### 5.2 Node Worker 测试 (`apps/ingestion-worker/src/__tests__/` 等)
+- [ ] 5.2.1 health server 响应 200 + { status, worker, uptime }
+- [ ] 5.2.2 SIGTERM 处理函数已注册
+
+### 5.3 Python Worker 测试 (`apps/graphify-worker/tests/`)
+- [ ] 5.3.1 health endpoint 返回 200 + { status, worker, uptime }
+- [ ] 5.3.2 Redis lock SETNX 成功/失败行为
+
+## 6. 集成验证（手动）
+
+- [ ] 6.1 ingestion-worker 启动 + /health 200
+- [ ] 6.2 url-fetcher-worker 启动 + /health 200
+- [ ] 6.3 indexer-worker 启动 + /health 200
+- [ ] 6.4 graphify-worker 启动 + /health 200
