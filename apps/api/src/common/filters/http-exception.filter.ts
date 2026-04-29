@@ -71,6 +71,19 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
+
+      if (status >= 500) {
+        getApiLogger().error(createExceptionLogObject(exception, requestId), 'Unhandled exception');
+        response.status(status).send({
+          error: {
+            code: mapStatusToErrorCode(status),
+            message: 'Internal server error',
+            request_id: requestId,
+          },
+        });
+        return;
+      }
+
       const exceptionResponse = normalizeHttpExceptionResponse(exception.getResponse());
       const details = Array.isArray(exceptionResponse.details) ? exceptionResponse.details : undefined;
 

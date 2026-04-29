@@ -89,7 +89,7 @@ function createRequestLogObject(
     user_id: context?.user_id ?? null,
     space_id: context?.space_id ?? null,
     method: req.method ?? '',
-    url: req.url ?? '',
+    url: stripQueryString(req.url ?? ''),
     status_code: res.statusCode,
     duration_ms: Math.round(durationMs),
   };
@@ -121,6 +121,11 @@ function stringifyMessage(message: unknown): string {
   } catch {
     return String(message);
   }
+}
+
+function stripQueryString(url: string): string {
+  const idx = url.indexOf('?');
+  return idx === -1 ? url : url.slice(0, idx);
 }
 
 function getContext(optionalParams: unknown[]): string | undefined {
