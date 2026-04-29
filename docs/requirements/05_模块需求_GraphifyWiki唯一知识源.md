@@ -114,6 +114,107 @@ acl_hash: acl_abc123
 
 详细流程见 [Doc 21 §9.7](../design/21_Graphify_输出Schema契约.md)。
 
+### 3.5 Git Commit 规则
+
+Canonical Wiki Repo 的所有变更必须通过 commit 记录，commit 格式统一：
+
+```text
+Author: system <system@cherrygraph.local>       # 系统自动操作
+Author: graphify <graphify@cherrygraph.local>   # Graphify 生成
+Author: Alice <alice@example.com>               # 人工编辑（使用用户真实信息）
+```
+
+Commit message 格式：
+
+```text
+[{space_slug}][{source}][{run_id|edit_id}] {summary}
+```
+
+示例：
+
+```text
+[rd-platform][graphify][gf_001] update 3 pages: sso, oauth2, token-refresh
+[rd-platform][human][edit_abc] revise sso page section: implementation-notes
+[rd-platform][system][sync_001] import from docmost: page dm_page_123
+[rd-platform][graphify][gf_002] add new page: service-mesh
+[rd-platform][system][rollback_001] rollback sso to version 11
+```
+
+| source | 含义 |
+|---|---|
+| `graphify` | Graphify Worker 自动生成/更新 |
+| `human` | 用户通过 Docmost 编辑后同步 |
+| `system` | 系统操作（同步、回滚、迁移） |
+
+### 3.6 Branch 策略
+
+```text
+main                              # 已发布内容，对应 status=published
+proposal/{run_id}                 # Graphify 候选更新，待审核后 merge 到 main
+edit/{page_id}/{user_id}          # 人工编辑暂存（可选，Phase 2+）
+```
+
+| 分支 | 用途 | 生命周期 |
+|---|---|---|
+| `main` | 唯一发布分支，索引仅读此分支 | 永久 |
+| `proposal/{run_id}` | Graphify 生成结果暂存，review_required 页面在此分支 | 审核通过 merge 后删除；超过 30 天未处理自动关闭 |
+| `edit/{page_id}/{user_id}` | 人工编辑草稿隔离（避免半成品进入 main） | 用户保存发布后 merge 并删除 |
+
+规则：
+- 索引和 Chat 检索**只读 main 分支**
+- Graphify Worker 输出写入 `proposal/{run_id}` 分支，仅当自动发布策略允许时直接合入 main
+- 禁止 force push main
+- proposal 分支 merge 前自动检查与 main 的冲突
+
+### 3.7 发布策略与索引准入
+
+页面 `status` 决定索引可见性：
+
+| status | 是否进入索引 | 是否进入默认检索 | 说明 |
+|---|---|---|---|
+| `draft` | 否 | 否 | 新创建但未完成 |
+| `generated` | 否 | 否 | Graphify 刚生成，待审核或自动发布 |
+| `review_required` | 否 | 否 | 存在冲突或低置信内容，需人工审核 |
+| `published` | **是** | **是** | 唯一可检索状态 |
+| `editing` | 保持已索引版本 | 是（索引版本） | 编辑中不更新索引，Chat 使用上次发布版本 |
+| `deprecated` | 保持已索引版本 | **否**（管理员可手动启用） | 标记过时，默认不参与检索 |
+| `archived` | **移除索引** | **否** | 永不检索，归档保留 |
+
+关键约束：
+- 只有 `status=published` 且 `page_version` 已完成 chunk+embedding 的页面才参与 Chat 检索
+- `deprecated` 页面在管理员开启 `include_deprecated=true` 参数时可检索，但结果标注"已过时"
+- 状态变更为 `archived` 时，对应 chunks 从 index_snapshot 中移除
+
+### 3.8 回滚策略
+
+回滚**创建新版本**而非重置历史，确保完整审计链：
+
+```text
+v12 (current, published)
+  ↓ 用户发起回滚到 v10
+v13 (new version, content = v10 的内容, 标记 rollback_from=v12, rollback_to=v10)
+```
+
+实现规则：
+
+1. 回滚操作创建新的 `page_version`，`content` 复制目标版本内容
+2. 新版本 metadata 记录 `rollback_from`（当前版本）和 `rollback_to`（目标版本）
+3. Git 中体现为新 commit（不用 `git revert` 或 `git reset`）
+4. 新版本正常走发布流程（自动 publish 或待审核）
+5. 索引更新到新版本
+6. 原版本历史完整保留，可随时查看
+
+回滚 commit message 示例：
+
+```text
+[rd-platform][system][rollback_001] rollback sso from v12 to v10 content
+```
+
+禁止行为：
+- 禁止 `git reset --hard` 或 `git rebase` 修改已发布历史
+- 禁止直接删除 commit（即使是错误内容，也通过新 commit 覆盖）
+- 禁止跳过审计的静默回滚
+
 ## 4. 页面状态机
 
 ```mermaid
