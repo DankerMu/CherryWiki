@@ -239,15 +239,87 @@ ANSWER REQUIREMENTS:
 
 ## 8. 回答约束
 
+### 8.1 知识来源规则
+
 1. 有 Wiki 证据时，优先基于 Published Wiki 回答，`answer_source = knowledge_base`。
 2. 没有足够 Wiki 证据时，模型可基于自有知识回答，但必须设置 `answer_source = model_knowledge`，前端显示明确标注”此回答基于模型通用知识，非知识库引用”。不得伪造引用，`citations` 为空数组。
 3. 部分问题知识库有部分覆盖时，`answer_source = mixed`，知识库命中部分带引用，模型补充部分单独标注。
 4. 不得引用无权限页面。
-5. 不得把 AMBIGUOUS 关系当事实。
-6. 不得声称读取了原始文件，除非引用是通过 Wiki 页面证据链提供。
-7. 有 Wiki 引用时必须返回 citations。
-8. 关系型问题优先返回 graph_paths。
-9. 无知识命中的回答审计标记为 `no_retrieval_hit`，供管理员分析知识覆盖率。
+5. 不得声称读取了原始文件，除非引用是通过 Wiki 页面证据链提供。
+6. 有 Wiki 引用时必须返回 citations。
+7. 关系型问题优先返回 graph_paths。
+8. 无知识命中的回答审计标记为 `no_retrieval_hit`，供管理员分析知识覆盖率。
+
+### 8.2 置信度与引用约束
+
+| 约束 | 规则 |
+|---|---|
+| EXTRACTED 边 | 可支撑事实性回答，正常引用 |
+| INFERRED 边 | **仅用于辅助解释和关系展示**，不得单独支撑事实性结论。回答中必须标注”根据图谱推断” |
+| AMBIGUOUS 边 | 默认不进入 answer context（见 §4.2 `ambiguous_edge_policy`），仅在”可能相关/待确认”区域展示 |
+| Graph path | 每条路径必须可追溯到 `page_version`（路径中每个节点/边关联的 source page 和版本） |
+
+### 8.3 图路径与文本 chunk 冲突处理
+
+图路径是跨页面关系综合（二手推断），文本 chunk 是页面原文切片（一手证据）。两者可能冲突：
+
+| 冲突类型 | 处理策略 |
+|---|---|
+| 图路径声明 A→B，但 chunk 明确否定 A→B | **文本 chunk 优先**。回答基于 chunk，附带提示”图谱中存在关系 A→B 但与页面内容不一致，可能需要更新图谱” |
+| 图路径提供了 chunk 未覆盖的关系 | 图路径作为补充展示，标注为”图谱推断”，不作为事实断言 |
+| chunk 之间互相矛盾 | 展示两者，标注来源页面和版本，让用户判断。若版本不同，优先最新版本 |
+
+冲突检测时机：Context Packing 阶段，将 graph context 中的关系与 wiki context 中的 chunk 内容做简单语义对比（基于 entailment/contradiction 分类器或 LLM 轻量判断）。
+
+### 8.4 Source Chain（引用溯源链）
+
+每条最终引用必须携带完整 source chain，实现从回答文本到原始证据的全链路可追溯：
+
+```text
+answer_span → citation → chunk/section → page_id + page_version_id → source_document_ids + graph_edge_ids
+```
+
+#### 设计原则
+
+1. **索引时预计算，非查询时 JOIN** — chunk 入库时将 source chain 写入 chunk metadata（denormalized），查询时零成本读取
+2. **渐进式呈现** — 用户默认看到 `page_title + section`；展开可见 `page_version`；深层可见 `source_document` 和 `graph_edge`
+3. **置信度传播** — chain 中如果存在 AMBIGUOUS/INFERRED 环节，对整条引用降权
+
+#### Chunk 索引时 source chain 结构
+
+```json
+{
+  “chunk_id”: “chunk_012”,
+  “page_id”: “rd.auth.sso”,
+  “page_version_id”: “ver_003”,
+  “section_id”: “sec_oauth_flow”,
+  “source_chain”: {
+    “source_document_ids”: [“src_001”, “src_003”],
+    “graph_node_ids”: [“node_sso”, “node_oauth2”],
+    “graph_edge_ids”: [“edge_sso_oauth2”],
+    “edge_confidence”: “EXTRACTED”,
+    “chain_confidence”: 0.92
+  }
+}
+```
+
+`chain_confidence` 计算：取 chain 中最弱环节的 confidence_score。若 chunk 纯来自文本切片无图谱关联，则 `chain_confidence = 1.0`。
+
+#### Source chain 的 GraphRAG 质量提升作用
+
+| 用途 | 说明 |
+|---|---|
+| Rerank 权重调节 | chain_confidence 低的 chunk 在 rerank 中降权（乘以 chain_confidence） |
+| 冲突检测 | 两个 chunk 的 source_document_ids 不重叠 + 结论相反 → 标记冲突 |
+| 版本过时检测 | page_version_id < current_version → 标记”引用历史版本” |
+| 知识覆盖分析 | 统计哪些 source_document 从未被 citation 命中 → 识别低利用率资料 |
+| 反馈精准定位 | 用户标记”引用错误”时，可精确定位到 source_document 的具体段落 |
+
+#### 性能保障
+
+- 索引时写入：chunk embedding 同时写入 source_chain JSON 字段（PostgreSQL JSONB）
+- 查询时零额外查询：chunk 检索结果已包含 source_chain
+- 存储开销：每 chunk 约增加 200-500 bytes（可接受，相比 embedding 向量 12KB 微不足道）
 
 ## 9. GraphRAG 模式
 
