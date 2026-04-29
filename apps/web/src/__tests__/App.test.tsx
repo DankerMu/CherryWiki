@@ -43,6 +43,30 @@ describe('App routing', () => {
     expect(screen.getByRole('heading', { name: 'Admin' })).toBeInTheDocument();
   });
 
+  it('renders Chat for /chat/:id', () => {
+    renderRoute('/chat/conv-123');
+
+    expect(screen.queryAllByRole('heading', { name: 'Chat' }).length).toBeGreaterThan(0);
+  });
+
+  it('renders Wiki for /wiki/:spaceId/:pageId', () => {
+    renderRoute('/wiki/test-space/page-456');
+
+    expect(screen.queryAllByRole('heading', { name: 'Wiki' }).length).toBeGreaterThan(0);
+  });
+
+  it('renders Admin for /admin/users', () => {
+    renderRoute('/admin/users');
+
+    expect(screen.queryAllByRole('heading', { name: 'Admin' }).length).toBeGreaterThan(0);
+  });
+
+  it('renders Admin for /admin/models', () => {
+    renderRoute('/admin/models');
+
+    expect(screen.queryAllByRole('heading', { name: 'Admin' }).length).toBeGreaterThan(0);
+  });
+
   it('renders NotFound for /nonexistent', () => {
     renderRoute('/nonexistent');
 
