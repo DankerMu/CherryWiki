@@ -10,6 +10,9 @@
   },
   "scripts": {
     "dev": "pnpm -r --parallel --if-present dev",
+    "dev:infra": "docker compose up -d postgres redis minio",
+    "dev:up": "docker compose up -d",
+    "dev:down": "docker compose down",
     "build": "pnpm -r --if-present build",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
