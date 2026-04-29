@@ -38,10 +38,35 @@
 
 - [ ] 6.1 在 main.ts 配置全局 ValidationPipe（whitelist: true, forbidNonWhitelisted: true, transform: true）
 
-## 7. 验证
+## 7. 自动化测试
 
-- [ ] 7.1 `pnpm --filter api dev` 启动成功
-- [ ] 7.2 `curl http://localhost:8080/api/health` 返回 200 + 正确结构
-- [ ] 7.3 请求日志含 request_id
-- [ ] 7.4 访问不存在路由返回 { error: { code: "NOT_FOUND", ... } }
-- [ ] 7.5 发送非法 body 返回 { error: { code: "VALIDATION_ERROR", ... } }
+### 7.1 Health 端点测试 (`apps/api/src/health/__tests__/health.controller.test.ts`)
+
+- [ ] 7.1.1 GET /api/health 返回 200 + `{ status: "healthy", version, uptime }`
+- [ ] 7.1.2 返回的 version 与 package.json version 一致
+- [ ] 7.1.3 uptime 为正整数
+
+### 7.2 错误处理测试 (`apps/api/src/common/filters/__tests__/http-exception.filter.test.ts`)
+
+- [ ] 7.2.1 HttpException(404) → `{ error: { code: "NOT_FOUND", message, request_id } }` + status 404
+- [ ] 7.2.2 HttpException(403) → `{ error: { code: "PERMISSION_DENIED", ... } }` + status 403
+- [ ] 7.2.3 未知异常 → 500 + `{ error: { code: "INTERNAL_ERROR", message: "Internal server error" } }`，不暴露堆栈
+- [ ] 7.2.4 ValidationPipe 校验失败 → 422 + `{ error: { code: "VALIDATION_ERROR", details } }`
+- [ ] 7.2.5 所有错误响应包含 request_id 字段
+
+### 7.3 请求上下文测试 (`apps/api/src/common/middleware/__tests__/request-context.test.ts`)
+
+- [ ] 7.3.1 无 X-Request-Id header 时自动生成 UUID v4 格式 request_id
+- [ ] 7.3.2 携带 X-Request-Id header 时使用该值
+- [ ] 7.3.3 request_id 在响应 header 中回传
+
+### 7.4 结构化日志测试
+
+- [ ] 7.4.1 请求日志包含 request_id、method、url、status_code、duration_ms
+- [ ] 7.4.2 日志格式为 JSON
+
+### 7.5 集成验证
+
+- [ ] 7.5.1 `pnpm --filter api build` 编译成功
+- [ ] 7.5.2 不存在路由返回统一错误格式
+- [ ] 7.5.3 非法 body 返回 VALIDATION_ERROR
