@@ -32,6 +32,15 @@
 - [ ] 2.2 创建 NestJS AuditInterceptor：自动捕获标记了 @Audited() 的请求，推入 AuditService 队列
 - [ ] 2.3 定义审计事件常量枚举：auth.login, auth.logout, auth.token_refresh, auth.failed_login, auth.password_change, auth.session_revoke, admin.user.create, admin.user.update, admin.user.disable, admin.group.create, user.group_change, space.create, space.update, space.permission_change, admin.model.create, admin.model.update, admin.model.test
 
+### 2.T Audit Infrastructure Tests
+
+- [ ] 2.T1 AuditService 队列测试：push 事件到队列后 1s 内 flush 到 DB mock，满 50 条提前 flush，空队列不产生 DB 调用
+- [ ] 2.T2 AuditService graceful drain 测试：onModuleDestroy 时 flush 队列中所有剩余事件
+- [ ] 2.T3 @Audited() 装饰器 + AuditInterceptor 测试：标记了 @Audited('action') 的 controller 方法被拦截并推入审计队列，未标记的方法不触发审计
+- [ ] 2.T4 审计事件枚举完整性测试：验证 17 种必记事件全部定义，枚举值无拼写错误
+- [ ] 2.T5 审计日志 request_id 关联测试：审计条目包含来自 AsyncLocalStorage 的 request_id
+- [ ] 2.T6 审计日志敏感信息排除测试：push 含 password/token 字段的 metadata 时，这些字段被 sanitize 或剥离
+
 ## 3. Auth Core (packages/auth-core)
 
 - [ ] 3.1 实现 argon2id 密码哈希工具（hash / verify），fallback bcrypt 支持
