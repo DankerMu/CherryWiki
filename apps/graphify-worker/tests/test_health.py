@@ -19,7 +19,7 @@ async def _assert_health_endpoint(port: int) -> None:
     await site.start()
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(trust_env=False) as client:
             response = await client.get(f"http://127.0.0.1:{port}/health")
 
         assert response.status_code == 200

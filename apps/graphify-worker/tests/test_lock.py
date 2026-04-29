@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from src.lock import acquire_lock, release_lock
+from src.lock import RELEASE_SCRIPT, acquire_lock, release_lock
 
 
 def test_acquire_lock_uses_set_nx_ex_semantics() -> None:
@@ -46,10 +46,14 @@ class FakeRedis:
         self.expirations[name] = ex
         return True
 
-    async def get(self, name: str) -> str | None:
-        return self.store.get(name)
+    async def eval(self, script: str, numkeys: int, *keys_and_args: str) -> int:
+        assert script == RELEASE_SCRIPT
+        assert numkeys == 1
+        name, owner = keys_and_args
 
-    async def delete(self, name: str) -> int:
+        if self.store.get(name) != owner:
+            return 0
+
         if name not in self.store:
             return 0
 

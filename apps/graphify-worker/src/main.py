@@ -5,7 +5,14 @@ import logging
 import os
 import signal
 from collections.abc import Callable
+from pathlib import Path
 from types import FrameType
+
+if __package__ in {None, ""}:
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    __package__ = "src"
 
 from aiohttp import web
 

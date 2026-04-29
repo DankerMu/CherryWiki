@@ -13,7 +13,7 @@ describe('@cherrygraph/job-core', () => {
   it('exports queue name constants', () => {
     expect(QUEUE_INGESTION).toBe('ingestion');
     expect(QUEUE_URL_FETCH).toBe('url-fetch');
-    expect(QUEUE_INDEXING).toBe('indexing');
+    expect(QUEUE_INDEXING).toBe('indexer');
     expect(QUEUE_GRAPHIFY_NOTIFY).toBe('graphify-notify');
   });
 

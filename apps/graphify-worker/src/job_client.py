@@ -32,7 +32,7 @@ async def poll_jobs(
     current_worker_id = worker_id or f"graphify-worker-{uuid.uuid4()}"
 
     try:
-        async with httpx.AsyncClient(base_url=api_base_url.rstrip("/"), timeout=10) as http_client:
+        async with httpx.AsyncClient(base_url=api_base_url.rstrip("/"), timeout=10, trust_env=False) as http_client:
             while stop_event is None or not stop_event.is_set():
                 try:
                     job = await _fetch_pending_job(http_client)
@@ -47,11 +47,17 @@ async def poll_jobs(
                         continue
 
                     if not await acquire_lock(redis, job_id, current_worker_id):
+                        await _sleep(poll_interval, stop_event)
                         continue
 
                     try:
-                        result = await run(job)
-                        await _complete_job(http_client, job_id, result)
+                        try:
+                            result = await run(job)
+                        except Exception as exc:
+                            logger.exception("graphify job failed", extra={"job_id": job_id})
+                            await _fail_job(http_client, job_id, exc)
+                        else:
+                            await _complete_job(http_client, job_id, result)
                     finally:
                         await release_lock(redis, job_id, current_worker_id)
                 except (httpx.HTTPError, OSError) as exc:
@@ -74,6 +80,18 @@ async def _fetch_pending_job(http_client: httpx.AsyncClient) -> dict[str, Any] |
 
 async def _complete_job(http_client: httpx.AsyncClient, job_id: str, result: dict[str, Any]) -> None:
     response = await http_client.patch(f"/internal/jobs/{job_id}/complete", json=result)
+    response.raise_for_status()
+
+
+async def _fail_job(http_client: httpx.AsyncClient, job_id: str, exc: Exception) -> None:
+    response = await http_client.patch(
+        f"/internal/jobs/{job_id}/failed",
+        json={
+            "status": "failed",
+            "error": str(exc),
+            "error_type": type(exc).__name__,
+        },
+    )
     response.raise_for_status()
 
 

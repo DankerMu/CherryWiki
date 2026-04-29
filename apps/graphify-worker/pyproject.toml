@@ -7,3 +7,15 @@ dependencies = [
   "httpx",
   "aiohttp"
 ]
+
+[project.optional-dependencies]
+test = [
+  "pytest",
+  "pytest-asyncio"
+]
+
+[project.scripts]
+graphify-worker = "src.__main__:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

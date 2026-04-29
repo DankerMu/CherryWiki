@@ -39,7 +39,9 @@ export async function bootstrap(): Promise<void> {
   });
 
   const healthServer = await startHealthServer(WORKER_NAME, healthPort);
-  process.once('SIGTERM', createShutdownHandler(worker, connection, healthServer));
+  const shutdown = createShutdownHandler(worker, connection, healthServer);
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
   console.log(`${WORKER_NAME}: started`, { queue: QUEUE_INGESTION, healthPort });
 }
 
@@ -65,16 +67,35 @@ async function shutdown(
   connection: ReturnType<typeof createBullMQConnection>,
   healthServer: Server,
 ): Promise<void> {
+  let shutdownFailed = false;
+
   try {
     console.log(`${WORKER_NAME}: shutting down`);
-    await worker.close();
-    await connection.quit();
-    await closeHealthServer(healthServer);
-    console.log(`${WORKER_NAME}: stopped`);
+    const results = await Promise.allSettled([worker.close(), connection.quit()]);
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        shutdownFailed = true;
+        console.error(`${WORKER_NAME}: shutdown step failed`, result.reason);
+      }
+    }
   } catch (error) {
     console.error(`${WORKER_NAME}: shutdown failed`, error);
-    process.exitCode = 1;
+    shutdownFailed = true;
+  } finally {
+    try {
+      await closeHealthServer(healthServer);
+    } catch (error) {
+      console.error(`${WORKER_NAME}: health server shutdown failed`, error);
+      shutdownFailed = true;
+    }
   }
+
+  if (shutdownFailed) {
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(`${WORKER_NAME}: stopped`);
 }
 
 function isEntrypoint(): boolean {

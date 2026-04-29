@@ -3,16 +3,20 @@ from __future__ import annotations
 from typing import Protocol
 
 LOCK_KEY_PREFIX = "lock:job:"
+RELEASE_SCRIPT = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('del', KEYS[1])
+else
+    return 0
+end
+"""
 
 
 class RedisLockClient(Protocol):
     async def set(self, name: str, value: str, *, ex: int, nx: bool) -> object:
         ...
 
-    async def get(self, name: str) -> str | bytes | None:
-        ...
-
-    async def delete(self, name: str) -> int:
+    async def eval(self, script: str, numkeys: int, *keys_and_args: str) -> object:
         ...
 
 
@@ -22,14 +26,7 @@ async def acquire_lock(redis_client: RedisLockClient, job_id: str, worker_id: st
 
 
 async def release_lock(redis_client: RedisLockClient, job_id: str, worker_id: str) -> bool:
-    current_owner = await redis_client.get(_lock_key(job_id))
-    if isinstance(current_owner, bytes):
-        current_owner = current_owner.decode("utf-8")
-
-    if current_owner != worker_id:
-        return False
-
-    deleted = await redis_client.delete(_lock_key(job_id))
+    deleted = await redis_client.eval(RELEASE_SCRIPT, 1, _lock_key(job_id), worker_id)
     return bool(deleted)
 
 
