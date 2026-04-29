@@ -808,7 +808,7 @@ components:
         reachable: { type: boolean }
         latency_ms: { type: integer }
         response_preview: { type: string }
-        error: { type: string, nullable: true }
+        error: { type: [string, 'null'] }
 
   responses:
     UnauthorizedError:
