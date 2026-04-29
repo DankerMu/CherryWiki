@@ -28,9 +28,20 @@
 
 - [ ] 4.1 创建空目录：src/components/、src/lib/
 
-## 5. 验证
+## 5. 自动化测试
 
-- [ ] 5.1 `pnpm --filter web dev` 启动成功
-- [ ] 5.2 浏览器访问首页可见项目名称
-- [ ] 5.3 各路由显示对应占位页面
-- [ ] 5.4 访问 /api/health 代理到后端返回结果（需 CS-1 API 运行）
+### 5.1 路由测试 (`apps/web/src/__tests__/App.test.tsx`)
+
+- [ ] 5.1.1 / 路由渲染 Home 页面
+- [ ] 5.1.2 /login 路由渲染 Login 页面
+- [ ] 5.1.3 /chat 路由渲染 Chat 页面
+- [ ] 5.1.4 /wiki/test-space 路由渲染 Wiki 页面
+- [ ] 5.1.5 /admin 路由渲染 Admin 页面
+- [ ] 5.1.6 /nonexistent 路由渲染 NotFound 页面
+
+## 6. 集成验证（手动）
+
+- [ ] 6.1 `pnpm --filter web dev` 启动成功
+- [ ] 6.2 浏览器访问首页可见项目名称
+- [ ] 6.3 各路由显示对应占位页面
+- [ ] 6.4 访问 /api/health 代理到后端返回结果
