@@ -1,88 +1,112 @@
-# CherryGraph Studio — 方案完善 TODO 合并状态
+# CherryGraph Studio — v0.4 审查整改 TODO
 
-> 本文件基于仓库 `docs/todo.md` 合并。状态说明：`[x]` 表示已完成并进入文档。
+> 本文件基于 GPT Pro 审查（2026-04-28）+ Claude 审核确认后的整改清单。  
+> `[x]` = 已完成并合入文档，`[ ]` = 待完成。
 
-## 一、Cherry Studio Electron→Web 改造深化
+## 已完成的整改（本轮审查 commit 记录）
 
-### 1.1 代码审计与可复用性分析
+### P2-1 ~ P2-6 基础整改
 
-- [x] **T-1.1.1** 审计 `cherry-studio/src/renderer/`。  
-  已完成：实际扫描 1,738 文件 / 244,488 LOC，按功能模块给出精确行数和 A/B/C 复用评级。
-- [x] **T-1.1.2** 审计 `cherry-studio/packages/aiCore/`。  
-  已完成：60 文件 / 13,014 LOC，Vercel AI SDK v5 + 9 provider + plugin pipeline。
-- [x] **T-1.1.3** 审计 `cherry-studio/packages/shared/`。  
-  已完成：26 文件 / 6,719 LOC。
-- [x] **T-1.1.4** 审计 `cherry-studio/packages/mcp-trace/`。  
-  已完成：14 文件 / 687 LOC。
+- [x] **T-11.3** API 文档从目录式升级为完整契约（request/response/error/permission/audit）。
+- [x] **T-11.3b** OpenAPI 补齐 Bridge 鉴权 schema（bridgeBearer + bridgeHmacAuth）。
+- [x] **T-11.6** SSRF 防护升为 Phase 1 P0（安全文档 + 测试用例）。
+- [x] **T-11.7** Prompt Injection 风险与防护（RAG §4C + 安全文档 §4C + 测试 §4.5）。
+- [x] SSE 事件补齐（retrieval.completed/failed, rerank.completed, message.error, usage.reported + 公共元数据 + 断线重连）。
+- [x] RAG 检索配额与 token budget 表（vector_top_k=30, context_token_budget=12000 等）。
+- [x] Docker Compose phase profiles + healthcheck 全覆盖。
+- [x] 技术栈定死（NestJS+Fastify, BullMQ, Drizzle ORM）。
 
-### 1.2 改造策略文档
+### 模块深化
 
-- [x] **T-1.2.1** `02_总体架构设计.md` 新增 Cherry Studio 改造策略。  
-  已补充：路径映射、重写模块、Electron→Web 适配层、状态管理迁移、graph-core 抽象。
-- [x] **T-1.2.2** `17_风险清单与决策记录.md` 更新 R1。  
-  已补充：量化数据（A ~30K LOC 8.7% / B ~60K LOC 17.4% / C ~255K LOC 73.9%）。
+- [x] Chat 回答状态机、引用版本提示、无知识降级策略。
+- [x] Graphify Worker 执行协议（job payload, 状态机, 并发互斥, quarantine, 超时）。
+- [x] Canonical Wiki Repo git 规范（commit 格式, branch 策略, 发布策略, 回滚策略）。
+- [x] Docmost Fork 红线（不依赖私有 API, excludedPaths 安全, 契约测试, rebase CI 门禁）。
+- [x] Upload 沙箱 + quarantine + 大小分层 + 解析产物 hash + 失败策略。
+- [x] GraphRAG 置信度约束 + 冲突处理 + source chain。
 
-## 二、Docmost 集成策略更新
+### Schema & API
 
-- [x] **T-2.1.1** 更新 `06_模块需求_Docmost集成.md`。  
-  已删除企业版 API 路径，明确 Fork 开源版 + 自建 Bridge endpoint。
-- [x] **T-2.1.2** 更新 `11_API规范.md`。  
-  已补充 Bridge API endpoint、schema、触发时机、错误处理和重试策略。
-- [x] **T-2.1.3** 更新 `17_风险清单与决策记录.md`。  
-  已将 R3 改为 Docmost Fork 维护成本风险，新增 ADR-007。
+- [x] Schema 补表：bridge_events, webhook_deliveries, graph_evidence_refs, permission_versions, sessions, system_settings, api_tokens, model_usage_logs。
+- [x] API 补充端点：password/change, sessions, jobs 用户级, wiki content, proposal accept/reject, models PATCH/test, consistency check。
+- [x] 权限点映射汇总表（50+ 端点）。
 
-## 三、AGPL 合规简化
+### 安全 & 运维
 
-- [x] **T-3.1** 重写 `18_开源许可证与合规说明.md`。  
-  源码全部公开，删除商业许可/规避 AGPL 旧口径。
-- [x] **T-3.2** 更新 `17_风险清单与决策记录.md`。  
-  R2 已降为 Low/Low。
+- [x] Bridge replay 防护（timestamp + nonce + HMAC 覆盖范围）。
+- [x] 撤权缓存失效（permission_version + 主动清理）。
+- [x] 容器沙箱安全（read_only rootfs, no-new-privileges, cap_drop ALL）。
+- [x] Graphify 输出校验（节点/边上限, 偏离检测, graph.html sandbox, Markdown 清洗）。
+- [x] 资源限制表 + 队列隔离 + 版本展示 + 恢复演练。
 
-## 四、分阶段交付重构
+### 文档体系
 
-- [x] **T-4.1** 重写 `16_实施路线图与里程碑.md`。  
-  已按 Phase 1-4 成品交付重构。
+- [x] **T-13.1** 需求追踪矩阵（Doc 24 project）。
+- [x] **T-13.2** Phase 1 Scope Lock（Doc 25）。
+- [x] **T-13.3** 威胁建模（Doc 24 engineering）。
+- [x] 测试按 Phase 拆分 + 5 个关键安全测试。
 
-## 五、技术设计补强
+---
 
-- [x] **T-5.1.1** `08_强耦合设计_六层.md` 新增一致性保障。
-- [x] **T-5.1.2** `10_数据模型与数据库设计.md` 补充版本一致性字段。
-- [x] **T-5.2.1** 新建 `21_Graphify_输出Schema契约.md`。  
-  已对照 Graphify v0.5.3 源码验证并修正 5 处关键差异。
-- [x] **T-5.3.1** 更新 `09_RAG与GraphRAG设计.md`。
-- [x] **T-5.4.1** 更新 `14_测试验收规范.md`。
-- [x] **T-5.5.1** 更新 `02_总体架构设计.md`。
+## 待完成 TODO
 
-## 六、文档间交叉引用一致性
+### P0：开发前必须完成
 
-- [x] **T-6.1** 检查交叉引用和 Phase 编号。
-- [x] **T-6.2** 更新 `README.md`。
-- [x] **T-6.3** 更新 `MANIFEST.md`。
+- [ ] **T-14.1** 定义 Graphify Wiki Normalization Algorithm。
+  - wiki-core 中从 Graphify 扁平 wiki/ 目录到 Canonical Wiki Repo 层级结构的映射算法。
+  - 包括：slug 生成规则、page_id 分配、community/god-node 页面路径、冲突处理。
+  - 文件：`docs/design/21_Graphify_输出Schema契约.md` 新增 §10 或独立文档。
 
-## 七、Schema 与配置补充
+- [ ] **T-14.2** 定义 Docmost Markdown ↔ 富文本 round-trip 验证用例。
+  - Docmost 使用 Tiptap 编辑器，Markdown → Tiptap JSON → Markdown 可能有信息损耗。
+  - 需验证：HTML 注释保留、Frontmatter 保留、表格格式、代码块、Mermaid。
+  - 文件：`docs/requirements/06_模块需求_Docmost集成.md` 新增验证矩阵。
 
-- [x] **T-7.1** 更新 `schemas/schema.sql`。
-- [x] **T-7.2** 更新 `schemas/openapi.yaml`。
-- [x] **T-7.3** 更新 `ops/docker-compose.skeleton.yml`。
-- [x] **T-7.4** 更新 `ops/env.example`。
+- [ ] **T-14.3** 完善 openapi.yaml 补充端点 schema。
+  - §14 新增的端点（password/change, sessions, jobs, content, proposals, models PATCH/test, consistency/check）需同步到 openapi.yaml paths + schemas。
+  - 当前只在 11_API规范.md 中有定义，openapi.yaml 尚未同步。
 
-## 八、补充缺失文档
+### P1：Phase 1 开发中补充
 
-- [x] **T-8.1** 新建 `20_Cherry_Studio_代码审计.md`（含实际审计数据）。
-- [x] **T-8.2** 新建 `21_Graphify_输出Schema契约.md`（含源码验证差异修正）。
-- [x] **T-8.3** 新建 `22_Docmost_Fork_改动清单.md`（含 baseline v0.80.1 / commit 980521f）。
+- [ ] **T-15.1** 编写 env.example 完整版。
+  - 补充：`WORKER_HEALTH_PORT`, `GRAPHIFY_TIMEOUT_SECONDS`, `UPLOAD_MAX_SIZE_MB`, `SSRF_BLOCKED_CIDRS` 等新增配置项。
 
-## 九、GPT Pro 额外补充
+- [ ] **T-15.2** 编写 nginx.conf.example。
+  - Phase 1：代理 cherry-web + cherry-api。
+  - Phase 2：追加 docmost upstream。
+  - 安全 header（CSP, HSTS, X-Frame-Options）。
 
-- [x] **T-9.1** 新建 `23_补充建议清单.md`。
-- [x] **T-9.2** 在 `17_风险清单与决策记录.md` 新增 R11-R14。
-- [x] **T-9.3** schema.sql 增加 `graph_communities` 等建议表。
+- [ ] **T-15.3** 定义 CI/CD pipeline 骨架。
+  - lint → test → build → security scan → deploy。
+  - PR 门禁：unit test + type check + lint。
+  - main 门禁：integration test + security test。
 
-## 十、源码验证补全（Claude 完成）
+- [ ] **T-15.4** 编写 `tests/fixtures/` 测试数据集。
+  - test-corpus-small（10 文件）
+  - test-corpus-security（恶意样本）
+  - 见 Doc 25 §6。
 
-- [x] **T-10.1** Cherry Studio 代码审计：实际扫描 2,219 文件 / 345,785 LOC，728 处 IPC 依赖，28 Redux slices，9 AI providers。
-- [x] **T-10.2** Graphify Schema 验证：对照 v0.5.3 源码确认 5 处关键差异（无 metadata、无 frontmatter、扁平 wiki 目录、不同置信度默认值、hyperedges 字段），均已更新到 Doc 21。
-- [x] **T-10.3** Docmost baseline：v0.80.1 / commit `980521f95792ddd382ebbc275467a8319a351bae`，NestJS+Fastify 架构，Bridge 放 `integrations/bridge/`。
-- [x] **T-10.4** Docmost Fork：已 fork 到 `DankerMu/docmost`，已作为 submodule 添加到 `external/docmost/`。
+### P2：后续 Phase 前完善
 
-## 全部 TODO 已完成
+- [ ] **T-16.1** Docmost Fork 实际代码开发。
+  - Bridge module 实现。
+  - 契约测试编写。
+  - rebase CI workflow 配置。
+
+- [ ] **T-16.2** GraphRAG 完整实现前的 spike。
+  - graph.json 导入性能测试（5000 nodes, 10000 edges）。
+  - path query 性能基准（4-hop on PostgreSQL）。
+  - 决定是否需要 Phase 4 引入 Neo4j。
+
+- [ ] **T-16.3** MCP Gateway 接口设计。
+  - Agent tool 定义。
+  - 权限策略。
+  - Rate limit per token。
+
+---
+
+## 变更记录
+
+| 日期 | 说明 |
+|---|---|
+| 2026-04-28 | v0.4 审查整改，新增 T-14 ~ T-16 系列。旧 T-1 ~ T-10 全部完成，归档。 |
