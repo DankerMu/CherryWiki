@@ -1,0 +1,24 @@
+{
+  "extends": "./tsconfig.base.json",
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/shared"
+    },
+    {
+      "path": "./packages/auth-core"
+    },
+    {
+      "path": "./packages/wiki-core"
+    },
+    {
+      "path": "./packages/rag-core"
+    },
+    {
+      "path": "./packages/graph-core"
+    },
+    {
+      "path": "./packages/ai-core"
+    }
+  ]
+}
