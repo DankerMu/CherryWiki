@@ -40,6 +40,27 @@ describe('jwt utilities', () => {
     expect(decoded).not.toHaveProperty('password_hash');
   });
 
+  it('does not include refresh_token from an unsafe input object', async () => {
+    const unsafePayload = {
+      ...createAccessPayload(),
+      refresh_token: 'must-not-be-signed',
+    };
+
+    const token = await signAccessToken(unsafePayload, SECRET);
+    const decoded = decodeJwt(token);
+
+    expect(decoded).not.toHaveProperty('refresh_token');
+  });
+
+  it('includes the required access token auth context claims', async () => {
+    const token = await signAccessToken(createAccessPayload(), SECRET);
+    const decoded = decodeJwt(token);
+
+    for (const claim of ['sub', 'tenant_id', 'email', 'role', 'group_ids', 'iat', 'exp']) {
+      expect(decoded).toHaveProperty(claim);
+    }
+  });
+
   it('verifies a valid token', async () => {
     const token = await signAccessToken(createAccessPayload(), SECRET);
 

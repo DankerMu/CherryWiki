@@ -1,0 +1,33 @@
+import { describe, expect, it } from 'vitest';
+
+import { AUDIT_EVENTS } from '../../apps/api/src/audit/audit-events.js';
+
+const REQUIRED_AUDIT_EVENTS = [
+  'auth.login',
+  'auth.logout',
+  'auth.token_refresh',
+  'auth.failed_login',
+  'auth.password_change',
+  'auth.session_revoke',
+  'admin.user.create',
+  'admin.user.update',
+  'admin.user.disable',
+  'admin.group.create',
+  'user.group_change',
+  'space.create',
+  'space.update',
+  'space.permission_change',
+  'admin.model.create',
+  'admin.model.update',
+  'admin.model.test',
+] as const;
+
+describe('audit event completeness', () => {
+  it('defines all 17 required Stage 1 audit events', () => {
+    const definedEvents = Object.values(AUDIT_EVENTS);
+
+    expect(definedEvents).toHaveLength(17);
+    expect(new Set(definedEvents).size).toBe(17);
+    expect(new Set(definedEvents)).toEqual(new Set(REQUIRED_AUDIT_EVENTS));
+  });
+});

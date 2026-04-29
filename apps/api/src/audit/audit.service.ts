@@ -42,6 +42,7 @@ const SENSITIVE_KEYS = new Set([
   'password_hash',
   'access_token',
   'refresh_token',
+  'api_key',
   'authorization',
   'cookie',
   'jwt',
