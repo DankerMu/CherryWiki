@@ -43,6 +43,10 @@ export class FakeDb {
     this.updateResults.push(result);
   }
 
+  transaction<T>(callback: (tx: NodePgDatabase) => Promise<T>): Promise<T> {
+    return callback(this.asDrizzle());
+  }
+
   select(fields?: unknown): FakeQueryBuilder {
     this.selectFields.push(fields);
     return new FakeQueryBuilder(this.selectResults.shift() ?? []);
@@ -52,7 +56,9 @@ export class FakeDb {
     return {
       values: (value: unknown) => {
         this.inserts.push(value);
-        return new FakeInsertReturningBuilder(this.insertResults.shift() ?? normalizeInsertedRows(value));
+        return new FakeInsertReturningBuilder(
+          this.insertResults.shift() ?? normalizeInsertedRows(value),
+        );
       },
     };
   }
@@ -87,6 +93,10 @@ class FakeQueryBuilder implements PromiseLike<unknown[]> {
   }
 
   limit(): Promise<unknown[]> {
+    return Promise.resolve(this.result);
+  }
+
+  returning(): Promise<unknown[]> {
     return Promise.resolve(this.result);
   }
 

@@ -29,24 +29,44 @@ import {
 import { TEST_EMAIL, TEST_JWT_SECRET, TEST_TENANT_ID, TEST_USER_ID } from './auth-test-utils.js';
 
 type AuthServiceMock = {
-  login: ReturnType<typeof vi.fn<(input: LoginInput, metadata?: AuthRequestMetadata) => Promise<LoginResponse>>>;
-  refresh: ReturnType<typeof vi.fn<(refreshToken: string, metadata?: AuthRequestMetadata) => Promise<TokenPairResponse>>>;
-  logout: ReturnType<
+  login: ReturnType<
+    typeof vi.fn<(input: LoginInput, metadata?: AuthRequestMetadata) => Promise<LoginResponse>>
+  >;
+  refresh: ReturnType<
     typeof vi.fn<
-      (user: AuthenticatedRequestUser, input?: LogoutInput, metadata?: AuthRequestMetadata) => Promise<{ success: true }>
+      (refreshToken: string, metadata?: AuthRequestMetadata) => Promise<TokenPairResponse>
     >
   >;
-  getCurrentUser: ReturnType<typeof vi.fn<(user: AuthenticatedRequestUser) => Promise<CurrentUserResponse>>>;
+  logout: ReturnType<
+    typeof vi.fn<
+      (
+        user: AuthenticatedRequestUser,
+        input?: LogoutInput,
+        metadata?: AuthRequestMetadata,
+      ) => Promise<{ success: true }>
+    >
+  >;
+  getCurrentUser: ReturnType<
+    typeof vi.fn<(user: AuthenticatedRequestUser) => Promise<CurrentUserResponse>>
+  >;
   changePassword: ReturnType<
     typeof vi.fn<
-      (user: AuthenticatedRequestUser, input: ChangePasswordInput, metadata?: AuthRequestMetadata) => Promise<{ success: true }>
+      (
+        user: AuthenticatedRequestUser,
+        input: ChangePasswordInput,
+        metadata?: AuthRequestMetadata,
+      ) => Promise<{ success: true }>
     >
   >;
 };
 
 type SessionServiceMock = {
-  listActiveSessions: ReturnType<typeof vi.fn<(input: ListSessionsInput) => Promise<SessionSummary[]>>>;
-  revokeSession: ReturnType<typeof vi.fn<(input: RevokeSessionInput) => Promise<{ revoked: true }>>>;
+  listActiveSessions: ReturnType<
+    typeof vi.fn<(input: ListSessionsInput) => Promise<SessionSummary[]>>
+  >;
+  revokeSession: ReturnType<
+    typeof vi.fn<(input: RevokeSessionInput) => Promise<{ revoked: true }>>
+  >;
 };
 
 const originalJwtSecret = process.env.JWT_SECRET;
@@ -74,6 +94,13 @@ describe('AuthController', () => {
     const metadata = Reflect.getMetadata(RATE_LIMIT_METADATA_KEY, loginHandler) as unknown;
 
     expect(metadata).toEqual({ limit: 10, windowSec: 60, mode: 'ip' });
+  });
+
+  it('applies the refresh rate-limit decorator', () => {
+    const refreshHandler = getControllerMethod(AuthController.prototype, 'refresh');
+    const metadata = Reflect.getMetadata(RATE_LIMIT_METADATA_KEY, refreshHandler) as unknown;
+
+    expect(metadata).toEqual({ limit: 30, windowSec: 60, mode: 'ip' });
   });
 
   it('POST /api/auth/login returns the token pair and user payload with status 200', async () => {
@@ -150,7 +177,10 @@ describe('AuthController', () => {
     app = await createTestApp();
     authServiceMock.logout.mockResolvedValue({ success: true });
 
-    await request(app.getHttpAdapter().getInstance().server).post('/api/auth/logout').send({}).expect(401);
+    await request(app.getHttpAdapter().getInstance().server)
+      .post('/api/auth/logout')
+      .send({})
+      .expect(401);
 
     const response = await request(app.getHttpAdapter().getInstance().server)
       .post('/api/auth/logout')
@@ -164,6 +194,19 @@ describe('AuthController', () => {
       expect.objectContaining({ refresh_token: 'refresh-token' }),
       expect.any(Object),
     );
+  });
+
+  it('POST /api/auth/logout requires a refresh token', async () => {
+    app = await createTestApp();
+
+    const response = await request(app.getHttpAdapter().getInstance().server)
+      .post('/api/auth/logout')
+      .set('Authorization', `Bearer ${await createAccessToken()}`)
+      .send({})
+      .expect(422);
+
+    expect(getErrorPayload(response.text).code).toBe(ErrorCode.VALIDATION_ERROR);
+    expect(authServiceMock.logout).not.toHaveBeenCalled();
   });
 
   it('GET /api/auth/me requires auth and returns the current user shape', async () => {
@@ -251,7 +294,9 @@ async function createTestApp(): Promise<NestFastifyApplication> {
   builder.overrideProvider(SessionService).useValue(sessionServiceMock);
 
   const moduleRef = await builder.compile();
-  const testApp = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter({ logger: false }));
+  const testApp = moduleRef.createNestApplication<NestFastifyApplication>(
+    new FastifyAdapter({ logger: false }),
+  );
   configureApp(testApp);
   await testApp.init();
   await testApp.getHttpAdapter().getInstance().ready();

@@ -13,7 +13,7 @@ import {
 } from '@nestjs/common';
 import { Public, type AuthenticatedRequestUser } from '@cherrygraph/auth-core';
 import { ErrorCode } from '@cherrygraph/shared';
-import { IsEmail, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, MaxLength } from 'class-validator';
 import type { IncomingHttpHeaders } from 'node:http';
 
 import { RateLimit } from '../common/guards/rate-limit.guard.js';
@@ -35,19 +35,21 @@ class LoginDto {
 class RefreshDto {
   @IsString()
   @IsNotEmpty()
+  @MaxLength(4096)
   refresh_token!: string;
 }
 
 class LogoutDto {
-  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  refresh_token?: string;
+  @MaxLength(4096)
+  refresh_token!: string;
 }
 
 class ChangePasswordDto {
   @IsString()
   @IsNotEmpty()
+  @MaxLength(128)
   current_password!: string;
 
   @IsString()
@@ -107,6 +109,7 @@ export class AuthController {
   }
 
   @Public()
+  @RateLimit(30, 60, 'ip')
   @HttpCode(HttpStatus.OK)
   @Post('refresh')
   async refresh(
@@ -122,17 +125,23 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Post('logout')
   async logout(
-    @Body() body: LogoutDto | undefined,
+    @Body() body: LogoutDto,
     @Req() request: RequestWithAuth,
     @Res({ passthrough: true }) response: CookieResponse,
   ): Promise<{ success: true }> {
-    const result = await this.authService.logout(getAuthenticatedUser(request), body ?? {}, getRequestMetadata(request));
+    const result = await this.authService.logout(
+      getAuthenticatedUser(request),
+      body,
+      getRequestMetadata(request),
+    );
     clearRefreshCookie(response);
     return result;
   }
 
   @Get('me')
-  async me(@Req() request: RequestWithAuth): Promise<Awaited<ReturnType<AuthService['getCurrentUser']>>> {
+  async me(
+    @Req() request: RequestWithAuth,
+  ): Promise<Awaited<ReturnType<AuthService['getCurrentUser']>>> {
     return this.authService.getCurrentUser(getAuthenticatedUser(request));
   }
 
@@ -142,7 +151,11 @@ export class AuthController {
     @Body() body: ChangePasswordDto,
     @Req() request: RequestWithAuth,
   ): Promise<{ success: true }> {
-    return this.authService.changePassword(getAuthenticatedUser(request), body, getRequestMetadata(request));
+    return this.authService.changePassword(
+      getAuthenticatedUser(request),
+      body,
+      getRequestMetadata(request),
+    );
   }
 
   @Get('sessions')
@@ -226,7 +239,12 @@ function setResponseHeader(response: CookieResponse, name: string, value: string
 }
 
 function getRequestIp(request: RequestWithAuth): string | undefined {
-  return request.ip ?? request.raw?.ip ?? request.socket?.remoteAddress ?? request.raw?.socket?.remoteAddress;
+  return (
+    request.ip ??
+    request.raw?.ip ??
+    request.socket?.remoteAddress ??
+    request.raw?.socket?.remoteAddress
+  );
 }
 
 function getUserAgent(request: RequestWithAuth): string | undefined {

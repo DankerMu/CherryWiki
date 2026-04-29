@@ -40,6 +40,23 @@ describe('SessionService', () => {
     ]);
   });
 
+  it('revokes the oldest active sessions when creating a session above the per-user cap', async () => {
+    const { service, db } = createSessionServiceContext();
+    db.queueSelect([{ activeCount: 11 }]);
+    db.queueSelect([{ id: 'session-oldest' }]);
+
+    const session = await service.createSession({
+      id: 'session-new',
+      tenant_id: TEST_TENANT_ID,
+      user_id: TEST_USER_ID,
+      refresh_token_hash: 'new-refresh-token-hash',
+      expires_at: new Date(Date.now() + 60 * 60 * 1_000),
+    });
+
+    expect(session.id).toBe('session-new');
+    expect(requireRecord(db.updates[0]).revoked_at).toBeInstanceOf(Date);
+  });
+
   it('revokes an owned session and records auth.session_revoke', async () => {
     const { service, db, audit } = createSessionServiceContext();
     db.queueSelect([createSession({ id: 'session-1' })]);

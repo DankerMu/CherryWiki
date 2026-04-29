@@ -1,7 +1,20 @@
 import { HttpException } from '@nestjs/common';
-import { hashPassword, signRefreshToken, verifyPassword, verifyToken } from '@cherrygraph/auth-core';
+import {
+  hashPassword,
+  signRefreshToken,
+  verifyPassword,
+  verifyToken,
+} from '@cherrygraph/auth-core';
 import { ErrorCode } from '@cherrygraph/shared';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@cherrygraph/auth-core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@cherrygraph/auth-core')>();
+  return {
+    ...actual,
+    verifyPassword: vi.fn(actual.verifyPassword),
+  };
+});
 
 import { AUDIT_EVENTS } from '../../audit/audit-events.js';
 import { AuthService, hashRefreshToken } from '../auth.service.js';
@@ -26,6 +39,7 @@ const originalDefaultTenantId = process.env.DEFAULT_TENANT_ID;
 describe('AuthService', () => {
   beforeEach(() => {
     process.env.DEFAULT_TENANT_ID = TEST_TENANT_ID;
+    vi.mocked(verifyPassword).mockClear();
   });
 
   afterEach(() => {
@@ -89,7 +103,9 @@ describe('AuthService', () => {
     const { service, redis, db, audit } = createServiceContext();
     db.queueSelect([createUser(passwordHash)]);
 
-    const err = await getRejectedHttpException(service.login({ email: TEST_EMAIL, password: 'Wrong1!' }));
+    const err = await getRejectedHttpException(
+      service.login({ email: TEST_EMAIL, password: 'Wrong1!' }),
+    );
 
     expect(err.getStatus()).toBe(401);
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.INVALID_CREDENTIALS);
@@ -106,28 +122,55 @@ describe('AuthService', () => {
     );
   });
 
+  it('verifies a dummy password hash before rejecting an unknown email', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([]);
+    const verifyPasswordMock = vi.mocked(verifyPassword);
+
+    const err = await getRejectedHttpException(
+      service.login({ email: TEST_EMAIL, password: 'Wrong1!' }),
+    );
+
+    expect(err.getStatus()).toBe(401);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.INVALID_CREDENTIALS);
+    expect(verifyPasswordMock).toHaveBeenCalledTimes(1);
+    expect(verifyPasswordMock.mock.calls[0]?.[0]).toBe('Wrong1!');
+    expect(typeof verifyPasswordMock.mock.calls[0]?.[1]).toBe('string');
+  });
+
   it('rejects disabled accounts with ACCOUNT_DISABLED', async () => {
     const passwordHash = await hashPassword('Correct1!');
     const { service, db } = createServiceContext();
     db.queueSelect([createUser(passwordHash, { status: 'disabled' })]);
 
-    const err = await getRejectedHttpException(service.login({ email: TEST_EMAIL, password: 'Correct1!' }));
+    const err = await getRejectedHttpException(
+      service.login({ email: TEST_EMAIL, password: 'Correct1!' }),
+    );
 
     expect(err.getStatus()).toBe(401);
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.ACCOUNT_DISABLED);
   });
 
-  it('returns ACCOUNT_LOCKED on the fifth failed login attempt', async () => {
+  it('returns INVALID_CREDENTIALS on the fifth failed login attempt and ACCOUNT_LOCKED on the sixth', async () => {
     const passwordHash = await hashPassword('Correct1!');
     const { service, redis, db } = createServiceContext();
     redis.values.set(`login_fail:${TEST_EMAIL}`, '4');
     db.queueSelect([createUser(passwordHash)]);
 
-    const err = await getRejectedHttpException(service.login({ email: TEST_EMAIL, password: 'Wrong1!' }));
+    const err = await getRejectedHttpException(
+      service.login({ email: TEST_EMAIL, password: 'Wrong1!' }),
+    );
 
     expect(err.getStatus()).toBe(401);
-    expect(getHttpExceptionCode(err)).toBe(ErrorCode.ACCOUNT_LOCKED);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.INVALID_CREDENTIALS);
     expect(redis.values.get(`login_fail:${TEST_EMAIL}`)).toBe('5');
+
+    const lockedErr = await getRejectedHttpException(
+      service.login({ email: TEST_EMAIL, password: 'Wrong1!' }),
+    );
+
+    expect(lockedErr.getStatus()).toBe(401);
+    expect(getHttpExceptionCode(lockedErr)).toBe(ErrorCode.ACCOUNT_LOCKED);
   });
 
   it('resets the login failure counter after successful login', async () => {
@@ -147,6 +190,12 @@ describe('AuthService', () => {
     const oldRefreshToken = await signRefreshToken({ session_id: 'session-old' }, TEST_JWT_SECRET);
     const { service, db, audit } = createServiceContext();
     db.queueSelect([
+      createSession({
+        id: 'session-old',
+        refresh_token_hash: hashRefreshToken(oldRefreshToken),
+      }),
+    ]);
+    db.queueUpdate([
       createSession({
         id: 'session-old',
         refresh_token_hash: hashRefreshToken(oldRefreshToken),
@@ -173,6 +222,24 @@ describe('AuthService', () => {
         request_id: 'req-refresh',
       }),
     );
+  });
+
+  it('rejects a concurrent second refresh with TOKEN_REVOKED when the old session was already rotated', async () => {
+    const oldRefreshToken = await signRefreshToken({ session_id: 'session-old' }, TEST_JWT_SECRET);
+    const { service, db } = createServiceContext();
+    db.queueSelect([
+      createSession({
+        id: 'session-old',
+        refresh_token_hash: hashRefreshToken(oldRefreshToken),
+      }),
+    ]);
+    db.queueUpdate([]);
+
+    const err = await getRejectedHttpException(service.refresh(oldRefreshToken));
+
+    expect(err.getStatus()).toBe(401);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.TOKEN_REVOKED);
+    expect(db.inserts).toHaveLength(0);
   });
 
   it('rejects malformed refresh tokens with INVALID_REFRESH_TOKEN', async () => {
@@ -211,7 +278,11 @@ describe('AuthService', () => {
       }),
     ]);
 
-    const result = await service.logout(createAuthenticatedUser(), { refresh_token: refreshToken }, { request_id: 'req-logout' });
+    const result = await service.logout(
+      createAuthenticatedUser(),
+      { refresh_token: refreshToken },
+      { request_id: 'req-logout' },
+    );
 
     expect(result).toEqual({ success: true });
     expect(requireRecord(db.updates[0]).revoked_at).toBeInstanceOf(Date);
@@ -223,6 +294,15 @@ describe('AuthService', () => {
         request_id: 'req-logout',
       }),
     );
+  });
+
+  it('rejects logout without a refresh token', async () => {
+    const { service } = createServiceContext();
+
+    const err = await getRejectedHttpException(service.logout(createAuthenticatedUser()));
+
+    expect(err.getStatus()).toBe(401);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.INVALID_REFRESH_TOKEN);
   });
 
   it('changes password with the correct current password and records auth.password_change', async () => {

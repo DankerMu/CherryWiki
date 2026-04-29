@@ -14,12 +14,13 @@ import {
   ErrorCode,
   group_members,
   groups,
+  sessions,
   space_permissions,
   spaces,
   tenants,
   users,
 } from '@cherrygraph/shared';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, gt, isNull } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { createHash, randomUUID } from 'node:crypto';
 
@@ -61,7 +62,7 @@ export type TokenPairResponse = {
 };
 
 export type LogoutInput = {
-  refresh_token?: string;
+  refresh_token: string;
 };
 
 export type ChangePasswordInput = {
@@ -123,6 +124,8 @@ const SPACE_ROLE_BY_RANK = new Map<number, SpaceAccessRole>([
   [2, 'editor'],
   [3, 'admin'],
 ]);
+const DUMMY_PASSWORD_FOR_TIMING_EQUALIZATION = 'timing-equalization-dummy';
+let dummyPasswordHash: Promise<string> | undefined;
 
 @Injectable()
 export class AuthService {
@@ -144,15 +147,16 @@ export class AuthService {
     }
 
     const user = await this.findUserByEmail(tenantId, email);
-    if (user === undefined || !(await verifyPassword(input.password, user.password_hash))) {
-      const failureCount = await this.incrementLoginFailure(email);
-      const locked = failureCount >= LOGIN_LOCKOUT_THRESHOLD;
-      this.auditFailedLogin(tenantId, email, locked ? 'locked' : 'invalid_credentials', metadata);
+    let passwordMatches = false;
+    if (user === undefined) {
+      await verifyPassword(input.password, await getDummyPasswordHash());
+    } else {
+      passwordMatches = await verifyPassword(input.password, user.password_hash);
+    }
 
-      if (locked) {
-        throwAuthError(ErrorCode.ACCOUNT_LOCKED, 'Account is temporarily locked');
-      }
-
+    if (user === undefined || !passwordMatches) {
+      await this.incrementLoginFailure(email);
+      this.auditFailedLogin(tenantId, email, 'invalid_credentials', metadata);
       throwAuthError(ErrorCode.INVALID_CREDENTIALS, 'Invalid email or password');
     }
 
@@ -202,7 +206,10 @@ export class AuthService {
     };
   }
 
-  async refresh(refreshToken: string, metadata: AuthRequestMetadata = {}): Promise<TokenPairResponse> {
+  async refresh(
+    refreshToken: string,
+    metadata: AuthRequestMetadata = {},
+  ): Promise<TokenPairResponse> {
     const claims = await this.verifyRefreshToken(refreshToken);
     const tokenHash = hashRefreshToken(refreshToken);
     const session = await this.sessionService.findSessionById(claims.session_id);
@@ -220,33 +227,55 @@ export class AuthService {
       throwAuthError(ErrorCode.INVALID_REFRESH_TOKEN, 'Invalid refresh token');
     }
 
-    const user = await this.findUserById(session.tenant_id, session.user_id);
-    if (user === undefined) {
-      throwAuthError(ErrorCode.INVALID_REFRESH_TOKEN, 'Invalid refresh token');
-    }
+    const rotation = await this.db.transaction(async (tx) => {
+      const txDb = tx as AuthDatabase;
+      const [revokedSession] = await txDb
+        .update(sessions)
+        .set({ revoked_at: now, last_used_at: now })
+        .where(
+          and(
+            eq(sessions.id, session.id),
+            eq(sessions.refresh_token_hash, tokenHash),
+            isNull(sessions.revoked_at),
+            gt(sessions.expires_at, now),
+          ),
+        )
+        .returning();
 
-    if (user.status === 'disabled') {
-      throwAuthError(ErrorCode.ACCOUNT_DISABLED, 'Account is disabled');
-    }
+      if (revokedSession === undefined) {
+        throwAuthError(ErrorCode.TOKEN_REVOKED, 'Refresh token has been revoked');
+      }
 
-    const groupsForUser = await this.getUserGroups(session.tenant_id, user.id);
-    const tokens = await this.issueTokenPair({
-      tenantId: session.tenant_id,
-      user,
-      groupIds: groupsForUser.map((group) => group.id),
-      metadata,
-      now,
+      const user = await this.findUserById(revokedSession.tenant_id, revokedSession.user_id, txDb);
+      if (user === undefined) {
+        throwAuthError(ErrorCode.INVALID_REFRESH_TOKEN, 'Invalid refresh token');
+      }
+
+      if (user.status === 'disabled') {
+        throwAuthError(ErrorCode.ACCOUNT_DISABLED, 'Account is disabled');
+      }
+
+      const groupsForUser = await this.getUserGroups(revokedSession.tenant_id, user.id, txDb);
+      const tokens = await this.issueTokenPair({
+        tenantId: revokedSession.tenant_id,
+        user,
+        groupIds: groupsForUser.map((group) => group.id),
+        metadata,
+        now,
+        db: txDb,
+      });
+
+      return { revokedSession, tokens, user };
     });
-    await this.sessionService.revokeSessionById(session.id, now, now);
 
     this.auditService.push({
-      tenant_id: session.tenant_id,
-      actor_user_id: user.id,
+      tenant_id: rotation.revokedSession.tenant_id,
+      actor_user_id: rotation.user.id,
       action: AUDIT_EVENTS.AUTH_TOKEN_REFRESH,
       resource_type: 'session',
-      resource_id: tokens.session.id,
+      resource_id: rotation.tokens.session.id,
       metadata_json: {
-        old_session_id: session.id,
+        old_session_id: rotation.revokedSession.id,
       },
       ...(metadata.ip !== undefined ? { ip: metadata.ip } : {}),
       ...(metadata.user_agent !== undefined ? { user_agent: metadata.user_agent } : {}),
@@ -254,47 +283,48 @@ export class AuthService {
     });
 
     return {
-      access_token: tokens.accessToken,
-      refresh_token: tokens.refreshToken,
+      access_token: rotation.tokens.accessToken,
+      refresh_token: rotation.tokens.refreshToken,
       expires_in: ACCESS_TOKEN_EXPIRES_IN_SECONDS,
     };
   }
 
   async logout(
     user: AuthenticatedRequestUser,
-    input: LogoutInput = {},
+    input: Partial<LogoutInput> = {},
     metadata: AuthRequestMetadata = {},
   ): Promise<{ success: true }> {
     const now = new Date();
-    let sessionId: string | undefined;
+    const refreshToken = input.refresh_token;
 
-    if (input.refresh_token !== undefined && input.refresh_token.trim().length > 0) {
-      const claims = await this.verifyRefreshToken(input.refresh_token);
-      const session = await this.sessionService.findSessionById(claims.session_id);
-
-      if (
-        session === undefined ||
-        session.tenant_id !== user.tenant_id ||
-        session.user_id !== user.sub ||
-        session.refresh_token_hash !== hashRefreshToken(input.refresh_token)
-      ) {
-        throwAuthError(ErrorCode.INVALID_REFRESH_TOKEN, 'Invalid refresh token');
-      }
-
-      sessionId = session.id;
-      await this.sessionService.revokeSessionById(session.id, now, now);
-    } else {
-      await this.sessionService.revokeAllActiveSessionsForUser(user.tenant_id, user.sub, now);
+    if (refreshToken === undefined || refreshToken.trim().length === 0) {
+      throwAuthError(ErrorCode.INVALID_REFRESH_TOKEN, 'Invalid refresh token');
     }
+
+    const claims = await this.verifyRefreshToken(refreshToken);
+    const session = await this.sessionService.findSessionById(claims.session_id);
+
+    if (
+      session === undefined ||
+      session.tenant_id !== user.tenant_id ||
+      session.user_id !== user.sub ||
+      session.refresh_token_hash !== hashRefreshToken(refreshToken) ||
+      session.revoked_at !== null ||
+      session.expires_at.getTime() <= now.getTime()
+    ) {
+      throwAuthError(ErrorCode.INVALID_REFRESH_TOKEN, 'Invalid refresh token');
+    }
+
+    await this.sessionService.revokeSessionById(session.id, now, now);
 
     this.auditService.push({
       tenant_id: user.tenant_id,
       actor_user_id: user.sub,
       action: AUDIT_EVENTS.AUTH_LOGOUT,
       resource_type: 'session',
-      ...(sessionId !== undefined ? { resource_id: sessionId } : {}),
+      resource_id: session.id,
       metadata_json: {
-        scope: sessionId === undefined ? 'all_active_sessions' : 'single_session',
+        scope: 'single_session',
       },
       ...(metadata.ip !== undefined ? { ip: metadata.ip } : {}),
       ...(metadata.user_agent !== undefined ? { user_agent: metadata.user_agent } : {}),
@@ -379,20 +409,26 @@ export class AuthService {
     groupIds: string[];
     metadata: AuthRequestMetadata;
     now: Date;
+    db?: AuthDatabase;
   }): Promise<{ accessToken: string; refreshToken: string; session: SessionRow }> {
     const secret = await this.resolveJwtSecret();
     const sessionId = randomUUID();
     const refreshToken = await signRefreshToken({ session_id: sessionId }, secret);
-    const session = await this.sessionService.createSession({
-      id: sessionId,
-      tenant_id: input.tenantId,
-      user_id: input.user.id,
-      refresh_token_hash: hashRefreshToken(refreshToken),
-      expires_at: new Date(input.now.getTime() + REFRESH_TOKEN_EXPIRES_IN_MS),
-      last_used_at: input.now,
-      ...(input.metadata.ip !== undefined ? { ip: input.metadata.ip } : {}),
-      ...(input.metadata.user_agent !== undefined ? { user_agent: input.metadata.user_agent } : {}),
-    });
+    const session = await this.sessionService.createSession(
+      {
+        id: sessionId,
+        tenant_id: input.tenantId,
+        user_id: input.user.id,
+        refresh_token_hash: hashRefreshToken(refreshToken),
+        expires_at: new Date(input.now.getTime() + REFRESH_TOKEN_EXPIRES_IN_MS),
+        last_used_at: input.now,
+        ...(input.metadata.ip !== undefined ? { ip: input.metadata.ip } : {}),
+        ...(input.metadata.user_agent !== undefined
+          ? { user_agent: input.metadata.user_agent }
+          : {}),
+      },
+      input.db,
+    );
     const accessToken = await signAccessToken(
       {
         sub: input.user.id,
@@ -409,7 +445,10 @@ export class AuthService {
 
   private async verifyRefreshToken(refreshToken: string): Promise<RefreshTokenClaims> {
     try {
-      const payload = await verifyToken<RefreshTokenPayload>(refreshToken, await this.resolveJwtSecret());
+      const payload = await verifyToken<RefreshTokenPayload>(
+        refreshToken,
+        await this.resolveJwtSecret(),
+      );
       if (!isRefreshTokenClaims(payload)) {
         throw new Error('Invalid refresh token payload');
       }
@@ -446,8 +485,12 @@ export class AuthService {
     return tenant.id;
   }
 
-  private async findUserByEmail(tenantId: string, email: string): Promise<UserRow | undefined> {
-    const [user] = await this.db
+  private async findUserByEmail(
+    tenantId: string,
+    email: string,
+    db: AuthDatabase = this.db,
+  ): Promise<UserRow | undefined> {
+    const [user] = await db
       .select()
       .from(users)
       .where(and(eq(users.tenant_id, tenantId), eq(users.email, email)))
@@ -456,8 +499,12 @@ export class AuthService {
     return user;
   }
 
-  private async findUserById(tenantId: string, userId: string): Promise<UserRow | undefined> {
-    const [user] = await this.db
+  private async findUserById(
+    tenantId: string,
+    userId: string,
+    db: AuthDatabase = this.db,
+  ): Promise<UserRow | undefined> {
+    const [user] = await db
       .select()
       .from(users)
       .where(and(eq(users.tenant_id, tenantId), eq(users.id, userId)))
@@ -466,19 +513,30 @@ export class AuthService {
     return user;
   }
 
-  private async getUserGroups(tenantId: string, userId: string): Promise<GroupSummary[]> {
-    return this.db
+  private async getUserGroups(
+    tenantId: string,
+    userId: string,
+    db: AuthDatabase = this.db,
+  ): Promise<GroupSummary[]> {
+    return db
       .select({
         id: groups.id,
         name: groups.name,
       })
       .from(group_members)
-      .innerJoin(groups, and(eq(groups.tenant_id, group_members.tenant_id), eq(groups.id, group_members.group_id)))
+      .innerJoin(
+        groups,
+        and(eq(groups.tenant_id, group_members.tenant_id), eq(groups.id, group_members.group_id)),
+      )
       .where(and(eq(group_members.tenant_id, tenantId), eq(group_members.user_id, userId)));
   }
 
-  private async getUserSpaceRoles(tenantId: string, userId: string): Promise<CurrentUserResponse['spaces']> {
-    const rows = await this.db
+  private async getUserSpaceRoles(
+    tenantId: string,
+    userId: string,
+    db: AuthDatabase = this.db,
+  ): Promise<CurrentUserResponse['spaces']> {
+    const rows = await db
       .select({
         id: spaces.id,
         name: spaces.name,
@@ -494,9 +552,18 @@ export class AuthService {
       )
       .innerJoin(
         spaces,
-        and(eq(spaces.tenant_id, space_permissions.tenant_id), eq(spaces.id, space_permissions.space_id)),
+        and(
+          eq(spaces.tenant_id, space_permissions.tenant_id),
+          eq(spaces.id, space_permissions.space_id),
+        ),
       )
-      .where(and(eq(group_members.tenant_id, tenantId), eq(group_members.user_id, userId), eq(spaces.status, 'active')));
+      .where(
+        and(
+          eq(group_members.tenant_id, tenantId),
+          eq(group_members.user_id, userId),
+          eq(spaces.status, 'active'),
+        ),
+      );
 
     return aggregateSpaceRoles(rows);
   }
@@ -618,6 +685,11 @@ function isRefreshTokenClaims(payload: RefreshTokenPayload): payload is RefreshT
     typeof payload.session_id === 'string' &&
     payload.session_id.trim().length > 0
   );
+}
+
+function getDummyPasswordHash(): Promise<string> {
+  dummyPasswordHash ??= hashPassword(DUMMY_PASSWORD_FOR_TIMING_EQUALIZATION);
+  return dummyPasswordHash;
 }
 
 function throwAuthError(code: ErrorCode, message: string): never {

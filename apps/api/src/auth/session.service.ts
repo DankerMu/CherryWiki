@@ -1,6 +1,6 @@
 import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { ErrorCode, sessions } from '@cherrygraph/shared';
-import { and, desc, eq, gt, isNull } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, isNull } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { randomUUID } from 'node:crypto';
 
@@ -47,6 +47,9 @@ export type RevokeSessionInput = {
 type SessionDatabase = NodePgDatabase;
 type SessionInsert = typeof sessions.$inferInsert;
 
+const MAX_ACTIVE_SESSIONS_PER_USER = 10;
+const LIST_ACTIVE_SESSIONS_LIMIT = 20;
+
 @Injectable()
 export class SessionService {
   constructor(
@@ -54,7 +57,10 @@ export class SessionService {
     private readonly auditService: AuditService,
   ) {}
 
-  async createSession(input: CreateSessionInput): Promise<SessionRow> {
+  async createSession(
+    input: CreateSessionInput,
+    db: SessionDatabase = this.db,
+  ): Promise<SessionRow> {
     const insert: SessionInsert = {
       id: input.id ?? randomUUID(),
       tenant_id: input.tenant_id,
@@ -65,17 +71,23 @@ export class SessionService {
       ...(input.user_agent !== undefined ? { user_agent: input.user_agent } : {}),
       ...(input.last_used_at !== undefined ? { last_used_at: input.last_used_at } : {}),
     };
-    const [session] = await this.db.insert(sessions).values(insert).returning();
+    const [session] = await db.insert(sessions).values(insert).returning();
 
     if (session === undefined) {
       throw new Error('Failed to create session');
     }
 
+    await this.revokeOldestActiveSessionsOverLimit(session.tenant_id, session.user_id, db);
+
     return session;
   }
 
   async findSessionById(sessionId: string): Promise<SessionRow | undefined> {
-    const [session] = await this.db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+    const [session] = await this.db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId))
+      .limit(1);
     return session;
   }
 
@@ -91,8 +103,10 @@ export class SessionService {
           gt(sessions.expires_at, new Date()),
         ),
       )
-      .orderBy(desc(sessions.last_used_at), desc(sessions.created_at));
+      .orderBy(desc(sessions.last_used_at), desc(sessions.created_at))
+      .limit(LIST_ACTIVE_SESSIONS_LIMIT);
     const sortedRows = [...rows].sort(compareSessionsByRecentActivity);
+    // Access tokens do not currently carry a session id, so callers without one get the most recent active session.
     const inferredCurrentSessionId = input.currentSessionId ?? sortedRows[0]?.id;
 
     return sortedRows.map((session) => ({
@@ -119,8 +133,12 @@ export class SessionService {
       resource_type: 'session',
       resource_id: input.sessionId,
       ...(input.metadata?.ip !== undefined ? { ip: input.metadata.ip } : {}),
-      ...(input.metadata?.user_agent !== undefined ? { user_agent: input.metadata.user_agent } : {}),
-      ...(input.metadata?.request_id !== undefined ? { request_id: input.metadata.request_id } : {}),
+      ...(input.metadata?.user_agent !== undefined
+        ? { user_agent: input.metadata.user_agent }
+        : {}),
+      ...(input.metadata?.request_id !== undefined
+        ? { request_id: input.metadata.request_id }
+        : {}),
     });
 
     return { revoked: true };
@@ -136,11 +154,75 @@ export class SessionService {
       .where(eq(sessions.id, sessionId));
   }
 
-  async revokeAllActiveSessionsForUser(tenantId: string, userId: string, revokedAt: Date): Promise<void> {
+  async revokeAllActiveSessionsForUser(
+    tenantId: string,
+    userId: string,
+    revokedAt: Date,
+  ): Promise<void> {
     await this.db
       .update(sessions)
       .set({ revoked_at: revokedAt })
-      .where(and(eq(sessions.tenant_id, tenantId), eq(sessions.user_id, userId), isNull(sessions.revoked_at)));
+      .where(
+        and(
+          eq(sessions.tenant_id, tenantId),
+          eq(sessions.user_id, userId),
+          isNull(sessions.revoked_at),
+        ),
+      );
+  }
+
+  private async revokeOldestActiveSessionsOverLimit(
+    tenantId: string,
+    userId: string,
+    db: SessionDatabase,
+  ): Promise<void> {
+    const now = new Date();
+    const [countRow] = await db
+      .select({ activeCount: count() })
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.tenant_id, tenantId),
+          eq(sessions.user_id, userId),
+          isNull(sessions.revoked_at),
+          gt(sessions.expires_at, now),
+        ),
+      );
+    const sessionsToRevokeCount =
+      normalizeCount(countRow?.activeCount) - MAX_ACTIVE_SESSIONS_PER_USER;
+    if (sessionsToRevokeCount <= 0) {
+      return;
+    }
+
+    const oldestSessions = await db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.tenant_id, tenantId),
+          eq(sessions.user_id, userId),
+          isNull(sessions.revoked_at),
+          gt(sessions.expires_at, now),
+        ),
+      )
+      .orderBy(asc(sessions.created_at))
+      .limit(sessionsToRevokeCount);
+    const sessionIds = oldestSessions.map((session) => session.id);
+    if (sessionIds.length === 0) {
+      return;
+    }
+
+    await db
+      .update(sessions)
+      .set({ revoked_at: now })
+      .where(
+        and(
+          eq(sessions.tenant_id, tenantId),
+          eq(sessions.user_id, userId),
+          inArray(sessions.id, sessionIds),
+          isNull(sessions.revoked_at),
+        ),
+      );
   }
 
   private async findOwnedSession(
@@ -151,7 +233,13 @@ export class SessionService {
     const [session] = await this.db
       .select()
       .from(sessions)
-      .where(and(eq(sessions.tenant_id, tenantId), eq(sessions.user_id, userId), eq(sessions.id, sessionId)))
+      .where(
+        and(
+          eq(sessions.tenant_id, tenantId),
+          eq(sessions.user_id, userId),
+          eq(sessions.id, sessionId),
+        ),
+      )
       .limit(1);
 
     return session;
@@ -164,6 +252,11 @@ function compareSessionsByRecentActivity(left: SessionRow, right: SessionRow): n
 
 function getSessionActivityTime(session: SessionRow): number {
   return (session.last_used_at ?? session.created_at).getTime();
+}
+
+function normalizeCount(value: unknown): number {
+  const parsed = typeof value === 'bigint' ? Number(value) : Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function throwSessionNotFound(): never {
