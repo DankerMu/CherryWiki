@@ -21,5 +21,23 @@ export default defineConfig({
   test: {
     include: ['packages/**/src/**/*.test.ts', 'apps/**/src/**/*.test.ts', 'tests/**/*.test.ts'],
     passWithNoTests: true,
+    coverage: {
+      provider: 'v8',
+      include: ['packages/*/src/**/*.ts', 'apps/*/src/**/*.ts'],
+      exclude: [
+        '**/*.test.ts',
+        '**/*.test.tsx',
+        '**/__tests__/**',
+        '**/index.ts',
+        '**/main.ts',
+        '**/schema/**',
+      ],
+      thresholds: {
+        statements: 60,
+        branches: 60,
+        functions: 60,
+        lines: 60,
+      },
+    },
   },
 });

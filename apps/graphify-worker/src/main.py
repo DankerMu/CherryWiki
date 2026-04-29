@@ -68,7 +68,9 @@ def _register_shutdown_handlers(stop_event: asyncio.Event) -> None:
             signal.signal(sig, _signal_handler(request_shutdown))
 
 
-def _signal_handler(callback: Callable[[], None]) -> Callable[[int, FrameType | None], None]:
+def _signal_handler(
+    callback: Callable[[], None],
+) -> Callable[[int, FrameType | None], None]:
     def handler(_signum: int, _frame: FrameType | None) -> None:
         callback()
 

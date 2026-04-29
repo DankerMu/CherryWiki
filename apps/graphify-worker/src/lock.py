@@ -13,19 +13,21 @@ end
 
 
 class RedisLockClient(Protocol):
-    async def set(self, name: str, value: str, *, ex: int, nx: bool) -> object:
-        ...
+    async def set(self, name: str, value: str, *, ex: int, nx: bool) -> object: ...
 
-    async def eval(self, script: str, numkeys: int, *keys_and_args: str) -> object:
-        ...
+    async def eval(self, script: str, numkeys: int, *keys_and_args: str) -> object: ...
 
 
-async def acquire_lock(redis_client: RedisLockClient, job_id: str, worker_id: str, ttl: int = 600) -> bool:
+async def acquire_lock(
+    redis_client: RedisLockClient, job_id: str, worker_id: str, ttl: int = 600
+) -> bool:
     result = await redis_client.set(_lock_key(job_id), worker_id, ex=ttl, nx=True)
     return bool(result)
 
 
-async def release_lock(redis_client: RedisLockClient, job_id: str, worker_id: str) -> bool:
+async def release_lock(
+    redis_client: RedisLockClient, job_id: str, worker_id: str
+) -> bool:
     deleted = await redis_client.eval(RELEASE_SCRIPT, 1, _lock_key(job_id), worker_id)
     return bool(deleted)
 

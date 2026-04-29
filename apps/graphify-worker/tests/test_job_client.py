@@ -7,15 +7,21 @@ import pytest
 from src import job_client
 
 
-def test_poll_jobs_sleeps_after_lock_contention(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_poll_jobs_sleeps_after_lock_contention(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     asyncio.run(_assert_poll_jobs_sleeps_after_lock_contention(monkeypatch))
 
 
-def test_poll_jobs_reports_runner_failure_and_releases_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_poll_jobs_reports_runner_failure_and_releases_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     asyncio.run(_assert_poll_jobs_reports_runner_failure_and_releases_lock(monkeypatch))
 
 
-async def _assert_poll_jobs_sleeps_after_lock_contention(monkeypatch: pytest.MonkeyPatch) -> None:
+async def _assert_poll_jobs_sleeps_after_lock_contention(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     sleep_calls: list[float] = []
     stop_event = asyncio.Event()
 
@@ -45,7 +51,9 @@ async def _assert_poll_jobs_sleeps_after_lock_contention(monkeypatch: pytest.Mon
     assert sleep_calls == [0.25]
 
 
-async def _assert_poll_jobs_reports_runner_failure_and_releases_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+async def _assert_poll_jobs_reports_runner_failure_and_releases_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     failed_jobs: list[tuple[str, str, str]] = []
     released_locks: list[tuple[str, str]] = []
     stop_event = asyncio.Event()
@@ -63,7 +71,9 @@ async def _assert_poll_jobs_reports_runner_failure_and_releases_lock(monkeypatch
         failed_jobs.append((job_id, str(exc), type(exc).__name__))
         stop_event.set()
 
-    async def complete_job(_http_client: object, _job_id: str, _result: dict[str, str]) -> None:
+    async def complete_job(
+        _http_client: object, _job_id: str, _result: dict[str, str]
+    ) -> None:
         raise AssertionError("runner failures must not complete jobs")
 
     async def release(_redis_client: object, job_id: str, worker_id: str) -> bool:
