@@ -1,0 +1,126 @@
+import { Controller, Get, Inject, Optional } from '@nestjs/common';
+import { Permissions } from '@cherrygraph/auth-core';
+
+import { REDIS_CLIENT } from '../common/redis/redis.module.js';
+import { DRIZZLE } from '../database/drizzle.constants.js';
+
+type HealthStatus = 'healthy' | 'degraded' | 'unhealthy';
+type ComponentStatus = 'healthy' | 'unhealthy' | 'not_configured';
+type ComponentName = 'database' | 'redis' | 'minio' | 'vector_store' | 'graph_store' | 'docmost_bridge';
+
+type DatabaseHealthClient = {
+  $client: {
+    query: (queryText: string) => Promise<unknown>;
+  };
+};
+
+type RedisHealthClient = {
+  ping: () => Promise<unknown>;
+};
+
+export type HealthComponent = {
+  status: ComponentStatus;
+  latency_ms?: number;
+  error?: string;
+};
+
+export type AdminSystemHealthResponse = {
+  status: HealthStatus;
+  components: Record<ComponentName, HealthComponent>;
+  uptime: number;
+};
+
+@Permissions('admin:audit_view')
+@Controller('admin/system')
+export class AdminHealthController {
+  constructor(
+    @Inject(DRIZZLE) private readonly db: DatabaseHealthClient,
+    @Optional() @Inject(REDIS_CLIENT) private readonly redis?: RedisHealthClient,
+  ) {}
+
+  @Get('health')
+  async getHealth(): Promise<AdminSystemHealthResponse> {
+    const [database, redis] = await Promise.all([this.checkDatabase(), this.checkRedis()]);
+    const minio = checkMinioConfigured();
+    const components: Record<ComponentName, HealthComponent> = {
+      database,
+      redis,
+      minio,
+      vector_store: { status: 'not_configured' },
+      graph_store: { status: 'not_configured' },
+      docmost_bridge: { status: 'not_configured' },
+    };
+
+    return {
+      status: getOverallStatus(components),
+      components,
+      uptime: Math.max(1, Math.floor(process.uptime())),
+    };
+  }
+
+  private async checkDatabase(): Promise<HealthComponent> {
+    return measureComponent(async () => {
+      await this.db.$client.query('select 1');
+    });
+  }
+
+  private async checkRedis(): Promise<HealthComponent> {
+    if (this.redis === undefined) {
+      return { status: 'not_configured' };
+    }
+
+    return measureComponent(async () => {
+      await this.redis?.ping();
+    });
+  }
+}
+
+async function measureComponent(check: () => Promise<void>): Promise<HealthComponent> {
+  const startedAt = performance.now();
+
+  try {
+    await check();
+    return {
+      status: 'healthy',
+      latency_ms: elapsedMs(startedAt),
+    };
+  } catch (err) {
+    return {
+      status: 'unhealthy',
+      latency_ms: elapsedMs(startedAt),
+      error: toSafeErrorMessage(err),
+    };
+  }
+}
+
+function checkMinioConfigured(): HealthComponent {
+  const endpoint = process.env.MINIO_ENDPOINT;
+  if (endpoint === undefined || endpoint.trim().length === 0) {
+    return { status: 'not_configured' };
+  }
+
+  return {
+    status: 'healthy',
+    latency_ms: 0,
+  };
+}
+
+function getOverallStatus(components: Record<ComponentName, HealthComponent>): HealthStatus {
+  if (components.database.status === 'unhealthy') {
+    return 'unhealthy';
+  }
+
+  const hasOptionalUnhealthy = Object.entries(components).some(
+    ([name, component]) => name !== 'database' && component.status === 'unhealthy',
+  );
+
+  return hasOptionalUnhealthy ? 'degraded' : 'healthy';
+}
+
+function elapsedMs(startedAt: number): number {
+  return Math.max(1, Math.round(performance.now() - startedAt));
+}
+
+function toSafeErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
