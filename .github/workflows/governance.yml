@@ -1,0 +1,150 @@
+name: Repo Governance
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: governance-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-review-evidence:
+    name: PR Review Evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Validate review evidence
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const body = pr.body || '';
+            const headSha = pr.head.sha;
+            const errors = [];
+
+            // --- 1. Check Agent Review section exists ---
+            if (!body.includes('## Agent Review')) {
+              errors.push('PR body missing "## Agent Review" section');
+            }
+
+            // --- 2. Check required fields (plain text, no bold markdown) ---
+            const fields = {
+              'Reviewer agents used': /^- Reviewer agents used:\s*(.+)$/m,
+              'Reviewed head SHA':    /^- Reviewed head SHA:\s*`?([0-9a-f]{40})`?$/m,
+              'Review evidence':      /^- Review evidence:\s*(.+)$/m,
+              'Key findings addressed': /^- Key findings addressed:\s*(.+)$/m,
+            };
+
+            const parsed = {};
+            for (const [name, regex] of Object.entries(fields)) {
+              const match = body.match(regex);
+              if (!match) {
+                errors.push(`Missing or malformed field: "${name}"`);
+              } else {
+                parsed[name] = match[1].trim();
+              }
+            }
+
+            // --- 3. Validate SHA matches current HEAD ---
+            if (parsed['Reviewed head SHA'] && parsed['Reviewed head SHA'] !== headSha) {
+              errors.push(
+                `Reviewed head SHA (${parsed['Reviewed head SHA'].slice(0, 12)}) ` +
+                `does not match current HEAD (${headSha.slice(0, 12)}). ` +
+                `Review comments may be stale — re-post after pushing fixes.`
+              );
+            }
+
+            // --- 4. Validate review evidence links ---
+            if (parsed['Review evidence']) {
+              const linkPattern = /\[.*?\]\((https:\/\/github\.com\/[^)]+#issuecomment-\d+)\)/g;
+              const links = [...parsed['Review evidence'].matchAll(linkPattern)].map(m => m[1]);
+
+              if (links.length < 2) {
+                errors.push(
+                  `Review evidence must contain at least 2 comment links ` +
+                  `(found ${links.length}). Format: [Review 1](url) | [Review 2](url)`
+                );
+              }
+
+              // Fetch each comment and validate format
+              for (const link of links) {
+                const commentMatch = link.match(/\/pull\/(\d+)#issuecomment-(\d+)/);
+                if (!commentMatch) continue;
+
+                const commentId = commentMatch[2];
+                try {
+                  const comment = await github.rest.issues.getComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    comment_id: Number(commentId),
+                  });
+
+                  const commentBody = comment.data.body || '';
+
+                  // Check required review comment fields
+                  if (!commentBody.includes('Reviewer agent:')) {
+                    errors.push(`Comment ${commentId}: missing "Reviewer agent:" field`);
+                  }
+                  if (!commentBody.includes('Reviewed head SHA:')) {
+                    errors.push(`Comment ${commentId}: missing "Reviewed head SHA:" field`);
+                  }
+                  if (!commentBody.includes('Findings:')) {
+                    errors.push(`Comment ${commentId}: missing "Findings:" field`);
+                  }
+
+                  // Validate SHA in comment matches HEAD
+                  const commentShaMatch = commentBody.match(/Reviewed head SHA:\s*`?([0-9a-f]{40})`?/);
+                  if (commentShaMatch && commentShaMatch[1] !== headSha) {
+                    errors.push(
+                      `Comment ${commentId}: SHA (${commentShaMatch[1].slice(0, 12)}) ` +
+                      `does not match HEAD (${headSha.slice(0, 12)})`
+                    );
+                  }
+
+                  // Validate Findings uses bullet syntax
+                  const findingsSection = commentBody.split('Findings:')[1];
+                  if (findingsSection) {
+                    const trimmed = findingsSection.trim();
+                    if (trimmed !== '' && !trimmed.startsWith('- ')) {
+                      errors.push(
+                        `Comment ${commentId}: Findings must use "- " bullet syntax`
+                      );
+                    }
+                  }
+                } catch (e) {
+                  errors.push(`Comment ${commentId}: failed to fetch (${e.message})`);
+                }
+              }
+            }
+
+            // --- 5. Report ---
+            if (errors.length > 0) {
+              const message = [
+                '## PR Review Evidence — Validation Failed',
+                '',
+                ...errors.map(e => `- ${e}`),
+                '',
+                '### Required PR body format',
+                '```',
+                '## Agent Review',
+                '',
+                '- Reviewer agents used: <name1>, <name2>',
+                '- Reviewed head SHA: `<40-char-sha>`',
+                '- Review evidence: [Review 1](<comment-url>) | [Review 2](<comment-url>)',
+                '- Key findings addressed: <summary>',
+                '```',
+              ].join('\n');
+
+              core.setFailed(message);
+            } else {
+              core.info('PR Review Evidence validation passed');
+              core.info(`Reviewer agents: ${parsed['Reviewer agents used']}`);
+              core.info(`Reviewed SHA: ${parsed['Reviewed head SHA']}`);
+            }
