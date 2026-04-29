@@ -31,6 +31,14 @@ describe('ErrorCode', () => {
     expect(ErrorCode.GROUP_NAME_CONFLICT).toBe('GROUP_NAME_CONFLICT');
   });
 
+  it('contains model config error codes', () => {
+    expect(ErrorCode.MODEL_NOT_FOUND).toBe('MODEL_NOT_FOUND');
+    expect(ErrorCode.MODEL_NAME_CONFLICT).toBe('MODEL_NAME_CONFLICT');
+    expect(ErrorCode.SECRET_NOT_FOUND).toBe('SECRET_NOT_FOUND');
+    expect(ErrorCode.MODEL_AUTH_FAILED).toBe('MODEL_AUTH_FAILED');
+    expect(ErrorCode.EMBEDDING_LIMIT_EXCEEDED).toBe('EMBEDDING_LIMIT_EXCEEDED');
+  });
+
   it('uses uppercase snake case for every value', () => {
     const uppercaseSnakeCase = /^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$/;
 
