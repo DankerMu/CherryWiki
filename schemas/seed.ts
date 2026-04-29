@@ -9,6 +9,20 @@ const DEFAULT_ADMIN_EMAIL = 'admin@cherrywiki.local';
 const DEFAULT_ADMIN_PASSWORD = 'Admin123!@#';
 const DEFAULT_ADMIN_USER_ID = 'default-admin';
 
+function resolveAdminPassword(): string {
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  if (adminPassword) {
+    return adminPassword;
+  }
+
+  if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
+    console.warn('ADMIN_PASSWORD is unset; using the development/test default admin password.');
+    return DEFAULT_ADMIN_PASSWORD;
+  }
+
+  throw new Error('ADMIN_PASSWORD is required to run the seed script outside NODE_ENV=development or NODE_ENV=test');
+}
+
 async function main(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
@@ -16,7 +30,7 @@ async function main(): Promise<void> {
   }
 
   const adminEmail = process.env.ADMIN_EMAIL ?? DEFAULT_ADMIN_EMAIL;
-  const adminPassword = process.env.ADMIN_PASSWORD ?? DEFAULT_ADMIN_PASSWORD;
+  const adminPassword = resolveAdminPassword();
   const adminPasswordHash = await argon2.hash(adminPassword, { type: argon2.argon2id });
 
   const pool = new Pool({ connectionString: databaseUrl });

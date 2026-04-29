@@ -225,8 +225,5 @@ export const system_settings = pgTable(
     updated_by: text('updated_by').references(() => users.id),
     updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [
-    unique('system_settings_tenant_id_category_key_unique').on(table.tenant_id, table.category, table.key),
-    index('idx_system_settings_lookup').on(table.tenant_id, table.category, table.key),
-  ],
+  (table) => [unique('system_settings_tenant_id_category_key_unique').on(table.tenant_id, table.category, table.key)],
 );

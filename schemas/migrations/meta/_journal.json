@@ -15,6 +15,13 @@
       "when": 1777475715069,
       "tag": "0001_aspiring_sue_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777476788684,
+      "tag": "0002_amusing_hex",
+      "breakpoints": true
     }
   ]
 }

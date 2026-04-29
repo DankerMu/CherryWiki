@@ -33,7 +33,11 @@ describe('Zod schema validation', () => {
     expect(schema.insertUserSchema.safeParse(missingEmail).success).toBe(false);
 
     expect(schema.insertUserSchema.safeParse({ ...validUserInput, role: 'super_admin' }).success).toBe(false);
+    expect(schema.insertUserSchema.safeParse({ ...validUserInput, status: 'invited' }).success).toBe(false);
     expect(schema.insertUserSchema.safeParse({ ...validUserInput, password: 'short' }).success).toBe(false);
+    expect(schema.insertUserSchema.safeParse({ ...validUserInput, password: `A${'b'.repeat(128)}` }).success).toBe(false);
+    expect(schema.insertUserSchema.safeParse({ ...validUserInput, email: `${'a'.repeat(245)}@example.com` }).success).toBe(false);
+    expect(schema.insertUserSchema.safeParse({ ...validUserInput, display_name: 'a'.repeat(201) }).success).toBe(false);
   });
 
   it('validates insertSpaceSchema inputs', () => {
@@ -42,11 +46,60 @@ describe('Zod schema validation', () => {
     const missingName: Record<string, unknown> = { ...validSpaceInput };
     delete missingName.name;
     expect(schema.insertSpaceSchema.safeParse(missingName).success).toBe(false);
+
+    const spaceWithRepoPath = schema.insertSpaceSchema.parse({ ...validSpaceInput, wiki_repo_path: '/custom/path' });
+    expect(Object.hasOwn(spaceWithRepoPath, 'wiki_repo_path')).toBe(false);
+
+    const updateWithRepoPath = schema.updateSpaceSchema.parse({ wiki_repo_path: '/custom/path' });
+    expect(Object.hasOwn(updateWithRepoPath, 'wiki_repo_path')).toBe(false);
+
+    expect(schema.insertSpaceSchema.safeParse({ ...validSpaceInput, status: 'disabled' }).success).toBe(false);
+    expect(schema.insertSpaceSchema.safeParse({ ...validSpaceInput, name: 'a'.repeat(201) }).success).toBe(false);
+    expect(schema.insertSpaceSchema.safeParse({ ...validSpaceInput, slug: 'a'.repeat(101) }).success).toBe(false);
+    expect(schema.insertSpaceSchema.safeParse({ ...validSpaceInput, description: 'a'.repeat(5001) }).success).toBe(false);
+    expect(schema.insertSpaceSchema.safeParse({ ...validSpaceInput, default_publish_policy: 'a'.repeat(101) }).success).toBe(false);
   });
 
   it('validates insertModelConfigSchema inputs', () => {
     expect(schema.insertModelConfigSchema.safeParse(validModelConfigInput).success).toBe(true);
     expect(schema.insertModelConfigSchema.safeParse({ ...validModelConfigInput, model_type: 'completion' }).success).toBe(false);
+    expect(schema.insertModelConfigSchema.safeParse({ ...validModelConfigInput, provider: 'a'.repeat(201) }).success).toBe(false);
+    expect(schema.insertModelConfigSchema.safeParse({ ...validModelConfigInput, model_id: 'a'.repeat(201) }).success).toBe(false);
+    expect(schema.insertModelConfigSchema.safeParse({ ...validModelConfigInput, base_url: `https://example.com/${'a'.repeat(2048)}` }).success).toBe(false);
+    expect(schema.insertModelConfigSchema.safeParse({ ...validModelConfigInput, encrypted_api_key_ref: 'a'.repeat(501) }).success).toBe(false);
+    expect(schema.insertModelConfigSchema.safeParse({ ...validModelConfigInput, visible_group_ids: Array.from({ length: 101 }, (_, index) => `group-${index}`) }).success).toBe(false);
+  });
+
+  it('validates metadata and request context field bounds', () => {
+    const longValue = 'a'.repeat(501);
+
+    expect(
+      schema.insertAuditLogSchema.safeParse({
+        tenant_id: 'default',
+        action: 'space.update',
+        resource_type: 'space',
+        ip: longValue,
+      }).success,
+    ).toBe(false);
+
+    expect(
+      schema.insertSessionSchema.safeParse({
+        tenant_id: 'default',
+        user_id: 'user-1',
+        refresh_token_hash: 'hash',
+        user_agent: longValue,
+        expires_at: new Date(),
+      }).success,
+    ).toBe(false);
+
+    expect(
+      schema.insertSystemSettingSchema.safeParse({
+        tenant_id: 'default',
+        category: 'a'.repeat(101),
+        key: 'feature_flag',
+        value_json: {},
+      }).success,
+    ).toBe(false);
   });
 
   it('requires tenant_id on all core business tables', () => {

@@ -26,8 +26,13 @@ CREATE TABLE "system_settings" (
 ALTER TABLE "sessions" ADD COLUMN "last_used_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "spaces" ADD COLUMN "description" text;--> statement-breakpoint
 ALTER TABLE "spaces" ADD COLUMN "status" text DEFAULT 'active' NOT NULL;--> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "password_hash" text NOT NULL;--> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "role" text DEFAULT 'viewer' NOT NULL;--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN "password_hash" text DEFAULT '!NEEDS_RESET';--> statement-breakpoint
+UPDATE "users" SET "password_hash" = '!NEEDS_RESET' WHERE "password_hash" IS NULL;--> statement-breakpoint
+ALTER TABLE "users" ALTER COLUMN "password_hash" SET NOT NULL;--> statement-breakpoint
+ALTER TABLE "users" ALTER COLUMN "password_hash" DROP DEFAULT;--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN "role" text DEFAULT 'viewer';--> statement-breakpoint
+UPDATE "users" SET "role" = 'viewer' WHERE "role" IS NULL;--> statement-breakpoint
+ALTER TABLE "users" ALTER COLUMN "role" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "users" ADD COLUMN "last_login_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "permission_versions" ADD CONSTRAINT "permission_versions_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "permission_versions" ADD CONSTRAINT "permission_versions_space_id_spaces_id_fk" FOREIGN KEY ("space_id") REFERENCES "public"."spaces"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint

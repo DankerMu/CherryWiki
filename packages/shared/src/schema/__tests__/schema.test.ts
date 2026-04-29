@@ -80,7 +80,7 @@ describe('Drizzle core schema', () => {
     expect(indexColumns(schema.permission_versions, 'idx_permission_versions_subject')).toEqual(['subject_type', 'subject_id']);
   });
 
-  it('defines system_settings columns, unique constraint, and lookup index', () => {
+  it('defines system_settings columns and unique constraint', () => {
     expect(schema.system_settings.category.getSQLType()).toBe('text');
     expect(schema.system_settings.category.notNull).toBe(true);
     expect(schema.system_settings.key.getSQLType()).toBe('text');
@@ -89,7 +89,6 @@ describe('Drizzle core schema', () => {
     expect(schema.system_settings.value_json.notNull).toBe(true);
 
     expect(uniqueColumns(schema.system_settings, 'system_settings_tenant_id_category_key_unique')).toEqual(['tenant_id', 'category', 'key']);
-    expect(indexColumns(schema.system_settings, 'idx_system_settings_lookup')).toEqual(['tenant_id', 'category', 'key']);
   });
 
   it('defines group_members composite primary key on group_id and user_id', () => {
