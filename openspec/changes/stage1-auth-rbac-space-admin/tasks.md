@@ -135,7 +135,7 @@
 
 ## 11. Documentation & Configuration
 
-- [ ] 11.1 更新 docs/project/26_需求追踪矩阵.md：确认 Stage 1 所有行的 API/Schema/测试列已填写；补充新增端点（PATCH users、PUT groups、GET/PUT space permissions、GET space stats）
-- [ ] 11.2 更新 Docker Compose：确保 Redis 服务配置正确，apps/api 环境变量含 JWT_SECRET/ADMIN_EMAIL/ADMIN_PASSWORD
-- [ ] 11.3 更新 docs/todo.md：标记 I-01 为进行中/完成
-- [ ] 11.4 在 docs/ops/env.example 中补充 Stage 1 新增环境变量：JWT_SECRET, JWT_EXPIRES_IN, REFRESH_TOKEN_EXPIRES_IN, ADMIN_EMAIL, ADMIN_PASSWORD, REDIS_URL
+- [x] 11.1 更新 docs/project/26_需求追踪矩阵.md：确认 Stage 1 所有行的 API/Schema/测试列已填写；补充新增端点（PATCH users、PUT groups、GET/PUT space permissions、GET space stats、models PATCH/test、audit/health、password/sessions）
+- [x] 11.2 更新 Docker Compose：确保 Redis 服务配置正确，apps/api 环境变量含 JWT_SECRET/ADMIN_EMAIL/ADMIN_PASSWORD/REDIS_URL/DEFAULT_TENANT_ID
+- [x] 11.3 更新 docs/todo.md：标记 I-01 为完成
+- [x] 11.4 在 .env.example 与 docs/ops/env.example 中补充 Stage 1 新增环境变量：JWT_SECRET, JWT_EXPIRES_IN, REFRESH_TOKEN_EXPIRES_IN, ADMIN_EMAIL, ADMIN_PASSWORD, REDIS_URL, DEFAULT_TENANT_ID

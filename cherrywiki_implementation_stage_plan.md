@@ -947,7 +947,7 @@ Phase 4 不要提前做。它应在 Phase 1-3 跑稳后再进入。
 
 ```text
 - [ ] I-00 建立 monorepo 工程脚手架
-- [ ] I-01 实现 Auth/RBAC/Space/Admin 基础
+- [x] I-01 实现 Auth/RBAC/Space/Admin 基础
 - [ ] I-02 实现 Job 系统和 Worker 协同协议
 - [ ] I-03 实现 Upload/Ingestion/URL Fetcher
 - [ ] I-04 实现 Canonical Wiki Repo 和只读 Wiki
