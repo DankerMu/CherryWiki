@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 export const REQUEST_ID_HEADER = 'x-request-id';
 export const RESPONSE_REQUEST_ID_HEADER = 'X-Request-Id';
+export const REQUEST_ID_PATTERN = /^[a-zA-Z0-9._-]{1,128}$/;
 
 export const requestContextStorage = new AsyncLocalStorage<RequestContext>();
 
@@ -36,32 +37,38 @@ export function extractHeaderValue(value: string | string[] | undefined): string
   return value;
 }
 
+export function isValidRequestId(value: string | undefined): value is string {
+  return value !== undefined && REQUEST_ID_PATTERN.test(value);
+}
+
 export function getRequestIdFromRequest(request: unknown): string | undefined {
   if (!isRecord(request)) {
     return undefined;
   }
 
   const requestId = request.request_id;
-  if (typeof requestId === 'string' && requestId.length > 0) {
+  if (typeof requestId === 'string' && isValidRequestId(requestId)) {
     return requestId;
   }
 
   const raw = request.raw;
   if (isRecord(raw)) {
     const rawRequestId = raw.request_id;
-    if (typeof rawRequestId === 'string' && rawRequestId.length > 0) {
+    if (typeof rawRequestId === 'string' && isValidRequestId(rawRequestId)) {
       return rawRequestId;
     }
   }
 
   const headers = getHeaders(request);
-  return extractHeaderValue(headers?.[REQUEST_ID_HEADER]);
+  const headerRequestId = extractHeaderValue(headers?.[REQUEST_ID_HEADER]);
+  return isValidRequestId(headerRequestId) ? headerRequestId : undefined;
 }
 
 @Injectable()
 export class RequestContextMiddleware implements NestMiddleware {
   use(req: RequestWithContext, res: ServerResponse, next: () => void): void {
-    const requestId = extractHeaderValue(req.headers[REQUEST_ID_HEADER]) ?? uuidv4();
+    const headerRequestId = extractHeaderValue(req.headers[REQUEST_ID_HEADER]);
+    const requestId = isValidRequestId(headerRequestId) ? headerRequestId : uuidv4();
     const context: RequestContext = {
       request_id: requestId,
       tenant_id: '',

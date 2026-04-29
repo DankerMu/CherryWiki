@@ -44,11 +44,15 @@ function parsePort(value: string | undefined): number {
 }
 
 export async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({ logger: false }), {
-    bufferLogs: true,
-  });
+  const app = await NestFactory.create<NestFastifyApplication>(
+    AppModule,
+    new FastifyAdapter({ logger: false, bodyLimit: 1_048_576 }),
+    {
+      bufferLogs: true,
+    },
+  );
   configureApp(app);
-  await app.listen(parsePort(process.env.PORT), '0.0.0.0');
+  await app.listen(parsePort(process.env.PORT), process.env.HOST ?? '0.0.0.0');
 }
 
 function isEntrypoint(): boolean {

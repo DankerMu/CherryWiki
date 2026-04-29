@@ -56,6 +56,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const request = http.getRequest<unknown>();
     const requestId = getRequestContext()?.request_id ?? getRequestIdFromRequest(request) ?? '';
 
+    // Safety net for raw class-validator ValidationError objects thrown outside the ValidationPipe context.
     if (isValidationException(exception)) {
       response.status(HttpStatus.UNPROCESSABLE_ENTITY).send({
         error: {
@@ -95,7 +96,15 @@ export class HttpExceptionFilter implements ExceptionFilter {
   }
 }
 
-export function validationErrorsToDetails(errors: ValidationError[]): ValidationErrorDetail[] {
+export function validationErrorsToDetails(errors: ValidationError[], maxDepth = 5): ValidationErrorDetail[] {
+  return validationErrorsToDetailsAtDepth(errors, maxDepth, 0);
+}
+
+function validationErrorsToDetailsAtDepth(
+  errors: ValidationError[],
+  maxDepth: number,
+  currentDepth: number,
+): ValidationErrorDetail[] {
   return errors.map((error) => {
     const detail: ValidationErrorDetail = {
       property: error.property,
@@ -105,8 +114,8 @@ export function validationErrorsToDetails(errors: ValidationError[]): Validation
       detail.constraints = error.constraints;
     }
 
-    if (error.children !== undefined && error.children.length > 0) {
-      detail.children = validationErrorsToDetails(error.children);
+    if (currentDepth < maxDepth && error.children !== undefined && error.children.length > 0) {
+      detail.children = validationErrorsToDetailsAtDepth(error.children, maxDepth, currentDepth + 1);
     }
 
     return detail;

@@ -12,11 +12,12 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { Test } from '@nestjs/testing';
 import { ErrorCode } from '@cherrygraph/shared';
-import { IsString } from 'class-validator';
+import { IsString, ValidationError } from 'class-validator';
 import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { configureApp } from '../../../main.js';
+import { validationErrorsToDetails } from '../http-exception.filter.js';
 import { RequestContextMiddleware } from '../../middleware/request-context.middleware.js';
 
 const REQUEST_ID = 'filter-test-request-id';
@@ -149,6 +150,18 @@ describe('HttpExceptionFilter', () => {
     expect(error.code).toBe(ErrorCode.NOT_FOUND);
     expect(error.request_id).toBe(REQUEST_ID);
   });
+
+  it('stops validation error detail recursion at the depth limit', () => {
+    const details = validationErrorsToDetails([createNestedValidationError(5)], 2);
+    const root = requireDetail(details[0]);
+    const child = requireDetail(root.children?.[0]);
+    const grandchild = requireDetail(child.children?.[0]);
+
+    expect(root.property).toBe('level-0');
+    expect(child.property).toBe('level-1');
+    expect(grandchild.property).toBe('level-2');
+    expect(grandchild.children).toBeUndefined();
+  });
 });
 
 async function createTestApp(): Promise<NestFastifyApplication> {
@@ -170,6 +183,25 @@ function getErrorPayload(text: string): Record<string, unknown> {
   }
 
   return error;
+}
+
+function createNestedValidationError(maxLevel: number, currentLevel = 0): ValidationError {
+  const error = new ValidationError();
+  error.property = `level-${currentLevel}`;
+
+  if (currentLevel < maxLevel) {
+    error.children = [createNestedValidationError(maxLevel, currentLevel + 1)];
+  }
+
+  return error;
+}
+
+function requireDetail<T>(value: T | undefined): T {
+  if (value === undefined) {
+    throw new Error('Expected validation error detail');
+  }
+
+  return value;
 }
 
 function parseJsonObject(text: string): Record<string, unknown> {

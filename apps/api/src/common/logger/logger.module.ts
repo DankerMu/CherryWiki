@@ -1,4 +1,4 @@
-import { Injectable, Module, type LoggerService, type NestMiddleware } from '@nestjs/common';
+import { Inject, Injectable, Module, Optional, type LoggerService, type NestMiddleware } from '@nestjs/common';
 import type { RequestContext } from '@cherrygraph/shared';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import pino, { type Logger } from 'pino';
@@ -7,6 +7,8 @@ import { pinoHttp } from 'pino-http';
 import { getRequestContext, getRequestIdFromRequest } from '../middleware/request-context.middleware.js';
 
 type PinoLogMethod = (object: Record<string, unknown>, message: string) => void;
+
+export const API_LOGGER = Symbol('API_LOGGER');
 
 function createPinoLogger(): Logger {
   return pino({
@@ -43,10 +45,16 @@ export function createNestLogger(logger: Logger = apiLogger): LoggerService {
 
 @Injectable()
 export class PinoHttpLoggerMiddleware implements NestMiddleware {
-  private readonly httpLogger = pinoHttp({
-    logger: apiLogger,
-    autoLogging: false,
-  });
+  private readonly logger: Logger;
+  private readonly httpLogger: ReturnType<typeof pinoHttp>;
+
+  constructor(@Optional() @Inject(API_LOGGER) logger?: Logger) {
+    this.logger = logger ?? apiLogger;
+    this.httpLogger = pinoHttp({
+      logger: this.logger,
+      autoLogging: false,
+    });
+  }
 
   use(req: IncomingMessage, res: ServerResponse, next: () => void): void {
     const startedAt = process.hrtime.bigint();
@@ -56,7 +64,7 @@ export class PinoHttpLoggerMiddleware implements NestMiddleware {
       const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
       const context = getRequestContext();
       const logObject = createRequestLogObject(req, res, durationMs, context);
-      getLogMethod(apiLogger, res.statusCode)(logObject, 'request completed');
+      getLogMethod(this.logger, res.statusCode)(logObject, 'request completed');
     });
 
     next();
@@ -64,8 +72,8 @@ export class PinoHttpLoggerMiddleware implements NestMiddleware {
 }
 
 @Module({
-  providers: [PinoHttpLoggerMiddleware],
-  exports: [PinoHttpLoggerMiddleware],
+  providers: [{ provide: API_LOGGER, useValue: apiLogger }, PinoHttpLoggerMiddleware],
+  exports: [API_LOGGER, PinoHttpLoggerMiddleware],
 })
 export class LoggerModule {}
 
@@ -108,7 +116,11 @@ function stringifyMessage(message: unknown): string {
     return message.message;
   }
 
-  return JSON.stringify(message);
+  try {
+    return JSON.stringify(message);
+  } catch {
+    return String(message);
+  }
 }
 
 function getContext(optionalParams: unknown[]): string | undefined {

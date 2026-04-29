@@ -2,12 +2,14 @@ import { Controller, Get, Module, RequestMethod } from '@nestjs/common';
 import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { Test } from '@nestjs/testing';
+import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http';
 import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { configureApp } from '../../../main.js';
 import {
   getRequestContext,
+  RESPONSE_REQUEST_ID_HEADER,
   RequestContextMiddleware,
 } from '../request-context.middleware.js';
 
@@ -61,6 +63,26 @@ describe('RequestContextMiddleware', () => {
     expect(parseJsonObject(response.text).request_id).toBe(providedRequestId);
   });
 
+  it('rejects oversized X-Request-Id values and generates a fresh UUID', () => {
+    const oversizedRequestId = 'a'.repeat(129);
+    const result = runMiddlewareWithRequestId(oversizedRequestId);
+
+    expect(result.requestId).toMatch(UUID_V4_PATTERN);
+    expect(result.requestId).not.toBe(oversizedRequestId);
+  });
+
+  it('rejects X-Request-Id values containing control characters', () => {
+    const result = runMiddlewareWithRequestId('request\tid');
+
+    expect(result.requestId).toMatch(UUID_V4_PATTERN);
+  });
+
+  it('rejects X-Request-Id values containing special characters such as newlines', () => {
+    const result = runMiddlewareWithRequestId('request\nid');
+
+    expect(result.requestId).toMatch(UUID_V4_PATTERN);
+  });
+
   it('returns request_id in the X-Request-Id response header', async () => {
     app = await createTestApp();
     const response = await request(app.getHttpAdapter().getInstance().server).get('/api/context-test').expect(200);
@@ -87,6 +109,48 @@ function getHeader(headers: Record<string, string | string[] | undefined>, name:
   }
 
   return value ?? '';
+}
+
+type MiddlewareRequest = IncomingMessage & {
+  request_id?: string;
+  raw?: {
+    request_id?: string;
+    headers?: IncomingHttpHeaders;
+  };
+};
+
+function runMiddlewareWithRequestId(headerValue: string): { requestId: string; responseHeader: string } {
+  const headers: IncomingHttpHeaders = {
+    'x-request-id': headerValue,
+  };
+  const req = {
+    headers,
+    raw: {
+      headers,
+    },
+  } as MiddlewareRequest;
+  const responseHeaders = new Map<string, string>();
+  const res = {
+    setHeader(name: string, value: number | string | string[]): ServerResponse {
+      responseHeaders.set(name.toLowerCase(), Array.isArray(value) ? (value[0] ?? '') : String(value));
+      return res;
+    },
+  } as ServerResponse;
+  let contextRequestId: string | null = null;
+
+  new RequestContextMiddleware().use(req, res, () => {
+    contextRequestId = getRequestContext()?.request_id ?? null;
+  });
+
+  const responseHeader = responseHeaders.get(RESPONSE_REQUEST_ID_HEADER.toLowerCase()) ?? '';
+  expect(req.request_id).toBe(responseHeader);
+  expect(req.raw?.request_id).toBe(responseHeader);
+  expect(contextRequestId).toBe(responseHeader);
+
+  return {
+    requestId: req.request_id ?? '',
+    responseHeader,
+  };
 }
 
 function parseJsonObject(text: string): Record<string, unknown> {
