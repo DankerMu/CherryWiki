@@ -1,34 +1,36 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AdminHealthController } from '../admin-health.controller.js';
+import type { StorageService } from '../../storage/storage.service.js';
 
 type DbQuery = ReturnType<typeof vi.fn<(queryText: string) => Promise<unknown>>>;
 type RedisPing = ReturnType<typeof vi.fn<() => Promise<unknown>>>;
-
-const originalMinioEndpoint = process.env.MINIO_ENDPOINT;
+type StorageConfigured = ReturnType<typeof vi.fn<() => boolean>>;
+type StorageHealthCheck = ReturnType<
+  typeof vi.fn<() => Promise<{ status: 'healthy' | 'unhealthy'; latency_ms: number; error?: string }>>
+>;
 
 describe('AdminHealthController', () => {
   afterEach(() => {
-    restoreMinioEndpoint();
     vi.restoreAllMocks();
   });
 
   it('returns healthy when configured components are healthy', async () => {
-    process.env.MINIO_ENDPOINT = 'http://localhost:9000';
-    const { controller, dbQuery, redisPing } = createController();
+    const { controller, dbQuery, redisPing, storageHealthCheck } = createController();
 
     const result = await controller.getHealth();
 
     expect(result.status).toBe('healthy');
     expect(result.components.database.status).toBe('healthy');
     expect(result.components.redis.status).toBe('healthy');
-    expect(result.components.minio).toEqual({ status: 'healthy', latency_ms: 0 });
+    expect(result.components.minio).toEqual({ status: 'healthy', latency_ms: 12 });
     expect(result.components.vector_store.status).toBe('not_configured');
     expect(result.components.graph_store.status).toBe('not_configured');
     expect(result.components.docmost_bridge.status).toBe('not_configured');
     expect(result.uptime).toBeGreaterThanOrEqual(1);
     expect(dbQuery).toHaveBeenCalledWith('select 1');
     expect(redisPing).toHaveBeenCalledTimes(1);
+    expect(storageHealthCheck).toHaveBeenCalledTimes(1);
   });
 
   it('returns degraded when Redis is configured but unavailable', async () => {
@@ -65,7 +67,7 @@ describe('AdminHealthController', () => {
   });
 
   it('marks undeployed or absent components as not_configured', async () => {
-    const { controller } = createController({ redisPing: undefined });
+    const { controller } = createController({ redisPing: undefined, storageConfigured: vi.fn(() => false) });
 
     const result = await controller.getHealth();
 
@@ -82,31 +84,41 @@ function createController(
   overrides: Partial<{
     dbQuery: DbQuery;
     redisPing: RedisPing | undefined;
+    storageConfigured: StorageConfigured;
+    storageHealthCheck: StorageHealthCheck;
   }> = {},
-): { controller: AdminHealthController; dbQuery: DbQuery; redisPing: RedisPing | undefined } {
+): {
+  controller: AdminHealthController;
+  dbQuery: DbQuery;
+  redisPing: RedisPing | undefined;
+  storageConfigured: StorageConfigured;
+  storageHealthCheck: StorageHealthCheck;
+} {
   const dbQuery =
     overrides.dbQuery ?? vi.fn<(queryText: string) => Promise<unknown>>(() => Promise.resolve({ rows: [{ '?column?': 1 }] }));
   const redisPing =
     Object.hasOwn(overrides, 'redisPing') ? overrides.redisPing : vi.fn<() => Promise<unknown>>(() => Promise.resolve('PONG'));
+  const storageConfigured = overrides.storageConfigured ?? vi.fn(() => true);
+  const storageHealthCheck =
+    overrides.storageHealthCheck ?? vi.fn<() => Promise<{ status: 'healthy'; latency_ms: number }>>(() =>
+      Promise.resolve({ status: 'healthy', latency_ms: 12 }),
+    );
   const db = {
     $client: {
       query: dbQuery,
     },
   };
   const redis = redisPing === undefined ? undefined : { ping: redisPing };
+  const storage = {
+    isConfigured: storageConfigured,
+    healthCheck: storageHealthCheck,
+  };
 
   return {
-    controller: new AdminHealthController(db, redis),
+    controller: new AdminHealthController(db, redis, storage as unknown as StorageService),
     dbQuery,
     redisPing,
+    storageConfigured,
+    storageHealthCheck,
   };
-}
-
-function restoreMinioEndpoint(): void {
-  if (originalMinioEndpoint === undefined) {
-    delete process.env.MINIO_ENDPOINT;
-    return;
-  }
-
-  process.env.MINIO_ENDPOINT = originalMinioEndpoint;
 }

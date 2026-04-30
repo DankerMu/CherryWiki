@@ -3,6 +3,7 @@ import { Permissions } from '@cherrygraph/auth-core';
 
 import { REDIS_CLIENT } from '../common/redis/redis.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
+import { StorageService } from '../storage/storage.service.js';
 
 type HealthStatus = 'healthy' | 'degraded' | 'unhealthy';
 type ComponentStatus = 'healthy' | 'unhealthy' | 'not_configured';
@@ -36,12 +37,12 @@ export class AdminHealthController {
   constructor(
     @Inject(DRIZZLE) private readonly db: DatabaseHealthClient,
     @Optional() @Inject(REDIS_CLIENT) private readonly redis?: RedisHealthClient,
+    @Optional() private readonly storage?: StorageService,
   ) {}
 
   @Get('health')
   async getHealth(): Promise<AdminSystemHealthResponse> {
-    const [database, redis] = await Promise.all([this.checkDatabase(), this.checkRedis()]);
-    const minio = checkMinioConfigured();
+    const [database, redis, minio] = await Promise.all([this.checkDatabase(), this.checkRedis(), this.checkStorage()]);
     const components: Record<ComponentName, HealthComponent> = {
       database,
       redis,
@@ -73,6 +74,14 @@ export class AdminHealthController {
       await this.redis?.ping();
     });
   }
+
+  private async checkStorage(): Promise<HealthComponent> {
+    if (this.storage === undefined || !this.storage.isConfigured()) {
+      return { status: 'not_configured' };
+    }
+
+    return this.storage.healthCheck();
+  }
 }
 
 async function measureComponent(check: () => Promise<void>): Promise<HealthComponent> {
@@ -91,18 +100,6 @@ async function measureComponent(check: () => Promise<void>): Promise<HealthCompo
       error: toSafeErrorMessage(err),
     };
   }
-}
-
-function checkMinioConfigured(): HealthComponent {
-  const endpoint = process.env.MINIO_ENDPOINT;
-  if (endpoint === undefined || endpoint.trim().length === 0) {
-    return { status: 'not_configured' };
-  }
-
-  return {
-    status: 'healthy',
-    latency_ms: 0,
-  };
 }
 
 function getOverallStatus(components: Record<ComponentName, HealthComponent>): HealthStatus {

@@ -1,0 +1,22 @@
+export const STORAGE_SERVICE = Symbol('STORAGE_SERVICE');
+export const STORAGE_CLIENT = Symbol('STORAGE_CLIENT');
+
+export const STORAGE_BUCKET_NAMES = {
+  UPLOADS: 'uploads',
+  ARCHIVES: 'archives',
+  GRAPHIFY_OUTPUT: 'graphify-output',
+  WIKI_REPO: 'wiki-repo',
+} as const;
+
+export const REQUIRED_STORAGE_BUCKETS = [
+  STORAGE_BUCKET_NAMES.UPLOADS,
+  STORAGE_BUCKET_NAMES.ARCHIVES,
+  STORAGE_BUCKET_NAMES.GRAPHIFY_OUTPUT,
+  STORAGE_BUCKET_NAMES.WIKI_REPO,
+] as const;
+
+export const PRIMARY_STORAGE_BUCKET = STORAGE_BUCKET_NAMES.UPLOADS;
+export const DEFAULT_PRESIGNED_URL_EXPIRES_IN_SECONDS = 3_600;
+export const STORAGE_HEALTH_TIMEOUT_MS = 5_000;
+
+export type StorageBucketName = (typeof REQUIRED_STORAGE_BUCKETS)[number];
