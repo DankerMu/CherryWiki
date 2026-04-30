@@ -33,10 +33,17 @@ afterEach(() => {
 });
 
 describe('App routing', () => {
-  it('renders Home for /', () => {
+  it('redirects unauthenticated / to /login', () => {
     renderRoute('/');
 
-    expect(screen.getByRole('heading', { name: 'CherryGraph Studio' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  });
+
+  it('redirects authenticated admin / to /admin', async () => {
+    mockAdminApi();
+    renderRoute('/', ADMIN_USER);
+
+    expect(await screen.findByRole('heading', { name: 'Users' })).toBeInTheDocument();
   });
 
   it('renders Login for /login', () => {
