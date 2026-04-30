@@ -59,23 +59,31 @@ export function configureApiClient(config: ApiClientConfig): void {
 
 export const api = {
   get<T>(path: string, query?: QueryParams): Promise<T> {
-    return request<T>('GET', path, { query });
+    return requestData<T>('GET', path, { query });
+  },
+  getWrapped<T>(path: string, query?: QueryParams): Promise<ApiWrappedResponse<T>> {
+    return requestWrapped<T>('GET', path, { query });
   },
   post<T>(path: string, body?: unknown): Promise<T> {
-    return request<T>('POST', path, { body });
+    return requestData<T>('POST', path, { body });
   },
   put<T>(path: string, body?: unknown): Promise<T> {
-    return request<T>('PUT', path, { body });
+    return requestData<T>('PUT', path, { body });
   },
   patch<T>(path: string, body?: unknown): Promise<T> {
-    return request<T>('PATCH', path, { body });
+    return requestData<T>('PATCH', path, { body });
   },
   delete<T>(path: string): Promise<T> {
-    return request<T>('DELETE', path);
+    return requestData<T>('DELETE', path);
   },
 };
 
-async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
+async function requestData<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
+  const response = await requestWrapped<T>(method, path, options);
+  return response.data;
+}
+
+async function requestWrapped<T>(method: string, path: string, options: RequestOptions = {}): Promise<ApiWrappedResponse<T>> {
   const headers = new Headers(options.headers);
   headers.set('Accept', 'application/json');
 
@@ -106,7 +114,7 @@ async function request<T>(method: string, path: string, options: RequestOptions 
     throw error;
   }
 
-  return unwrapResponse<T>(body);
+  return wrapResponse<T>(body);
 }
 
 function buildApiUrl(path: string, query?: QueryParams): string {
@@ -140,12 +148,17 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
-function unwrapResponse<T>(body: unknown): T {
+function wrapResponse<T>(body: unknown): ApiWrappedResponse<T> {
   if (isRecord(body) && 'data' in body) {
-    return body.data as T;
+    return {
+      data: body.data as T,
+      ...(isRecord(body.meta) ? { meta: normalizeMeta(body.meta) } : {}),
+    };
   }
 
-  return body as T;
+  return {
+    data: body as T,
+  };
 }
 
 function createApiError(status: number, body: unknown): ApiError {
@@ -177,4 +190,21 @@ function normalizeErrorBody(body: unknown): { code: string; message: string; det
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function normalizeMeta(meta: Record<string, unknown>): ApiMeta {
+  return {
+    ...(typeof meta.request_id === 'string' ? { request_id: meta.request_id } : {}),
+    ...(isPaginationMeta(meta.pagination) ? { pagination: meta.pagination } : {}),
+  };
+}
+
+function isPaginationMeta(value: unknown): value is NonNullable<ApiMeta['pagination']> {
+  return (
+    isRecord(value) &&
+    typeof value.page === 'number' &&
+    typeof value.per_page === 'number' &&
+    typeof value.total === 'number' &&
+    typeof value.has_next === 'boolean'
+  );
 }

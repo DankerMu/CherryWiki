@@ -41,6 +41,8 @@
   --color-status-healthy-text: #166534;
   --color-status-degraded-bg: #fef3c7;
   --color-status-degraded-text: #92400e;
+  --color-status-info-bg: #dbeafe;
+  --color-status-info-text: #1d4ed8;
   --color-status-unhealthy-bg: #fee2e2;
   --color-status-unhealthy-text: #991b1b;
   --color-status-neutral-bg: #e2e8f0;
@@ -115,6 +117,8 @@
   --color-status-healthy-text: #7ce2ad;
   --color-status-degraded-bg: rgba(250, 173, 20, 0.18);
   --color-status-degraded-text: #ffd666;
+  --color-status-info-bg: rgba(51, 140, 255, 0.18);
+  --color-status-info-text: #93c5fd;
   --color-status-unhealthy-bg: rgba(255, 77, 79, 0.18);
   --color-status-unhealthy-text: #ffaaa5;
   --color-status-neutral-bg: rgba(255, 255, 255, 0.1);

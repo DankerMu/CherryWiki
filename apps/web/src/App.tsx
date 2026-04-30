@@ -5,6 +5,8 @@ import { AuthProvider } from './lib/auth';
 import AuditPage from './pages/admin/AuditPage';
 import GroupsPage from './pages/admin/GroupsPage';
 import HealthPage from './pages/admin/HealthPage';
+import JobDetailPage from './pages/admin/JobDetailPage';
+import JobsPage from './pages/admin/JobsPage';
 import ModelsPage from './pages/admin/ModelsPage';
 import SpacesPage from './pages/admin/SpacesPage';
 import UsersPage from './pages/admin/UsersPage';
@@ -38,7 +40,8 @@ export function AppRoutes() {
         <Route path="models" element={<ModelsPage />} />
         <Route path="audit" element={<AuditPage />} />
         <Route path="health" element={<HealthPage />} />
-        <Route path="jobs" element={<Navigate to="/admin/health" replace />} />
+        <Route path="jobs" element={<JobsPage />} />
+        <Route path="jobs/:jobId" element={<JobDetailPage />} />
       </Route>
       <Route path="*" element={<NotFound />} />
     </Routes>

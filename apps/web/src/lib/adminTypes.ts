@@ -114,3 +114,42 @@ export type SystemHealth = {
   components: Record<string, HealthComponent>;
   uptime: number;
 };
+
+export const ADMIN_JOB_TYPE_FILTER_OPTIONS = ['ingestion', 'graphify', 'reindex', 'rebuild'] as const;
+
+export const ADMIN_JOB_STATUS_OPTIONS = ['pending', 'running', 'succeeded', 'failed', 'cancelled'] as const;
+
+export type JobProgress = {
+  percent?: number;
+  stage?: string;
+};
+
+export type AdminJob = {
+  job_id: string;
+  type: string;
+  status: string;
+  space_id: string | null;
+  progress: JobProgress | null;
+  created_by: string | null;
+  payload_json: unknown;
+  result_json: unknown;
+  error_json: unknown;
+  cancel_requested_at: string | null;
+  attempt_count: number;
+  max_attempts: number;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+};
+
+export type JobEvent = {
+  event: string;
+  timestamp: string;
+  detail: unknown;
+};
+
+export type CancelJobResponse = {
+  job_id: string;
+  status: string;
+  cancel_requested_at: string | null;
+};
