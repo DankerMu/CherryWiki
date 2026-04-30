@@ -6,6 +6,8 @@ Cherry Web 是用户进入平台的主入口，负责 AI 聊天、Agent、GraphR
 
 ## 2. Cherry Web 前端
 
+> **视觉规范**: 所有前端 UI 实现须遵循 `docs/design/12_UI设计规范_CherryStudio风格对齐.md`，使用 CSS token 体系，禁止硬编码色值。
+
 ### 2.1 基础页面
 
 | 页面 | 功能 |
@@ -43,11 +45,11 @@ generating → aborted（用户主动取消）
 
 | 状态 | UI 表现 |
 |---|---|
-| `pending_retrieval` | 显示"正在检索知识库..."动画 |
-| `generating` | 显示流式文字 + 打字光标 |
-| `completed` | 回答完整展示，引用卡片可点击 |
-| `failed` | 显示错误信息 + 重试按钮 |
-| `aborted` | 显示已生成的部分内容 + "已中止"标记 |
+| `pending_retrieval` | 显示"正在检索知识库..."动画（使用 `--color-primary` 色调的脉冲加载指示器） |
+| `generating` | 显示流式文字 + 打字光标（光标色 `--color-primary`） |
+| `completed` | 回答完整展示，引用卡片可点击（卡片使用 `--color-surface` 背景、`--color-border` 边框） |
+| `failed` | 显示错误信息（`--color-error` 文字、`--color-error-soft` 背景）+ 重试按钮（`--color-primary` 主按钮） |
+| `aborted` | 显示已生成的部分内容 + "已中止"标记（`--color-warning` 色标签） |
 
 ##### 回答结构
 
@@ -87,10 +89,10 @@ generating → aborted（用户主动取消）
 
 | 值 | 含义 | UI 标注 | 条件 |
 |---|---|---|---|
-| `knowledge_base` | 基于 Published Wiki 检索 | 默认，显示引用卡片 | — |
-| `model_knowledge` | 知识库无命中，基于模型自有知识 | 显示醒目标注"⚠ 此回答基于模型通用知识，非知识库引用，准确性未经验证" | 仅当 `strict_knowledge_only = false` |
-| `mixed` | 部分基于知识库、部分基于模型补充 | 引用部分正常显示，模型补充部分单独标注 | 仅当 `strict_knowledge_only = false` |
-| `no_hit` | 知识库无命中且严格模式 | 显示"当前知识库没有可引用资料，请上传或发布相关 Wiki" | 当 `strict_knowledge_only = true` |
+| `knowledge_base` | 基于 Published Wiki 检索 | 默认，显示引用卡片（`--color-surface` 背景、`--color-border` 边框） | — |
+| `model_knowledge` | 知识库无命中，基于模型自有知识 | 显示 `--color-warning-soft` 背景 + `--color-warning` 文字的警告横幅："⚠ 此回答基于模型通用知识，非知识库引用，准确性未经验证" | 仅当 `strict_knowledge_only = false` |
+| `mixed` | 部分基于知识库、部分基于模型补充 | 引用部分正常显示，模型补充部分使用 `--color-warning-soft` 背景单独标注 | 仅当 `strict_knowledge_only = false` |
+| `no_hit` | 知识库无命中且严格模式 | 显示 `--color-info` 色调引导卡片："当前知识库没有可引用资料，请上传或发布相关 Wiki" | 当 `strict_knowledge_only = true` |
 
 ##### 无知识命中策略
 
@@ -118,14 +120,14 @@ generating → aborted（用户主动取消）
 
 - 标注文字："引用历史版本 v{page_version}，当前已更新至 v{current_page_version}"
 - 提供"查看最新版本"链接
-- 引用卡片使用视觉区分（如淡黄色背景或虚线边框）
+- 引用卡片使用 `--color-warning-soft` 背景 + `--color-border-strong` 虚线边框进行视觉区分
 
 #### 引用展示
 
 - 引用卡片显示页面标题、段落标题、版本、更新时间。
 - 点击引用跳转 Docmost 页面或 Cherry 内置 Wiki 只读视图。
 - 如果引用来自图谱节点，应展示节点所在页面和源段落。
-- 如果引用关系为 `INFERRED` 或 `AMBIGUOUS`，必须明显标注。
+- 如果引用关系为 `INFERRED` 或 `AMBIGUOUS`，必须使用 `--color-status-degraded-text` 色标签 + `--color-warning-soft` 背景明确标注置信度等级。
 
 #### 图谱解释展示
 

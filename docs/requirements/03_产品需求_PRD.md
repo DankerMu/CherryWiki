@@ -146,6 +146,8 @@ CherryGraph Studio 是一个 Docker 化部署的多用户 AI 工作台，基于 
 
 ## 7. 页面需求
 
+> **视觉规范**: 所有页面实现须遵循 `docs/design/12_UI设计规范_CherryStudio风格对齐.md`。
+
 ### 7.1 Cherry Web 首页
 
 - 最近会话。
