@@ -12,6 +12,7 @@ import { GroupModule } from './groups/group.module.js';
 import { HealthModule } from './health/health.module.js';
 import { ModelConfigModule } from './models/model-config.module.js';
 import { SpaceModule } from './spaces/space.module.js';
+import { StorageModule } from './storage/storage.module.js';
 import { UserModule } from './users/user.module.js';
 
 @Module({
@@ -25,6 +26,7 @@ import { UserModule } from './users/user.module.js';
     GroupModule,
     SpaceModule,
     ModelConfigModule,
+    StorageModule,
     HealthModule,
     AdminHealthModule,
   ],
