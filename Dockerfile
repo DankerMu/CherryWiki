@@ -35,7 +35,7 @@ RUN pnpm build
 
 # ---- Deploy: create self-contained bundles per app ----
 FROM build AS deploy
-RUN pnpm deploy --legacy --filter=@cherrygraph/api --prod /deploy/api
+RUN pnpm deploy --legacy --filter=@cherrygraph/api /deploy/api
 RUN pnpm deploy --legacy --filter=@cherrygraph/ingestion-worker --prod /deploy/ingestion-worker
 RUN pnpm deploy --legacy --filter=@cherrygraph/url-fetcher-worker --prod /deploy/url-fetcher-worker
 RUN pnpm deploy --legacy --filter=@cherrygraph/indexer-worker --prod /deploy/indexer-worker
@@ -43,12 +43,8 @@ RUN pnpm deploy --legacy --filter=@cherrygraph/indexer-worker --prod /deploy/ind
 RUN cp -r /app/schemas /deploy/api/schemas && \
     cp /app/drizzle.config.ts /deploy/api/ && \
     cp /app/tsconfig.base.json /deploy/api/ && \
-    cp /app/packages/shared/src/schema -r /deploy/api/packages/shared/src/schema 2>/dev/null; \
-    true
-# Copy devDependencies needed for migration (drizzle-kit, tsx)
-RUN cp -r /app/node_modules/.pnpm/drizzle-kit*/node_modules/drizzle-kit /deploy/api/node_modules/ 2>/dev/null; \
-    cp -r /app/node_modules/.pnpm/tsx*/node_modules/tsx /deploy/api/node_modules/ 2>/dev/null; \
-    true
+    mkdir -p /deploy/api/packages/shared/src && \
+    cp -r /app/packages/shared/src/schema /deploy/api/packages/shared/src/schema
 
 # ============================================================
 # Target: api
@@ -57,7 +53,7 @@ FROM base AS api
 COPY --from=deploy /deploy/api /app
 ENV PATH="/app/node_modules/.bin:$PATH"
 EXPOSE 8080
-CMD ["sh", "-c", "drizzle-kit migrate 2>/dev/null; node --import tsx schemas/seed.ts 2>/dev/null; node dist/main.js"]
+CMD ["sh", "-c", "drizzle-kit migrate && node --import tsx schemas/seed.ts && exec node dist/main.js"]
 
 # ============================================================
 # Target: web (nginx serving static build)

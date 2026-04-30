@@ -89,6 +89,7 @@ services:
         condition: service_healthy
 
   cherry-web:
+    image: cherrywiki/web:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -102,6 +103,7 @@ services:
       start_period: 10s
 
   ingestion-worker:
+    image: cherrywiki/ingestion-worker:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -136,6 +138,7 @@ services:
         condition: service_healthy
 
   url-fetcher-worker:
+    image: cherrywiki/url-fetcher-worker:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -169,6 +172,7 @@ services:
         condition: service_healthy
 
   indexer-worker:
+    image: cherrywiki/indexer-worker:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -203,6 +207,7 @@ services:
         condition: service_healthy
 
   graphify-worker:
+    image: cherrywiki/graphify-worker:latest
     build:
       context: ./apps/graphify-worker
       dockerfile: Dockerfile
@@ -247,7 +252,7 @@ services:
     ports:
       - "${LISTEN_PORT:-80}:80"
     volumes:
-      - ./ops/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ops/nginx/nginx-prod.conf:/etc/nginx/nginx.conf:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:80/ >/dev/null"]
       interval: 30s

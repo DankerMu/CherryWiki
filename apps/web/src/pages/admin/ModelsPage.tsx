@@ -136,6 +136,7 @@ export default function ModelsPage() {
   }
 
   function openEditForm(model: AdminModel): void {
+    setFormError(null);
     setForm({
       id: model.id,
       provider: model.provider,
@@ -158,7 +159,7 @@ export default function ModelsPage() {
         title="Models"
         description="Manage model providers, visibility, limits, and connectivity."
         actions={
-          <button className="button button-primary" type="button" onClick={() => setForm({ ...EMPTY_MODEL_FORM })}>
+          <button className="button button-primary" type="button" onClick={() => { setFormError(null); setForm({ ...EMPTY_MODEL_FORM }); }}>
             Add Model
           </button>
         }
