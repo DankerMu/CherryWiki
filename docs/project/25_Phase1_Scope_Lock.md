@@ -23,6 +23,7 @@
 | Admin Console | 用户/Group/Space/模型/任务/审计 |
 | Docker Compose 部署 | 一键启动 Phase 1 全部服务 |
 | 健康检查 | 所有服务 healthcheck |
+| UI 视觉规范合规 | 所有前端页面遵循 `docs/design/12_UI设计规范_CherryStudio风格对齐.md`，使用 CSS token 体系，支持暗色模式 |
 
 ## 3. Phase 1 不做什么
 
