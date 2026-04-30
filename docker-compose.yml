@@ -56,8 +56,7 @@ services:
     image: node:20-slim
     restart: unless-stopped
     working_dir: /app
-    command: >-
-      sh -c "corepack enable && CI=1 pnpm install --frozen-lockfile && pnpm build && node apps/api/dist/main.js"
+    command: ["sh", "/app/ops/entrypoint-api.sh"]
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       HOST: 0.0.0.0
@@ -85,6 +84,8 @@ services:
       - "127.0.0.1:8081:8080"
     volumes:
       - .:/app
+      - api_node_modules:/app/node_modules
+      - api_pnpm_store:/app/.pnpm-store
     healthcheck:
       test:
         [
@@ -94,7 +95,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 15s
+      start_period: 120s
     depends_on:
       postgres:
         condition: service_healthy
@@ -108,7 +109,7 @@ services:
     restart: unless-stopped
     working_dir: /app
     command: >-
-      sh -c "corepack enable && CI=1 pnpm install --frozen-lockfile && pnpm --filter @cherrygraph/web dev --host 0.0.0.0"
+      sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm --filter @cherrygraph/web dev --host 0.0.0.0"
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       API_BASE_URL: http://cherry-api:8080
@@ -116,6 +117,8 @@ services:
       - "127.0.0.1:5174:5173"
     volumes:
       - .:/app
+      - web_node_modules:/app/node_modules
+      - web_pnpm_store:/app/.pnpm-store
     healthcheck:
       test:
         [
@@ -124,8 +127,8 @@ services:
         ]
       interval: 30s
       timeout: 5s
-      retries: 3
-      start_period: 10s
+      retries: 5
+      start_period: 180s
     depends_on:
       cherry-api:
         condition: service_healthy
@@ -135,7 +138,7 @@ services:
     restart: unless-stopped
     working_dir: /app
     command: >-
-      sh -c "corepack enable && CI=1 pnpm install --frozen-lockfile && pnpm build && node apps/ingestion-worker/dist/main.js"
+      sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm build && node apps/ingestion-worker/dist/main.js"
     mem_limit: 2g
     cpus: 1.0
     environment:
@@ -148,6 +151,8 @@ services:
       WORKER_HEALTH_PORT: 9091
     volumes:
       - .:/app
+      - ingestion_node_modules:/app/node_modules
+      - ingestion_pnpm_store:/app/.pnpm-store
     expose:
       - "9091"
     healthcheck:
@@ -158,8 +163,8 @@ services:
         ]
       interval: 30s
       timeout: 5s
-      retries: 3
-      start_period: 20s
+      retries: 5
+      start_period: 180s
     depends_on:
       redis:
         condition: service_healthy
@@ -169,7 +174,7 @@ services:
     restart: unless-stopped
     working_dir: /app
     command: >-
-      sh -c "corepack enable && CI=1 pnpm install --frozen-lockfile && pnpm build && node apps/url-fetcher-worker/dist/main.js"
+      sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm build && node apps/url-fetcher-worker/dist/main.js"
     mem_limit: 1g
     cpus: 0.5
     environment:
@@ -184,6 +189,8 @@ services:
       WORKER_HEALTH_PORT: 9092
     volumes:
       - .:/app
+      - fetcher_node_modules:/app/node_modules
+      - fetcher_pnpm_store:/app/.pnpm-store
     expose:
       - "9092"
     healthcheck:
@@ -194,8 +201,8 @@ services:
         ]
       interval: 30s
       timeout: 5s
-      retries: 3
-      start_period: 10s
+      retries: 5
+      start_period: 180s
     depends_on:
       redis:
         condition: service_healthy
@@ -205,7 +212,7 @@ services:
     restart: unless-stopped
     working_dir: /app
     command: >-
-      sh -c "corepack enable && CI=1 pnpm install --frozen-lockfile && pnpm build && node apps/indexer-worker/dist/main.js"
+      sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm build && node apps/indexer-worker/dist/main.js"
     mem_limit: 2g
     cpus: 1.0
     environment:
@@ -218,6 +225,8 @@ services:
       WORKER_HEALTH_PORT: 9093
     volumes:
       - .:/app
+      - indexer_node_modules:/app/node_modules
+      - indexer_pnpm_store:/app/.pnpm-store
     expose:
       - "9093"
     healthcheck:
@@ -228,8 +237,8 @@ services:
         ]
       interval: 30s
       timeout: 5s
-      retries: 3
-      start_period: 20s
+      retries: 5
+      start_period: 180s
     depends_on:
       redis:
         condition: service_healthy
@@ -395,6 +404,16 @@ volumes:
   redis_data:
   minio_data:
   graphify_work:
+  api_node_modules:
+  api_pnpm_store:
+  web_node_modules:
+  web_pnpm_store:
+  ingestion_node_modules:
+  ingestion_pnpm_store:
+  fetcher_node_modules:
+  fetcher_pnpm_store:
+  indexer_node_modules:
+  indexer_pnpm_store:
   docmost_storage:
   docmost_db_data:
   docmost_redis_data:
