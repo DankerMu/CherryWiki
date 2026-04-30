@@ -11,12 +11,21 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { InternalJobsService } from '../internal-jobs.service.js';
 
 describe('InternalJobsService', () => {
+  const originalDefaultTenantId = process.env.DEFAULT_TENANT_ID;
+
   afterEach(() => {
+    if (originalDefaultTenantId === undefined) {
+      delete process.env.DEFAULT_TENANT_ID;
+    } else {
+      process.env.DEFAULT_TENANT_ID = originalDefaultTenantId;
+    }
+
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
   it('polls pending jobs by type and returns an empty array when none exist', async () => {
+    delete process.env.DEFAULT_TENANT_ID;
     const service = createService();
     const findPendingByTypeSpy = vi.spyOn(JobRepository, 'findPendingByType').mockResolvedValueOnce([createJobRow()]);
 
@@ -27,7 +36,7 @@ describe('InternalJobsService', () => {
         status: JobStatus.PENDING,
       }),
     ]);
-    expect(findPendingByTypeSpy).toHaveBeenCalledWith(expect.anything(), '', 'graphify', 2);
+    expect(findPendingByTypeSpy).toHaveBeenCalledWith(expect.anything(), 'default', 'graphify', 2);
 
     findPendingByTypeSpy.mockResolvedValueOnce([]);
     await expect(service.pollPendingJobs('graphify', 1)).resolves.toEqual([]);
@@ -265,7 +274,7 @@ describe('InternalJobsService', () => {
   });
 
   it('returns cancel_requested jobs on heartbeat', async () => {
-    const db = new SelectableDb([{ job_id: 'job-1' }, { job_id: 'job-2' }]);
+    const db = createDb([{ job_id: 'job-1' }, { job_id: 'job-2' }]);
     const redis = createRedisMock();
     const service = new InternalJobsService(db.asDb() as never, redis.asClient() as never);
     const renewSpy = vi.spyOn(RedisJobLock, 'renew').mockResolvedValue(true);
@@ -286,7 +295,7 @@ describe('InternalJobsService', () => {
   });
 
   it('returns lost_locks when heartbeat renewals fail', async () => {
-    const db = new SelectableDb([{ job_id: 'job-1' }, { job_id: 'job-2' }]);
+    const db = createDb([{ job_id: 'job-1' }, { job_id: 'job-2' }]);
     const service = new InternalJobsService(db.asDb() as never, createRedisMock().asClient() as never);
     const renewSpy = vi.spyOn(RedisJobLock, 'renew').mockResolvedValueOnce(true).mockResolvedValueOnce(false);
 
@@ -302,22 +311,188 @@ describe('InternalJobsService', () => {
     });
     expect(renewSpy).toHaveBeenCalledTimes(2);
   });
+
+  it('scanDeadWorkers finds stale workers and fails their jobs in a transaction', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-30T12:00:00.000Z'));
+
+    const db = createDb([
+      createJobRow({
+        status: JobStatus.RUNNING,
+        locked_by: 'worker-1',
+        locked_at: new Date('2026-04-30T11:55:00.000Z'),
+        started_at: new Date('2026-04-30T11:55:00.000Z'),
+        max_attempts: 1,
+      }),
+    ]);
+    const transactionSpy = vi.spyOn(db, 'transaction');
+    const redis = createRedisMock();
+    redis.values.set('worker:heartbeat:worker-1', JSON.stringify({ seen_at: '2026-04-30T11:58:00.000Z' }));
+    const service = new InternalJobsService(db.asDb() as never, redis.asClient() as never);
+    const transitionSpy = vi
+      .spyOn(JobStateMachine, 'transition')
+      .mockResolvedValue(createJobRow({ status: JobStatus.FAILED, attempt_count: 1 }));
+    const eventSpy = vi
+      .spyOn(JobEventRepository, 'create')
+      .mockResolvedValue({} as Awaited<ReturnType<typeof JobEventRepository.create>>);
+    const releaseSpy = vi.spyOn(RedisJobLock, 'release').mockResolvedValue(true);
+
+    await expect(service.scanDeadWorkers()).resolves.toBe(1);
+
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+    expect(transitionSpy).toHaveBeenCalledTimes(1);
+    expect(transitionSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      'job-1',
+      JobStatus.RUNNING,
+      JobStatus.FAILED,
+      expect.objectContaining({
+        attempt_count: 1,
+        locked_by: null,
+        locked_at: null,
+      }),
+    );
+    expect(eventSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        job_id: 'job-1',
+        event_type: 'timeout_detected',
+        detail_json: {
+          worker_id: 'worker-1',
+          locked_at: '2026-04-30T11:55:00.000Z',
+          last_heartbeat_at: '2026-04-30T11:58:00.000Z',
+          reason: 'worker_missed_heartbeat',
+        },
+      }),
+    );
+    expect(releaseSpy).toHaveBeenCalledWith(expect.anything(), 'job-1', 'worker-1');
+  });
+
+  it('scanDeadWorkers skips workers with recent heartbeats', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-30T12:00:00.000Z'));
+
+    const db = createDb([
+      createJobRow({
+        status: JobStatus.RUNNING,
+        locked_by: 'worker-1',
+        locked_at: new Date('2026-04-30T11:50:00.000Z'),
+        started_at: new Date('2026-04-30T11:50:00.000Z'),
+      }),
+    ]);
+    const transactionSpy = vi.spyOn(db, 'transaction');
+    const redis = createRedisMock();
+    redis.values.set('worker:heartbeat:worker-1', JSON.stringify({ seen_at: '2026-04-30T11:59:30.000Z' }));
+    const service = new InternalJobsService(db.asDb() as never, redis.asClient() as never);
+    const transitionSpy = vi.spyOn(JobStateMachine, 'transition').mockResolvedValue(createJobRow());
+
+    await expect(service.scanDeadWorkers()).resolves.toBe(0);
+
+    expect(transactionSpy).not.toHaveBeenCalled();
+    expect(transitionSpy).not.toHaveBeenCalled();
+  });
+
+  it('scanDeadWorkers retries eligible jobs for dead workers', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-30T12:00:00.000Z'));
+
+    const db = createDb([
+      createJobRow({
+        status: JobStatus.RUNNING,
+        locked_by: 'worker-1',
+        locked_at: new Date('2026-04-30T11:55:00.000Z'),
+        started_at: new Date('2026-04-30T11:55:00.000Z'),
+        attempt_count: 0,
+        max_attempts: 3,
+      }),
+    ]);
+    const transactionSpy = vi.spyOn(db, 'transaction');
+    const redis = createRedisMock();
+    redis.values.set('worker:heartbeat:worker-1', JSON.stringify({ seen_at: '2026-04-30T11:58:00.000Z' }));
+    const service = new InternalJobsService(db.asDb() as never, redis.asClient() as never);
+    const failedJob = createJobRow({
+      status: JobStatus.FAILED,
+      attempt_count: 1,
+      locked_by: null,
+      locked_at: null,
+      error_json: { code: 'WORKER_TIMEOUT', message: 'Worker heartbeat timed out' },
+      completed_at: new Date('2026-04-30T12:00:00.000Z'),
+      started_at: new Date('2026-04-30T11:55:00.000Z'),
+    });
+    const retriedJob = createJobRow({
+      status: JobStatus.PENDING,
+      attempt_count: 1,
+      locked_by: null,
+      locked_at: null,
+      next_run_at: new Date('2026-04-30T12:01:00.000Z'),
+      error_json: { code: 'WORKER_TIMEOUT', message: 'Worker heartbeat timed out' },
+      completed_at: null,
+      started_at: null,
+    });
+    const transitionSpy = vi
+      .spyOn(JobStateMachine, 'transition')
+      .mockResolvedValueOnce(failedJob)
+      .mockResolvedValueOnce(retriedJob);
+    const eventSpy = vi
+      .spyOn(JobEventRepository, 'create')
+      .mockResolvedValue({} as Awaited<ReturnType<typeof JobEventRepository.create>>);
+    vi.spyOn(RedisJobLock, 'release').mockResolvedValue(true);
+
+    await expect(service.scanDeadWorkers()).resolves.toBe(1);
+
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+    expect(transitionSpy).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      'job-1',
+      JobStatus.RUNNING,
+      JobStatus.FAILED,
+      expect.objectContaining({
+        attempt_count: 1,
+      }),
+    );
+    expect(transitionSpy).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      'job-1',
+      JobStatus.FAILED,
+      JobStatus.PENDING,
+      expect.objectContaining({
+        next_run_at: new Date('2026-04-30T12:01:00.000Z'),
+      }),
+    );
+    expect(eventSpy).toHaveBeenCalledTimes(3);
+    expect(eventSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        job_id: 'job-1',
+        event_type: 'status_changed',
+        detail_json: {
+          from: JobStatus.FAILED,
+          to: JobStatus.PENDING,
+          worker_id: 'worker-1',
+          reason: 'worker_timeout_retry',
+          next_run_at: '2026-04-30T12:01:00.000Z',
+        },
+      }),
+    );
+  });
 });
 
 function createService(): InternalJobsService {
-  return new InternalJobsService(createTransactionalDb() as never, createRedisMock().asClient() as never);
+  return new InternalJobsService(createDb().asDb() as never, createRedisMock().asClient() as never);
 }
 
-function createTransactionalDb(): {
-  transaction: <T>(callback: (tx: unknown) => Promise<T>) => Promise<T>;
-} {
-  return {
-    transaction: async <T>(callback: (tx: unknown) => Promise<T>): Promise<T> => callback({}),
-  };
+function createDb<Row = unknown>(rows: Row[] = []): TestDb<Row> {
+  return new TestDb(rows);
 }
 
-class SelectableDb {
-  constructor(private readonly rows: Array<{ job_id: string }>) {}
+class TestDb<Row = unknown> {
+  constructor(private readonly rows: Row[]) {}
+
+  async transaction<T>(callback: (tx: unknown) => Promise<T>): Promise<T> {
+    return callback(this);
+  }
 
   select(): this {
     return this;
@@ -327,7 +502,7 @@ class SelectableDb {
     return this;
   }
 
-  where(): Promise<Array<{ job_id: string }>> {
+  where(): Promise<Row[]> {
     return Promise.resolve(this.rows);
   }
 

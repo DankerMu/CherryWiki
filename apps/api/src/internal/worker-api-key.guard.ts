@@ -3,6 +3,8 @@ import { ErrorCode } from '@cherrygraph/shared';
 import * as crypto from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
 
+import { getApiLogger } from '../common/logger/logger.module.js';
+
 type RequestLike = {
   headers?: IncomingHttpHeaders | Record<string, string | string[] | undefined>;
   raw?: {
@@ -12,6 +14,15 @@ type RequestLike = {
 
 @Injectable()
 export class WorkerApiKeyGuard implements CanActivate {
+  constructor() {
+    if (typeof process.env.WORKER_API_KEY !== 'string' || process.env.WORKER_API_KEY.length === 0) {
+      getApiLogger().warn(
+        { worker_api_key_present: false },
+        'WORKER_API_KEY is not configured; internal worker endpoints will reject all requests',
+      );
+    }
+  }
+
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<RequestLike>();
     const expectedKey = process.env.WORKER_API_KEY;

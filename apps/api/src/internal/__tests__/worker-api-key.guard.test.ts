@@ -2,6 +2,7 @@ import { HttpException } from '@nestjs/common';
 import type { ExecutionContext } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { getApiLogger } from '../../common/logger/logger.module.js';
 import { WorkerApiKeyGuard } from '../worker-api-key.guard.js';
 
 describe('WorkerApiKeyGuard', () => {
@@ -36,6 +37,18 @@ describe('WorkerApiKeyGuard', () => {
       expect(error).toBeInstanceOf(HttpException);
       expect((error as HttpException).getStatus()).toBe(401);
     }
+  });
+
+  it('warns when WORKER_API_KEY is not configured', () => {
+    delete process.env.WORKER_API_KEY;
+    const warnSpy = vi.spyOn(getApiLogger(), 'warn').mockImplementation(() => undefined);
+
+    new WorkerApiKeyGuard();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      { worker_api_key_present: false },
+      'WORKER_API_KEY is not configured; internal worker endpoints will reject all requests',
+    );
   });
 });
 

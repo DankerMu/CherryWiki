@@ -52,7 +52,12 @@ export class InternalJobsService {
   ) {}
 
   async pollPendingJobs(type: string, limit: number): Promise<JobDto[]> {
-    const pendingJobs = await JobRepository.findPendingByType(this.db, '', type, limit);
+    const pendingJobs = await JobRepository.findPendingByType(
+      this.db,
+      process.env.DEFAULT_TENANT_ID ?? 'default',
+      type,
+      limit,
+    );
     return pendingJobs.map((job) => toJobDto(job));
   }
 
@@ -371,61 +376,64 @@ export class InternalJobsService {
     const willRetry = nextAttemptCount < job.max_attempts;
 
     try {
-      const failedAt = new Date();
-      await JobStateMachine.transition(this.db, job.id, JobStatus.RUNNING, JobStatus.FAILED, {
-        attempt_count: nextAttemptCount,
-        error_json: {
-          code: 'WORKER_TIMEOUT',
-          message: 'Worker heartbeat timed out',
-        },
-        locked_by: null,
-        locked_at: null,
-        completed_at: failedAt,
-      });
-
-      await JobEventRepository.create(this.db, {
-        job_id: job.id,
-        event_type: 'status_changed',
-        detail_json: {
-          from: JobStatus.RUNNING,
-          to: JobStatus.FAILED,
-          worker_id: workerId,
-          retryable: willRetry,
-          reason: 'worker_timeout',
-        },
-      });
-
-      if (willRetry) {
-        const nextRunAt = new Date(Date.now() + getRetryDelaySeconds(nextAttemptCount) * 1_000);
-
-        await JobStateMachine.transition(this.db, job.id, JobStatus.FAILED, JobStatus.PENDING, {
-          next_run_at: nextRunAt,
-          started_at: null,
-          completed_at: null,
+      await this.db.transaction(async (tx) => {
+        const txDb = tx as JobsDatabase;
+        const failedAt = new Date();
+        await JobStateMachine.transition(txDb, job.id, JobStatus.RUNNING, JobStatus.FAILED, {
+          attempt_count: nextAttemptCount,
+          error_json: {
+            code: 'WORKER_TIMEOUT',
+            message: 'Worker heartbeat timed out',
+          },
+          locked_by: null,
+          locked_at: null,
+          completed_at: failedAt,
         });
 
-        await JobEventRepository.create(this.db, {
+        await JobEventRepository.create(txDb, {
           job_id: job.id,
           event_type: 'status_changed',
           detail_json: {
-            from: JobStatus.FAILED,
-            to: JobStatus.PENDING,
+            from: JobStatus.RUNNING,
+            to: JobStatus.FAILED,
             worker_id: workerId,
-            reason: 'worker_timeout_retry',
-            next_run_at: nextRunAt.toISOString(),
+            retryable: willRetry,
+            reason: 'worker_timeout',
           },
         });
-      }
 
-      await JobEventRepository.create(this.db, {
-        job_id: job.id,
-        event_type: 'timeout_detected',
-        detail_json: {
-          worker_id: workerId,
-          locked_at: job.locked_at?.toISOString() ?? null,
-          last_heartbeat_at: lastHeartbeatAt?.toISOString() ?? null,
-          reason: 'worker_missed_heartbeat',
-        },
+        if (willRetry) {
+          const nextRunAt = new Date(failedAt.getTime() + getRetryDelaySeconds(nextAttemptCount) * 1_000);
+
+          await JobStateMachine.transition(txDb, job.id, JobStatus.FAILED, JobStatus.PENDING, {
+            next_run_at: nextRunAt,
+            started_at: null,
+            completed_at: null,
+          });
+
+          await JobEventRepository.create(txDb, {
+            job_id: job.id,
+            event_type: 'status_changed',
+            detail_json: {
+              from: JobStatus.FAILED,
+              to: JobStatus.PENDING,
+              worker_id: workerId,
+              reason: 'worker_timeout_retry',
+              next_run_at: nextRunAt.toISOString(),
+            },
+          });
+        }
+
+        await JobEventRepository.create(txDb, {
+          job_id: job.id,
+          event_type: 'timeout_detected',
+          detail_json: {
+            worker_id: workerId,
+            locked_at: job.locked_at?.toISOString() ?? null,
+            last_heartbeat_at: lastHeartbeatAt?.toISOString() ?? null,
+            reason: 'worker_missed_heartbeat',
+          },
+        });
       });
 
       await this.releaseJobLock(job.id, workerId);
