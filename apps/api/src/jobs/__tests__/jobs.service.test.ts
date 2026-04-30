@@ -11,7 +11,7 @@ import {
   getRejectedHttpException,
   requireRecord,
 } from '../../users/__tests__/user-group-service-test-utils.js';
-import { AdminJobListQueryDto } from '../jobs.dto.js';
+import { AdminJobListQueryDto, JobEventsQueryDto } from '../jobs.dto.js';
 import { JobsService, type JobContext } from '../jobs.service.js';
 
 describe('JobsService', () => {
@@ -85,6 +85,37 @@ describe('JobsService', () => {
     ]);
   });
 
+  it('auditor with admin:audit_view can access job detail and events', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createJobRow({ created_by: 'creator-2' })]);
+    db.queueSelect([]);
+    db.queueSelect([createJobRow({ created_by: 'creator-2' })]);
+    db.queueSelect([
+      createJobEventRow({
+        id: 'event-1',
+        event_type: 'status_changed',
+        detail_json: { from: 'pending', to: 'running' },
+      }),
+    ]);
+
+    const context = createAuditContext();
+    const job = await service.getJob('job-1', context);
+    const events = await service.getJobEvents('job-1', context);
+
+    expect(job).toMatchObject({
+      job_id: 'job-1',
+      created_by: 'creator-2',
+      status: JobStatus.PENDING,
+    });
+    expect(events).toEqual([
+      {
+        event: 'status_changed',
+        timestamp: new Date('2026-04-10T00:00:00.000Z'),
+        detail: { from: 'pending', to: 'running' },
+      },
+    ]);
+  });
+
   it('cancels a pending job immediately', async () => {
     const { service, db } = createServiceContext();
     db.queueSelect([createJobRow({ status: JobStatus.PENDING })]);
@@ -142,6 +173,56 @@ describe('JobsService', () => {
     });
   });
 
+  it('cancel retries when job transitions pending->running during cancel attempt', async () => {
+    const { service, db } = createServiceContext();
+    const cancelRequestedAt = new Date('2026-04-10T03:00:00.000Z');
+    db.queueSelect([createJobRow({ status: JobStatus.PENDING })]);
+    db.queueUpdate([]);
+    db.queueSelect([
+      createJobRow({
+        status: JobStatus.RUNNING,
+        started_at: new Date('2026-04-10T02:00:00.000Z'),
+      }),
+    ]);
+    db.queueSelect([
+      createJobRow({
+        status: JobStatus.RUNNING,
+        started_at: new Date('2026-04-10T02:00:00.000Z'),
+      }),
+    ]);
+    db.queueSelect([
+      createJobRow({
+        status: JobStatus.RUNNING,
+        started_at: new Date('2026-04-10T02:00:00.000Z'),
+      }),
+    ]);
+    db.queueUpdate([
+      createJobRow({
+        status: JobStatus.RUNNING,
+        cancel_requested_at: cancelRequestedAt,
+        started_at: new Date('2026-04-10T02:00:00.000Z'),
+      }),
+    ]);
+
+    const result = await service.cancelJob('job-1', createCreatorContext());
+
+    expect(result).toEqual({
+      job_id: 'job-1',
+      status: JobStatus.RUNNING,
+      cancel_requested_at: cancelRequestedAt,
+    });
+    expect(db.updates).toHaveLength(2);
+    expect(requireRecord(db.updates[0]?.value)).toMatchObject({
+      status: JobStatus.CANCELLED,
+    });
+    expect(requireRecord(db.updates[1]?.value).cancel_requested_at).toBeInstanceOf(Date);
+    expect(db.inserts).toHaveLength(1);
+    expect(requireRecord(db.inserts[0]?.value)).toMatchObject({
+      job_id: 'job-1',
+      event_type: 'cancel_requested',
+    });
+  });
+
   it('returns current state when cancelling an already cancelled job', async () => {
     const { service, db } = createServiceContext();
     const completedAt = new Date('2026-04-10T04:00:00.000Z');
@@ -172,6 +253,21 @@ describe('JobsService', () => {
       expect(getHttpExceptionCode(err)).toBe(ErrorCode.CONFLICT);
     },
   );
+
+  it('applies pagination when fetching job events', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createJobRow()]);
+    db.queueSelect([createJobEventRow()]);
+
+    const query = Object.assign(new JobEventsQueryDto(), {
+      limit: 25,
+      offset: 10,
+    });
+    await service.getJobEvents('job-1', createCreatorContext(), query);
+
+    expect(db.limitCalls).toContain(25);
+    expect(db.offsetCalls).toEqual([10]);
+  });
 
   it('lists admin jobs with filters and pagination', async () => {
     const { service, db } = createServiceContext();
@@ -265,6 +361,17 @@ function createAdminContext(overrides: Partial<JobContext> = {}): JobContext {
     actorUserId: 'admin-1',
     userId: 'admin-1',
     actorRole: 'admin',
+    ...overrides,
+  };
+}
+
+function createAuditContext(overrides: Partial<JobContext> = {}): JobContext {
+  return {
+    tenantId: TEST_TENANT_ID,
+    actorUserId: 'auditor-1',
+    userId: 'auditor-1',
+    actorRole: 'auditor',
+    actorPermissions: ['admin:audit_view'],
     ...overrides,
   };
 }

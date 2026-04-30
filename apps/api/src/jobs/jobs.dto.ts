@@ -1,5 +1,6 @@
+import { Type } from 'class-transformer';
 import { JobStatus } from '@cherrygraph/job-core';
-import { IsEnum, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsEnum, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 import { PaginationQueryDto } from '../common/dto/pagination.dto.js';
 
@@ -21,6 +22,21 @@ export class AdminJobListQueryDto extends PaginationQueryDto {
   @IsString()
   @MaxLength(200)
   space_id?: string;
+}
+
+export class JobEventsQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(500)
+  limit = 100;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset = 0;
 }
 
 export class JobProgressDto {

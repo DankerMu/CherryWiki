@@ -7,11 +7,15 @@ import {
   type CancelJobResponseDto,
   type JobDto,
   type JobEventDto,
+  JobEventsQueryDto,
 } from './jobs.dto.js';
-import { JobsService } from './jobs.service.js';
+import { JobsService, type JobContext } from './jobs.service.js';
 
 type RequestWithAuth = {
-  user?: AuthenticatedRequestUser;
+  user?: AuthenticatedRequestUser & {
+    permissions?: string[];
+  };
+  permissions?: string[];
 };
 
 @Controller('jobs')
@@ -21,26 +25,17 @@ export class JobsController {
   @Get(':job_id')
   async getJob(@Param('job_id') jobId: string, @Req() request: RequestWithAuth): Promise<JobDto> {
     const user = getAuthenticatedUser(request);
-    return this.jobsService.getJob(jobId, {
-      tenantId: user.tenant_id,
-      actorUserId: user.sub,
-      actorRole: user.role,
-      userId: user.sub,
-    });
+    return this.jobsService.getJob(jobId, buildJobContext(request, user));
   }
 
   @Get(':job_id/events')
   async getJobEvents(
     @Param('job_id') jobId: string,
+    @Query() query: JobEventsQueryDto,
     @Req() request: RequestWithAuth,
   ): Promise<JobEventDto[]> {
     const user = getAuthenticatedUser(request);
-    return this.jobsService.getJobEvents(jobId, {
-      tenantId: user.tenant_id,
-      actorUserId: user.sub,
-      actorRole: user.role,
-      userId: user.sub,
-    });
+    return this.jobsService.getJobEvents(jobId, buildJobContext(request, user), query);
   }
 
   @HttpCode(HttpStatus.OK)
@@ -50,12 +45,7 @@ export class JobsController {
     @Req() request: RequestWithAuth,
   ): Promise<CancelJobResponseDto> {
     const user = getAuthenticatedUser(request);
-    return this.jobsService.cancelJob(jobId, {
-      tenantId: user.tenant_id,
-      actorUserId: user.sub,
-      actorRole: user.role,
-      userId: user.sub,
-    });
+    return this.jobsService.cancelJob(jobId, buildJobContext(request, user));
   }
 }
 
@@ -91,4 +81,19 @@ function getAuthenticatedUser(request: RequestWithAuth): AuthenticatedRequestUse
   }
 
   return request.user;
+}
+
+function buildJobContext(
+  request: RequestWithAuth,
+  user: AuthenticatedRequestUser & { permissions?: string[] },
+): JobContext {
+  const actorPermissions = request.permissions ?? user.permissions;
+
+  return {
+    tenantId: user.tenant_id,
+    actorUserId: user.sub,
+    actorRole: user.role,
+    userId: user.sub,
+    ...(actorPermissions !== undefined ? { actorPermissions } : {}),
+  };
 }

@@ -10,9 +10,10 @@ import {
   type JobEventRow,
   type JobRow,
 } from '@cherrygraph/job-core';
-import { ROLES, normalizeRole } from '@cherrygraph/auth-core';
+import { ROLE_PERMISSIONS, ROLES, normalizeRole } from '@cherrygraph/auth-core';
 import { ErrorCode, group_members, space_permissions } from '@cherrygraph/shared';
 import {
+  asc,
   and,
   desc,
   eq,
@@ -34,6 +35,7 @@ import {
   type CancelJobResponseDto,
   type JobDto,
   type JobEventDto,
+  JobEventsQueryDto,
   type JobProgressDto,
 } from './jobs.dto.js';
 
@@ -48,6 +50,7 @@ type ParsedJobSort = {
 export type JobContext = {
   tenantId?: string;
   actorUserId?: string;
+  actorPermissions?: string[];
   actorRole?: string;
   userId?: string;
 };
@@ -56,6 +59,8 @@ type JobAccessMode = 'view' | 'cancel';
 
 const VIEW_SATISFYING_PERMISSIONS = ['space:view', 'space:edit', 'space:admin'] as const;
 const CANCEL_SATISFYING_PERMISSIONS = ['space:admin'] as const;
+const AUDIT_VIEW_PERMISSION = 'admin:audit_view';
+const MAX_CANCELLATION_RETRIES = 3;
 const PROGRESS_UPDATED_EVENT_TYPE = 'progress_updated';
 const JOB_SORT_FIELD_SET = new Set<string>(JOB_SORT_FIELDS);
 const JOB_STATUS_SET = new Set<string>(Object.values(JobStatus));
@@ -71,14 +76,32 @@ export class JobsService {
     return toJobDto(job, progressByJobId.get(job.id) ?? null);
   }
 
-  async getJobEvents(jobId: string, context: JobContext = {}): Promise<JobEventDto[]> {
+  async getJobEvents(
+    jobId: string,
+    context: JobContext = {},
+    query: JobEventsQueryDto = new JobEventsQueryDto(),
+  ): Promise<JobEventDto[]> {
     const job = await this.getAccessibleJob(jobId, context, 'view');
-    const events = await JobEventRepository.queryByJobId(this.db, job.id);
+    const events = await this.db
+      .select()
+      .from(job_events)
+      .where(eq(job_events.job_id, job.id))
+      .orderBy(asc(job_events.created_at))
+      .limit(query.limit)
+      .offset(query.offset);
 
     return events.map(toJobEventDto);
   }
 
   async cancelJob(jobId: string, context: JobContext = {}): Promise<CancelJobResponseDto> {
+    return this.cancelJobInternal(jobId, context, 0);
+  }
+
+  private async cancelJobInternal(
+    jobId: string,
+    context: JobContext,
+    retryCount: number,
+  ): Promise<CancelJobResponseDto> {
     const actorUserId = resolveContextUserId(context);
     const job = await this.getAccessibleJob(jobId, context, 'cancel');
     const jobStatus = normalizeJobStatus(job.status);
@@ -159,7 +182,7 @@ export class JobsService {
       });
     } catch (err) {
       if (err instanceof JobConflictError) {
-        return this.resolveCancellationConflict(jobId, context);
+        return this.resolveCancellationConflict(jobId, context, retryCount);
       }
 
       throw err;
@@ -204,6 +227,10 @@ export class JobsService {
     }
 
     if (job.created_by === userId || hasImplicitSpaceAccess(context.actorRole)) {
+      return job;
+    }
+
+    if (mode === 'view' && hasAuditViewAccess(context.actorRole, context.actorPermissions)) {
       return job;
     }
 
@@ -285,6 +312,7 @@ export class JobsService {
   private async resolveCancellationConflict(
     jobId: string,
     context: JobContext,
+    retryCount: number,
   ): Promise<CancelJobResponseDto> {
     const current = await this.getAccessibleJob(jobId, context, 'cancel');
     const currentStatus = normalizeJobStatus(current.status);
@@ -299,6 +327,13 @@ export class JobsService {
 
     if (currentStatus === JobStatus.SUCCEEDED || currentStatus === JobStatus.FAILED) {
       throwJobConflict('Job is already in a terminal state');
+    }
+
+    if (
+      (currentStatus === JobStatus.PENDING || currentStatus === JobStatus.RUNNING) &&
+      retryCount < MAX_CANCELLATION_RETRIES
+    ) {
+      return this.cancelJobInternal(jobId, context, retryCount + 1);
     }
 
     throwJobConflict('Job state changed while cancellation was requested');
@@ -346,6 +381,20 @@ function resolveContextUserId(context: JobContext): string {
 function hasImplicitSpaceAccess(role: string | undefined): boolean {
   const normalizedRole = role === undefined ? undefined : normalizeRole(role);
   return normalizedRole === ROLES.OWNER || normalizedRole === ROLES.ADMIN;
+}
+
+function hasAuditViewAccess(role: string | undefined, permissions: string[] | undefined): boolean {
+  if (permissions?.includes(AUDIT_VIEW_PERMISSION) === true) {
+    return true;
+  }
+
+  const normalizedRole = role === undefined ? undefined : normalizeRole(role);
+  if (normalizedRole === undefined) {
+    return false;
+  }
+
+  const rolePermissions = ROLE_PERMISSIONS[normalizedRole] as readonly string[];
+  return rolePermissions.includes(AUDIT_VIEW_PERMISSION);
 }
 
 function normalizeFilterValue(value: string | undefined): string | undefined {
