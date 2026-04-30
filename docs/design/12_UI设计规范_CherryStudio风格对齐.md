@@ -133,18 +133,23 @@
 | 组件类型 | 状态 / 变体 | Token 使用规范 |
 |---|---|---|
 | 按钮 | Primary | 背景使用 `--color-primary`，hover 使用 `--color-primary-hover`，active 使用 `--color-primary-active`，文字使用 `--color-background`，focus ring 使用 `--color-primary-focus-ring`，圆角使用 `--radius-sm`，动效使用 `--transition-fast`。 |
-| 按钮 | Secondary | 背景使用 `--color-surface` 或透明，文字使用 `--color-text-1`，边框使用 `--color-border`，hover 背景使用 `--color-background-hover`，圆角使用 `--radius-sm`。 |
+| 按钮 | Secondary | 边框使用 `--color-border-strong`，背景使用 `--color-surface`，文字使用 `--color-text-1`；hover 时边框切换为 `--color-text-4`，背景切换为 `--color-background-soft`，圆角使用 `--radius-sm`。 |
 | 按钮 | Danger | 背景使用 `--color-error`，hover 使用 `--color-error-hover`，弱危险按钮使用 `--color-error-soft` 背景与 `--color-error` 文本，边框使用 `--color-error-border`。 |
-| 输入框 | Default | 背景使用 `--color-surface`，文字使用 `--color-text-1`，placeholder 使用 `--color-text-3`，边框使用 `--color-border`，圆角使用 `--radius-sm`。 |
+| 输入框 | Default | 背景使用 `--color-surface`，文字使用 `--color-text-1`，placeholder 使用 `--color-text-3`，边框使用 `--color-border-strong`，圆角使用 `--radius-sm`。 |
 | 输入框 | Focus | 边框使用 `--color-primary` 或 `--color-border-strong`，外层阴影使用 `0 0 0 3px var(--color-primary-focus-ring)`，禁止写死 focus 色值。 |
-| 卡片/面板 | Default | 背景使用 `--color-surface`，边框使用 `--color-border`，圆角使用 `--radius-md`，普通抬升使用 `--shadow-sm`，标题使用 `--color-text-1`，说明使用 `--color-text-2`。 |
+| 卡片/面板 | Default | 背景使用 `--color-surface`，边框使用 `--color-border`，圆角使用 `--radius-md`，标题使用 `--color-text-1`，说明使用 `--color-text-2`。 |
+| 空状态 | Default | 边框使用 `--color-border-strong` 虚线，背景使用 `--color-surface`，文字使用 `--color-text-3`，圆角使用 `--radius-md`。 |
+| 图标按钮 | Default | 尺寸固定 `32px × 32px`，边框使用 `--color-border-strong`，背景使用 `--color-surface`，文字默认使用 `--color-text-2`；hover 时边框切换为 `--color-text-4`，背景切换为 `--color-background-soft`，圆角使用 `--radius-sm`。 |
+| 复选框行 | Default | 文字使用 `--color-text-2`，内容间距 `8px`，复选框 input 尺寸固定 `16px × 16px`。 |
+| 设置网格 | Default | `settings-grid` 容器仅负责布局；网格子项使用 `--color-border` 边框、`--color-background-soft` 背景与 `--radius-md` 圆角。 |
+| 健康卡片 | Default | 边框使用 `--color-border`，背景使用 `--color-surface`，圆角使用 `--radius-md`；左侧状态条固定为 `5px solid`，健康/降级/异常/未配置分别使用 `--color-success`、`--color-warning`、`--color-error`、`--color-text-4`。 |
 | 状态徽章 | Healthy | 背景使用 `--color-status-healthy-bg`，文字使用 `--color-status-healthy-text`，圆角使用 `--radius-full`。 |
 | 状态徽章 | Degraded | 背景使用 `--color-status-degraded-bg`，文字使用 `--color-status-degraded-text`，用于降级、部分可用、需注意状态。 |
 | 状态徽章 | Unhealthy | 背景使用 `--color-status-unhealthy-bg`，文字使用 `--color-status-unhealthy-text`，用于异常、失败、不可用状态。 |
 | 状态徽章 | Neutral | 背景使用 `--color-status-neutral-bg`，文字使用 `--color-status-neutral-text`，用于未知、未启用、普通状态。 |
-| 模态框 | Default | 遮罩使用 `--color-backdrop`，弹窗背景使用 `--color-surface-raised`，边框使用 `--color-border`，阴影使用 `--shadow-modal`，圆角使用 `--radius-lg`。 |
-| 表格 | Default | 表头背景使用 `--color-background-soft`，单元格文字使用 `--color-text-1` / `--color-text-2` 层级，分隔线使用 `--color-border`，行 hover 使用 `--color-background-hover`。 |
-| 侧边栏 | Default | 背景使用 `--color-surface` 或 `--color-background`，分隔线使用 `--color-border`，导航项 hover 使用 `--color-background-hover`，选中项使用 `--color-primary-mute` 背景与 `--color-primary` 文本或图标。 |
+| 模态框 | Default | 遮罩使用 `--color-backdrop`，弹窗面板背景使用 `--color-surface`，阴影使用 `--shadow-modal`，圆角使用 `--radius-md`。 |
+| 表格 | Default | 表头背景使用 `--color-background-soft`，单元格文字使用 `--color-text-1` / `--color-text-2` 层级，分隔线使用 `--color-border`，行 hover 使用 `--color-background-soft`。 |
+| 侧边栏 | Default | 背景使用 `--color-surface`，分隔线使用 `--color-border`，导航项 hover 使用 `--color-background-hover` 与 `--color-text-1`，选中项使用 `--color-primary-mute` 背景与 `--color-primary-hover` 文本。 |
 | 警告/提示 | Error | 背景使用 `--color-error-soft`，边框使用 `--color-error-border`，标题或图标使用 `--color-error`，正文使用 `--color-text-1`。 |
 | 警告/提示 | Warning | 背景使用 `--color-warning-soft`，强调色使用 `--color-warning`，正文使用 `--color-text-1`，辅助说明使用 `--color-text-2`。 |
 | 警告/提示 | Info | 背景使用 `--color-background-soft` 或信息组件已有浅背景，强调色使用 `--color-info`，链接使用 `--color-link`。 |
@@ -157,72 +162,85 @@
 4. 阴影必须使用 `--shadow-*` token，不允许在组件内自定义独立阴影体系。
 5. 文本必须遵循 `--color-text-1` / `--color-text-2` / `--color-text-3` / `--color-text-4` 层级，不能用透明黑白直接模拟文本层级。
 6. 页面与容器背景必须使用 `--color-background` 或 `--color-surface` 系列 token，根据层级选择 `--color-background-soft`、`--color-background-mute`、`--color-surface-raised`。
-7. 主题切换只能通过 `data-theme` 属性实现，持久化键名固定为 `localStorage` 的 `cherry-theme`；不得绕过该机制直接使用 `@media (prefers-color-scheme)` 编写第二套样式。
+7. 推荐按以下层级选择暗色模式下的背景面，避免页面内不同容器层级混用：
+
+| 层级 | 用途 | Token |
+|------|------|-------|
+| 页面底色 | body 背景 | `--color-background` |
+| 分组/区域 | 表头、工具栏底色 | `--color-background-soft` |
+| 卡片/面板 | 侧边栏、表格容器、表单 | `--color-surface` |
+| 抬升浮层 | 模态框、下拉菜单 | `--color-surface-raised` |
+| 半透明顶栏 | 固定导航、毛玻璃 | `--color-surface-overlay` |
+| 交互 hover | 菜单项、表格行 | `--color-background-hover` |
+
+8. 主题切换只能通过 `data-theme` 属性实现，持久化键名固定为 `localStorage` 的 `cherry-theme`；不得绕过该机制直接使用 `@media (prefers-color-scheme)` 编写第二套样式。
 
 ## 5. CherryStudio Token 映射表
 
-| CherryWiki Token | CherryStudio Token | 对齐状态 |
-|---|---|---|
-| `--color-primary` | `--color-primary` | 完全一致 |
-| `--color-primary-hover` | `--color-primary` 派生 hover 值 | Web 适配 |
-| `--color-primary-active` | `--color-primary` 派生 active 值 | Web 适配 |
-| `--color-primary-soft` | `--color-primary-soft` | 完全一致 |
-| `--color-primary-mute` | `--color-primary-mute` | 完全一致 |
-| `--color-primary-focus-ring` | `--color-primary` 透明度派生值 | Web 适配 |
-| `--color-text-1` | `--color-text-1` | Web 适配 |
-| `--color-text-2` | `--color-text-2` | 完全一致 |
-| `--color-text-3` | `--color-text-3` | 完全一致 |
-| `--color-text-4` | `--color-text-3` 更弱层级派生 | CherryWiki 独有 |
-| `--color-background` | `--color-background` | 完全一致 |
-| `--color-background-soft` | `--color-background-soft` | 完全一致 |
-| `--color-background-mute` | `--color-background-mute` | Web 适配 |
-| `--color-background-hover` | `--color-hover` | Web 适配 |
-| `--color-surface` | `--color-background-soft` / `--color-white` | Web 适配 |
-| `--color-surface-raised` | `--modal-background` / `--color-background-soft` | Web 适配 |
-| `--color-surface-overlay` | `--color-background-opacity` | Web 适配 |
-| `--color-backdrop` | `--modal-background` 场景遮罩派生 | CherryWiki 独有 |
-| `--color-login-gradient-1` | `--color-primary` 透明度派生值 | CherryWiki 独有 |
-| `--color-login-gradient-2` | `--color-primary` 透明度派生值 | CherryWiki 独有 |
-| `--color-border` | `--color-border` | Web 适配 |
-| `--color-border-strong` | `--color-border-soft` / `--color-frame-border` 派生 | Web 适配 |
-| `--color-error` | `--color-error` | Web 适配 |
-| `--color-error-hover` | `--color-error` 派生 hover 值 | CherryWiki 独有 |
-| `--color-error-soft` | `--color-error` 透明度派生值 | Web 适配 |
-| `--color-error-border` | `--color-error` 透明度派生值 | Web 适配 |
-| `--color-success` | `--color-status-success` / `--color-primary` | Web 适配 |
-| `--color-success-soft` | `--color-primary` 透明度派生值 | CherryWiki 独有 |
-| `--color-warning` | `--color-status-warning` | 完全一致 |
-| `--color-warning-soft` | `--color-status-warning` 透明度派生值 | CherryWiki 独有 |
-| `--color-info` | `--color-link` | Web 适配 |
-| `--color-link` | `--color-link` | 完全一致 |
-| `--color-status-healthy-bg` | `--color-status-success` 语义派生 | CherryWiki 独有 |
-| `--color-status-healthy-text` | `--color-status-success` 语义派生 | CherryWiki 独有 |
-| `--color-status-degraded-bg` | `--color-status-warning` 语义派生 | CherryWiki 独有 |
-| `--color-status-degraded-text` | `--color-status-warning` 语义派生 | CherryWiki 独有 |
-| `--color-status-unhealthy-bg` | `--color-status-error` 语义派生 | CherryWiki 独有 |
-| `--color-status-unhealthy-text` | `--color-status-error` 语义派生 | CherryWiki 独有 |
-| `--color-status-neutral-bg` | `--color-background-mute` / `--color-list-item` | Web 适配 |
-| `--color-status-neutral-text` | `--color-text-2` | Web 适配 |
-| `--color-scrollbar-thumb` | `--color-scrollbar-thumb` | 完全一致 |
-| `--color-scrollbar-thumb-hover` | `--color-scrollbar-thumb-hover` | Web 适配 |
-| `--scrollbar-width` | `--scrollbar-width` | 完全一致 |
-| `--scrollbar-height` | `--scrollbar-height` | 完全一致 |
-| `--scrollbar-thumb-radius` | `--scrollbar-thumb-radius` | 完全一致 |
-| `--shadow-xs` | 无直接 token | CherryWiki 独有 |
-| `--shadow-sm` | 无直接 token | CherryWiki 独有 |
-| `--shadow-md` | 无直接 token | CherryWiki 独有 |
-| `--shadow-lg` | 无直接 token | CherryWiki 独有 |
-| `--shadow-modal` | 无直接 token | CherryWiki 独有 |
-| `--radius-xs` | `--list-item-border-radius` 派生 | CherryWiki 独有 |
-| `--radius-sm` | `--list-item-border-radius` 派生 | CherryWiki 独有 |
-| `--radius-md` | `--list-item-border-radius` 派生 | Web 适配 |
-| `--radius-lg` | `--list-item-border-radius` | Web 适配 |
-| `--radius-xl` | `--list-item-border-radius` 派生 | CherryWiki 独有 |
-| `--radius-full` | 无直接 token | CherryWiki 独有 |
-| `--font-family` | `--font-family` | Web 适配 |
-| `--font-family-mono` | `--code-font-family` | Web 适配 |
-| `--transition-fast` | 无直接 token | CherryWiki 独有 |
-| `--transition-normal` | 无直接 token | CherryWiki 独有 |
+下表中的“CherryStudio 源文件”均指 `external/cherry-studio/src/renderer/src/assets/styles/` 目录下的对应文件；无直接 token 的项标记为 CherryWiki 本地扩展。
+
+| CherryWiki Token | CherryStudio Token | 对齐状态 | CherryStudio 源文件 |
+|---|---|---|---|
+| `--color-primary` | `--color-primary` | 完全一致 | `color.css` 直接定义。 |
+| `--color-primary-hover` | `--color-primary` 派生 hover 值 | Web 适配 | `color.css` 主色二次派生。 |
+| `--color-primary-active` | `--color-primary` 派生 active 值 | Web 适配 | `color.css` 主色二次派生。 |
+| `--color-primary-soft` | `--color-primary-soft` | 完全一致 | `color.css` 直接定义。 |
+| `--color-primary-mute` | `--color-primary-mute` | 完全一致 | `color.css` 直接定义。 |
+| `--color-primary-focus-ring` | `--color-primary` 透明度派生值 | Web 适配 | `color.css` 主色透明度派生。 |
+| `--color-text-1` | `--color-text-1` | Web 适配 | `color.css` 直接定义。 |
+| `--color-text-2` | `--color-text-2` | 完全一致 | `color.css` 直接定义。 |
+| `--color-text-3` | `--color-text-3` | 完全一致 | `color.css` 直接定义。 |
+| `--color-text-4` | `--color-text-3` 更弱层级派生 | CherryWiki 独有 | `color.css` 文本层级基础上继续细分。 |
+| `--color-background` | `--color-background` | 完全一致 | `color.css` 直接定义。 |
+| `--color-background-soft` | `--color-background-soft` | 完全一致 | `color.css` 直接定义。 |
+| `--color-background-mute` | `--color-background-mute` | Web 适配 | `color.css` 直接定义。 |
+| `--color-background-hover` | `--color-hover` | Web 适配 | `color.css` hover 语义映射。 |
+| `--color-surface` | `--color-background-soft` / `--color-white` | Web 适配 | `color.css` 容器背景语义重组。 |
+| `--color-surface-raised` | `--modal-background` / `--color-background-soft` | Web 适配 | `color.css` 弹层背景语义映射。 |
+| `--color-surface-overlay` | `--color-background-opacity` | Web 适配 | `color.css` 半透明背景映射。 |
+| `--color-backdrop` | `--modal-background` 场景遮罩派生 | CherryWiki 独有 | `color.css` 模态背景语义基础上本地扩展。 |
+| `--color-login-gradient-1` | `--color-primary` 透明度派生值 | CherryWiki 独有 | `color.css` 主色透明度派生。 |
+| `--color-login-gradient-2` | `--color-primary` 透明度派生值 | CherryWiki 独有 | `color.css` 主色透明度派生。 |
+| `--color-border` | `--color-border` | Web 适配 | `color.css` 直接定义。 |
+| `--color-border-strong` | `--color-border-soft` / `--color-frame-border` 派生 | Web 适配 | `color.css` 边框层级重组。 |
+| `--color-error` | `--color-error` | Web 适配 | `color.css` 直接定义。 |
+| `--color-error-hover` | `--color-error` 派生 hover 值 | CherryWiki 独有 | `color.css` 错误色基础上本地扩展。 |
+| `--color-error-soft` | `--color-error` 透明度派生值 | Web 适配 | `color.css` 错误色透明度派生。 |
+| `--color-error-border` | `--color-error` 透明度派生值 | Web 适配 | `color.css` 错误色透明度派生。 |
+| `--color-success` | `--color-status-success` / `--color-primary` | Web 适配 | `color.css` 成功语义与主色语义映射。 |
+| `--color-success-soft` | `--color-primary` 透明度派生值 | CherryWiki 独有 | `color.css` 主色透明度派生。 |
+| `--color-warning` | `--color-status-warning` | 完全一致 | `color.css` 直接定义。 |
+| `--color-warning-soft` | `--color-status-warning` 透明度派生值 | CherryWiki 独有 | `color.css` 警告色基础上本地扩展。 |
+| `--color-info` | `--color-link` | Web 适配 | `color.css` 信息色映射到链接语义。 |
+| `--color-link` | `--color-link` | 完全一致 | `color.css` 直接定义。 |
+| `--color-status-healthy-bg` | `--color-status-success` 语义派生 | CherryWiki 独有 | `color.css` 成功语义基础上本地扩展。 |
+| `--color-status-healthy-text` | `--color-status-success` 语义派生 | CherryWiki 独有 | `color.css` 成功语义基础上本地扩展。 |
+| `--color-status-degraded-bg` | `--color-status-warning` 语义派生 | CherryWiki 独有 | `color.css` 警告语义基础上本地扩展。 |
+| `--color-status-degraded-text` | `--color-status-warning` 语义派生 | CherryWiki 独有 | `color.css` 警告语义基础上本地扩展。 |
+| `--color-status-unhealthy-bg` | `--color-status-error` 语义派生 | CherryWiki 独有 | `color.css` 错误语义基础上本地扩展。 |
+| `--color-status-unhealthy-text` | `--color-status-error` 语义派生 | CherryWiki 独有 | `color.css` 错误语义基础上本地扩展。 |
+| `--color-status-neutral-bg` | `--color-background-mute` / `--color-list-item` | Web 适配 | `color.css` 中性色背景语义重组。 |
+| `--color-status-neutral-text` | `--color-text-2` | Web 适配 | `color.css` 文本层级映射。 |
+| `--color-scrollbar-thumb` | `--color-scrollbar-thumb` | 完全一致 | `scrollbar.css` 直接定义。 |
+| `--color-scrollbar-thumb-hover` | `--color-scrollbar-thumb-hover` | Web 适配 | `scrollbar.css` hover 变量直接对应。 |
+| `--scrollbar-width` | `--scrollbar-width` | 完全一致 | `scrollbar.css` 直接定义。 |
+| `--scrollbar-height` | `--scrollbar-height` | 完全一致 | `scrollbar.css` 直接定义。 |
+| `--scrollbar-thumb-radius` | `--scrollbar-thumb-radius` | 完全一致 | `scrollbar.css` 直接定义。 |
+| `--shadow-xs` | 无直接 token | CherryWiki 独有 | 无直接源文件，CherryWiki 本地扩展。 |
+| `--shadow-sm` | 无直接 token | CherryWiki 独有 | 无直接源文件，CherryWiki 本地扩展。 |
+| `--shadow-md` | 无直接 token | CherryWiki 独有 | 无直接源文件，CherryWiki 本地扩展。 |
+| `--shadow-lg` | 无直接 token | CherryWiki 独有 | 无直接源文件，CherryWiki 本地扩展。 |
+| `--shadow-modal` | 无直接 token | CherryWiki 独有 | 无直接源文件，CherryWiki 本地扩展。 |
+| `--radius-xs` | `--list-item-border-radius` 派生 | CherryWiki 独有 | `color.css` 中圆角变量基础上继续细分。 |
+| `--radius-sm` | `--list-item-border-radius` 派生 | CherryWiki 独有 | `color.css` 中圆角变量基础上继续细分。 |
+| `--radius-md` | `--list-item-border-radius` 派生 | Web 适配 | `color.css` 中圆角变量语义映射。 |
+| `--radius-lg` | `--list-item-border-radius` | Web 适配 | `color.css` 中圆角变量直接映射。 |
+| `--radius-xl` | `--list-item-border-radius` 派生 | CherryWiki 独有 | `color.css` 中圆角变量基础上继续细分。 |
+| `--radius-full` | 无直接 token | CherryWiki 独有 | 无直接源文件，CherryWiki 本地扩展。 |
+| `--font-family` | `--font-family` | Web 适配 | `font.css` 直接定义。 |
+| `--font-family-mono` | `--code-font-family` | Web 适配 | `font.css` 等宽字体变量映射。 |
+| `--transition-fast` | 无直接 token | CherryWiki 独有 | 无直接源文件，CherryWiki 本地扩展。 |
+| `--transition-normal` | 无直接 token | CherryWiki 独有 | 无直接源文件，CherryWiki 本地扩展。 |
 
 ## 6. 禁止模式清单
 
@@ -242,8 +260,11 @@
 - [ ] 所有颜色均通过 `var(--color-*)`、`var(--shadow-*)`、`var(--radius-*)`、`var(--transition-*)` 等 token 引用。
 - [ ] 新增页面和组件已检查亮色模式显示效果。
 - [ ] 新增页面和组件已检查暗色模式显示效果。
+- [ ] hover/focus-visible 状态在暗色模式下对比度足够。
 - [ ] 文本颜色符合 `--color-text-1/2/3/4` 层级，未用透明黑白绕过文本 token。
 - [ ] 背景层级符合 `--color-background`、`--color-surface`、`--color-surface-raised` 的使用边界。
 - [ ] 边框、圆角、阴影、动效分别使用 `--color-border*`、`--radius-*`、`--shadow-*`、`--transition-*` token。
+- [ ] disabled 状态视觉明确（降低对比度，cursor: not-allowed）。
 - [ ] 状态徽章、错误、警告、成功、信息提示使用语义 token，未复用不匹配的品牌色。
+- [ ] 空状态和加载状态使用正确 token（`--color-text-3` 文字、`--color-border-strong` dashed 边框）。
 - [ ] 未新增 TailwindCSS、Ant Design、styled-components 等 CSS 或 UI 依赖；确需新增时已有单独架构评审记录。
