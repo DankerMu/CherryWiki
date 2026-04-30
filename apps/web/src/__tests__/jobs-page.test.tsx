@@ -48,8 +48,8 @@ describe('JobDetailPage', () => {
     renderJobsRoute('/admin/jobs/job-1');
 
     expect(await screen.findByRole('heading', { name: 'Job Detail' })).toBeInTheDocument();
+    expect(await screen.findByText('space-main')).toBeInTheDocument();
     expect(screen.getAllByText('Graphify').length).toBeGreaterThan(0);
-    expect(screen.getByText('space-main')).toBeInTheDocument();
     expect(screen.getByText('Progress Updated')).toBeInTheDocument();
     expect(screen.getByRole('progressbar', { name: 'chunking progress' })).toHaveAttribute('aria-valuenow', '65');
   });
@@ -59,6 +59,7 @@ describe('JobDetailPage', () => {
 
     renderJobsRoute('/admin/jobs/job-1');
 
+    await screen.findByText('space-main');
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel Job' }));
 
     await waitFor(() =>
