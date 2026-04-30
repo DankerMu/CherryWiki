@@ -94,6 +94,41 @@ describe('InternalJobsService', () => {
     ).rejects.toMatchObject({ status: 409 });
   });
 
+  it('rolls back pending job activation when the worker loses the Redis lock before commit', async () => {
+    const service = createService();
+    const runningJob = createJobRow({
+      status: JobStatus.RUNNING,
+      locked_by: 'worker-1',
+      locked_at: new Date('2026-04-30T11:55:00.000Z'),
+      started_at: new Date('2026-04-30T11:55:00.000Z'),
+    });
+
+    vi.spyOn(JobRepository, 'findById').mockResolvedValue(createJobRow());
+    const transitionSpy = vi.spyOn(JobStateMachine, 'transition').mockResolvedValue(runningJob);
+    const eventSpy = vi
+      .spyOn(JobEventRepository, 'create')
+      .mockResolvedValue({} as Awaited<ReturnType<typeof JobEventRepository.create>>);
+    vi.spyOn(RedisJobLock, 'renew').mockResolvedValue(false);
+
+    await expect(
+      service.reportProgress('job-1', {
+        worker_id: 'worker-1',
+        percent: 10,
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+
+    expect(transitionSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      'job-1',
+      JobStatus.PENDING,
+      JobStatus.RUNNING,
+      expect.objectContaining({
+        locked_by: 'worker-1',
+      }),
+    );
+    expect(eventSpy).not.toHaveBeenCalled();
+  });
+
   it('transitions a running job to succeeded, releases the lock, and writes an event', async () => {
     const service = createService();
     const runningJob = createJobRow({
@@ -244,8 +279,27 @@ describe('InternalJobsService', () => {
     expect(result).toEqual({
       ack: true,
       cancel_requested: ['job-1', 'job-2'],
+      lost_locks: [],
     });
     expect(redis.values.get('worker:heartbeat:worker-1')).toContain('"seen_at"');
+    expect(renewSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns lost_locks when heartbeat renewals fail', async () => {
+    const db = new SelectableDb([{ job_id: 'job-1' }, { job_id: 'job-2' }]);
+    const service = new InternalJobsService(db.asDb() as never, createRedisMock().asClient() as never);
+    const renewSpy = vi.spyOn(RedisJobLock, 'renew').mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+
+    const result = await service.recordHeartbeat({
+      worker_id: 'worker-1',
+      active_jobs: ['job-1', 'job-2', 'job-2'],
+    });
+
+    expect(result).toEqual({
+      ack: true,
+      cancel_requested: ['job-1', 'job-2'],
+      lost_locks: ['job-2'],
+    });
     expect(renewSpy).toHaveBeenCalledTimes(2);
   });
 });

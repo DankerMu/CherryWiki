@@ -1,5 +1,6 @@
 import { CanActivate, ExecutionContext, HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { ErrorCode } from '@cherrygraph/shared';
+import * as crypto from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
 
 type RequestLike = {
@@ -16,7 +17,7 @@ export class WorkerApiKeyGuard implements CanActivate {
     const expectedKey = process.env.WORKER_API_KEY;
     const providedKey = getHeaderValue(request, 'x-worker-key');
 
-    if (typeof expectedKey !== 'string' || expectedKey.length === 0 || providedKey !== expectedKey) {
+    if (typeof expectedKey !== 'string' || expectedKey.length === 0 || !hasMatchingWorkerApiKey(expectedKey, providedKey)) {
       throw new HttpException(
         {
           code: ErrorCode.UNAUTHENTICATED,
@@ -51,4 +52,14 @@ function normalizeHeaderValue(value: string | string[] | undefined): string | un
   }
 
   return undefined;
+}
+
+function hasMatchingWorkerApiKey(expectedKey: string, providedKey: string | undefined): boolean {
+  const expectedBuffer = Buffer.from(expectedKey);
+  const providedBuffer = Buffer.from(providedKey ?? '');
+  const normalizedProvidedBuffer =
+    providedBuffer.length === expectedBuffer.length ? providedBuffer : Buffer.alloc(expectedBuffer.length);
+  const keysMatch = crypto.timingSafeEqual(expectedBuffer, normalizedProvidedBuffer);
+
+  return providedBuffer.length === expectedBuffer.length && keysMatch;
 }

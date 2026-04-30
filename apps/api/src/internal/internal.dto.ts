@@ -1,8 +1,30 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsIn, IsInt, IsNotEmpty, IsObject, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsNotEmpty,
+  IsObject,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  type ValidationOptions,
+  ValidateBy,
+} from 'class-validator';
 
 import { type JobDto } from '../jobs/jobs.dto.js';
 import { JOB_TYPES, type JobType } from '../jobs/jobs.dto.js';
+
+const MAX_HEARTBEAT_ACTIVE_JOBS = 50;
+const MAX_SYSTEM_INFO_DEPTH = 3;
+const MAX_SYSTEM_INFO_JSON_LENGTH = 4_096;
+const MAX_SYSTEM_INFO_KEYS_PER_LEVEL = 25;
+const MAX_SYSTEM_INFO_KEY_LENGTH = 100;
+const MAX_SYSTEM_INFO_STRING_LENGTH = 500;
 
 export class PendingJobsQueryDto {
   @IsIn(JOB_TYPES)
@@ -68,11 +90,14 @@ export class WorkerHeartbeatDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(MAX_HEARTBEAT_ACTIVE_JOBS)
   @IsString({ each: true })
+  @MaxLength(200, { each: true })
   active_jobs?: string[];
 
   @IsOptional()
   @IsObject()
+  @IsBoundedSystemInfo()
   system_info?: Record<string, unknown>;
 }
 
@@ -84,4 +109,70 @@ export class JobFailureResponseDto {
 export class WorkerHeartbeatResponseDto {
   ack!: boolean;
   cancel_requested!: string[];
+  lost_locks!: string[];
+}
+
+function IsBoundedSystemInfo(validationOptions?: ValidationOptions): PropertyDecorator {
+  return ValidateBy(
+    {
+      name: 'isBoundedSystemInfo',
+      validator: {
+        validate: (value: unknown): boolean => isBoundedSystemInfo(value),
+        defaultMessage: (): string =>
+          `system_info must be JSON-serializable, at most ${MAX_SYSTEM_INFO_JSON_LENGTH} characters, and no deeper than ${MAX_SYSTEM_INFO_DEPTH} objects`,
+      },
+    },
+    validationOptions,
+  );
+}
+
+function isBoundedSystemInfo(value: unknown): boolean {
+  if (!isPlainRecord(value)) {
+    return false;
+  }
+
+  try {
+    if (JSON.stringify(value).length > MAX_SYSTEM_INFO_JSON_LENGTH) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+
+  return validateSystemInfoNode(value, 0);
+}
+
+function validateSystemInfoNode(value: unknown, depth: number): boolean {
+  if (value === null) {
+    return true;
+  }
+
+  if (typeof value === 'string') {
+    return value.length <= MAX_SYSTEM_INFO_STRING_LENGTH;
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value);
+  }
+
+  if (typeof value === 'boolean') {
+    return true;
+  }
+
+  if (!isPlainRecord(value) || depth > MAX_SYSTEM_INFO_DEPTH) {
+    return false;
+  }
+
+  const entries = Object.entries(value);
+  if (entries.length > MAX_SYSTEM_INFO_KEYS_PER_LEVEL) {
+    return false;
+  }
+
+  return entries.every(
+    ([key, nestedValue]) => key.length <= MAX_SYSTEM_INFO_KEY_LENGTH && validateSystemInfoNode(nestedValue, depth + 1),
+  );
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

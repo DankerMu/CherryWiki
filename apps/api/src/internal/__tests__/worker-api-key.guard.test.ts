@@ -1,6 +1,6 @@
 import { HttpException } from '@nestjs/common';
 import type { ExecutionContext } from '@nestjs/common';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { WorkerApiKeyGuard } from '../worker-api-key.guard.js';
 
@@ -13,6 +13,8 @@ describe('WorkerApiKeyGuard', () => {
     } else {
       process.env.WORKER_API_KEY = originalWorkerApiKey;
     }
+
+    vi.restoreAllMocks();
   });
 
   it('allows requests with the configured worker key', () => {

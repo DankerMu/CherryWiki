@@ -38,7 +38,7 @@ type StoredWorkerHeartbeat = {
   system_info?: Record<string, unknown>;
 };
 
-const DEAD_WORKER_SCAN_INTERVAL_MS = 60_000;
+const DEAD_WORKER_SCAN_INTERVAL_MS = 30_000;
 const DEAD_WORKER_THRESHOLD_MS = 90_000;
 const DEFAULT_LOCK_TTL_SECONDS = 600;
 const HEARTBEAT_TTL_SECONDS = 180;
@@ -61,7 +61,6 @@ export class InternalJobsService {
     const progress = toProgressDto(input.percent, input.stage);
 
     if (isJobStatus(job.status, JobStatus.PENDING)) {
-      await this.assertPendingJobOwner(job.id, input.worker_id);
       await this.touchWorkerHeartbeat(input.worker_id);
 
       try {
@@ -76,6 +75,8 @@ export class InternalJobsService {
             error_json: null,
             result_json: null,
           });
+
+          await this.renewOwnedJobLock(job.id, input.worker_id);
 
           await JobEventRepository.create(txDb, {
             job_id: job.id,
@@ -222,17 +223,12 @@ export class InternalJobsService {
 
   async recordHeartbeat(input: WorkerHeartbeatDto): Promise<WorkerHeartbeatResponseDto> {
     await this.touchWorkerHeartbeat(input.worker_id, input.system_info);
+    const lostLocks: string[] = [];
 
     if (input.active_jobs !== undefined && input.active_jobs.length > 0) {
       for (const jobId of new Set(input.active_jobs)) {
-        try {
-          await this.renewOwnedJobLock(jobId, input.worker_id);
-        } catch (error) {
-          if (isConflictHttpException(error)) {
-            continue;
-          }
-
-          throw error;
+        if (!(await this.tryRenewOwnedJobLock(jobId, input.worker_id))) {
+          lostLocks.push(jobId);
         }
       }
     }
@@ -240,6 +236,7 @@ export class InternalJobsService {
     return {
       ack: true,
       cancel_requested: await this.getCancelRequestedJobIds(input.worker_id, input.active_jobs),
+      lost_locks: lostLocks,
     };
   }
 
@@ -304,20 +301,13 @@ export class InternalJobsService {
     }
   }
 
-  private async assertPendingJobOwner(jobId: string, workerId: string): Promise<void> {
+  private async tryRenewOwnedJobLock(jobId: string, workerId: string): Promise<boolean> {
     const redis = this.getRequiredRedis();
-    const owner = await redis.get(RedisJobLock.key(jobId));
-
-    if (owner !== workerId) {
-      throwApiError(ErrorCode.CONFLICT, 'Job not owned by this worker', HttpStatus.CONFLICT);
-    }
+    return RedisJobLock.renew(redis, jobId, workerId, DEFAULT_LOCK_TTL_SECONDS);
   }
 
   private async renewOwnedJobLock(jobId: string, workerId: string): Promise<void> {
-    const redis = this.getRequiredRedis();
-    const renewed = await RedisJobLock.renew(redis, jobId, workerId, DEFAULT_LOCK_TTL_SECONDS);
-
-    if (!renewed) {
+    if (!(await this.tryRenewOwnedJobLock(jobId, workerId))) {
       throwApiError(ErrorCode.CONFLICT, 'Job not owned by this worker', HttpStatus.CONFLICT);
     }
   }
@@ -536,10 +526,6 @@ function isDeadWorker(jobsForWorker: JobRow[], lastHeartbeatAt: Date | null, now
   }, 0);
 
   return mostRecentActivityAt > 0 && now - mostRecentActivityAt > DEAD_WORKER_THRESHOLD_MS;
-}
-
-function isConflictHttpException(error: unknown): boolean {
-  return error instanceof HttpException && error.getStatus() === 409;
 }
 
 function isJobStatus(status: string, expected: JobStatus): boolean {
