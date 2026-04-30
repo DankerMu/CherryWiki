@@ -376,6 +376,15 @@ tbody tr:last-child td {
   border-bottom: 0;
 }
 
+.interactive-row {
+  cursor: pointer;
+}
+
+.interactive-row:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
 .row-actions {
   display: flex;
   flex-wrap: wrap;
@@ -401,6 +410,11 @@ tbody tr:last-child td {
 .status-degraded {
   background: var(--color-status-degraded-bg);
   color: var(--color-status-degraded-text);
+}
+
+.status-info {
+  background: var(--color-status-info-bg);
+  color: var(--color-status-info-text);
 }
 
 .status-neutral {
@@ -429,6 +443,179 @@ tbody tr:last-child td {
   color: var(--color-text-3);
   font-size: 0.8rem;
   line-height: 1.45;
+}
+
+.pagination-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pagination-summary {
+  color: var(--color-text-2);
+  font-size: 0.9rem;
+}
+
+.progress-cell {
+  min-width: 220px;
+}
+
+.progress-bar {
+  display: grid;
+  gap: 8px;
+}
+
+.progress-bar[data-size='sm'] {
+  gap: 6px;
+}
+
+.progress-bar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.84rem;
+}
+
+.progress-bar[data-size='sm'] .progress-bar-header {
+  font-size: 0.78rem;
+}
+
+.progress-bar-stage {
+  overflow: hidden;
+  color: var(--color-text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-bar-percent {
+  flex-shrink: 0;
+  color: var(--color-text-1);
+  font-weight: 800;
+}
+
+.progress-bar-track {
+  overflow: hidden;
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: var(--color-background-mute);
+}
+
+.progress-bar[data-size='sm'] .progress-bar-track {
+  height: 8px;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--color-primary), var(--color-info));
+  transition: width var(--transition-normal);
+}
+
+.job-meta-value {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--color-text-1);
+  font-weight: 700;
+}
+
+.job-json-disclosure {
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-background-soft);
+}
+
+.job-json-disclosure summary {
+  cursor: pointer;
+  padding: 14px 16px;
+  color: var(--color-text-1);
+  font-weight: 800;
+  list-style: none;
+}
+
+.job-json-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.job-json-disclosure[open] summary {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.job-json-disclosure pre,
+.timeline-event-detail {
+  margin: 0;
+  overflow-x: auto;
+  padding: 16px;
+  color: var(--color-text-1);
+  font-family: var(--font-family-mono);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.job-timeline {
+  display: grid;
+  gap: 14px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.job-timeline-item {
+  position: relative;
+  padding-left: 22px;
+}
+
+.job-timeline-item::before {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 8px;
+  bottom: -18px;
+  width: 2px;
+  background: var(--color-border);
+}
+
+.job-timeline-item:last-child::before {
+  bottom: 8px;
+}
+
+.job-timeline-marker {
+  position: absolute;
+  left: 0;
+  top: 6px;
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  box-shadow: 0 0 0 4px var(--color-primary-mute);
+}
+
+.job-timeline-card {
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-background-soft);
+}
+
+.job-timeline-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.job-timeline-header strong {
+  color: var(--color-text-1);
+}
+
+.job-timeline-header span {
+  color: var(--color-text-3);
+  font-size: 0.85rem;
+  text-align: right;
 }
 
 .modal-backdrop {
@@ -724,6 +911,10 @@ dd {
 
   .row-actions,
   .form-actions {
+    flex-direction: column;
+  }
+
+  .job-timeline-header {
     flex-direction: column;
   }
 

@@ -109,15 +109,19 @@ export function parseIdList(value: string): string[] {
 }
 
 function normalizeStatusClass(status: string): string {
-  if (status === 'healthy' || status === 'active' || status === 'enabled') {
+  if (status === 'healthy' || status === 'active' || status === 'enabled' || status === 'succeeded') {
     return 'healthy';
+  }
+
+  if (status === 'running') {
+    return 'info';
   }
 
   if (status === 'degraded') {
     return 'degraded';
   }
 
-  if (status === 'not_configured') {
+  if (status === 'not_configured' || status === 'pending' || status === 'cancelled') {
     return 'neutral';
   }
 

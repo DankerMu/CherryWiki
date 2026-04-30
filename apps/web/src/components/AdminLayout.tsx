@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { label: 'Spaces', to: '/admin/spaces' },
   { label: 'Models', to: '/admin/models' },
   { label: 'Audit Logs', to: '/admin/audit' },
+  { label: 'Task Center', to: '/admin/jobs' },
   { label: 'System Health', to: '/admin/health' },
 ];
 
