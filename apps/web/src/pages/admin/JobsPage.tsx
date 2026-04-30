@@ -16,6 +16,7 @@ import {
   ADMIN_JOB_STATUS_OPTIONS,
   ADMIN_JOB_TYPE_FILTER_OPTIONS,
   type AdminJob,
+  getDisplayStatus,
 } from '../../lib/adminTypes';
 
 const DEFAULT_PAGINATION: NonNullable<ApiMeta['pagination']> = {
@@ -237,7 +238,7 @@ export default function JobsPage() {
                       <span className="subtle-id">{job.job_id}</span>
                     </td>
                     <td>
-                      <StatusBadge status={job.status} />
+                      <StatusBadge status={getDisplayStatus(job)} />
                     </td>
                     <td>{job.space_id ?? 'Global'}</td>
                     <td className="progress-cell">{renderProgressCell(job)}</td>

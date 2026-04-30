@@ -115,7 +115,7 @@ export type SystemHealth = {
   uptime: number;
 };
 
-export const ADMIN_JOB_TYPE_FILTER_OPTIONS = ['ingestion', 'graphify', 'reindex', 'rebuild'] as const;
+export const ADMIN_JOB_TYPE_FILTER_OPTIONS = ['ingestion', 'graphify', 'reindex', 'rebuild', 'wiki_sync'] as const;
 
 export const ADMIN_JOB_STATUS_OPTIONS = ['pending', 'running', 'succeeded', 'failed', 'cancelled'] as const;
 
@@ -141,6 +141,13 @@ export type AdminJob = {
   started_at: string | null;
   completed_at: string | null;
 };
+
+export function getDisplayStatus(job: AdminJob): string {
+  if (job.status === 'running' && job.cancel_requested_at !== null) {
+    return 'cancelling';
+  }
+  return job.status;
+}
 
 export type JobEvent = {
   event: string;

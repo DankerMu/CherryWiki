@@ -12,7 +12,7 @@ import {
   getErrorMessage,
 } from '../../components/adminUi';
 import { api } from '../../lib/api';
-import { type AdminJob, type CancelJobResponse, type JobEvent } from '../../lib/adminTypes';
+import { type AdminJob, type CancelJobResponse, type JobEvent, getDisplayStatus } from '../../lib/adminTypes';
 
 const JOB_REFRESH_INTERVAL_MS = 5_000;
 
@@ -155,11 +155,11 @@ export default function JobDetailPage() {
                 <h2>{formatLabel(job.type)}</h2>
                 <p>{job.job_id}</p>
               </div>
-              <StatusBadge status={job.status} />
+              <StatusBadge status={getDisplayStatus(job)} />
             </div>
 
-            {job.status === 'running' ? (
-              <ProgressBar percent={job.progress?.percent ?? 0} stage={job.progress?.stage ?? 'Running'} size="md" />
+            {job.progress?.percent !== undefined ? (
+              <ProgressBar percent={job.progress.percent} stage={job.progress?.stage ?? (job.status === 'running' ? 'Running' : 'Complete')} size="md" />
             ) : null}
 
             <div className="settings-grid">
@@ -173,7 +173,7 @@ export default function JobDetailPage() {
               </div>
               <div>
                 <span className="eyebrow">Status</span>
-                <StatusBadge status={job.status} />
+                <StatusBadge status={getDisplayStatus(job)} />
               </div>
               <div>
                 <span className="eyebrow">Space</span>
