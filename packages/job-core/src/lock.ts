@@ -6,6 +6,8 @@ export interface RedisJobLockClient {
 
 const RELEASE_LOCK_SCRIPT =
   "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+const RENEW_LOCK_SCRIPT =
+  "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('set', KEYS[1], ARGV[1], 'EX', ARGV[2]) else return nil end";
 
 export class RedisJobLock {
   static acquire(
@@ -23,12 +25,8 @@ export class RedisJobLock {
     workerId: string,
     ttlSeconds = 600,
   ): Promise<boolean> {
-    const key = this.key(jobId);
-    if ((await redis.get(key)) !== workerId) {
-      return false;
-    }
-
-    return this.setIf(redis, jobId, workerId, ttlSeconds, 'XX');
+    const result = await redis.eval(RENEW_LOCK_SCRIPT, 1, this.key(jobId), workerId, ttlSeconds);
+    return result === 'OK';
   }
 
   static async release(redis: RedisJobLockClient, jobId: string, workerId: string): Promise<boolean> {

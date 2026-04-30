@@ -26,7 +26,7 @@ describe('RedisJobLock', () => {
     await expect(redis.get(RedisJobLock.key('job-1'))).resolves.toBe('worker-1');
   });
 
-  it('fails to renew a lock for a non-owner', async () => {
+  it('renew fails when lock was stolen by another worker', async () => {
     const redis = new RedisMock();
     redis.seed(RedisJobLock.key('job-1'), 'worker-2');
 

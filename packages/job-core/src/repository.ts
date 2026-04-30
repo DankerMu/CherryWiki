@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, sql, type SQL } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { randomUUID } from 'node:crypto';
 
@@ -120,7 +120,7 @@ export class JobRepository {
 
   static async findByFilter(db: JobDatabase, filter: JobFilter = {}): Promise<JobListResult> {
     const page = normalizePositiveInt(filter.page, 1);
-    const perPage = normalizePositiveInt(filter.perPage, 20);
+    const perPage = normalizePositiveInt(filter.perPage, 20, 100);
     const where = buildWhereClause(filter);
 
     const orderClauses = buildOrderClauses(filter.sort);
@@ -167,12 +167,19 @@ export class JobRepository {
     type: string,
     limit: number,
   ): Promise<JobRow[]> {
-    const normalizedLimit = Math.max(1, Math.trunc(limit));
+    const normalizedLimit = Math.min(10, Math.max(1, Math.trunc(limit)));
 
     return db
       .select()
       .from(jobs)
-      .where(and(eq(jobs.tenant_id, tenantId), eq(jobs.type, type), eq(jobs.status, JobStatus.PENDING)))
+      .where(
+        and(
+          eq(jobs.tenant_id, tenantId),
+          eq(jobs.type, type),
+          eq(jobs.status, JobStatus.PENDING),
+          sql`(${jobs.next_run_at} IS NULL OR ${jobs.next_run_at} <= now())`,
+        ),
+      )
       .orderBy(asc(jobs.priority), asc(jobs.created_at))
       .limit(normalizedLimit);
   }
@@ -242,12 +249,12 @@ function buildOrderClauses(sort?: JobFilter['sort']): SQL[] {
   return [dirFn(jobs.created_at), dirFn(jobs.id)];
 }
 
-function normalizePositiveInt(value: number | undefined, fallback: number): number {
+function normalizePositiveInt(value: number | undefined, fallback: number, max = Number.POSITIVE_INFINITY): number {
   if (value === undefined || !Number.isFinite(value) || value < 1) {
     return fallback;
   }
 
-  return Math.trunc(value);
+  return Math.min(Math.trunc(value), max);
 }
 
 function normalizeCount(value: unknown): number {

@@ -173,8 +173,8 @@ export class RedisMock implements RedisJobLockClient {
     return Promise.resolve('OK');
   }
 
-  eval(script: string, _numKeys: number, ...args: Array<string | number>): Promise<number> {
-    const [key, workerId] = args;
+  eval(script: string, _numKeys: number, ...args: Array<string | number>): Promise<number | string | null> {
+    const [key, workerId, ttlSeconds] = args;
     if (typeof key !== 'string' || typeof workerId !== 'string') {
       return Promise.reject(new Error('RedisMock eval requires string key and worker id'));
     }
@@ -189,6 +189,22 @@ export class RedisMock implements RedisJobLockClient {
       }
 
       return Promise.resolve(0);
+    }
+
+    if (
+      script ===
+      "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('set', KEYS[1], ARGV[1], 'EX', ARGV[2]) else return nil end"
+    ) {
+      if (typeof ttlSeconds !== 'number') {
+        return Promise.reject(new Error('RedisMock renew script requires numeric ttl'));
+      }
+
+      if (this.values.get(key) !== workerId) {
+        return Promise.resolve(null);
+      }
+
+      this.values.set(key, workerId);
+      return Promise.resolve('OK');
     }
 
     return Promise.reject(new Error(`Unsupported script: ${script}`));
@@ -244,4 +260,37 @@ export function createJobEventRow(overrides: Partial<JobEventRow> = {}): JobEven
 
 export function createReleaseSpy() {
   return vi.fn<(...args: unknown[]) => Promise<boolean>>(() => Promise.resolve(true));
+}
+
+export function renderSqlFragment(value: unknown, seen = new Set<unknown>()): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (value === null || value === undefined || typeof value !== 'object') {
+    return '';
+  }
+
+  if (seen.has(value)) {
+    return '';
+  }
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => renderSqlFragment(entry, seen)).join('');
+  }
+
+  if ('queryChunks' in value && Array.isArray(value.queryChunks)) {
+    return renderSqlFragment(value.queryChunks, seen);
+  }
+
+  if ('value' in value && Array.isArray(value.value)) {
+    return renderSqlFragment(value.value, seen);
+  }
+
+  if ('name' in value && typeof value.name === 'string') {
+    return value.name;
+  }
+
+  return '';
 }

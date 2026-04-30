@@ -8,6 +8,7 @@ import { JobConflictError, JobStateMachine } from './state-machine.js';
 import { JobStatus } from './status.js';
 
 export const DEFAULT_JOB_TIMEOUT_SECONDS = 1_800;
+const MAX_RETRY_DELAY_SECONDS = 1_800;
 
 export class TimeoutScanner {
   static async scan(db: JobDatabase, redis: RedisJobLockClient): Promise<number> {
@@ -48,6 +49,28 @@ export class TimeoutScanner {
           },
         });
 
+        const nextAttemptCount = job.attempt_count + 1;
+        if (nextAttemptCount < job.max_attempts) {
+          const nextRunAt = new Date(Date.now() + getRetryDelaySeconds(nextAttemptCount) * 1_000);
+
+          await JobStateMachine.transition(db, job.id, JobStatus.FAILED, JobStatus.PENDING, {
+            next_run_at: nextRunAt,
+            started_at: null,
+            completed_at: null,
+          });
+
+          await JobEventRepository.create(db, {
+            job_id: job.id,
+            event_type: 'status_changed',
+            detail_json: {
+              from: JobStatus.FAILED,
+              to: JobStatus.PENDING,
+              reason: 'timeout_retry',
+              next_run_at: nextRunAt.toISOString(),
+            },
+          });
+        }
+
         await JobEventRepository.create(db, {
           job_id: job.id,
           event_type: 'timeout_detected',
@@ -74,4 +97,8 @@ export class TimeoutScanner {
 
     return handled;
   }
+}
+
+function getRetryDelaySeconds(nextAttemptCount: number): number {
+  return Math.min(60 * 2 ** Math.max(0, nextAttemptCount - 1), MAX_RETRY_DELAY_SECONDS);
 }

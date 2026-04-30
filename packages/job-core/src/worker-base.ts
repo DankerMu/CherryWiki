@@ -205,18 +205,12 @@ function normalizeError(error: unknown): Record<string, unknown> {
   if (error instanceof Error) {
     return {
       name: error.name,
-      message: error.message,
-      ...(error.stack !== undefined ? { stack: error.stack } : {}),
+      message: error.message.slice(0, 1_000),
       ...(isRetryableFlag(error) && error.retryable !== undefined ? { retryable: error.retryable } : {}),
     };
   }
 
-  if (typeof error === 'string') {
-    return { message: error };
-  }
-
   return {
     message: 'Job processing failed',
-    detail: error,
   };
 }
