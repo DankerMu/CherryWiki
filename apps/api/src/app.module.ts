@@ -10,6 +10,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { DrizzleModule } from './database/drizzle.module.js';
 import { GroupModule } from './groups/group.module.js';
 import { HealthModule } from './health/health.module.js';
+import { JobsModule } from './jobs/jobs.module.js';
 import { ModelConfigModule } from './models/model-config.module.js';
 import { SpaceModule } from './spaces/space.module.js';
 import { StorageModule } from './storage/storage.module.js';
@@ -25,6 +26,7 @@ import { UserModule } from './users/user.module.js';
     UserModule,
     GroupModule,
     SpaceModule,
+    JobsModule,
     ModelConfigModule,
     StorageModule,
     HealthModule,

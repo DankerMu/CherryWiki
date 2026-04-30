@@ -17,6 +17,7 @@
     "@aws-sdk/client-s3": "^3.1039.0",
     "@aws-sdk/s3-request-presigner": "^3.1039.0",
     "@cherrygraph/auth-core": "workspace:*",
+    "@cherrygraph/job-core": "workspace:*",
     "@cherrygraph/shared": "workspace:*",
     "@nestjs/common": "^11.1.19",
     "@nestjs/core": "^11.1.19",
