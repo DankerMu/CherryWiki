@@ -49,8 +49,8 @@ code {
   place-items: center;
   padding: 24px;
   background:
-    linear-gradient(135deg, rgba(0, 185, 107, 0.1), transparent 42%),
-    linear-gradient(315deg, rgba(0, 185, 107, 0.05), transparent 36%),
+    linear-gradient(135deg, var(--color-login-gradient-1), transparent 42%),
+    linear-gradient(315deg, var(--color-login-gradient-2), transparent 36%),
     var(--color-background);
 }
 
@@ -128,7 +128,7 @@ input:focus,
 select:focus,
 textarea:focus {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(0, 185, 107, 0.25);
+  box-shadow: 0 0 0 3px var(--color-primary-focus-ring);
 }
 
 .button {
@@ -438,7 +438,7 @@ tbody tr:last-child td {
   display: grid;
   place-items: center;
   overflow-y: auto;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--color-backdrop);
   padding: 24px;
 }
 
