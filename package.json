@@ -20,6 +20,17 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "argon2",
+      "bcrypt",
+      "core-js",
+      "esbuild",
+      "msgpackr-extract",
+      "protobufjs"
+    ]
+  },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@redocly/cli": "^2.30.2",

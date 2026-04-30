@@ -63,6 +63,7 @@ export default function ModelsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const loadModels = useCallback(async () => {
     setIsLoading(true);
@@ -89,7 +90,7 @@ export default function ModelsPage() {
     }
 
     setIsSaving(true);
-    setError(null);
+    setFormError(null);
     try {
       const body = toModelRequest(form);
       if (form.id === undefined) {
@@ -98,9 +99,10 @@ export default function ModelsPage() {
         await api.patch<AdminModel>(`/admin/models/${form.id}`, body);
       }
       setForm(null);
+      setFormError(null);
       await loadModels();
     } catch (err) {
-      setError(getErrorMessage(err));
+      setFormError(getErrorMessage(err));
     } finally {
       setIsSaving(false);
     }
@@ -243,7 +245,8 @@ export default function ModelsPage() {
       )}
 
       {form !== null ? (
-        <Modal title={form.id === undefined ? 'Add Model' : 'Edit Model'} onClose={() => setForm(null)}>
+        <Modal title={form.id === undefined ? 'Add Model' : 'Edit Model'} onClose={() => { setForm(null); setFormError(null); }}>
+          <ErrorBanner error={formError} />
           <form
             className="form-grid"
             onSubmit={(event) => {
@@ -309,6 +312,7 @@ export default function ModelsPage() {
                 onChange={(event) =>
                   setForm((current) => (current === null ? current : { ...current, encrypted_api_key_ref: event.target.value }))
                 }
+                placeholder="secret:my-api-key"
               />
             </label>
             <label>
