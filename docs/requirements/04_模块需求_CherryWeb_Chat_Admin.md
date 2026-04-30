@@ -127,7 +127,7 @@ generating → aborted（用户主动取消）
 - 引用卡片显示页面标题、段落标题、版本、更新时间。
 - 点击引用跳转 Docmost 页面或 Cherry 内置 Wiki 只读视图。
 - 如果引用来自图谱节点，应展示节点所在页面和源段落。
-- 如果引用关系为 `INFERRED` 或 `AMBIGUOUS`，必须使用 `--color-status-degraded-text` 色标签 + `--color-warning-soft` 背景明确标注置信度等级。
+- 如果引用关系为 `INFERRED` 或 `AMBIGUOUS`，必须使用 `--color-status-degraded-text` 色标签 + `--color-status-degraded-bg` 背景明确标注置信度等级。
 
 #### 图谱解释展示
 
