@@ -62,6 +62,9 @@ importers:
       '@cherrygraph/auth-core':
         specifier: workspace:*
         version: link:../../packages/auth-core
+      '@cherrygraph/job-core':
+        specifier: workspace:*
+        version: link:../../packages/job-core
       '@cherrygraph/shared':
         specifier: workspace:*
         version: link:../../packages/shared

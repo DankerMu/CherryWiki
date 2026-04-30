@@ -41,6 +41,8 @@ export class ScriptedDb {
   readonly updates: OperationRecord[] = [];
   readonly deletes: OperationRecord[] = [];
   readonly selectFields: unknown[] = [];
+  readonly limitCalls: number[] = [];
+  readonly offsetCalls: number[] = [];
   readonly selectResults: unknown[][] = [];
   readonly insertResults: unknown[][] = [];
   readonly updateResults: unknown[][] = [];
@@ -77,7 +79,7 @@ export class ScriptedDb {
 
   select(fields?: unknown): ScriptedQueryBuilder {
     this.selectFields.push(fields);
-    return new ScriptedQueryBuilder(this.selectResults.shift() ?? []);
+    return new ScriptedQueryBuilder(this, this.selectResults.shift() ?? []);
   }
 
   insert(table?: unknown): { values: (value: unknown) => ScriptedMutationBuilder } {
@@ -108,7 +110,10 @@ export class ScriptedDb {
 }
 
 export class ScriptedQueryBuilder implements PromiseLike<unknown[]> {
-  constructor(private readonly result: unknown[]) {}
+  constructor(
+    private readonly db: ScriptedDb,
+    private readonly result: unknown[],
+  ) {}
 
   from(): this {
     return this;
@@ -130,11 +135,13 @@ export class ScriptedQueryBuilder implements PromiseLike<unknown[]> {
     return this;
   }
 
-  limit(): this {
+  limit(limit: number): this {
+    this.db.limitCalls.push(limit);
     return this;
   }
 
-  offset(): Promise<unknown[]> {
+  offset(offset: number): Promise<unknown[]> {
+    this.db.offsetCalls.push(offset);
     return Promise.resolve(this.result);
   }
 
