@@ -163,23 +163,25 @@ export class JobRepository {
 
   static async findPendingByType(
     db: JobDatabase,
-    tenantId: string,
+    tenantId: string | undefined,
     type: string,
     limit: number,
   ): Promise<JobRow[]> {
     const normalizedLimit = Math.min(10, Math.max(1, Math.trunc(limit)));
+    const conditions = [
+      eq(jobs.type, type),
+      eq(jobs.status, JobStatus.PENDING),
+      sql`(${jobs.next_run_at} IS NULL OR ${jobs.next_run_at} <= now())`,
+    ] as SQL[];
+
+    if (tenantId !== undefined && tenantId.trim().length > 0) {
+      conditions.unshift(eq(jobs.tenant_id, tenantId.trim()));
+    }
 
     return db
       .select()
       .from(jobs)
-      .where(
-        and(
-          eq(jobs.tenant_id, tenantId),
-          eq(jobs.type, type),
-          eq(jobs.status, JobStatus.PENDING),
-          sql`(${jobs.next_run_at} IS NULL OR ${jobs.next_run_at} <= now())`,
-        ),
-      )
+      .where(and(...conditions))
       .orderBy(asc(jobs.priority), asc(jobs.created_at))
       .limit(normalizedLimit);
   }
