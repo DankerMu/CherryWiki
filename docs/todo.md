@@ -49,6 +49,7 @@
 ### Stage 实现状态
 
 - [x] **I-01** Stage 1 Auth/RBAC/Space/Admin 基础已完成；文档追踪矩阵、Docker Compose 和环境变量样例已收口。
+- [ ] **I-02** Stage 2 Job 系统/对象存储/任务中心；需求矩阵、Internal Worker API（openapi.yaml）、集成测试、CI Redis service 已补齐，待编码。
 
 ---
 

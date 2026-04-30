@@ -25,6 +25,11 @@ components:
       in: header
       name: X-Bridge-Signature
       description: HMAC-SHA256(payload, DOCMOST_BRIDGE_SECRET)
+    workerApiKey:
+      type: apiKey
+      in: header
+      name: X-Worker-Key
+      description: WORKER_API_KEY for internal Worker-to-API endpoints
 
   parameters:
     pageParam:
@@ -250,7 +255,7 @@ components:
         space_id: { type: string }
         mode: { type: string, enum: [full, update, incremental] }
         trigger_type: { type: string, enum: [manual, scheduled, auto] }
-        status: { type: string, enum: [queued, running, completed, failed, cancelled, cancelling] }
+        status: { type: string, enum: [pending, running, succeeded, failed, cancelled] }
         progress:
           type: object
           properties:
@@ -637,13 +642,20 @@ components:
       properties:
         job_id: { type: string }
         type: { type: string, enum: [ingestion, graphify, reindex, rebuild, wiki_sync] }
-        status: { type: string, enum: [queued, running, completed, failed, cancelled] }
+        status: { type: string, enum: [pending, running, succeeded, failed, cancelled] }
         space_id: { type: string }
         progress:
           type: object
           properties:
             percent: { type: integer }
             stage: { type: string }
+        created_by: { type: string }
+        payload_json: { type: object }
+        result_json: { type: object }
+        error_json: { type: object }
+        cancel_requested_at: { type: string, format: date-time }
+        attempt_count: { type: integer }
+        max_attempts: { type: integer }
         created_at: { type: string, format: date-time }
         started_at: { type: string, format: date-time }
         completed_at: { type: string, format: date-time }
@@ -1219,12 +1231,17 @@ paths:
   /jobs/{job_id}/cancel:
     post:
       summary: Cancel job
+      description: |
+        Pending jobs are cancelled immediately (status→cancelled).
+        Running jobs receive cancel_requested_at; actual cancellation occurs
+        when the Worker acknowledges via heartbeat or next progress report.
+        Repeated cancel on the same job is idempotent and returns the current state.
       tags: [Jobs]
       parameters:
         - { name: job_id, in: path, required: true, schema: { type: string } }
       responses:
         '200':
-          description: Job cancelled
+          description: Cancel accepted
           content:
             application/json:
               schema:
@@ -1234,10 +1251,11 @@ paths:
                     type: object
                     properties:
                       job_id: { type: string }
-                      status: { type: string, enum: [cancelled] }
+                      status: { type: string, enum: [cancelled, running] }
+                      cancel_requested_at: { type: string, format: date-time }
         '404': { $ref: '#/components/responses/NotFoundError' }
         '409':
-          description: Job not cancellable
+          description: Job in terminal state (succeeded/failed), not cancellable. Already-cancelled jobs return 200 idempotently.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -1282,7 +1300,7 @@ paths:
         - { $ref: '#/components/parameters/perPageParam' }
         - { $ref: '#/components/parameters/sortParam' }
         - { name: space_id, in: query, schema: { type: string } }
-        - { name: status, in: query, schema: { type: string, enum: [queued, running, completed, failed, cancelled] } }
+        - { name: status, in: query, schema: { type: string, enum: [pending, running, succeeded, failed, cancelled] } }
         - { name: trigger_type, in: query, schema: { type: string, enum: [manual, scheduled, auto] } }
       responses:
         '200':
@@ -2139,7 +2157,7 @@ paths:
         - { $ref: '#/components/parameters/perPageParam' }
         - { $ref: '#/components/parameters/sortParam' }
         - { name: type, in: query, schema: { type: string, enum: [ingestion, graphify, reindex, rebuild, wiki_sync] } }
-        - { name: status, in: query, schema: { type: string, enum: [queued, running, completed, failed, cancelled] } }
+        - { name: status, in: query, schema: { type: string, enum: [pending, running, succeeded, failed, cancelled] } }
         - { name: space_id, in: query, schema: { type: string } }
       responses:
         '200':
@@ -2284,6 +2302,157 @@ paths:
                   data: { $ref: '#/components/schemas/RetrievalTrace' }
         '403': { $ref: '#/components/responses/ForbiddenError' }
         '404': { $ref: '#/components/responses/NotFoundError' }
+
+  # --- Worker (Internal) ---
+  /internal/jobs/pending:
+    get:
+      summary: Poll pending jobs by type
+      tags: [Worker]
+      security:
+        - workerApiKey: []
+      parameters:
+        - { name: type, in: query, required: true, schema: { type: string, enum: [ingestion, graphify, reindex, rebuild] } }
+        - { name: limit, in: query, schema: { type: integer, default: 1, minimum: 1, maximum: 10 } }
+      responses:
+        '200':
+          description: Pending jobs (empty array if none)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Job' } }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+
+  /internal/jobs/{job_id}/progress:
+    patch:
+      summary: Report job progress
+      tags: [Worker]
+      security:
+        - workerApiKey: []
+      parameters:
+        - { name: job_id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [worker_id, percent]
+              properties:
+                worker_id: { type: string }
+                percent: { type: integer, minimum: 0, maximum: 100 }
+                stage: { type: string }
+      responses:
+        '200':
+          description: Progress updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: object, properties: { job_id: { type: string }, status: { type: string } } }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+        '409':
+          description: Job not owned by this worker
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /internal/jobs/{job_id}/complete:
+    patch:
+      summary: Report job completion
+      tags: [Worker]
+      security:
+        - workerApiKey: []
+      parameters:
+        - { name: job_id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [worker_id]
+              properties:
+                worker_id: { type: string }
+                result_json: { type: object }
+      responses:
+        '200':
+          description: Job marked completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: object, properties: { job_id: { type: string }, status: { type: string, enum: [succeeded] } } }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+        '409':
+          description: Job not owned by this worker or not in running state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /internal/jobs/{job_id}/fail:
+    patch:
+      summary: Report job failure
+      tags: [Worker]
+      security:
+        - workerApiKey: []
+      parameters:
+        - { name: job_id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [worker_id, error_json]
+              properties:
+                worker_id: { type: string }
+                error_json: { type: object, properties: { code: { type: string }, message: { type: string }, stack: { type: string } } }
+                retryable: { type: boolean, default: true }
+      responses:
+        '200':
+          description: Job marked failed (may be retried if retryable and attempts remain)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: object, properties: { job_id: { type: string }, status: { type: string }, will_retry: { type: boolean } } }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+
+  /internal/workers/heartbeat:
+    post:
+      summary: Worker heartbeat
+      tags: [Worker]
+      security:
+        - workerApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [worker_id]
+              properties:
+                worker_id: { type: string }
+                active_jobs: { type: array, items: { type: string } }
+                system_info: { type: object, properties: { cpu_percent: { type: number }, memory_mb: { type: integer } } }
+      responses:
+        '200':
+          description: Heartbeat acknowledged
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      ack: { type: boolean }
+                      cancel_requested: { type: array, items: { type: string }, description: Jobs the server wants the worker to cancel }
 
   # --- Bridge (Internal) ---
   /internal/docmost/events/page-saved:
