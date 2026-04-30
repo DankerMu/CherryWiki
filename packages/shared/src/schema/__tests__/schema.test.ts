@@ -15,10 +15,12 @@ const coreTableExports = [
   'audit_logs',
   'model_configs',
   'system_settings',
+  'jobs',
+  'job_events',
 ] as const;
 
 describe('Drizzle core schema', () => {
-  it('exports all 11 core tables', () => {
+  it('exports all 13 core tables', () => {
     for (const tableName of coreTableExports) {
       expect(Object.hasOwn(schema, tableName)).toBe(true);
     }
@@ -91,6 +93,41 @@ describe('Drizzle core schema', () => {
     expect(uniqueColumns(schema.system_settings, 'system_settings_tenant_id_category_key_unique')).toEqual(['tenant_id', 'category', 'key']);
   });
 
+  it('defines jobs columns, defaults, indexes, and idempotency uniqueness', () => {
+    expect(schema.jobs.queue_name.getSQLType()).toBe('text');
+    expect(schema.jobs.queue_name.notNull).toBe(true);
+    expect(schema.jobs.queue_name.default).toBe('default');
+
+    expect(schema.jobs.priority.getSQLType()).toBe('integer');
+    expect(schema.jobs.priority.default).toBe(100);
+    expect(schema.jobs.status.default).toBe('pending');
+    expect(schema.jobs.attempt_count.default).toBe(0);
+    expect(schema.jobs.max_attempts.default).toBe(3);
+
+    expect(schema.jobs.payload_json.getSQLType()).toBe('jsonb');
+    expect(schema.jobs.payload_json.notNull).toBe(true);
+    expect(schema.jobs.result_json.notNull).toBe(false);
+    expect(schema.jobs.error_json.notNull).toBe(false);
+    expect(schema.jobs.locked_at.getSQLType()).toBe('timestamp with time zone');
+    expect(schema.jobs.completed_at.getSQLType()).toBe('timestamp with time zone');
+
+    expect(uniqueColumns(schema.jobs, 'jobs_tenant_id_idempotency_key_unique')).toEqual(['tenant_id', 'idempotency_key']);
+    expect(indexColumns(schema.jobs, 'idx_jobs_poll')).toEqual(['queue_name', 'status', 'priority', 'next_run_at']);
+    expect(indexColumns(schema.jobs, 'idx_jobs_locked')).toEqual(['locked_by', 'locked_at']);
+    expect(indexColumns(schema.jobs, 'idx_jobs_space')).toEqual(['tenant_id', 'space_id', 'type', 'status']);
+  });
+
+  it('defines job_events columns, cascade foreign key, and lookup index', () => {
+    expect(schema.job_events.event_type.getSQLType()).toBe('text');
+    expect(schema.job_events.event_type.notNull).toBe(true);
+    expect(schema.job_events.detail_json.getSQLType()).toBe('jsonb');
+    expect(schema.job_events.detail_json.notNull).toBe(true);
+    expect(schema.job_events.created_at.getSQLType()).toBe('timestamp with time zone');
+
+    expect(indexColumns(schema.job_events, 'idx_job_events_job')).toEqual(['job_id', 'created_at']);
+    expect(foreignKeyOnDelete(schema.job_events, 'job_events_job_id_jobs_id_fk')).toBe('cascade');
+  });
+
   it('defines group_members composite primary key on group_id and user_id', () => {
     const tableConfig = getTableConfig(schema.group_members);
     const primaryKey = tableConfig.primaryKeys[0];
@@ -116,4 +153,13 @@ function uniqueColumns(table: PgTable, constraintName: string): string[] {
   expect(uniqueConstraint).toBeDefined();
 
   return uniqueConstraint?.columns.map((column) => column.name) ?? [];
+}
+
+function foreignKeyOnDelete(table: PgTable, foreignKeyName: string): string | undefined {
+  const tableConfig = getTableConfig(table);
+  const foreignKey = tableConfig.foreignKeys.find((candidate) => candidate.getName() === foreignKeyName);
+
+  expect(foreignKey).toBeDefined();
+
+  return foreignKey?.onDelete;
 }

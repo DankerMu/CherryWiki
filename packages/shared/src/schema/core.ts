@@ -227,3 +227,57 @@ export const system_settings = pgTable(
   },
   (table) => [unique('system_settings_tenant_id_category_key_unique').on(table.tenant_id, table.category, table.key)],
 );
+
+export const jobs = pgTable(
+  'jobs',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    space_id: text('space_id').references(() => spaces.id),
+    queue_name: text('queue_name').notNull().default('default'),
+    type: text('type').notNull(),
+    priority: integer('priority').notNull().default(100),
+    status: text('status').notNull().default('pending'),
+    attempt_count: integer('attempt_count').notNull().default(0),
+    max_attempts: integer('max_attempts').notNull().default(3),
+    timeout_seconds: integer('timeout_seconds'),
+    locked_by: text('locked_by'),
+    locked_at: timestamp('locked_at', { withTimezone: true }),
+    next_run_at: timestamp('next_run_at', { withTimezone: true }),
+    cancel_requested_at: timestamp('cancel_requested_at', { withTimezone: true }),
+    payload_json: jsonb('payload_json').notNull().default(sql`'{}'::jsonb`),
+    result_json: jsonb('result_json'),
+    error_json: jsonb('error_json'),
+    idempotency_key: text('idempotency_key'),
+    created_by: text('created_by').references(() => users.id),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    started_at: timestamp('started_at', { withTimezone: true }),
+    completed_at: timestamp('completed_at', { withTimezone: true }),
+  },
+  (table) => [
+    unique('jobs_tenant_id_idempotency_key_unique').on(table.tenant_id, table.idempotency_key),
+    index('idx_jobs_poll')
+      .on(table.queue_name, table.status, table.priority, table.next_run_at)
+      .where(sql`${table.status} = 'pending'`),
+    index('idx_jobs_locked')
+      .on(table.locked_by, table.locked_at)
+      .where(sql`${table.locked_by} IS NOT NULL`),
+    index('idx_jobs_space').on(table.tenant_id, table.space_id, table.type, table.status),
+  ],
+);
+
+export const job_events = pgTable(
+  'job_events',
+  {
+    id: text('id').primaryKey(),
+    job_id: text('job_id')
+      .notNull()
+      .references(() => jobs.id, { onDelete: 'cascade' }),
+    event_type: text('event_type').notNull(),
+    detail_json: jsonb('detail_json').notNull().default(sql`'{}'::jsonb`),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('idx_job_events_job').on(table.job_id, table.created_at)],
+);
