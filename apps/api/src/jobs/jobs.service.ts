@@ -106,6 +106,10 @@ export class JobsService {
     const job = await this.getAccessibleJob(jobId, context, 'cancel');
     const jobStatus = normalizeJobStatus(job.status);
 
+    if (jobStatus === undefined) {
+      throwJobConflict(`Unknown job status: ${job.status}`);
+    }
+
     if (jobStatus === JobStatus.CANCELLED) {
       return toCancelJobResponse(job);
     }
@@ -317,6 +321,10 @@ export class JobsService {
     const current = await this.getAccessibleJob(jobId, context, 'cancel');
     const currentStatus = normalizeJobStatus(current.status);
 
+    if (currentStatus === undefined) {
+      throwJobConflict(`Unknown job status: ${current.status}`);
+    }
+
     if (currentStatus === JobStatus.CANCELLED) {
       return toCancelJobResponse(current);
     }
@@ -333,6 +341,7 @@ export class JobsService {
       (currentStatus === JobStatus.PENDING || currentStatus === JobStatus.RUNNING) &&
       retryCount < MAX_CANCELLATION_RETRIES
     ) {
+      await delay(50 * (retryCount + 1));
       return this.cancelJobInternal(jobId, context, retryCount + 1);
     }
 
@@ -404,6 +413,10 @@ function normalizeFilterValue(value: string | undefined): string | undefined {
 
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : undefined;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function normalizeJobStatus(status: string): JobStatus | undefined {
