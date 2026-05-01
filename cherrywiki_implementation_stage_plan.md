@@ -369,7 +369,7 @@ Cherry Web + Graphify 自动生成 + 只读 Wiki + Vector/BM25 检索 + Chat 引
 | `docs/engineering/12_权限安全审计.md` | 上传安全、解析沙箱、URL 抓取安全。 |
 | `docs/engineering/24_威胁建模与安全用例.md` | T1、T2、T3、T4 安全威胁。 |
 | `docs/schemas/schema.sql` | file_blobs、source_documents、jobs。 |
-| `docs/engineering/14_测试验收规范.md` | P1-E6、P1-E7、P1-E8、SSRF、Prompt Injection 测试。 |
+| `docs/engineering/14_测试验收规范.md` | P1-E6~E8、P1-E11~E15、§4.3/§4.5/§4.5A/§4.5B/§4.5C 安全测试。 |
 | `docs/ops/docker-compose.skeleton.yml` | ingestion-worker 和 url-fetcher-worker 安全配置。 |
 
 ### 交付物
@@ -637,7 +637,7 @@ Cherry Web + Graphify 自动生成 + 只读 Wiki + Vector/BM25 检索 + Chat 引
 ### 本阶段做什么
 
 ```text
-- P1-E1 ~ P1-E10 E2E
+- P1-E1 ~ P1-E15 E2E
 - S1 ~ S8 安全测试
 - 权限撤权即时生效测试
 - Graphify schema 异常回滚测试
@@ -664,7 +664,7 @@ Cherry Web + Graphify 自动生成 + 只读 Wiki + Vector/BM25 检索 + Chat 引
 ### Phase 1 上线门禁
 
 ```text
-- P1-E1 ~ P1-E10 全部通过
+- P1-E1 ~ P1-E15 全部通过
 - 撤权即时生效通过
 - Graphify schema 异常不影响旧索引
 - SSRF 防护通过

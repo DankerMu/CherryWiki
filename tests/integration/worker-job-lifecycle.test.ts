@@ -52,8 +52,6 @@ describe('Stage 2 worker lifecycle integration', () => {
       },
     ]);
 
-    await expect(RedisJobLock.acquire(redis, firstJob.id, 'worker-1', 600)).resolves.toBe(true);
-
     const running = await service.reportProgress(firstJob.id, {
       worker_id: 'worker-1',
       percent: 45,

@@ -46,6 +46,7 @@ export class JobProgressDto {
 
 export class JobDto {
   job_id!: string;
+  tenant_id!: string;
   type!: string;
   status!: string;
   space_id!: string | null;

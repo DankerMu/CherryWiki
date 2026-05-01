@@ -71,6 +71,7 @@ export class InternalJobsService {
 
     if (isJobStatus(job.status, JobStatus.PENDING)) {
       await this.touchWorkerHeartbeat(input.worker_id);
+      let lockAcquired = false;
 
       try {
         const runningJob = await this.db.transaction(async (tx) => {
@@ -85,7 +86,8 @@ export class InternalJobsService {
             result_json: null,
           });
 
-          await this.renewOwnedJobLock(job.id, input.worker_id);
+          await this.acquireJobLock(job.id, input.worker_id);
+          lockAcquired = true;
 
           await JobEventRepository.create(txDb, {
             job_id: job.id,
@@ -108,6 +110,17 @@ export class InternalJobsService {
 
         return toJobDto(runningJob, progress);
       } catch (error) {
+        if (lockAcquired) {
+          try {
+            await this.releaseJobLock(job.id, input.worker_id);
+          } catch (releaseError) {
+            getApiLogger().error(
+              { err: releaseError, job_id: job.id, worker_id: input.worker_id },
+              'Failed to release job lock after pending job activation rollback',
+            );
+          }
+        }
+
         handleJobConflict(error);
         throw error;
       }
@@ -221,7 +234,7 @@ export class InternalJobsService {
       });
 
       await this.releaseJobLock(job.id, input.worker_id);
-      await this.handleFailedJob(job, input.error_json);
+      await this.handleFailedJob(job, input.error_json, willRetry);
       return {
         job: toJobDto(nextJob),
         will_retry: willRetry,
@@ -309,6 +322,13 @@ export class InternalJobsService {
 
     if (job.locked_by !== workerId) {
       throwApiError(ErrorCode.CONFLICT, 'Job not owned by this worker', HttpStatus.CONFLICT);
+    }
+  }
+
+  private async acquireJobLock(jobId: string, workerId: string): Promise<void> {
+    const redis = this.getRequiredRedis();
+    if (!(await RedisJobLock.acquire(redis, jobId, workerId, DEFAULT_LOCK_TTL_SECONDS))) {
+      throwApiError(ErrorCode.CONFLICT, 'Job lock already held by another worker', HttpStatus.CONFLICT);
     }
   }
 
@@ -443,6 +463,10 @@ export class InternalJobsService {
       });
 
       await this.releaseJobLock(job.id, workerId);
+      if (job.type === 'ingestion' && !willRetry) {
+        await this.handleIngestionFailure(job, willRetry);
+      }
+
       return 1;
     } catch (error) {
       if (error instanceof JobConflictError) {
@@ -464,6 +488,11 @@ export class InternalJobsService {
   private async handleSuccessfulJobCompletion(job: JobRow): Promise<void> {
     if (job.type === 'url_fetch') {
       await this.handleUrlFetchCompletion(job);
+      return;
+    }
+
+    if (job.type === 'ingestion') {
+      await this.handleIngestionCompletion(job);
       return;
     }
 
@@ -550,7 +579,60 @@ export class InternalJobsService {
     }
   }
 
-  private async handleFailedJob(job: JobRow, errorJson: Record<string, unknown>): Promise<void> {
+  private async handleIngestionFailure(job: JobRow, willRetry: boolean): Promise<void> {
+    if (willRetry) {
+      return;
+    }
+
+    const uploadsService = this.getRequiredUploadsService();
+    const payload = asJsonRecord(job.payload_json);
+    const sourceDocumentId = readString(payload.source_document_id);
+    if (sourceDocumentId === undefined) {
+      return;
+    }
+
+    try {
+      await uploadsService.markIngestionFailed(sourceDocumentId, { tenantId: job.tenant_id });
+    } catch (err) {
+      getApiLogger().error(
+        { err, job_id: job.id, source_document_id: sourceDocumentId },
+        'Failed to mark source_document as parse_failed',
+      );
+    }
+  }
+
+  private async handleIngestionCompletion(job: JobRow): Promise<void> {
+    const uploadsService = this.getRequiredUploadsService();
+    const payload = asJsonRecord(job.payload_json);
+    const result = asJsonRecord(job.result_json);
+    const sourceDocumentId = readString(payload.source_document_id) ?? readString(asJsonRecord(result.metadata).source_document_id);
+    if (sourceDocumentId === undefined) {
+      getApiLogger().warn({ job_id: job.id }, 'Ingestion job missing source_document_id — skipping status update');
+      return;
+    }
+
+    try {
+      const parsedUri = readString(result.parsed_uri);
+      const previewUri = readString(result.preview_uri);
+      await uploadsService.markIngestionComplete(sourceDocumentId, {
+        ...(parsedUri !== undefined ? { parsedUri } : {}),
+        ...(previewUri !== undefined ? { previewUri } : {}),
+      }, { tenantId: job.tenant_id });
+      await uploadsService.handleGraphifyHandoff(sourceDocumentId, { tenantId: job.tenant_id });
+    } catch (err) {
+      getApiLogger().error(
+        { err, job_id: job.id, source_document_id: sourceDocumentId },
+        'Ingestion job succeeded but status update or graphify handoff failed — document may require manual reprocessing',
+      );
+    }
+  }
+
+  private async handleFailedJob(job: JobRow, errorJson: Record<string, unknown>, willRetry: boolean): Promise<void> {
+    if (job.type === 'ingestion') {
+      await this.handleIngestionFailure(job, willRetry);
+      return;
+    }
+
     if (job.type !== 'url_fetch') {
       return;
     }

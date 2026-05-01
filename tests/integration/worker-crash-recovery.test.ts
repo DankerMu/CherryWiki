@@ -39,7 +39,6 @@ describe('Stage 2 worker crash recovery integration', () => {
       payload_json: { source_id: 'source-1' },
     });
 
-    await expect(RedisJobLock.acquire(redis, 'job-1', 'worker-1', 600)).resolves.toBe(true);
     await service.reportProgress('job-1', {
       worker_id: 'worker-1',
       percent: 10,
@@ -86,7 +85,6 @@ describe('Stage 2 worker crash recovery integration', () => {
       },
     ]);
 
-    await expect(RedisJobLock.acquire(redis, 'job-1', 'worker-2', 600)).resolves.toBe(true);
     const reactivated = await service.reportProgress('job-1', {
       worker_id: 'worker-2',
       percent: 5,

@@ -533,6 +533,45 @@ export class UploadsService {
     return this.runSecurityValidation(document, blob, buffer, userId);
   }
 
+  async markIngestionFailed(
+    sourceDocumentId: string,
+    context: UploadContext = {},
+  ): Promise<void> {
+    const tenantId = resolveTenantId(context);
+    const document = await this.getTenantDocument(sourceDocumentId, tenantId);
+    if (document.status === 'parsed' || document.status === 'parse_failed') {
+      return;
+    }
+
+    const parsingDocument = await this.advanceDocumentToParsing(document);
+
+    await this.sourceDocumentRepository.updateStatus(parsingDocument.id, 'parse_failed');
+  }
+
+  async markIngestionComplete(
+    sourceDocumentId: string,
+    result: { parsedUri?: string; previewUri?: string },
+    context: UploadContext = {},
+  ): Promise<void> {
+    const tenantId = resolveTenantId(context);
+    const document = await this.getTenantDocument(sourceDocumentId, tenantId);
+    if (document.status === 'parsed' || document.status === 'parse_failed') {
+      return;
+    }
+
+    const parsingDocument = await this.advanceDocumentToParsing(document);
+
+    await this.sourceDocumentRepository.updateStatus(parsingDocument.id, 'parsed', {
+      metadata_json: {
+        ...asJsonRecord(parsingDocument.metadata_json),
+        ...(result.parsedUri !== undefined ? { parsed_uri: result.parsedUri } : {}),
+        ...(result.previewUri !== undefined ? { preview_uri: result.previewUri } : {}),
+        parsed_at: new Date().toISOString(),
+      },
+      ...(result.parsedUri !== undefined ? { parsed_uri: result.parsedUri } : {}),
+    });
+  }
+
   async markPromptInjectionScan(
     sourceDocumentId: string,
     parsedMarkdown: string,
@@ -687,6 +726,20 @@ export class UploadsService {
     );
 
     return toUploadResponse(sourceDocument.row, job, true);
+  }
+
+  private async advanceDocumentToParsing(document: SourceDocumentRow): Promise<SourceDocumentRow> {
+    if (document.status === 'uploaded') {
+      const validating = await this.sourceDocumentRepository.updateStatus(document.id, 'validating');
+      const archived = await this.sourceDocumentRepository.updateStatus(validating.id, 'archived');
+      return this.sourceDocumentRepository.updateStatus(archived.id, 'parsing');
+    }
+
+    if (document.status === 'archived') {
+      return this.sourceDocumentRepository.updateStatus(document.id, 'parsing');
+    }
+
+    return document;
   }
 
   private async createSourceDocumentWithDedup(input: {

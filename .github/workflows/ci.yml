@@ -30,8 +30,24 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      minio:
+        image: bitnami/minio:2024
+        ports:
+          - 9000:9000
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        options: >-
+          --health-cmd "curl -sf http://localhost:9000/minio/health/live || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     env:
       REDIS_URL: redis://localhost:6379
+      MINIO_ENDPOINT: http://localhost:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
 
     steps:
       - name: Checkout
@@ -60,6 +76,9 @@ jobs:
 
       - name: Test with coverage
         run: pnpm test -- --coverage
+
+      - name: Integration tests
+        run: pnpm exec vitest run tests/integration/ --config vitest.config.ts
 
       - name: Security audit
         run: pnpm audit --audit-level=critical

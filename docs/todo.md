@@ -49,7 +49,8 @@
 ### Stage 实现状态
 
 - [x] **I-01** Stage 1 Auth/RBAC/Space/Admin 基础已完成；文档追踪矩阵、Docker Compose 和环境变量样例已收口。
-- [ ] **I-02** Stage 2 Job 系统/对象存储/任务中心；需求矩阵、Internal Worker API（openapi.yaml）、集成测试、CI Redis service 已补齐，待编码。
+- [x] **I-02** Stage 2 Job 系统/对象存储/任务中心已完成；jobs service、BullMQ 队列、Worker 协议、MinIO 封装、任务中心 UI 已交付。
+- [ ] **I-03** Stage 3 上传/归档/解析/URL Fetcher；需求矩阵已补齐（含 URL 抓取、SSRF、Prompt Injection、ZIP 安全、Magic bytes），CI 已加 MinIO service + 集成测试步骤（当前 MinIO 测试用 MemoryS3Client，真实 MinIO 连通性测试在 Stage 3 编码时补充），待编码。
 
 ---
 

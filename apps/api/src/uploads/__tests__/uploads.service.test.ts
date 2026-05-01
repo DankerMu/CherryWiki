@@ -301,6 +301,47 @@ describe('UploadsService', () => {
     expect(rejectedErr.getStatus()).toBe(409);
   });
 
+  it('marks reprocessed uploaded documents parsed and stores parsed URI in the column', async () => {
+    const { service, sourceDocuments } = createServiceContext();
+    sourceDocuments.seed(
+      createSourceDocumentRow({
+        status: 'uploaded',
+        metadata_json: {
+          processing_strategy: 'stash',
+        },
+      }),
+    );
+
+    await service.markIngestionComplete(
+      'source-1',
+      {
+        parsedUri: 's3://cherrywiki-parsed/source-1.md',
+        previewUri: 's3://cherrywiki-previews/source-1.json',
+      },
+      createAdminContext(),
+    );
+
+    expect(sourceDocuments.rows[0]).toMatchObject({
+      status: 'parsed',
+      parsed_uri: 's3://cherrywiki-parsed/source-1.md',
+      metadata_json: {
+        processing_strategy: 'stash',
+        parsed_uri: 's3://cherrywiki-parsed/source-1.md',
+        preview_uri: 's3://cherrywiki-previews/source-1.json',
+        parsed_at: expect.any(String),
+      },
+    });
+  });
+
+  it('marks reprocessed uploaded documents parse_failed through the legal state path', async () => {
+    const { service, sourceDocuments } = createServiceContext();
+    sourceDocuments.seed(createSourceDocumentRow({ status: 'uploaded' }));
+
+    await service.markIngestionFailed('source-1', createAdminContext());
+
+    expect(sourceDocuments.rows[0]?.status).toBe('parse_failed');
+  });
+
   it('links fetched URL content, archives the URL source, and queues ingestion', async () => {
     const { service, sourceDocuments, jobs } = createServiceContext();
     sourceDocuments.seed(
