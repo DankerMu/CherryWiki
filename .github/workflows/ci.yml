@@ -79,13 +79,18 @@ jobs:
         run: pnpm audit --audit-level=critical
 
   python-ci:
-    name: Python — Lint, Test (graphify-worker)
+    name: Python — ${{ matrix.worker }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
+    strategy:
+      fail-fast: false
+      matrix:
+        worker: [graphify-worker, ingestion-worker, url-fetcher-worker]
+
     defaults:
       run:
-        working-directory: apps/graphify-worker
+        working-directory: apps/${{ matrix.worker }}
 
     steps:
       - name: Checkout

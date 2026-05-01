@@ -22,10 +22,17 @@ class TextParser(BaseParser):
         return ParseResult(
             content=normalized,
             metadata={
-                "source_type": "rst" if file_path.suffix.lower() == ".rst" else self.source_type,
+                "source_type": "rst"
+                if file_path.suffix.lower() == ".rst"
+                else self.source_type,
                 "extraction_tool": self.extraction_tool,
                 "extraction_version": self.extraction_version,
-                "extraction_params": {"encoding": "auto", "rst_conversion": "basic" if file_path.suffix.lower() == ".rst" else None},
+                "extraction_params": {
+                    "encoding": "auto",
+                    "rst_conversion": "basic"
+                    if file_path.suffix.lower() == ".rst"
+                    else None,
+                },
                 "page_count": 1,
                 "char_count": len(normalized),
                 "image_count": 0,
@@ -47,7 +54,11 @@ class TextParser(BaseParser):
         while index < len(lines):
             line = lines[index]
             next_line = lines[index + 1] if index + 1 < len(lines) else ""
-            if line.strip() and next_line and set(next_line.strip()) in ({"="}, {"-"}, {"~"}):
+            if (
+                line.strip()
+                and next_line
+                and set(next_line.strip()) in ({"="}, {"-"}, {"~"})
+            ):
                 marker = next_line.strip()[0]
                 level = {"=": "#", "-": "##", "~": "###"}.get(marker, "##")
                 output.append(f"{level} {line.strip()}")

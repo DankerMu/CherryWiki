@@ -70,7 +70,9 @@ class UrlFetcher:
             resolved = self._resolve(hostname, current_url, redirect_chain)
             pinned = resolved[0]
 
-            response = self._request_once(current_url, parsed, pinned, started_at, redirect_chain)
+            response = self._request_once(
+                current_url, parsed, pinned, started_at, redirect_chain
+            )
             try:
                 if response.status_code in REDIRECT_STATUSES:
                     if hop >= self.max_redirects:
@@ -80,7 +82,9 @@ class UrlFetcher:
                             resolved_ip=pinned.ip,
                             redirect_chain=redirect_chain,
                         )
-                    location = response.headers.get("location") or response.headers.get("Location")
+                    location = response.headers.get("location") or response.headers.get(
+                        "Location"
+                    )
                     if not location:
                         raise FetchError(
                             f"HTTP {response.status_code} redirect without Location header",
@@ -112,8 +116,13 @@ class UrlFetcher:
                         redirect_chain=redirect_chain,
                     )
 
-                content = self._read_response(response, started_at, current_url, pinned.ip, redirect_chain)
-                content_type = normalize_content_type(response.headers.get("content-type") or response.headers.get("Content-Type"))
+                content = self._read_response(
+                    response, started_at, current_url, pinned.ip, redirect_chain
+                )
+                content_type = normalize_content_type(
+                    response.headers.get("content-type")
+                    or response.headers.get("Content-Type")
+                )
                 digest = hashlib.sha256(content).hexdigest()
                 return FetchSnapshot(
                     content=content,
@@ -130,7 +139,11 @@ class UrlFetcher:
                 if callable(close):
                     close()
 
-        raise TooManyRedirectsError(f"Redirect depth exceeded {self.max_redirects}", target_url=current_url, redirect_chain=redirect_chain)
+        raise TooManyRedirectsError(
+            f"Redirect depth exceeded {self.max_redirects}",
+            target_url=current_url,
+            redirect_chain=redirect_chain,
+        )
 
     def _request_once(
         self,
@@ -140,11 +153,21 @@ class UrlFetcher:
         started_at: float,
         redirect_chain: list[dict[str, Any]],
     ) -> Any:
-        remaining = max(1.0, self.total_timeout_seconds - (time.monotonic() - started_at))
+        remaining = max(
+            1.0, self.total_timeout_seconds - (time.monotonic() - started_at)
+        )
         pinned_url = self._pinned_url(parsed, pinned.ip)
         request_url = pinned_url
-        adapter_prefix = "https://" if parsed.scheme == "https" and isinstance(self.session, requests.Session) else None
-        previous_adapter = self.session.adapters.get(adapter_prefix) if adapter_prefix is not None else None
+        adapter_prefix = (
+            "https://"
+            if parsed.scheme == "https" and isinstance(self.session, requests.Session)
+            else None
+        )
+        previous_adapter = (
+            self.session.adapters.get(adapter_prefix)
+            if adapter_prefix is not None
+            else None
+        )
         headers = {
             "Host": self._host_header(parsed),
             "User-Agent": USER_AGENT,
@@ -156,9 +179,13 @@ class UrlFetcher:
                 request_url = current_url
                 self.session.mount(
                     adapter_prefix,
-                    PinnedIPAdapter(pinned_ip=pinned.ip, server_hostname=parsed.hostname or ""),
+                    PinnedIPAdapter(
+                        pinned_ip=pinned.ip, server_hostname=parsed.hostname or ""
+                    ),
                 )
-            clear_cookies = getattr(getattr(self.session, "cookies", None), "clear", None)
+            clear_cookies = getattr(
+                getattr(self.session, "cookies", None), "clear", None
+            )
             if callable(clear_cookies):
                 clear_cookies()
             return self.session.get(
@@ -252,19 +279,33 @@ class UrlFetcher:
     def _normalize_url(self, url: str) -> str:
         parsed = urlsplit(url)
         if parsed.scheme not in {"http", "https"}:
-            raise FetchError("Only http and https URLs are supported", retryable=False, target_url=url)
+            raise FetchError(
+                "Only http and https URLs are supported",
+                retryable=False,
+                target_url=url,
+            )
         if parsed.username is not None or parsed.password is not None:
-            raise FetchError("URLs with embedded credentials are not supported", retryable=False, target_url=url)
+            raise FetchError(
+                "URLs with embedded credentials are not supported",
+                retryable=False,
+                target_url=url,
+            )
         if parsed.hostname is None:
-            raise FetchError("URL is missing a hostname", retryable=False, target_url=url)
+            raise FetchError(
+                "URL is missing a hostname", retryable=False, target_url=url
+            )
         return urlunsplit(parsed)
 
     def _require_hostname(self, parsed: SplitResult, current_url: str) -> str:
         if parsed.hostname is None:
-            raise FetchError("URL is missing a hostname", retryable=False, target_url=current_url)
+            raise FetchError(
+                "URL is missing a hostname", retryable=False, target_url=current_url
+            )
         return parsed.hostname
 
-    def _resolve(self, hostname: str, current_url: str, redirect_chain: list[dict[str, Any]]) -> list[ResolvedAddress]:
+    def _resolve(
+        self, hostname: str, current_url: str, redirect_chain: list[dict[str, Any]]
+    ) -> list[ResolvedAddress]:
         try:
             return self.resolver.resolve(hostname, target_url=current_url)
         except SsrfBlockedError as exc:
@@ -288,14 +329,20 @@ class UrlFetcher:
         hostname = parsed.hostname or ""
         try:
             parsed_host = ipaddress.ip_address(hostname)
-            host = f"[{hostname}]" if isinstance(parsed_host, ipaddress.IPv6Address) else hostname
+            host = (
+                f"[{hostname}]"
+                if isinstance(parsed_host, ipaddress.IPv6Address)
+                else hostname
+            )
         except ValueError:
             host = hostname
         if parsed.port is not None:
             host = f"{host}:{parsed.port}"
         return host
 
-    def _raise_if_timed_out(self, started_at: float, current_url: str, redirect_chain: list[dict[str, Any]]) -> None:
+    def _raise_if_timed_out(
+        self, started_at: float, current_url: str, redirect_chain: list[dict[str, Any]]
+    ) -> None:
         if time.monotonic() - started_at > self.total_timeout_seconds:
             raise RequestTimeoutError(
                 f"Total request timeout exceeded {self.total_timeout_seconds}s",

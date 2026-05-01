@@ -13,7 +13,9 @@ from src.storage_client import StorageObjectRef
 
 
 def test_worker_lifecycle_poll_download_parse_upload_complete() -> None:
-    archive_uri = "s3://cherrywiki-archives/archive/tenant-1/space-1/2026/05/01/source.txt"
+    archive_uri = (
+        "s3://cherrywiki-archives/archive/tenant-1/space-1/2026/05/01/source.txt"
+    )
     api = FakeApi([_job(archive_uri, "text/plain")])
     storage = FakeStorage({archive_uri: b"Lifecycle body"})
     handler = IngestionJobHandler(storage_client=storage)  # type: ignore[arg-type]
@@ -44,7 +46,9 @@ def test_parse_failure_reports_parse_failed_and_preserves_archive() -> None:
 
 
 def test_timeout_reports_timeout_error() -> None:
-    archive_uri = "s3://cherrywiki-archives/archive/tenant-1/space-1/2026/05/01/slow.txt"
+    archive_uri = (
+        "s3://cherrywiki-archives/archive/tenant-1/space-1/2026/05/01/slow.txt"
+    )
     api = FakeApi([_job(archive_uri, "text/plain")])
     storage = FakeStorage({archive_uri: b"slow"})
     handler = IngestionJobHandler(
@@ -60,7 +64,9 @@ def test_timeout_reports_timeout_error() -> None:
 
 
 def test_zip_batch_allows_partial_failure() -> None:
-    archive_uri = "s3://cherrywiki-archives/archive/tenant-1/space-1/2026/05/01/batch.zip"
+    archive_uri = (
+        "s3://cherrywiki-archives/archive/tenant-1/space-1/2026/05/01/batch.zip"
+    )
     zip_bytes = io.BytesIO()
     with zipfile.ZipFile(zip_bytes, "w") as archive:
         archive.writestr("good.txt", "Good member")
@@ -75,7 +81,9 @@ def test_zip_batch_allows_partial_failure() -> None:
     assert result["status"] == "partial_success"
     assert result["metadata"]["zip_success_count"] == 1
     assert result["metadata"]["zip_failure_count"] == 1
-    statuses = {document["filename"]: document["status"] for document in result["documents"]}
+    statuses = {
+        document["filename"]: document["status"] for document in result["documents"]
+    }
     assert statuses == {"good.txt": "parsed", "bad.pdf": "parse_failed"}
 
 
@@ -98,17 +106,30 @@ class FakeApi:
         self.completed: list[tuple[str, dict[str, Any]]] = []
         self.failed: list[tuple[str, dict[str, Any], bool]] = []
 
-    def fetch_pending_job(self, *, job_type: str = "ingestion") -> dict[str, Any] | None:
+    def fetch_pending_job(
+        self, *, job_type: str = "ingestion"
+    ) -> dict[str, Any] | None:
         assert job_type == "ingestion"
         return self.jobs.pop(0) if self.jobs else None
 
-    def report_progress(self, job_id: str, _worker_id: str, percent: int, stage: str) -> None:
+    def report_progress(
+        self, job_id: str, _worker_id: str, percent: int, stage: str
+    ) -> None:
         self.progress.append((job_id, percent, stage))
 
-    def complete_job(self, job_id: str, _worker_id: str, result_json: dict[str, Any]) -> None:
+    def complete_job(
+        self, job_id: str, _worker_id: str, result_json: dict[str, Any]
+    ) -> None:
         self.completed.append((job_id, result_json))
 
-    def fail_job(self, job_id: str, _worker_id: str, error_json: dict[str, Any], *, retryable: bool) -> None:
+    def fail_job(
+        self,
+        job_id: str,
+        _worker_id: str,
+        error_json: dict[str, Any],
+        *,
+        retryable: bool,
+    ) -> None:
         self.failed.append((job_id, error_json, retryable))
 
 

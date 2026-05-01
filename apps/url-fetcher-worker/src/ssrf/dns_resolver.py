@@ -17,7 +17,12 @@ class ResolvedAddress:
 
 
 class DnsResolver:
-    def __init__(self, *, resolver: dns.resolver.Resolver | None = None, ip_validator: IpValidator | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        resolver: dns.resolver.Resolver | None = None,
+        ip_validator: IpValidator | None = None,
+    ) -> None:
         self.resolver = resolver or dns.resolver.Resolver(configure=True)
         self.ip_validator = ip_validator or IpValidator()
 
@@ -35,9 +40,19 @@ class DnsResolver:
             except dns.resolver.NoAnswer:
                 continue
             except dns.resolver.NXDOMAIN as exc:
-                raise FetchError(f"DNS lookup failed for {hostname}: NXDOMAIN", retryable=False, cause=exc, target_url=target_url) from exc
+                raise FetchError(
+                    f"DNS lookup failed for {hostname}: NXDOMAIN",
+                    retryable=False,
+                    cause=exc,
+                    target_url=target_url,
+                ) from exc
             except dns.exception.Timeout as exc:
-                raise FetchError(f"DNS lookup timed out for {hostname}", retryable=True, cause=exc, target_url=target_url) from exc
+                raise FetchError(
+                    f"DNS lookup timed out for {hostname}",
+                    retryable=True,
+                    cause=exc,
+                    target_url=target_url,
+                ) from exc
             except dns.exception.DNSException as exc:
                 errors.append(str(exc))
                 continue
@@ -45,7 +60,11 @@ class DnsResolver:
 
         if not ips:
             if errors:
-                raise FetchError(f"DNS lookup failed for {hostname}: {'; '.join(errors)}", retryable=True, target_url=target_url)
+                raise FetchError(
+                    f"DNS lookup failed for {hostname}: {'; '.join(errors)}",
+                    retryable=True,
+                    target_url=target_url,
+                )
             raise SsrfBlockedError(
                 f"DNS lookup returned no address records for {hostname}",
                 target_url=target_url,
@@ -54,7 +73,10 @@ class DnsResolver:
             )
 
         validated = self.ip_validator.validate_all(ips, target_url=target_url)
-        return [ResolvedAddress(ip=item.ip, original_ip=item.original_ip) for item in validated]
+        return [
+            ResolvedAddress(ip=item.ip, original_ip=item.original_ip)
+            for item in validated
+        ]
 
     def _parse_ip_literal(self, hostname: str) -> str | None:
         try:

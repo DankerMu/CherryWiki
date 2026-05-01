@@ -20,8 +20,14 @@ class PptxParser(BaseParser):
         image_count = 0
 
         for index, slide in enumerate(presentation.slides, start=1):
-            title = slide.shapes.title.text.strip() if slide.shapes.title and slide.shapes.title.has_text_frame else ""
-            sections.append(f"## Slide {index}: {title}" if title else f"## Slide {index}")
+            title = (
+                slide.shapes.title.text.strip()
+                if slide.shapes.title and slide.shapes.title.has_text_frame
+                else ""
+            )
+            sections.append(
+                f"## Slide {index}: {title}" if title else f"## Slide {index}"
+            )
 
             seen_title = False
             for shape in slide.shapes:
@@ -39,7 +45,11 @@ class PptxParser(BaseParser):
 
             notes = self._speaker_notes(slide)
             if notes:
-                sections.append("\n".join(f"> {line}" if line else ">" for line in notes.splitlines()))
+                sections.append(
+                    "\n".join(
+                        f"> {line}" if line else ">" for line in notes.splitlines()
+                    )
+                )
 
         content = compact_blank_lines("\n\n".join(sections))
         return ParseResult(
@@ -63,4 +73,8 @@ class PptxParser(BaseParser):
             return ""
         if frame is None:
             return ""
-        return "\n".join(paragraph.text.strip() for paragraph in frame.paragraphs if paragraph.text.strip())
+        return "\n".join(
+            paragraph.text.strip()
+            for paragraph in frame.paragraphs
+            if paragraph.text.strip()
+        )

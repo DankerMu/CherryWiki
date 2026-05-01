@@ -9,7 +9,12 @@ from types import FrameType
 from .fetcher import DEFAULT_MAX_RESPONSE_BYTES, UrlFetcher
 from .handlers import UrlFetchJobHandler
 from .health import start_health_server
-from .job_client import InternalApiClient, generate_worker_id, poll_jobs, start_heartbeat_thread
+from .job_client import (
+    InternalApiClient,
+    generate_worker_id,
+    poll_jobs,
+    start_heartbeat_thread,
+)
 from .storage_client import MinioStorageClient
 
 
@@ -24,7 +29,9 @@ def main() -> None:
     api_client = InternalApiClient.from_env()
     storage_client = MinioStorageClient.from_env()
     fetcher = UrlFetcher(
-        max_response_bytes=_parse_int_env("URL_FETCH_MAX_RESPONSE_BYTES", DEFAULT_MAX_RESPONSE_BYTES),
+        max_response_bytes=_parse_int_env(
+            "URL_FETCH_MAX_RESPONSE_BYTES", DEFAULT_MAX_RESPONSE_BYTES
+        ),
         connect_timeout_seconds=_parse_int_env("URL_FETCH_CONNECT_TIMEOUT_SECONDS", 10),
         total_timeout_seconds=_parse_int_env("URL_FETCH_TIMEOUT_SECONDS", 30),
     )

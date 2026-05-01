@@ -8,7 +8,12 @@ from types import FrameType
 
 from .handlers import IngestionJobHandler
 from .health import start_health_server
-from .job_client import InternalApiClient, generate_worker_id, poll_jobs, start_heartbeat_thread
+from .job_client import (
+    InternalApiClient,
+    generate_worker_id,
+    poll_jobs,
+    start_heartbeat_thread,
+)
 from .storage_client import MinioStorageClient
 
 
@@ -22,7 +27,10 @@ def main() -> None:
 
     api_client = InternalApiClient.from_env()
     storage_client = MinioStorageClient.from_env()
-    handler = IngestionJobHandler(storage_client=storage_client, timeout_seconds=_parse_int_env("INGESTION_TIMEOUT_SECONDS", 300))
+    handler = IngestionJobHandler(
+        storage_client=storage_client,
+        timeout_seconds=_parse_int_env("INGESTION_TIMEOUT_SECONDS", 300),
+    )
     health_server = start_health_server(_parse_int_env("WORKER_HEALTH_PORT", 9091))
 
     def active_job_ids() -> list[str]:

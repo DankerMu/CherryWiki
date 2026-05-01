@@ -7,7 +7,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 def start_health_server(port: int) -> ThreadingHTTPServer:
     server = ThreadingHTTPServer(("0.0.0.0", port), _HealthHandler)
-    thread = threading.Thread(target=server.serve_forever, name="health-server", daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, name="health-server", daemon=True
+    )
     thread.start()
     return server
 
@@ -18,7 +20,9 @@ class _HealthHandler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
 
-        body = json.dumps({"status": "ok", "worker": "url-fetcher-worker"}).encode("utf-8")
+        body = json.dumps({"status": "ok", "worker": "url-fetcher-worker"}).encode(
+            "utf-8"
+        )
         self.send_response(200)
         self.send_header("content-type", "application/json")
         self.send_header("content-length", str(len(body)))

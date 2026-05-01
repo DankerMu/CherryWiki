@@ -49,5 +49,13 @@ class XlsxParser(BaseParser):
         if not materialized:
             return []
 
-        width = max((index + 1 for row in materialized for index, value in enumerate(row) if value is not None), default=0)
+        width = max(
+            (
+                index + 1
+                for row in materialized
+                for index, value in enumerate(row)
+                if value is not None
+            ),
+            default=0,
+        )
         return [row[:width] for row in materialized]

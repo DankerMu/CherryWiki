@@ -106,7 +106,9 @@ def _minimal_pdf(text: str) -> bytes:
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
         b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-        f"<< /Length {len(stream.encode('latin-1'))} >>\nstream\n{stream}\nendstream".encode("latin-1"),
+        f"<< /Length {len(stream.encode('latin-1'))} >>\nstream\n{stream}\nendstream".encode(
+            "latin-1"
+        ),
     ]
     body = b"%PDF-1.4\n"
     offsets = [0]

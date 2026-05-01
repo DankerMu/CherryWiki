@@ -42,10 +42,16 @@ class MinioStorageClient:
     @classmethod
     def from_env(cls) -> "MinioStorageClient":
         endpoint = os.environ.get("MINIO_ENDPOINT") or os.environ.get("S3_ENDPOINT")
-        access_key = os.environ.get("MINIO_ACCESS_KEY") or os.environ.get("AWS_ACCESS_KEY_ID")
-        secret_key = os.environ.get("MINIO_SECRET_KEY") or os.environ.get("AWS_SECRET_ACCESS_KEY")
+        access_key = os.environ.get("MINIO_ACCESS_KEY") or os.environ.get(
+            "AWS_ACCESS_KEY_ID"
+        )
+        secret_key = os.environ.get("MINIO_SECRET_KEY") or os.environ.get(
+            "AWS_SECRET_ACCESS_KEY"
+        )
         if not endpoint or not access_key or not secret_key:
-            raise RuntimeError("MINIO_ENDPOINT, MINIO_ACCESS_KEY, and MINIO_SECRET_KEY are required")
+            raise RuntimeError(
+                "MINIO_ENDPOINT, MINIO_ACCESS_KEY, and MINIO_SECRET_KEY are required"
+            )
         return cls(
             endpoint=endpoint,
             access_key=access_key,
@@ -55,4 +61,6 @@ class MinioStorageClient:
         )
 
     def upload(self, ref: StorageObjectRef, body: bytes, content_type: str) -> None:
-        self.client.put_object(Bucket=ref.bucket, Key=ref.key, Body=body, ContentType=content_type)
+        self.client.put_object(
+            Bucket=ref.bucket, Key=ref.key, Body=body, ContentType=content_type
+        )

@@ -21,10 +21,16 @@ class DocxParser(BaseParser):
             text = paragraph.text.strip()
             if not text:
                 continue
-            sections.append(self._format_paragraph(text, paragraph.style.name if paragraph.style else ""))
+            sections.append(
+                self._format_paragraph(
+                    text, paragraph.style.name if paragraph.style else ""
+                )
+            )
 
         for table in document.tables:
-            table_markdown = markdown_table([[cell.text.strip() for cell in row.cells] for row in table.rows])
+            table_markdown = markdown_table(
+                [[cell.text.strip() for cell in row.cells] for row in table.rows]
+            )
             if table_markdown:
                 sections.append(table_markdown)
 
@@ -35,7 +41,10 @@ class DocxParser(BaseParser):
                 "source_type": self.source_type,
                 "extraction_tool": self.extraction_tool,
                 "extraction_version": self.extraction_version,
-                "extraction_params": {"preserve_headings": True, "extract_tables": True},
+                "extraction_params": {
+                    "preserve_headings": True,
+                    "extract_tables": True,
+                },
                 "page_count": 1,
                 "char_count": len(content),
                 "image_count": len(document.inline_shapes),

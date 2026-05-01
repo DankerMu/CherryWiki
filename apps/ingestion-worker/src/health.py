@@ -37,10 +37,14 @@ class _HealthHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-def start_health_server(port: int, worker_name: str = "ingestion-worker") -> ThreadingHTTPServer:
+def start_health_server(
+    port: int, worker_name: str = "ingestion-worker"
+) -> ThreadingHTTPServer:
     _HealthHandler.worker_name = worker_name
     _HealthHandler.started_at = time.time()
     server = ThreadingHTTPServer(("0.0.0.0", port), _HealthHandler)
-    thread = threading.Thread(target=server.serve_forever, name="health-server", daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, name="health-server", daemon=True
+    )
     thread.start()
     return server

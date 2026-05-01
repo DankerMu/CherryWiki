@@ -54,9 +54,13 @@ class IpValidator:
                 block_reason=self._mapped_reason(reason) if mapped_ipv6 else reason,
             )
 
-        return IpValidationResult(ip=str(parsed), original_ip=original_ip, mapped_ipv6=mapped_ipv6)
+        return IpValidationResult(
+            ip=str(parsed), original_ip=original_ip, mapped_ipv6=mapped_ipv6
+        )
 
-    def validate_all(self, values: list[str], *, target_url: str = "") -> list[IpValidationResult]:
+    def validate_all(
+        self, values: list[str], *, target_url: str = ""
+    ) -> list[IpValidationResult]:
         if not values:
             raise SsrfBlockedError(
                 "Hostname resolved to no IP addresses",
@@ -67,7 +71,11 @@ class IpValidator:
         return [self.validate_ip(value, target_url=target_url) for value in values]
 
     def _forbidden_reason(self, value: ipaddress._BaseAddress) -> str | None:
-        ranges = self._FORBIDDEN_V4 if isinstance(value, ipaddress.IPv4Address) else self._FORBIDDEN_V6
+        ranges = (
+            self._FORBIDDEN_V4
+            if isinstance(value, ipaddress.IPv4Address)
+            else self._FORBIDDEN_V6
+        )
         for network, reason in ranges:
             if value in network:
                 return reason

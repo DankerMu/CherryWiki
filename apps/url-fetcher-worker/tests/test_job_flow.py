@@ -25,7 +25,10 @@ def test_url_fetch_job_downloads_snapshot_uploads_and_completes() -> None:
     assert api.completed[0][0] == "job-1"
     result = api.completed[0][1]
     assert result["source_document_id"] == "source-1"
-    assert result["snapshot_uri"] == "s3://cherrywiki-archives/archive/tenant-1/space-1/2026/05/01/abc123_example.com.snapshot"
+    assert (
+        result["snapshot_uri"]
+        == "s3://cherrywiki-archives/archive/tenant-1/space-1/2026/05/01/abc123_example.com.snapshot"
+    )
     assert result["content_type"] == "text/html"
     assert storage.uploads[result["snapshot_uri"]] == (b"<html>ok</html>", "text/html")
     assert any(stage == "fetching_url" for _, _, stage in api.progress)
@@ -64,17 +67,30 @@ class FakeApi:
         self.completed: list[tuple[str, dict[str, Any]]] = []
         self.failed: list[tuple[str, dict[str, Any], bool]] = []
 
-    def fetch_pending_job(self, *, job_type: str = "url_fetch") -> dict[str, Any] | None:
+    def fetch_pending_job(
+        self, *, job_type: str = "url_fetch"
+    ) -> dict[str, Any] | None:
         assert job_type == "url_fetch"
         return self.jobs.pop(0) if self.jobs else None
 
-    def report_progress(self, job_id: str, _worker_id: str, percent: int, stage: str) -> None:
+    def report_progress(
+        self, job_id: str, _worker_id: str, percent: int, stage: str
+    ) -> None:
         self.progress.append((job_id, percent, stage))
 
-    def complete_job(self, job_id: str, _worker_id: str, result_json: dict[str, Any]) -> None:
+    def complete_job(
+        self, job_id: str, _worker_id: str, result_json: dict[str, Any]
+    ) -> None:
         self.completed.append((job_id, result_json))
 
-    def fail_job(self, job_id: str, _worker_id: str, error_json: dict[str, Any], *, retryable: bool) -> None:
+    def fail_job(
+        self,
+        job_id: str,
+        _worker_id: str,
+        error_json: dict[str, Any],
+        *,
+        retryable: bool,
+    ) -> None:
         self.failed.append((job_id, error_json, retryable))
 
 

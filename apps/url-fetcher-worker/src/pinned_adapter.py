@@ -17,11 +17,15 @@ class PinnedIPAdapter(HTTPAdapter):
         self.server_hostname = server_hostname
         super().__init__(**kwargs)
 
-    def init_poolmanager(self, connections: int, maxsize: int, block: bool = False, **pool_kwargs: Any) -> None:
+    def init_poolmanager(
+        self, connections: int, maxsize: int, block: bool = False, **pool_kwargs: Any
+    ) -> None:
         pool_kwargs["pinned_ip"] = self.pinned_ip
         pool_kwargs["server_hostname"] = self.server_hostname
         pool_kwargs["assert_hostname"] = self.server_hostname
-        pool_manager = PoolManager(num_pools=connections, maxsize=maxsize, block=block, **pool_kwargs)
+        pool_manager = PoolManager(
+            num_pools=connections, maxsize=maxsize, block=block, **pool_kwargs
+        )
         pool_manager.pool_classes_by_scheme["http"] = _PinnedHTTPConnectionPool
         pool_manager.pool_classes_by_scheme["https"] = _PinnedHTTPSConnectionPool
         pool_manager.key_fn_by_scheme["http"] = _pool_key_without_pinned_ip
@@ -71,8 +75,16 @@ class _PinnedHTTPSConnection(urllib3.connection.HTTPSConnection):
             socket_options=self.socket_options,
         )
 
-    def set_tunnel(self, host: str, port: int | None = None, headers: dict[str, str] | None = None, scheme: str = "http") -> None:
-        super().set_tunnel(self._pinned_ip or host, port=port, headers=headers, scheme=scheme)
+    def set_tunnel(
+        self,
+        host: str,
+        port: int | None = None,
+        headers: dict[str, str] | None = None,
+        scheme: str = "http",
+    ) -> None:
+        super().set_tunnel(
+            self._pinned_ip or host, port=port, headers=headers, scheme=scheme
+        )
 
 
 class _PinnedHTTPConnectionPool(HTTPConnectionPool):

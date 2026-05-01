@@ -27,7 +27,9 @@ def markdown_table(rows: Iterable[Sequence[Any]]) -> str:
         "| " + " | ".join(_escape_cell(cell) for cell in header) + " |",
         "| " + " | ".join("---" for _ in range(width)) + " |",
     ]
-    lines.extend("| " + " | ".join(_escape_cell(cell) for cell in row) + " |" for row in body)
+    lines.extend(
+        "| " + " | ".join(_escape_cell(cell) for cell in row) + " |" for row in body
+    )
     return "\n".join(lines)
 
 

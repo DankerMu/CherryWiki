@@ -18,7 +18,9 @@ class UrlFetchJobError(Exception):
         self.error_type = error_type
         self.retryable = retryable
         self.cause = cause
-        self.metadata = {key: value for key, value in metadata.items() if value is not None}
+        self.metadata = {
+            key: value for key, value in metadata.items() if value is not None
+        }
 
 
 class SsrfBlockedError(UrlFetchJobError):
@@ -43,18 +45,35 @@ class SsrfBlockedError(UrlFetchJobError):
 
 
 class FetchError(UrlFetchJobError):
-    def __init__(self, message: str, *, retryable: bool = True, cause: BaseException | None = None, **metadata: Any) -> None:
-        super().__init__("fetch_error", message, retryable=retryable, cause=cause, **metadata)
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool = True,
+        cause: BaseException | None = None,
+        **metadata: Any,
+    ) -> None:
+        super().__init__(
+            "fetch_error", message, retryable=retryable, cause=cause, **metadata
+        )
 
 
 class ConnectionTimeoutError(UrlFetchJobError):
-    def __init__(self, message: str, *, cause: BaseException | None = None, **metadata: Any) -> None:
-        super().__init__("connection_timeout", message, retryable=True, cause=cause, **metadata)
+    def __init__(
+        self, message: str, *, cause: BaseException | None = None, **metadata: Any
+    ) -> None:
+        super().__init__(
+            "connection_timeout", message, retryable=True, cause=cause, **metadata
+        )
 
 
 class RequestTimeoutError(UrlFetchJobError):
-    def __init__(self, message: str, *, cause: BaseException | None = None, **metadata: Any) -> None:
-        super().__init__("request_timeout", message, retryable=True, cause=cause, **metadata)
+    def __init__(
+        self, message: str, *, cause: BaseException | None = None, **metadata: Any
+    ) -> None:
+        super().__init__(
+            "request_timeout", message, retryable=True, cause=cause, **metadata
+        )
 
 
 class ResponseTooLargeError(UrlFetchJobError):

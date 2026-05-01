@@ -72,7 +72,9 @@ def build_parsed_artifacts(
 
     frontmatter = yaml.safe_dump(metadata, sort_keys=False, allow_unicode=True).strip()
     parsed_markdown = f"---\n{frontmatter}\n---\n\n{body}"
-    return ParsedArtifacts(parsed_markdown=parsed_markdown, preview_text=preview_text, metadata=metadata)
+    return ParsedArtifacts(
+        parsed_markdown=parsed_markdown, preview_text=preview_text, metadata=metadata
+    )
 
 
 def derive_artifact_key(archive_key: str, sha256: str, suffix: str) -> str:

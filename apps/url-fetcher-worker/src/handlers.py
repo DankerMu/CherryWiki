@@ -29,8 +29,14 @@ class UrlFetchJobHandler:
         url = payload.get("url")
         tenant_id = _tenant_id(job)
         space_id = job.get("space_id")
-        if not isinstance(source_document_id, str) or not isinstance(url, str) or not isinstance(space_id, str):
-            raise ValueError("Job payload must include source_document_id and url, and job must include space_id")
+        if (
+            not isinstance(source_document_id, str)
+            or not isinstance(url, str)
+            or not isinstance(space_id, str)
+        ):
+            raise ValueError(
+                "Job payload must include source_document_id and url, and job must include space_id"
+            )
 
         progress(10, "fetching_url")
         snapshot = self.fetcher.fetch(url)
@@ -59,7 +65,14 @@ class UrlFetchJobHandler:
         }
 
 
-def build_snapshot_key(*, tenant_id: str, space_id: str, sha256: str, hostname: str, archived_at: dt.datetime) -> str:
+def build_snapshot_key(
+    *,
+    tenant_id: str,
+    space_id: str,
+    sha256: str,
+    hostname: str,
+    archived_at: dt.datetime,
+) -> str:
     if archived_at.tzinfo is None:
         archived_at = archived_at.replace(tzinfo=dt.UTC)
     archived_at = archived_at.astimezone(dt.UTC)

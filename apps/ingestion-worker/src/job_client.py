@@ -33,10 +33,16 @@ class InternalApiClient:
 
     @classmethod
     def from_env(cls) -> "InternalApiClient":
-        base_url = os.environ.get("CHERRY_API_URL") or os.environ.get("API_BASE_URL") or "http://cherry-api:8080/api"
+        base_url = (
+            os.environ.get("CHERRY_API_URL")
+            or os.environ.get("API_BASE_URL")
+            or "http://cherry-api:8080/api"
+        )
         return cls(base_url, api_key=os.environ.get("WORKER_API_KEY"))
 
-    def fetch_pending_job(self, *, job_type: str = "ingestion") -> dict[str, Any] | None:
+    def fetch_pending_job(
+        self, *, job_type: str = "ingestion"
+    ) -> dict[str, Any] | None:
         response = self.session.get(
             f"{self.base_url}/internal/jobs/pending",
             params={"type": job_type, "limit": 1},
@@ -46,7 +52,9 @@ class InternalApiClient:
         response.raise_for_status()
         return _parse_pending_job(_unwrap_response(response.json()))
 
-    def report_progress(self, job_id: str, worker_id: str, percent: int, stage: str) -> None:
+    def report_progress(
+        self, job_id: str, worker_id: str, percent: int, stage: str
+    ) -> None:
         response = self.session.patch(
             f"{self.base_url}/internal/jobs/{job_id}/progress",
             json={"worker_id": worker_id, "percent": percent, "stage": stage},
@@ -55,7 +63,9 @@ class InternalApiClient:
         )
         response.raise_for_status()
 
-    def complete_job(self, job_id: str, worker_id: str, result_json: dict[str, Any]) -> None:
+    def complete_job(
+        self, job_id: str, worker_id: str, result_json: dict[str, Any]
+    ) -> None:
         response = self.session.patch(
             f"{self.base_url}/internal/jobs/{job_id}/complete",
             json={"worker_id": worker_id, "result_json": result_json},
@@ -64,10 +74,21 @@ class InternalApiClient:
         )
         response.raise_for_status()
 
-    def fail_job(self, job_id: str, worker_id: str, error_json: dict[str, Any], *, retryable: bool) -> None:
+    def fail_job(
+        self,
+        job_id: str,
+        worker_id: str,
+        error_json: dict[str, Any],
+        *,
+        retryable: bool,
+    ) -> None:
         response = self.session.patch(
             f"{self.base_url}/internal/jobs/{job_id}/fail",
-            json={"worker_id": worker_id, "error_json": error_json, "retryable": retryable},
+            json={
+                "worker_id": worker_id,
+                "error_json": error_json,
+                "retryable": retryable,
+            },
             headers=self._headers(),
             timeout=self.timeout_seconds,
         )
@@ -127,7 +148,9 @@ def run_once(
     except Exception as exc:
         retryable = exc.retryable if isinstance(exc, IngestionJobError) else True
         logger.exception("ingestion job failed", extra={"job_id": job_id})
-        api_client.fail_job(job_id, worker_id, build_error_json(exc), retryable=retryable)
+        api_client.fail_job(
+            job_id, worker_id, build_error_json(exc), retryable=retryable
+        )
     else:
         api_client.complete_job(job_id, worker_id, result)
     finally:
@@ -148,7 +171,12 @@ def poll_jobs(
 ) -> None:
     while not stop_event.is_set():
         try:
-            handled = run_once(api_client=api_client, handler=handler, worker_id=worker_id, active_jobs=active_jobs)
+            handled = run_once(
+                api_client=api_client,
+                handler=handler,
+                worker_id=worker_id,
+                active_jobs=active_jobs,
+            )
         except (requests.RequestException, OSError) as exc:
             logger.warning("job polling failed: %s", exc)
             handled = False

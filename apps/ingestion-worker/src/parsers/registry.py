@@ -23,25 +23,52 @@ class ParserRegistry:
         self._text = TextParser()
         self._image = ImageParser()
 
-    def parser_for(self, *, mime_type: str | None, file_path: Path | None = None, filename: str | None = None) -> BaseParser:
+    def parser_for(
+        self,
+        *,
+        mime_type: str | None,
+        file_path: Path | None = None,
+        filename: str | None = None,
+    ) -> BaseParser:
         normalized_mime = (mime_type or "").split(";", 1)[0].strip().lower()
         suffix = self._suffix(file_path=file_path, filename=filename)
 
         if normalized_mime == "application/pdf" or suffix == ".pdf":
             return self._pdf
-        if normalized_mime in {
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        } or suffix == ".docx":
+        if (
+            normalized_mime
+            in {
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            }
+            or suffix == ".docx"
+        ):
             return self._docx
-        if normalized_mime in {
-            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        } or suffix == ".pptx":
+        if (
+            normalized_mime
+            in {
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            }
+            or suffix == ".pptx"
+        ):
             return self._pptx
-        if normalized_mime in {
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        } or suffix == ".xlsx":
+        if (
+            normalized_mime
+            in {
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            }
+            or suffix == ".xlsx"
+        ):
             return self._xlsx
-        if normalized_mime.startswith("image/") or suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff"}:
+        if normalized_mime.startswith("image/") or suffix in {
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".webp",
+            ".gif",
+            ".bmp",
+            ".tif",
+            ".tiff",
+        }:
             return self._image
         if normalized_mime in {
             "text/plain",
@@ -54,11 +81,22 @@ class ParserRegistry:
         } or suffix in {".md", ".mdx", ".txt", ".rst"}:
             return self._text
 
-        raise ValueError(f"Unsupported MIME type or extension: {mime_type or suffix or 'unknown'}")
+        raise ValueError(
+            f"Unsupported MIME type or extension: {mime_type or suffix or 'unknown'}"
+        )
 
-    def is_zip(self, *, mime_type: str | None, file_path: Path | None = None, filename: str | None = None) -> bool:
+    def is_zip(
+        self,
+        *,
+        mime_type: str | None,
+        file_path: Path | None = None,
+        filename: str | None = None,
+    ) -> bool:
         normalized_mime = (mime_type or "").split(";", 1)[0].strip().lower()
-        return normalized_mime in ZIP_MIME_TYPES or self._suffix(file_path=file_path, filename=filename) == ".zip"
+        return (
+            normalized_mime in ZIP_MIME_TYPES
+            or self._suffix(file_path=file_path, filename=filename) == ".zip"
+        )
 
     def _suffix(self, *, file_path: Path | None, filename: str | None) -> str:
         if file_path is not None and file_path.suffix:

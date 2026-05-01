@@ -45,8 +45,16 @@ class IngestionJobHandler:
         source_document_id = payload.get("source_document_id")
         archive_uri = payload.get("archive_uri")
         mime_type = payload.get("mime_type")
-        if not isinstance(source_document_id, str) or not isinstance(archive_uri, str) or not isinstance(mime_type, str):
-            raise IngestionJobError("parse_error", "Job payload must include source_document_id, archive_uri, and mime_type", retryable=False)
+        if (
+            not isinstance(source_document_id, str)
+            or not isinstance(archive_uri, str)
+            or not isinstance(mime_type, str)
+        ):
+            raise IngestionJobError(
+                "parse_error",
+                "Job payload must include source_document_id, archive_uri, and mime_type",
+                retryable=False,
+            )
 
         archive_ref = parse_storage_uri(archive_uri)
         tmpdir = Path(tempfile.mkdtemp(prefix=f"ingestion-{_job_id(job)}-"))
@@ -57,16 +65,29 @@ class IngestionJobHandler:
             try:
                 self.storage_client.download(archive_ref, local_path)
             except Exception as exc:
-                raise IngestionJobError("download_error", f"Failed to download {archive_uri}: {exc}", cause=exc) from exc
+                raise IngestionJobError(
+                    "download_error",
+                    f"Failed to download {archive_uri}: {exc}",
+                    cause=exc,
+                ) from exc
 
-            if self.parser_registry.is_zip(mime_type=mime_type, file_path=local_path, filename=local_path.name):
+            if self.parser_registry.is_zip(
+                mime_type=mime_type, file_path=local_path, filename=local_path.name
+            ):
                 progress(20, "parsing_zip")
                 try:
-                    return self._handle_zip(job, payload, archive_ref, local_path, tmpdir, progress)
+                    return self._handle_zip(
+                        job, payload, archive_ref, local_path, tmpdir, progress
+                    )
                 except IngestionJobError:
                     raise
                 except Exception as exc:
-                    raise IngestionJobError("parse_error", f"Failed to parse ZIP archive: {exc}", retryable=False, cause=exc) from exc
+                    raise IngestionJobError(
+                        "parse_error",
+                        f"Failed to parse ZIP archive: {exc}",
+                        retryable=False,
+                        cause=exc,
+                    ) from exc
 
             progress(20, "parsing_started")
             uploaded = self._parse_upload_one(
@@ -110,8 +131,13 @@ class IngestionJobHandler:
                 stage_percent = 20 + int((index - 1) / total * 60)
                 progress(stage_percent, f"parsing_zip_member_{index}")
                 try:
-                    member_path = self._extract_member(archive, member, extract_dir, index)
-                    member_mime = mimetypes.guess_type(member.filename)[0] or "application/octet-stream"
+                    member_path = self._extract_member(
+                        archive, member, extract_dir, index
+                    )
+                    member_mime = (
+                        mimetypes.guess_type(member.filename)[0]
+                        or "application/octet-stream"
+                    )
                     member_sha = sha256_file(member_path)
                     member_payload = {
                         **payload,
@@ -150,7 +176,11 @@ class IngestionJobHandler:
         successes = [item for item in documents if item["status"] == "parsed"]
         failures = [item for item in documents if item["status"] == "parse_failed"]
         if not successes:
-            raise IngestionJobError("parse_error", "No ZIP members were parsed successfully", retryable=False)
+            raise IngestionJobError(
+                "parse_error",
+                "No ZIP members were parsed successfully",
+                retryable=False,
+            )
 
         progress(100, "done")
         first = successes[0]
@@ -166,9 +196,19 @@ class IngestionJobHandler:
             "documents": documents,
         }
 
-    def _extract_member(self, archive: zipfile.ZipFile, member: zipfile.ZipInfo, extract_dir: Path, index: int) -> Path:
+    def _extract_member(
+        self,
+        archive: zipfile.ZipFile,
+        member: zipfile.ZipInfo,
+        extract_dir: Path,
+        index: int,
+    ) -> Path:
         if member.filename.startswith("/") or ".." in Path(member.filename).parts:
-            raise IngestionJobError("parse_error", f"Unsafe ZIP member path: {member.filename}", retryable=False)
+            raise IngestionJobError(
+                "parse_error",
+                f"Unsafe ZIP member path: {member.filename}",
+                retryable=False,
+            )
         target = extract_dir / f"{index}-{Path(member.filename).name}"
         with archive.open(member) as source, target.open("wb") as destination:
             shutil.copyfileobj(source, destination)
@@ -190,19 +230,36 @@ class IngestionJobHandler:
         started_at = time.monotonic()
         try:
             with timeout_after(self.timeout_seconds):
-                parser = self.parser_registry.parser_for(mime_type=mime_type, file_path=file_path, filename=filename)
+                parser = self.parser_registry.parser_for(
+                    mime_type=mime_type, file_path=file_path, filename=filename
+                )
                 parse_result = parser.parse(file_path)
         except ParseTimeoutError as exc:
             duration_ms = int((time.monotonic() - started_at) * 1000)
-            raise IngestionJobError("timeout", f"Parsing exceeded {self.timeout_seconds}s timeout", retryable=False, cause=exc, duration_ms=duration_ms) from exc
+            raise IngestionJobError(
+                "timeout",
+                f"Parsing exceeded {self.timeout_seconds}s timeout",
+                retryable=False,
+                cause=exc,
+                duration_ms=duration_ms,
+            ) from exc
         except IngestionJobError:
             raise
         except Exception as exc:
-            raise IngestionJobError("parse_error", f"Failed to parse {filename}: {exc}", retryable=False, cause=exc) from exc
+            raise IngestionJobError(
+                "parse_error",
+                f"Failed to parse {filename}: {exc}",
+                retryable=False,
+                cause=exc,
+            ) from exc
 
         duration_ms = int((time.monotonic() - started_at) * 1000)
         source_sha = str(payload.get("sha256") or sha256_file(file_path))
-        source_type = str(payload.get("source_type") or parse_result.metadata.get("source_type") or mime_type)
+        source_type = str(
+            payload.get("source_type")
+            or parse_result.metadata.get("source_type")
+            or mime_type
+        )
         artifacts = build_parsed_artifacts(
             parse_result=parse_result,
             job=job,
@@ -217,10 +274,22 @@ class IngestionJobHandler:
         preview_key = derive_artifact_key(archive_ref.key, source_sha, preview_suffix)
         progress(90, "uploading_output")
         try:
-            self.storage_client.upload(StorageObjectRef(archive_ref.bucket, parsed_key), artifacts.parsed_markdown.encode("utf-8"), "text/markdown; charset=utf-8")
-            self.storage_client.upload(StorageObjectRef(archive_ref.bucket, preview_key), artifacts.preview_text.encode("utf-8"), "text/plain; charset=utf-8")
+            self.storage_client.upload(
+                StorageObjectRef(archive_ref.bucket, parsed_key),
+                artifacts.parsed_markdown.encode("utf-8"),
+                "text/markdown; charset=utf-8",
+            )
+            self.storage_client.upload(
+                StorageObjectRef(archive_ref.bucket, preview_key),
+                artifacts.preview_text.encode("utf-8"),
+                "text/plain; charset=utf-8",
+            )
         except Exception as exc:
-            raise IngestionJobError("upload_error", f"Failed to upload parsed output for {filename}: {exc}", cause=exc) from exc
+            raise IngestionJobError(
+                "upload_error",
+                f"Failed to upload parsed output for {filename}: {exc}",
+                cause=exc,
+            ) from exc
 
         return UploadedParse(
             parsed_uri=f"s3://{archive_ref.bucket}/{parsed_key}",
@@ -231,7 +300,11 @@ class IngestionJobHandler:
 
 @contextmanager
 def timeout_after(seconds: int) -> Iterator[None]:
-    if seconds <= 0 or not hasattr(signal, "SIGALRM") or threading.current_thread() is not threading.main_thread():
+    if (
+        seconds <= 0
+        or not hasattr(signal, "SIGALRM")
+        or threading.current_thread() is not threading.main_thread()
+    ):
         yield
         return
 
@@ -261,7 +334,11 @@ def _job_id(job: dict[str, Any]) -> str:
 
 
 def _local_filename(payload: dict[str, Any], archive_key: str) -> str:
-    filename = payload.get("filename") or payload.get("original_filename") or Path(archive_key).name
+    filename = (
+        payload.get("filename")
+        or payload.get("original_filename")
+        or Path(archive_key).name
+    )
     if isinstance(filename, str) and re.match(r"^[0-9a-fA-F]{64}_.+", filename):
         return filename[65:]
     return str(filename)

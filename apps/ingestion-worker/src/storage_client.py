@@ -57,10 +57,16 @@ class MinioStorageClient:
     @classmethod
     def from_env(cls) -> "MinioStorageClient":
         endpoint = os.environ.get("MINIO_ENDPOINT") or os.environ.get("S3_ENDPOINT")
-        access_key = os.environ.get("MINIO_ACCESS_KEY") or os.environ.get("AWS_ACCESS_KEY_ID")
-        secret_key = os.environ.get("MINIO_SECRET_KEY") or os.environ.get("AWS_SECRET_ACCESS_KEY")
+        access_key = os.environ.get("MINIO_ACCESS_KEY") or os.environ.get(
+            "AWS_ACCESS_KEY_ID"
+        )
+        secret_key = os.environ.get("MINIO_SECRET_KEY") or os.environ.get(
+            "AWS_SECRET_ACCESS_KEY"
+        )
         if not endpoint or not access_key or not secret_key:
-            raise RuntimeError("MINIO_ENDPOINT, MINIO_ACCESS_KEY, and MINIO_SECRET_KEY are required")
+            raise RuntimeError(
+                "MINIO_ENDPOINT, MINIO_ACCESS_KEY, and MINIO_SECRET_KEY are required"
+            )
         return cls(
             endpoint=endpoint,
             access_key=access_key,
@@ -89,7 +95,9 @@ class MinioStorageClient:
         amz_date = now.strftime("%Y%m%dT%H%M%SZ")
         date_stamp = now.strftime("%Y%m%d")
         parsed_endpoint = urlsplit(self.endpoint)
-        canonical_uri = "/" + quote(ref.bucket, safe="") + "/" + quote(ref.key, safe="/~")
+        canonical_uri = (
+            "/" + quote(ref.bucket, safe="") + "/" + quote(ref.key, safe="/~")
+        )
         url = self.endpoint + canonical_uri
         host = parsed_endpoint.netloc
         headers = {
@@ -102,9 +110,7 @@ class MinioStorageClient:
 
         signed_headers = "host;x-amz-content-sha256;x-amz-date"
         canonical_headers = (
-            f"host:{host}\n"
-            f"x-amz-content-sha256:{payload_hash}\n"
-            f"x-amz-date:{amz_date}\n"
+            f"host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\n"
         )
         credential_scope = f"{date_stamp}/{self.region}/s3/aws4_request"
         canonical_request = "\n".join(
@@ -137,7 +143,9 @@ class MinioStorageClient:
             f"Signature={signature}"
         )
 
-        response = self.session.request(method, url, data=body, headers=headers, timeout=60)
+        response = self.session.request(
+            method, url, data=body, headers=headers, timeout=60
+        )
         response.raise_for_status()
         return response
 

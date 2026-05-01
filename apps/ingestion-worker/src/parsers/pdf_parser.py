@@ -14,7 +14,9 @@ class PdfParser(BaseParser):
     extraction_tool = "pdfplumber"
     extraction_version = package_version("pdfplumber")
 
-    def __init__(self, *, ocr_enabled: bool = True, ocr_lang: str = "chi_sim+eng") -> None:
+    def __init__(
+        self, *, ocr_enabled: bool = True, ocr_lang: str = "chi_sim+eng"
+    ) -> None:
         self.ocr_enabled = ocr_enabled
         self.ocr_lang = ocr_lang
 
