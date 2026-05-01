@@ -48,6 +48,19 @@ describe('WikiService', () => {
     expect(db.limitCalls).toContain(10);
   });
 
+  it('listPages falls back to default sort when sort parsing fails', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([]);
+    db.queueSelect([{ total: 0 }]);
+
+    const result = await service.listPages(TEST_TENANT_ID, TEST_SPACE_ID, {
+      sort: '-',
+    });
+
+    expect(result.data).toEqual([]);
+    expect(result.pagination).toEqual({ page: 1, per_page: 20, total: 0, has_next: false });
+  });
+
   it('getPage throws WIKI_PAGE_NOT_FOUND when not found', async () => {
     const { service, db } = createServiceContext();
     db.queueSelect([]);
@@ -175,7 +188,8 @@ describe('WikiService', () => {
     });
     expect(result).toMatchObject({
       page_id: 'page-1',
-      version_id: insertValue.id,
+      rolled_back_to: 'version-1',
+      new_version_id: insertValue.id,
       status: 'published',
       published_by: TEST_USER_ID,
     });
@@ -211,6 +225,8 @@ describe('WikiService', () => {
 
   it('creates source links', async () => {
     const { service, db } = createServiceContext();
+    db.queueSelect([createVersionRow()]);
+
     const result = await service.createSourceLink(TEST_TENANT_ID, TEST_SPACE_ID, createSourceLinkInput());
 
     expect(db.inserts[0]?.table).toBe(sourceLinks);
@@ -228,8 +244,24 @@ describe('WikiService', () => {
     });
   });
 
+  it('throws VERSION_NOT_FOUND before creating source links outside scope', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([]);
+
+    const err = await getRejectedHttpException(
+      service.createSourceLink(TEST_TENANT_ID, TEST_SPACE_ID, createSourceLinkInput({ page_version_id: 'missing' })),
+    );
+
+    expect(err.getStatus()).toBe(404);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.VERSION_NOT_FOUND);
+    expect(db.inserts).toHaveLength(0);
+  });
+
   it('batch creates source links in a transaction', async () => {
     const { service, db } = createServiceContext();
+    db.queueSelect([createVersionRow()]);
+    db.queueSelect([createVersionRow({ id: 'version-2', wiki_page_pk: 'wiki-page-pk-2' })]);
+
     const result = await service.batchCreateSourceLinks(TEST_TENANT_ID, TEST_SPACE_ID, [
       createSourceLinkInput({ evidence_type: 'quote' }),
       createSourceLinkInput({ wiki_page_pk: 'wiki-page-pk-2', page_version_id: 'version-2', evidence_type: '' }),
@@ -244,6 +276,24 @@ describe('WikiService', () => {
     expect(result).toHaveLength(2);
   });
 
+  it('throws VERSION_NOT_FOUND before batch creating source links outside scope', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createVersionRow()]);
+    db.queueSelect([]);
+
+    const err = await getRejectedHttpException(
+      service.batchCreateSourceLinks(TEST_TENANT_ID, TEST_SPACE_ID, [
+        createSourceLinkInput(),
+        createSourceLinkInput({ wiki_page_pk: 'wiki-page-pk-2', page_version_id: 'missing' }),
+      ]),
+    );
+
+    expect(err.getStatus()).toBe(404);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.VERSION_NOT_FOUND);
+    expect(db.transactionCalls).toBe(1);
+    expect(db.inserts).toHaveLength(0);
+  });
+
   it('queries source links by page version', async () => {
     const { service, db } = createServiceContext();
     db.queueSelect([
@@ -253,7 +303,7 @@ describe('WikiService', () => {
       },
     ]);
 
-    const result = await service.querySourceLinksByPageVersion('version-1');
+    const result = await service.querySourceLinksByPageVersion(TEST_TENANT_ID, TEST_SPACE_ID, 'version-1');
 
     expect(result).toEqual([
       expect.objectContaining({
@@ -262,6 +312,7 @@ describe('WikiService', () => {
         evidence_type: 'quote',
       }),
     ]);
+    expect(db.limitCalls).toContain(1000);
   });
 });
 

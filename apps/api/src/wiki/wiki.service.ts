@@ -80,6 +80,15 @@ export type WikiPublishResponse = {
   published_by: string;
 };
 
+export type WikiRollbackResponse = {
+  page_id: string;
+  rolled_back_to: string;
+  new_version_id: string;
+  status: string;
+  published_at: Date;
+  published_by: string;
+};
+
 export type CreateSourceLinkInput = {
   wiki_page_pk: string;
   page_version_id: string;
@@ -273,7 +282,7 @@ export class WikiService {
     reason: string | undefined,
     actorUserId: string,
     auditContext: WikiAuditContext = {},
-  ): Promise<WikiPublishResponse> {
+  ): Promise<WikiRollbackResponse> {
     const page = await this.requirePage(tenantId, spaceId, pageId);
     const targetVersion = await this.findPageVersion(tenantId, spaceId, page.id, targetVersionId);
     if (targetVersion === undefined) {
@@ -333,7 +342,8 @@ export class WikiService {
 
     return {
       page_id: pageId,
-      version_id: createdVersion.id,
+      rolled_back_to: targetVersionId,
+      new_version_id: createdVersion.id,
       status: createdVersion.status,
       published_at: publishedAt,
       published_by: actorUserId,
@@ -345,6 +355,8 @@ export class WikiService {
     spaceId: string,
     link: CreateSourceLinkInput,
   ): Promise<SourceLinkResponse> {
+    await this.requireSourceLinkVersionScope(this.db, tenantId, spaceId, link.wiki_page_pk, link.page_version_id);
+
     const [created] = await this.db
       .insert(sourceLinks)
       .values(toSourceLinkInsert(tenantId, spaceId, link))
@@ -368,6 +380,10 @@ export class WikiService {
 
     return this.withTransaction(async (tx) => {
       const normalizedLinks = normalizeSourceLinks(links.map(toCoreSourceLink));
+      for (const link of normalizedLinks) {
+        await this.requireSourceLinkVersionScope(tx, tenantId, spaceId, link.wiki_page_pk, link.page_version_id);
+      }
+
       const rows = await tx
         .insert(sourceLinks)
         .values(normalizedLinks.map((link) => toSourceLinkInsert(tenantId, spaceId, link)))
@@ -377,7 +393,11 @@ export class WikiService {
     });
   }
 
-  async querySourceLinksByPageVersion(pageVersionId: string): Promise<SourceLinkResponse[]> {
+  async querySourceLinksByPageVersion(
+    tenantId: string,
+    spaceId: string,
+    pageVersionId: string,
+  ): Promise<SourceLinkResponse[]> {
     const rows = await this.db
       .select({
         link: sourceLinks,
@@ -385,8 +405,15 @@ export class WikiService {
       })
       .from(sourceLinks)
       .leftJoin(wikiSections, eq(sourceLinks.section_id, wikiSections.id))
-      .where(eq(sourceLinks.page_version_id, pageVersionId))
-      .orderBy(sql`${wikiSections.section_index} ASC NULLS LAST`, asc(sourceLinks.created_at));
+      .where(
+        and(
+          eq(sourceLinks.tenant_id, tenantId),
+          eq(sourceLinks.space_id, spaceId),
+          eq(sourceLinks.page_version_id, pageVersionId),
+        ),
+      )
+      .orderBy(sql`${wikiSections.section_index} ASC NULLS LAST`, asc(sourceLinks.created_at))
+      .limit(1000);
 
     return rows.map((row) => toSourceLinkResponse(row.link, row.section_id));
   }
@@ -447,6 +474,31 @@ export class WikiService {
       .limit(1);
 
     return version;
+  }
+
+  private async requireSourceLinkVersionScope(
+    db: WikiDatabase,
+    tenantId: string,
+    spaceId: string,
+    wikiPagePk: string,
+    pageVersionId: string,
+  ): Promise<void> {
+    const [version] = await db
+      .select({ id: wikiPageVersions.id })
+      .from(wikiPageVersions)
+      .where(
+        and(
+          eq(wikiPageVersions.tenant_id, tenantId),
+          eq(wikiPageVersions.space_id, spaceId),
+          eq(wikiPageVersions.wiki_page_pk, wikiPagePk),
+          eq(wikiPageVersions.id, pageVersionId),
+        ),
+      )
+      .limit(1);
+
+    if (version === undefined) {
+      throwApiError(ErrorCode.VERSION_NOT_FOUND, 'Wiki page version was not found', HttpStatus.NOT_FOUND);
+    }
   }
 
   private async updateVersionStatus(db: WikiDatabase, versionId: string, status: string): Promise<void> {
@@ -523,7 +575,13 @@ function buildVersionWhere(tenantId: string, spaceId: string, wikiPagePk: string
 }
 
 function buildPageOrder(sort: string): SQL {
-  const parsed = parseSortField(sort);
+  let parsed: ReturnType<typeof parseSortField>;
+  try {
+    parsed = parseSortField(sort);
+  } catch {
+    parsed = { field: 'updated_at', direction: 'desc' };
+  }
+
   const columns = {
     created_at: wikiPages.created_at,
     updated_at: wikiPages.updated_at,

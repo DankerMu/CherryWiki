@@ -107,7 +107,8 @@ describe('WikiController', () => {
     const { controller, service } = createControllerContext();
     service.rollback.mockResolvedValue({
       page_id: 'page-1',
-      version_id: 'version-2',
+      rolled_back_to: 'version-1',
+      new_version_id: 'version-2',
       status: 'published',
       published_at: new Date('2026-05-01T00:00:00.000Z'),
       published_by: TEST_USER_ID,

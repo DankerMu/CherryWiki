@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 import { PaginationQueryDto } from '../common/dto/pagination.dto.js';
 
@@ -13,6 +13,7 @@ export class WikiListQueryDto extends PaginationQueryDto {
 }
 
 export class PublishDto {
+  @IsNotEmpty()
   @IsString()
   version_id!: string;
 
@@ -22,6 +23,7 @@ export class PublishDto {
 }
 
 export class RollbackDto {
+  @IsNotEmpty()
   @IsString()
   target_version_id!: string;
 
