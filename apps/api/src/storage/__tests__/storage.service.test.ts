@@ -25,6 +25,10 @@ vi.mock('@aws-sdk/client-s3', () => {
     constructor(readonly input: unknown) {}
   }
 
+  class CopyObjectCommand {
+    constructor(readonly input: unknown) {}
+  }
+
   class GetObjectCommand {
     constructor(readonly input: unknown) {}
   }
@@ -42,6 +46,7 @@ vi.mock('@aws-sdk/client-s3', () => {
   }
 
   return {
+    CopyObjectCommand,
     CreateBucketCommand,
     DeleteObjectCommand,
     GetObjectCommand,
@@ -56,6 +61,7 @@ vi.mock('@aws-sdk/s3-request-presigner', () => ({
 }));
 
 import {
+  CopyObjectCommand as AwsCopyObjectCommand,
   CreateBucketCommand as AwsCreateBucketCommand,
   DeleteObjectCommand as AwsDeleteObjectCommand,
   GetObjectCommand as AwsGetObjectCommand,
@@ -68,9 +74,10 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import {
   PRIMARY_STORAGE_BUCKET,
   REQUIRED_STORAGE_BUCKETS,
+  STORAGE_BUCKET_NAMES,
   getBucketName,
 } from '../storage.constants.js';
-import { StorageService, createStorageClient } from '../storage.service.js';
+import { ArchivePathHelper, StorageService, createStorageClient } from '../storage.service.js';
 
 const originalStorageEnv = {
   MINIO_ENDPOINT: process.env.MINIO_ENDPOINT,
@@ -111,6 +118,78 @@ describe('StorageService', () => {
       Key: 'docs/file.txt',
       Body: body,
       ContentType: 'text/plain',
+    });
+  });
+
+  it('uploads files to the quarantine path in the uploads bucket', async () => {
+    const { service } = createConfiguredService();
+    sendMock.mockResolvedValue({});
+
+    const result = await service.uploadToQuarantine({
+      tenantId: 'tenant-1',
+      spaceId: 'space-1',
+      uploadId: 'upload-1',
+      filename: 'report.pdf',
+      body: Buffer.from('pdf'),
+      contentType: 'application/pdf',
+    });
+
+    expect(result).toEqual({
+      bucket: getBucketName(STORAGE_BUCKET_NAMES.UPLOADS),
+      key: 'quarantine/tenant-1/space-1/upload-1_report.pdf',
+      uri: `s3://${getBucketName(STORAGE_BUCKET_NAMES.UPLOADS)}/quarantine/tenant-1/space-1/upload-1_report.pdf`,
+    });
+    const [command] = sendMock.mock.calls[0] ?? [];
+    expect(command).toBeInstanceOf(AwsPutObjectCommand);
+    expect(command?.input).toEqual({
+      Bucket: getBucketName(STORAGE_BUCKET_NAMES.UPLOADS),
+      Key: 'quarantine/tenant-1/space-1/upload-1_report.pdf',
+      Body: Buffer.from('pdf'),
+      ContentType: 'application/pdf',
+    });
+  });
+
+  it('builds canonical archive paths with date partitions and sha prefix', () => {
+    expect(
+      ArchivePathHelper.originalFilePath({
+        tenantId: 't1',
+        spaceId: 'sp1',
+        sha256: 'abc12345ffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+        filename: 'report.pdf',
+        archivedAt: new Date('2026-04-30T13:15:00.000Z'),
+      }),
+    ).toBe('archive/t1/sp1/2026/04/30/abc12345_report.pdf');
+  });
+
+  it('promotes quarantine files by copying to archives and deleting quarantine', async () => {
+    const { service } = createConfiguredService();
+    sendMock.mockResolvedValue({});
+
+    const result = await service.promoteToArchive({
+      tenantId: 'tenant-1',
+      spaceId: 'space-1',
+      quarantineKey: 'quarantine/tenant-1/space-1/upload-1_report.pdf',
+      sha256: 'abc12345ffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+      filename: 'report.pdf',
+      archivedAt: new Date('2026-04-30T13:15:00.000Z'),
+    });
+
+    expect(result).toEqual({
+      bucket: getBucketName(STORAGE_BUCKET_NAMES.ARCHIVES),
+      key: 'archive/tenant-1/space-1/2026/04/30/abc12345_report.pdf',
+      uri: `s3://${getBucketName(STORAGE_BUCKET_NAMES.ARCHIVES)}/archive/tenant-1/space-1/2026/04/30/abc12345_report.pdf`,
+    });
+    expect(sendMock).toHaveBeenCalledTimes(2);
+    expect(sendMock.mock.calls[0]?.[0]).toBeInstanceOf(AwsCopyObjectCommand);
+    expect(sendMock.mock.calls[0]?.[0].input).toEqual({
+      Bucket: getBucketName(STORAGE_BUCKET_NAMES.ARCHIVES),
+      Key: 'archive/tenant-1/space-1/2026/04/30/abc12345_report.pdf',
+      CopySource: `${getBucketName(STORAGE_BUCKET_NAMES.UPLOADS)}/quarantine/tenant-1/space-1/upload-1_report.pdf`,
+    });
+    expect(sendMock.mock.calls[1]?.[0]).toBeInstanceOf(AwsDeleteObjectCommand);
+    expect(sendMock.mock.calls[1]?.[0].input).toEqual({
+      Bucket: getBucketName(STORAGE_BUCKET_NAMES.UPLOADS),
+      Key: 'quarantine/tenant-1/space-1/upload-1_report.pdf',
     });
   });
 

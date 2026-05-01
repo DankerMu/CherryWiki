@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import {
   AUTH_CORE_OPTIONS,
   JwtAuthGuard,
   RbacGuard,
   SPACE_PERMISSION_RESOLVER,
+  type AuthCoreOptions,
   type SpacePermissionResolver,
 } from '@cherrygraph/auth-core';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
@@ -22,8 +23,17 @@ import { SessionService } from './session.service.js';
   providers: [
     AuthService,
     SessionService,
-    JwtAuthGuard,
-    RbacGuard,
+    {
+      provide: JwtAuthGuard,
+      useFactory: (options?: AuthCoreOptions): JwtAuthGuard => new JwtAuthGuard(new Reflector(), options),
+      inject: [{ token: AUTH_CORE_OPTIONS, optional: true }],
+    },
+    {
+      provide: RbacGuard,
+      useFactory: (resolver?: SpacePermissionResolver): RbacGuard => new RbacGuard(new Reflector(), resolver),
+      inject: [{ token: SPACE_PERMISSION_RESOLVER, optional: true }],
+    },
+    Reflector,
     RateLimitGuard,
     AuthContextInterceptor,
     {

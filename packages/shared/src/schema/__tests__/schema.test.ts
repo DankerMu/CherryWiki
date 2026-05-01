@@ -15,12 +15,14 @@ const coreTableExports = [
   'audit_logs',
   'model_configs',
   'system_settings',
+  'file_blobs',
+  'source_documents',
   'jobs',
   'job_events',
 ] as const;
 
 describe('Drizzle core schema', () => {
-  it('exports all 13 core tables', () => {
+  it('exports all 15 core tables', () => {
     for (const tableName of coreTableExports) {
       expect(Object.hasOwn(schema, tableName)).toBe(true);
     }
@@ -115,6 +117,24 @@ describe('Drizzle core schema', () => {
     expect(indexColumns(schema.jobs, 'idx_jobs_poll')).toEqual(['queue_name', 'status', 'priority', 'next_run_at']);
     expect(indexColumns(schema.jobs, 'idx_jobs_locked')).toEqual(['locked_by', 'locked_at']);
     expect(indexColumns(schema.jobs, 'idx_jobs_space')).toEqual(['tenant_id', 'space_id', 'type', 'status']);
+  });
+
+  it('defines upload blob and source document tables', () => {
+    expect(schema.file_blobs.sha256.getSQLType()).toBe('text');
+    expect(schema.file_blobs.sha256.notNull).toBe(true);
+    expect(schema.file_blobs.size_bytes.getSQLType()).toBe('bigint');
+    expect(schema.file_blobs.storage_uri.notNull).toBe(true);
+    expect(uniqueColumns(schema.file_blobs, 'file_blobs_tenant_id_sha256_unique')).toEqual(['tenant_id', 'sha256']);
+
+    expect(schema.source_documents.file_blob_id.notNull).toBe(false);
+    expect(schema.source_documents.source_type.default).toBe('upload');
+    expect(schema.source_documents.status.default).toBe('uploaded');
+    expect(schema.source_documents.metadata_json.getSQLType()).toBe('jsonb');
+    expect(schema.source_documents.metadata_json.notNull).toBe(true);
+    expect(uniqueColumns(schema.source_documents, 'source_documents_space_id_file_blob_id_unique')).toEqual([
+      'space_id',
+      'file_blob_id',
+    ]);
   });
 
   it('defines job_events columns, cascade foreign key, and lookup index', () => {

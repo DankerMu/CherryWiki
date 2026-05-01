@@ -4,6 +4,25 @@ export const userRoleSchema = z.enum(['owner', 'admin', 'space_admin', 'editor',
 export const userStatusSchema = z.enum(['active', 'disabled']);
 export const spaceStatusSchema = z.enum(['active', 'archived']);
 export const modelTypeSchema = z.enum(['chat', 'embedding', 'rerank']);
+export const sourceDocumentSourceTypeSchema = z.enum(['upload', 'url']);
+export const sourceDocumentStatusSchema = z.enum([
+  'uploaded',
+  'validating',
+  'archived',
+  'parsing',
+  'parsed',
+  'parse_failed',
+  'security_rejected',
+  'graphify_pending',
+  'graphify_running',
+  'wiki_proposed',
+  'published',
+  'indexed',
+  'graphify_failed',
+  'sync_failed',
+  'index_failed',
+]);
+export const sourceDocumentProcessingStrategySchema = z.enum(['immediate', 'stash', 'archive_only']);
 
 const nonEmptyString = z.string().trim().min(1);
 const idSchema = nonEmptyString.max(200);
@@ -26,9 +45,33 @@ const encryptedApiKeyRefSchema = z.string().max(500);
 const visibleGroupIdsSchema = z.array(z.string()).max(100);
 const requestMetadataStringSchema = z.string().max(500);
 const shortTextSchema = nonEmptyString.max(100);
+const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
+const filenameSchema = nonEmptyString.max(500);
+const storageUriSchema = nonEmptyString.max(4096);
+const mimeTypeSchema = nonEmptyString.max(255);
+const metadataObjectSchema = z.record(z.unknown());
 
 // Accept unstructured JSON object records here; feature-specific schemas own deeper shape validation.
 const unstructuredJsonRecordSchema = z.record(z.unknown());
+
+export const sourceDocumentMetadataSchema = z
+  .object({
+    source_url: z.string().url().max(2048).optional(),
+    tags: z.array(z.string().trim().min(1).max(100)).max(100).optional(),
+    author: z.string().trim().max(200).optional(),
+    processing_strategy: sourceDocumentProcessingStrategySchema.optional(),
+    batch_id: z.string().trim().min(1).max(200).optional(),
+    rejection_reason: z.string().trim().max(100).optional(),
+    rejection_details: metadataObjectSchema.optional(),
+    injection_risk: z.boolean().optional(),
+    injection_patterns: z.array(z.string().trim().min(1).max(100)).max(100).optional(),
+    needs_attention: z.boolean().optional(),
+    fetch_metadata: metadataObjectSchema.optional(),
+    parse_metadata: metadataObjectSchema.optional(),
+    graphify_run_id: z.string().trim().min(1).max(200).optional(),
+    cleanup_at: z.string().datetime().optional(),
+  })
+  .passthrough();
 
 export const insertUserSchema = z.object({
   id: optionalIdSchema.optional(),
@@ -153,6 +196,40 @@ export const insertSystemSettingSchema = z.object({
   updated_by: optionalIdSchema.optional(),
 });
 
+export const insertFileBlobSchema = z.object({
+  id: optionalIdSchema.optional(),
+  tenant_id: idSchema,
+  sha256: sha256Schema,
+  size_bytes: z.number().int().nonnegative(),
+  mime_type: mimeTypeSchema,
+  storage_uri: storageUriSchema,
+});
+
+export const insertSourceDocumentSchema = z.object({
+  id: optionalIdSchema.optional(),
+  tenant_id: idSchema,
+  space_id: idSchema,
+  file_blob_id: optionalIdSchema.nullable().optional(),
+  filename: filenameSchema,
+  uploader_id: optionalIdSchema.nullable().optional(),
+  source_type: sourceDocumentSourceTypeSchema.default('upload'),
+  classification: shortTextSchema.nullable().optional(),
+  status: sourceDocumentStatusSchema.default('uploaded'),
+  parsed_uri: storageUriSchema.nullable().optional(),
+  metadata_json: sourceDocumentMetadataSchema.default({}),
+});
+
+export const updateSourceDocumentSchema = z
+  .object({
+    file_blob_id: optionalIdSchema.nullable().optional(),
+    filename: filenameSchema.optional(),
+    classification: shortTextSchema.nullable().optional(),
+    status: sourceDocumentStatusSchema.optional(),
+    parsed_uri: storageUriSchema.nullable().optional(),
+    metadata_json: sourceDocumentMetadataSchema.optional(),
+  })
+  .partial();
+
 export type InsertUserInput = z.infer<typeof insertUserSchema>;
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 export type InsertSpaceInput = z.infer<typeof insertSpaceSchema>;
@@ -164,3 +241,10 @@ export type UpdateGroupInput = z.infer<typeof updateGroupSchema>;
 export type InsertSessionInput = z.infer<typeof insertSessionSchema>;
 export type InsertAuditLogInput = z.infer<typeof insertAuditLogSchema>;
 export type InsertSystemSettingInput = z.infer<typeof insertSystemSettingSchema>;
+export type SourceDocumentStatus = z.infer<typeof sourceDocumentStatusSchema>;
+export type SourceDocumentSourceType = z.infer<typeof sourceDocumentSourceTypeSchema>;
+export type SourceDocumentProcessingStrategy = z.infer<typeof sourceDocumentProcessingStrategySchema>;
+export type SourceDocumentMetadata = z.infer<typeof sourceDocumentMetadataSchema>;
+export type InsertFileBlobInput = z.infer<typeof insertFileBlobSchema>;
+export type InsertSourceDocumentInput = z.infer<typeof insertSourceDocumentSchema>;
+export type UpdateSourceDocumentInput = z.infer<typeof updateSourceDocumentSchema>;

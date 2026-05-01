@@ -228,6 +228,46 @@ export const system_settings = pgTable(
   (table) => [unique('system_settings_tenant_id_category_key_unique').on(table.tenant_id, table.category, table.key)],
 );
 
+export const file_blobs = pgTable(
+  'file_blobs',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    sha256: text('sha256').notNull(),
+    size_bytes: bigint('size_bytes', { mode: 'number' }).notNull(),
+    mime_type: text('mime_type').notNull(),
+    storage_uri: text('storage_uri').notNull(),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique('file_blobs_tenant_id_sha256_unique').on(table.tenant_id, table.sha256)],
+);
+
+export const source_documents = pgTable(
+  'source_documents',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    space_id: text('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    file_blob_id: text('file_blob_id').references(() => file_blobs.id),
+    filename: text('filename').notNull(),
+    uploader_id: text('uploader_id').references(() => users.id),
+    source_type: text('source_type').notNull().default('upload'),
+    classification: text('classification'),
+    status: text('status').notNull().default('uploaded'),
+    parsed_uri: text('parsed_uri'),
+    metadata_json: jsonb('metadata_json').notNull().default(sql`'{}'::jsonb`),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique('source_documents_space_id_file_blob_id_unique').on(table.space_id, table.file_blob_id)],
+);
+
 export const jobs = pgTable(
   'jobs',
   {

@@ -15,6 +15,7 @@ import { JobsModule } from './jobs/jobs.module.js';
 import { ModelConfigModule } from './models/model-config.module.js';
 import { SpaceModule } from './spaces/space.module.js';
 import { StorageModule } from './storage/storage.module.js';
+import { UploadsModule } from './uploads/uploads.module.js';
 import { UserModule } from './users/user.module.js';
 
 @Module({
@@ -31,6 +32,7 @@ import { UserModule } from './users/user.module.js';
     InternalModule,
     ModelConfigModule,
     StorageModule,
+    UploadsModule,
     HealthModule,
     AdminHealthModule,
   ],
