@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 
 import { HttpStatus, UnprocessableEntityException, ValidationPipe } from '@nestjs/common';
+import fastifyMultipart from '@fastify/multipart';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +10,7 @@ import { AppModule } from './app.module.js';
 import { HttpExceptionFilter, validationErrorsToDetails } from './common/filters/http-exception.filter.js';
 import { ResponseWrapperInterceptor } from './common/interceptors/response-wrapper.interceptor.js';
 import { createNestLogger } from './common/logger/logger.module.js';
+import { UPLOAD_MAX_BYTES } from './uploads/uploads.constants.js';
 
 export function createValidationPipe(): ValidationPipe {
   return new ValidationPipe({
@@ -48,12 +50,18 @@ function parsePort(value: string | undefined): number {
 export async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ logger: false, bodyLimit: 1_048_576 }),
+    new FastifyAdapter({ logger: false, bodyLimit: UPLOAD_MAX_BYTES }),
     {
       bufferLogs: true,
     },
   );
   configureApp(app);
+  await app.register(fastifyMultipart, {
+    limits: {
+      fileSize: UPLOAD_MAX_BYTES,
+      files: 1,
+    },
+  });
   await app.listen(parsePort(process.env.PORT), process.env.HOST ?? '0.0.0.0');
 }
 

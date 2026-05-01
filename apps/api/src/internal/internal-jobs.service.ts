@@ -17,6 +17,7 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { getApiLogger } from '../common/logger/logger.module.js';
 import { REDIS_CLIENT, type OptionalRedisClient } from '../common/redis/redis.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
+import { UploadsService } from '../uploads/uploads.service.js';
 import type {
   JobCompletionDto,
   JobFailureDto,
@@ -49,6 +50,7 @@ export class InternalJobsService {
   constructor(
     @Inject(DRIZZLE) private readonly db: JobsDatabase,
     @Optional() @Inject(REDIS_CLIENT) private readonly redis?: OptionalRedisClient,
+    @Optional() private readonly uploadsService?: UploadsService,
   ) {}
 
   async pollPendingJobs(type: string, limit: number): Promise<JobDto[]> {
@@ -152,6 +154,7 @@ export class InternalJobsService {
       });
 
       await this.releaseJobLock(job.id, input.worker_id);
+      await this.handleSuccessfulJobCompletion(completedJob);
       return toJobDto(completedJob);
     } catch (error) {
       handleJobConflict(error);
@@ -454,6 +457,40 @@ export class InternalJobsService {
 
     return this.redis as unknown as InternalRedisClient;
   }
+
+  private async handleSuccessfulJobCompletion(job: JobRow): Promise<void> {
+    if (job.type !== 'validation') {
+      return;
+    }
+    if (this.uploadsService === undefined) {
+      throwApiError(ErrorCode.INTERNAL_ERROR, 'Uploads service is not configured', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    const payload = asJsonRecord(job.payload_json);
+    const sourceDocumentId = typeof payload.source_document_id === 'string' ? payload.source_document_id : undefined;
+    const quarantineKey = typeof payload.quarantine_key === 'string' ? payload.quarantine_key : undefined;
+    if (sourceDocumentId === undefined || quarantineKey === undefined) {
+      throwApiError(ErrorCode.INTERNAL_ERROR, 'Validation job payload is missing source_document_id or quarantine_key', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    try {
+      await this.uploadsService.completeValidation(
+        {
+          sourceDocumentId,
+          quarantineKey,
+        },
+        {
+          tenantId: job.tenant_id,
+          ...(job.created_by !== null ? { actorUserId: job.created_by, userId: job.created_by } : {}),
+        },
+      );
+    } catch (err) {
+      getApiLogger().error(
+        { err, job_id: job.id, source_document_id: sourceDocumentId },
+        'Validation job succeeded but post-completion archive/ingestion failed — document may require manual reprocessing',
+      );
+    }
+  }
 }
 
 function toJobDto(job: JobRow, progress: JobProgressDto | null = null): JobDto {
@@ -538,4 +575,8 @@ function isDeadWorker(jobsForWorker: JobRow[], lastHeartbeatAt: Date | null, now
 
 function isJobStatus(status: string, expected: JobStatus): boolean {
   return status === String(expected);
+}
+
+function asJsonRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }

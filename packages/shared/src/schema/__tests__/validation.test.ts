@@ -102,6 +102,48 @@ describe('Zod schema validation', () => {
     ).toBe(false);
   });
 
+  it('validates upload blob and source document schemas', () => {
+    expect(
+      schema.insertFileBlobSchema.safeParse({
+        tenant_id: 'tenant-1',
+        sha256: 'a'.repeat(64),
+        size_bytes: 1024,
+        mime_type: 'application/pdf',
+        storage_uri: 's3://bucket/archive/file.pdf',
+      }).success,
+    ).toBe(true);
+    expect(
+      schema.insertFileBlobSchema.safeParse({
+        tenant_id: 'tenant-1',
+        sha256: 'not-sha',
+        size_bytes: 1024,
+        mime_type: 'application/pdf',
+        storage_uri: 's3://bucket/archive/file.pdf',
+      }).success,
+    ).toBe(false);
+
+    const document = schema.insertSourceDocumentSchema.parse({
+      tenant_id: 'tenant-1',
+      space_id: 'space-1',
+      file_blob_id: null,
+      filename: 'https-example',
+      source_type: 'url',
+      metadata_json: {
+        source_url: 'https://example.com/doc',
+        tags: ['auth'],
+        processing_strategy: 'immediate',
+      },
+    });
+    expect(document.status).toBe('uploaded');
+    expect(document.metadata_json.processing_strategy).toBe('immediate');
+    expect(schema.insertSourceDocumentSchema.safeParse({ ...document, status: 'failed' }).success).toBe(false);
+    expect(
+      schema.sourceDocumentMetadataSchema.safeParse({
+        processing_strategy: 'manual',
+      }).success,
+    ).toBe(false);
+  });
+
   it('requires tenant_id on all core business tables', () => {
     for (const table of tenantScopedTables) {
       expect(table.tenant_id.notNull).toBe(true);
@@ -120,4 +162,6 @@ const tenantScopedTables = [
   schema.audit_logs,
   schema.sessions,
   schema.system_settings,
+  schema.file_blobs,
+  schema.source_documents,
 ] as const satisfies readonly { tenant_id: { notNull: boolean } }[];

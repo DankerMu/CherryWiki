@@ -1,6 +1,7 @@
 import { Readable } from 'node:stream';
 import { Inject, Injectable, Optional, type OnModuleInit } from '@nestjs/common';
 import {
+  CopyObjectCommand,
   CreateBucketCommand,
   DeleteObjectCommand,
   GetObjectCommand,
@@ -19,6 +20,7 @@ import {
   DEFAULT_PRESIGNED_URL_EXPIRES_IN_SECONDS,
   PRIMARY_STORAGE_BUCKET,
   REQUIRED_STORAGE_BUCKETS,
+  STORAGE_BUCKET_NAMES,
   STORAGE_BUCKET_INIT_TIMEOUT_MS,
   STORAGE_CLIENT,
   STORAGE_HEALTH_TIMEOUT_MS,
@@ -43,6 +45,28 @@ type StorageHealthComponent = {
   status: StorageHealthStatus;
   latency_ms: number;
   error?: string;
+};
+type StorageObjectRef = {
+  bucket: string;
+  key: string;
+  uri: string;
+};
+type QuarantineUploadInput = {
+  tenantId: string;
+  spaceId: string;
+  uploadId: string;
+  filename: string;
+  body: Buffer;
+  contentType: string;
+  maxBytes?: number;
+};
+type PromoteToArchiveInput = {
+  tenantId: string;
+  spaceId: string;
+  quarantineKey: string;
+  sha256: string;
+  filename: string;
+  archivedAt?: Date;
 };
 
 const DEFAULT_MINIO_REGION = 'us-east-1';
@@ -94,6 +118,40 @@ export class StorageService implements OnModuleInit {
         ContentType: contentType,
       }),
     );
+  }
+
+  async uploadToQuarantine(input: QuarantineUploadInput): Promise<StorageObjectRef> {
+    const bucket = getBucketName(STORAGE_BUCKET_NAMES.QUARANTINE);
+    const key = ArchivePathHelper.quarantinePath(input);
+
+    await this.upload(bucket, key, input.body, input.contentType, input.maxBytes);
+
+    return toStorageObjectRef(bucket, key);
+  }
+
+  async promoteToArchive(input: PromoteToArchiveInput): Promise<StorageObjectRef> {
+    const client = this.getClient();
+    const sourceBucket = getBucketName(STORAGE_BUCKET_NAMES.QUARANTINE);
+    const archiveBucket = getBucketName(STORAGE_BUCKET_NAMES.ARCHIVES);
+    const archiveKey = ArchivePathHelper.originalFilePath(input);
+
+    this.validateKey(input.quarantineKey);
+    this.validateKey(archiveKey);
+
+    await client.send(
+      new CopyObjectCommand({
+        Bucket: archiveBucket,
+        Key: archiveKey,
+        CopySource: buildCopySource(sourceBucket, input.quarantineKey),
+      }),
+    );
+    await this.deleteQuarantineFile(input.quarantineKey);
+
+    return toStorageObjectRef(archiveBucket, archiveKey);
+  }
+
+  async deleteQuarantineFile(key: string): Promise<void> {
+    await this.delete(getBucketName(STORAGE_BUCKET_NAMES.QUARANTINE), key);
   }
 
   async download(bucket: string, key: string): Promise<Readable> {
@@ -252,6 +310,62 @@ export class StorageService implements OnModuleInit {
   }
 }
 
+export class ArchivePathHelper {
+  static quarantinePath(input: Pick<QuarantineUploadInput, 'tenantId' | 'spaceId' | 'uploadId' | 'filename'>): string {
+    return `quarantine/${sanitizePathSegment(input.tenantId)}/${sanitizePathSegment(input.spaceId)}/${sanitizePathSegment(
+      input.uploadId,
+    )}_${sanitizeFilename(input.filename)}`;
+  }
+
+  static originalFilePath(input: Pick<PromoteToArchiveInput, 'tenantId' | 'spaceId' | 'sha256' | 'filename'> & {
+    archivedAt?: Date;
+  }): string {
+    const archivedAt = input.archivedAt ?? new Date();
+    const { year, month, day } = toDatePathParts(archivedAt);
+    const sha = input.sha256.toLowerCase();
+
+    return `archive/${sanitizePathSegment(input.tenantId)}/${sanitizePathSegment(input.spaceId)}/${year}/${month}/${day}/${sha}_${sanitizeFilename(
+      input.filename,
+    )}`;
+  }
+
+  static metadataPath(input: Pick<PromoteToArchiveInput, 'tenantId' | 'spaceId' | 'sha256'> & { archivedAt?: Date }): string {
+    return this.artifactPath(input, 'metadata.json');
+  }
+
+  static parsedMarkdownPath(input: Pick<PromoteToArchiveInput, 'tenantId' | 'spaceId' | 'sha256'> & { archivedAt?: Date }): string {
+    return this.artifactPath(input, 'parsed.md');
+  }
+
+  static previewPath(input: Pick<PromoteToArchiveInput, 'tenantId' | 'spaceId' | 'sha256'> & { archivedAt?: Date }): string {
+    return this.artifactPath(input, 'preview.txt');
+  }
+
+  static urlSnapshotPath(input: Pick<PromoteToArchiveInput, 'tenantId' | 'spaceId' | 'sha256'> & {
+    archivedAt?: Date;
+    hostname: string;
+  }): string {
+    const archivedAt = input.archivedAt ?? new Date();
+    const { year, month, day } = toDatePathParts(archivedAt);
+    const sha = input.sha256.toLowerCase();
+
+    return `archive/${sanitizePathSegment(input.tenantId)}/${sanitizePathSegment(input.spaceId)}/${year}/${month}/${day}/${sha}_${sanitizeFilename(
+      input.hostname,
+    )}.snapshot`;
+  }
+
+  private static artifactPath(
+    input: Pick<PromoteToArchiveInput, 'tenantId' | 'spaceId' | 'sha256'> & { archivedAt?: Date },
+    suffix: string,
+  ): string {
+    const archivedAt = input.archivedAt ?? new Date();
+    const { year, month, day } = toDatePathParts(archivedAt);
+    const sha = input.sha256.toLowerCase();
+
+    return `archive/${sanitizePathSegment(input.tenantId)}/${sanitizePathSegment(input.spaceId)}/${year}/${month}/${day}/${sha}.${suffix}`;
+  }
+}
+
 export function createStorageClient(): S3Client | undefined {
   const config = resolveStorageConfig();
   if (config === undefined) {
@@ -330,6 +444,43 @@ function createS3ClientConfig(config: StorageResolvedConfig): S3ClientConfig {
         forcePathStyle: config.forcePathStyle,
         credentials: config.credentials,
       };
+}
+
+function toStorageObjectRef(bucket: string, key: string): StorageObjectRef {
+  return {
+    bucket,
+    key,
+    uri: `s3://${bucket}/${key}`,
+  };
+}
+
+function buildCopySource(bucket: string, key: string): string {
+  const encodedKey = key.split('/').map(encodeURIComponent).join('/');
+  return `${encodeURIComponent(bucket)}/${encodedKey}`;
+}
+
+function toDatePathParts(value: Date): { year: string; month: string; day: string } {
+  const year = String(value.getUTCFullYear()).padStart(4, '0');
+  const month = String(value.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(value.getUTCDate()).padStart(2, '0');
+
+  return { year, month, day };
+}
+
+function sanitizePathSegment(value: string): string {
+  return sanitizeFilename(value);
+}
+
+function sanitizeFilename(value: string): string {
+  const sanitized = value
+    .trim()
+    .replace(/[^\w.-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^\.+/, '')
+    .replace(/\.+$/, '');
+
+  const withoutTraversal = sanitized.replace(/\.\.+/g, '_');
+  return withoutTraversal.length === 0 ? 'file' : withoutTraversal.slice(0, 255);
 }
 
 function createBucketInput(bucket: string, config: StorageResolvedConfig): CreateBucketCommandInput {

@@ -14,4 +14,9 @@ describe('auth constants', () => {
   it('grants all permissions to Owner', () => {
     expect(ROLE_PERMISSIONS[ROLES.OWNER]).toEqual(PERMISSION_POINTS);
   });
+
+  it('grants upload permissions to admin and upload read to viewer', () => {
+    expect(ROLE_PERMISSIONS[ROLES.ADMIN]).toEqual(expect.arrayContaining(['upload:create', 'upload:read']));
+    expect(ROLE_PERMISSIONS[ROLES.VIEWER]).toContain('upload:read');
+  });
 });

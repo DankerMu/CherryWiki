@@ -1111,6 +1111,15 @@ paths:
                 title: { type: string }
                 tags: { type: array, items: { type: string } }
                 auto_graphify: { type: boolean, default: false }
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url: { type: string, format: uri, description: "URL to fetch (source_type=url)" }
+                title: { type: string }
+                tags: { type: array, items: { type: string } }
+                auto_graphify: { type: boolean, default: false }
       responses:
         '201':
           description: Document uploaded
@@ -1126,7 +1135,18 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
-        '422': { $ref: '#/components/responses/ValidationError' }
+        '422':
+          description: Validation error or security rejection
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: '#/components/schemas/ErrorResponse' }
+                  - type: object
+                    properties:
+                      code:
+                        type: string
+                        enum: [SSRF_BLOCKED, MIME_MISMATCH, ZIP_BOMB_DETECTED, PATH_TRAVERSAL_DETECTED, ZIP_NESTING_EXCEEDED, UNSUPPORTED_FILE_TYPE]
         '429': { $ref: '#/components/responses/RateLimitError' }
 
   /uploads/{source_document_id}:

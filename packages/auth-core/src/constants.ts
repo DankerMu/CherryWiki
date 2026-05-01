@@ -34,6 +34,7 @@ export const ROLE_PERMISSIONS = {
     'space:view',
     'space:edit',
     'space:admin',
+    'upload:create',
     'upload:read',
     'graphify:run',
     'graphify:view',
@@ -65,7 +66,7 @@ export const ROLE_PERMISSIONS = {
     'chat:use',
     'model:use',
   ],
-  [ROLES.VIEWER]: ['space:view', 'chat:use', 'model:use'],
+  [ROLES.VIEWER]: ['space:view', 'upload:read', 'chat:use', 'model:use'],
   [ROLES.AUDITOR]: ['space:view', 'admin:audit_view'],
 } as const satisfies Record<Role, readonly PermissionPoint[]>;
 

@@ -39,6 +39,16 @@ describe('ErrorCode', () => {
     expect(ErrorCode.EMBEDDING_LIMIT_EXCEEDED).toBe('EMBEDDING_LIMIT_EXCEEDED');
   });
 
+  it('contains upload module error codes', () => {
+    expect(ErrorCode.FILE_TOO_LARGE).toBe('FILE_TOO_LARGE');
+    expect(ErrorCode.UNSUPPORTED_FILE_TYPE).toBe('UNSUPPORTED_FILE_TYPE');
+    expect(ErrorCode.DUPLICATE_FILE).toBe('DUPLICATE_FILE');
+    expect(ErrorCode.INVALID_URL_FORMAT).toBe('INVALID_URL_FORMAT');
+    expect(ErrorCode.INVALID_URL_PROTOCOL).toBe('INVALID_URL_PROTOCOL');
+    expect(ErrorCode.UPLOAD_NOT_FOUND).toBe('UPLOAD_NOT_FOUND');
+    expect(ErrorCode.ILLEGAL_STATUS_TRANSITION).toBe('ILLEGAL_STATUS_TRANSITION');
+  });
+
   it('uses uppercase snake case for every value', () => {
     const uppercaseSnakeCase = /^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$/;
 
