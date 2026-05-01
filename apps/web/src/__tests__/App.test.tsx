@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
@@ -58,10 +59,11 @@ describe('App routing', () => {
     expect(screen.getByRole('heading', { name: 'Chat' })).toBeInTheDocument();
   });
 
-  it('renders Wiki for /wiki/test-space', () => {
-    renderRoute('/wiki/test-space');
+  it('renders Wiki for /spaces/:spaceId/wiki', async () => {
+    mockWikiListApi();
+    renderRoute('/spaces/test-space/wiki');
 
-    expect(screen.getByRole('heading', { name: 'Wiki' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Wiki' })).toBeInTheDocument();
   });
 
   it('renders Upload Center for /spaces/:spaceId/uploads when authenticated', async () => {
@@ -124,10 +126,12 @@ describe('App routing', () => {
     expect(screen.queryAllByRole('heading', { name: 'Chat' }).length).toBeGreaterThan(0);
   });
 
-  it('renders Wiki for /wiki/:spaceId/:pageId', () => {
-    renderRoute('/wiki/test-space/page-456');
+  it('renders Wiki for /spaces/:spaceId/wiki/:pageId', async () => {
+    mockWikiDetailApi();
+    renderRoute('/spaces/test-space/wiki/page-456');
 
-    expect(screen.queryAllByRole('heading', { name: 'Wiki' }).length).toBeGreaterThan(0);
+    expect(await screen.findByLabelText('Wiki page content')).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { name: 'Test Wiki Page' }).length).toBeGreaterThan(0);
   });
 
   it('renders NotFound for /nonexistent', () => {
@@ -343,6 +347,72 @@ function mockUploadApi(): void {
               total: 0,
               has_next: false,
             },
+          },
+        }));
+      }
+
+      return Promise.resolve(jsonResponse({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404));
+    }),
+  );
+}
+
+function mockWikiListApi(): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn<typeof fetch>((input) => {
+      const path = getRequestPath(input);
+
+      if (path.startsWith('/api/spaces/test-space/wiki/pages')) {
+        return Promise.resolve(jsonResponse({
+          data: [],
+          meta: {
+            request_id: 'req-wiki-pages',
+            pagination: {
+              page: 1,
+              per_page: 20,
+              total: 0,
+              has_next: false,
+            },
+          },
+        }));
+      }
+
+      return Promise.resolve(jsonResponse({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404));
+    }),
+  );
+}
+
+function mockWikiDetailApi(): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn<typeof fetch>((input) => {
+      const path = getRequestPath(input);
+
+      if (path === '/api/spaces/test-space/wiki/pages/page-456/content') {
+        return Promise.resolve(jsonResponse({
+          data: {
+            page_id: 'page-456',
+            version_id: 'version-1',
+            title: 'Test Wiki Page',
+            content_markdown: '# Test Wiki Page',
+          },
+        }));
+      }
+
+      if (path === '/api/spaces/test-space/wiki/pages/page-456') {
+        return Promise.resolve(jsonResponse({
+          data: {
+            id: 'row-page-456',
+            page_id: 'page-456',
+            space_id: 'test-space',
+            title: 'Test Wiki Page',
+            slug: 'test-wiki-page',
+            status: 'published',
+            current_version_id: 'version-1',
+            indexed_version_id: 'version-1',
+            sync_status: 'synced',
+            created_by: 'user-admin',
+            updated_at: '2026-05-01T10:00:00.000Z',
           },
         }));
       }
