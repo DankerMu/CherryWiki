@@ -324,6 +324,143 @@ describe('InternalJobsService', () => {
     expect(uploadsService.completeValidation).not.toHaveBeenCalled();
   });
 
+  it('links fetched URL snapshots and queues ingestion when a url_fetch job succeeds', async () => {
+    const db = createDb();
+    const redis = createRedisMock();
+    const uploadsService = {
+      linkBlob: vi.fn(() => Promise.resolve({
+        id: 'source-url',
+        status: 'archived',
+        sha256: 'a'.repeat(64),
+      })),
+    };
+    const service = new InternalJobsService(db.asDb() as never, redis.asClient() as never, uploadsService as never);
+    const runningJob = createJobRow({
+      tenant_id: 'tenant-1',
+      type: 'url_fetch',
+      status: JobStatus.RUNNING,
+      locked_by: 'worker-1',
+      locked_at: new Date('2026-04-30T11:55:00.000Z'),
+      started_at: new Date('2026-04-30T11:55:00.000Z'),
+      payload_json: {
+        source_document_id: 'source-url',
+        url: 'https://example.com/docs',
+      },
+      created_by: 'user-1',
+    });
+    const completedJob = createJobRow({
+      ...runningJob,
+      status: JobStatus.SUCCEEDED,
+      locked_by: null,
+      locked_at: null,
+      result_json: {
+        sha256: 'a'.repeat(64),
+        snapshot_uri: 's3://cherrywiki-archives/archive/tenant-1/space-1/2026/05/01/a_example.com.snapshot',
+        content_type: 'text/html',
+        size_bytes: 42,
+        hostname: 'example.com',
+      },
+      completed_at: new Date('2026-04-30T12:00:00.000Z'),
+    });
+
+    vi.spyOn(JobRepository, 'findById').mockResolvedValue(runningJob);
+    vi.spyOn(RedisJobLock, 'renew').mockResolvedValue(true);
+    vi.spyOn(JobStateMachine, 'transition').mockResolvedValue(completedJob);
+    vi.spyOn(JobEventRepository, 'create').mockResolvedValue({} as Awaited<ReturnType<typeof JobEventRepository.create>>);
+    vi.spyOn(RedisJobLock, 'release').mockResolvedValue(true);
+
+    await expect(
+      service.reportComplete('job-1', {
+        worker_id: 'worker-1',
+        result_json: completedJob.result_json as Record<string, unknown>,
+      }),
+    ).resolves.toMatchObject({
+      job_id: 'job-1',
+      status: JobStatus.SUCCEEDED,
+    });
+    expect(uploadsService.linkBlob).toHaveBeenCalledWith(
+      {
+        sourceDocumentId: 'source-url',
+        sha256: 'a'.repeat(64),
+        sizeBytes: 42,
+        mimeType: 'text/html',
+        storageUri: 's3://cherrywiki-archives/archive/tenant-1/space-1/2026/05/01/a_example.com.snapshot',
+        filename: 'example.com',
+      },
+      {
+        tenantId: 'tenant-1',
+        actorUserId: 'user-1',
+        userId: 'user-1',
+      },
+    );
+  });
+
+  it('records an audit event when a url_fetch job fails with ssrf_blocked', async () => {
+    const db = createDb();
+    const redis = createRedisMock();
+    const auditService = { push: vi.fn() };
+    const service = new InternalJobsService(db.asDb() as never, redis.asClient() as never, undefined, auditService as never);
+    const runningJob = createJobRow({
+      tenant_id: 'tenant-1',
+      space_id: 'space-1',
+      type: 'url_fetch',
+      status: JobStatus.RUNNING,
+      locked_by: 'worker-1',
+      locked_at: new Date('2026-04-30T11:55:00.000Z'),
+      started_at: new Date('2026-04-30T11:55:00.000Z'),
+      payload_json: {
+        source_document_id: 'source-url',
+        url: 'http://localhost/admin',
+      },
+      created_by: 'user-1',
+    });
+    const failedJob = createJobRow({
+      ...runningJob,
+      status: JobStatus.FAILED,
+      locked_by: null,
+      locked_at: null,
+      attempt_count: 1,
+      completed_at: new Date('2026-04-30T12:00:00.000Z'),
+    });
+    const errorJson = {
+      error_type: 'ssrf_blocked',
+      target_url: 'http://localhost/admin',
+      resolved_ip: '127.0.0.1',
+      block_reason: 'private_ip_localhost',
+      redirect_chain: [],
+    };
+
+    vi.spyOn(JobRepository, 'findById').mockResolvedValue(runningJob);
+    vi.spyOn(RedisJobLock, 'renew').mockResolvedValue(true);
+    vi.spyOn(JobStateMachine, 'transition').mockResolvedValue(failedJob);
+    vi.spyOn(JobEventRepository, 'create').mockResolvedValue({} as Awaited<ReturnType<typeof JobEventRepository.create>>);
+    vi.spyOn(RedisJobLock, 'release').mockResolvedValue(true);
+
+    await service.reportFailure('job-1', {
+      worker_id: 'worker-1',
+      error_json: errorJson,
+      retryable: false,
+    });
+
+    expect(auditService.push).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenant_id: 'tenant-1',
+        actor_user_id: 'user-1',
+        action: 'upload.ssrf_blocked',
+        resource_type: 'source_document',
+        resource_id: 'source-url',
+        space_id: 'space-1',
+        metadata_json: {
+          source_document_id: 'source-url',
+          target_url: 'http://localhost/admin',
+          resolved_ip: '127.0.0.1',
+          block_reason: 'private_ip_localhost',
+          redirect_chain: [],
+        },
+      }),
+    );
+  });
+
   it('fails a running job and schedules a retry when attempts remain', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-04-30T12:00:00.000Z'));
