@@ -46,6 +46,9 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    networks:
+      - default
+      - url_fetch_private
 
   cherry-api:
     image: cherrywiki/api:latest
@@ -89,6 +92,9 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    networks:
+      - default
+      - url_fetch_private
 
   cherry-web:
     image: cherrywiki/web:latest
@@ -157,22 +163,45 @@ services:
     cap_drop:
       - ALL
     environment:
-      NODE_ENV: production
-
-      DATABASE_URL: postgresql://cherrygraph:${POSTGRES_PASSWORD}@postgres:5432/cherrygraph
-      REDIS_URL: redis://redis:6379
+      CHERRY_API_URL: http://cherry-api:8080/api
+      WORKER_API_KEY: ${WORKER_API_KEY:?WORKER_API_KEY is required}
       MINIO_ENDPOINT: http://minio:9000
-      SSRF_BLOCKED_CIDRS: ${SSRF_BLOCKED_CIDRS:-127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,::1/128,fc00::/7}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      STORAGE_BUCKET_PREFIX: ${STORAGE_BUCKET_PREFIX:-cherrywiki}
+      DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-default}
+      HTTP_PROXY: ${HTTP_PROXY:-http://egress-proxy:3128}
+      HTTPS_PROXY: ${HTTPS_PROXY:-http://egress-proxy:3128}
+      NO_PROXY: ${NO_PROXY:-cherry-api,minio,localhost,127.0.0.1}
+      URL_FETCH_TIMEOUT_SECONDS: ${URL_FETCH_TIMEOUT_SECONDS:-30}
+      URL_FETCH_MAX_RESPONSE_BYTES: ${URL_FETCH_MAX_RESPONSE_BYTES:-52428800}
       WORKER_HEALTH_PORT: 9092
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:9092/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9092/health', timeout=2).read()\""]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
     depends_on:
-      redis:
+      cherry-api:
         condition: service_healthy
+      minio:
+        condition: service_healthy
+      egress-proxy:
+        condition: service_started
+    networks:
+      - url_fetch_private
+
+  egress-proxy:
+    image: ubuntu/squid:latest
+    restart: unless-stopped
+    volumes:
+      - ./ops/squid/squid.conf:/etc/squid/squid.conf:ro
+    expose:
+      - "3128"
+    networks:
+      - default
+      - url_fetch_private
 
   indexer-worker:
     image: cherrywiki/indexer-worker:latest
@@ -272,3 +301,8 @@ volumes:
   postgres_data:
   redis_data:
   minio_data:
+
+networks:
+  default:
+  url_fetch_private:
+    internal: true

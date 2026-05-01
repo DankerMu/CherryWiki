@@ -14,6 +14,7 @@ import { ErrorCode } from '@cherrygraph/shared';
 import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
+import { AuditService } from '../audit/audit.service.js';
 import { getApiLogger } from '../common/logger/logger.module.js';
 import { REDIS_CLIENT, type OptionalRedisClient } from '../common/redis/redis.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
@@ -51,6 +52,7 @@ export class InternalJobsService {
     @Inject(DRIZZLE) private readonly db: JobsDatabase,
     @Optional() @Inject(REDIS_CLIENT) private readonly redis?: OptionalRedisClient,
     @Optional() private readonly uploadsService?: UploadsService,
+    @Optional() private readonly auditService?: AuditService,
   ) {}
 
   async pollPendingJobs(type: string, limit: number): Promise<JobDto[]> {
@@ -219,6 +221,7 @@ export class InternalJobsService {
       });
 
       await this.releaseJobLock(job.id, input.worker_id);
+      await this.handleFailedJob(job, input.error_json);
       return {
         job: toJobDto(nextJob),
         will_retry: willRetry,
@@ -459,12 +462,15 @@ export class InternalJobsService {
   }
 
   private async handleSuccessfulJobCompletion(job: JobRow): Promise<void> {
+    if (job.type === 'url_fetch') {
+      await this.handleUrlFetchCompletion(job);
+      return;
+    }
+
     if (job.type !== 'validation') {
       return;
     }
-    if (this.uploadsService === undefined) {
-      throwApiError(ErrorCode.INTERNAL_ERROR, 'Uploads service is not configured', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
+    const uploadsService = this.getRequiredUploadsService();
 
     const payload = asJsonRecord(job.payload_json);
     const sourceDocumentId = typeof payload.source_document_id === 'string' ? payload.source_document_id : undefined;
@@ -474,7 +480,7 @@ export class InternalJobsService {
     }
 
     try {
-      const validation = await this.uploadsService.validateQuarantinedUpload(
+      const validation = await uploadsService.validateQuarantinedUpload(
         {
           sourceDocumentId,
           quarantineKey,
@@ -488,7 +494,7 @@ export class InternalJobsService {
         return;
       }
 
-      await this.uploadsService.completeValidation(
+      await uploadsService.completeValidation(
         {
           sourceDocumentId,
           quarantineKey,
@@ -505,11 +511,87 @@ export class InternalJobsService {
       );
     }
   }
+
+  private async handleUrlFetchCompletion(job: JobRow): Promise<void> {
+    const uploadsService = this.getRequiredUploadsService();
+    const payload = asJsonRecord(job.payload_json);
+    const result = asJsonRecord(job.result_json);
+    const sourceDocumentId = readString(payload.source_document_id) ?? readString(result.source_document_id);
+    const sha256 = readString(result.sha256);
+    const snapshotUri = readString(result.snapshot_uri);
+    const contentType = readString(result.content_type);
+    const sizeBytes = readFiniteInteger(result.size_bytes);
+    const hostname = readString(result.hostname);
+
+    if (sourceDocumentId === undefined || sha256 === undefined || snapshotUri === undefined || contentType === undefined || sizeBytes === undefined) {
+      throwApiError(ErrorCode.INTERNAL_ERROR, 'URL fetch result is missing source_document_id, sha256, snapshot_uri, content_type, or size_bytes', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    try {
+      await uploadsService.linkBlob(
+        {
+          sourceDocumentId,
+          sha256,
+          sizeBytes,
+          mimeType: contentType,
+          storageUri: snapshotUri,
+          ...(hostname !== undefined ? { filename: hostname } : {}),
+        },
+        {
+          tenantId: job.tenant_id,
+          ...(job.created_by !== null ? { actorUserId: job.created_by, userId: job.created_by } : {}),
+        },
+      );
+    } catch (err) {
+      getApiLogger().error(
+        { err, job_id: job.id, source_document_id: sourceDocumentId },
+        'URL fetch job succeeded but linkBlob/ingestion chaining failed — document may require manual reprocessing',
+      );
+    }
+  }
+
+  private async handleFailedJob(job: JobRow, errorJson: Record<string, unknown>): Promise<void> {
+    if (job.type !== 'url_fetch') {
+      return;
+    }
+
+    const error = asJsonRecord(errorJson);
+    if (error.error_type !== 'ssrf_blocked') {
+      return;
+    }
+
+    const payload = asJsonRecord(job.payload_json);
+    const sourceDocumentId = readString(payload.source_document_id);
+    this.auditService?.push({
+      tenant_id: job.tenant_id,
+      ...(job.created_by !== null ? { actor_user_id: job.created_by } : {}),
+      action: 'upload.ssrf_blocked',
+      resource_type: 'source_document',
+      ...(sourceDocumentId !== undefined ? { resource_id: sourceDocumentId } : {}),
+      ...(job.space_id !== null ? { space_id: job.space_id } : {}),
+      metadata_json: {
+        source_document_id: sourceDocumentId,
+        target_url: readString(error.target_url) ?? readString(payload.url),
+        resolved_ip: readString(error.resolved_ip),
+        block_reason: readString(error.block_reason),
+        redirect_chain: Array.isArray(error.redirect_chain) ? error.redirect_chain : [],
+      },
+    });
+  }
+
+  private getRequiredUploadsService(): UploadsService {
+    if (this.uploadsService === undefined) {
+      throwApiError(ErrorCode.INTERNAL_ERROR, 'Uploads service is not configured', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    return this.uploadsService;
+  }
 }
 
 function toJobDto(job: JobRow, progress: JobProgressDto | null = null): JobDto {
   return {
     job_id: job.id,
+    tenant_id: job.tenant_id,
     type: job.type,
     status: job.status,
     space_id: job.space_id,
@@ -593,4 +675,16 @@ function isJobStatus(status: string, expected: JobStatus): boolean {
 
 function asJsonRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+}
+
+function readFiniteInteger(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return undefined;
+  }
+
+  return Math.trunc(value);
 }

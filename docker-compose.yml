@@ -51,6 +51,9 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    networks:
+      - default
+      - url_fetch_private
 
   cherry-api:
     image: node:20-slim
@@ -105,6 +108,9 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    networks:
+      - default
+      - url_fetch_private
 
   cherry-web:
     image: node:20-slim
@@ -170,42 +176,62 @@ services:
         condition: service_healthy
 
   url-fetcher-worker:
-    image: node:20-slim
+    build:
+      context: ./apps/url-fetcher-worker
+      dockerfile: Dockerfile
     restart: unless-stopped
-    working_dir: /app
-    command: >-
-      sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm build && node apps/url-fetcher-worker/dist/main.js"
     mem_limit: 1g
     cpus: 0.5
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     environment:
-      NODE_ENV: ${NODE_ENV:-development}
-      DATABASE_URL: ${DATABASE_URL:-postgresql://cherrygraph:cherrygraph_dev@postgres:5432/cherrygraph}
-      REDIS_URL: ${COMPOSE_REDIS_URL:-redis://redis:6379}
+      CHERRY_API_URL: ${CHERRY_API_URL:-http://cherry-api:8080/api}
+      WORKER_API_KEY: ${WORKER_API_KEY:-dev-worker-api-key}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
-      EGRESS_PROXY_URL: ${EGRESS_PROXY_URL:-}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin_dev_secret}
+      STORAGE_BUCKET_PREFIX: ${STORAGE_BUCKET_PREFIX:-cherrywiki}
+      DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-default}
+      HTTP_PROXY: ${HTTP_PROXY:-http://egress-proxy:3128}
+      HTTPS_PROXY: ${HTTPS_PROXY:-http://egress-proxy:3128}
+      NO_PROXY: ${NO_PROXY:-cherry-api,minio,localhost,127.0.0.1}
       URL_FETCH_TIMEOUT_SECONDS: ${URL_FETCH_TIMEOUT_SECONDS:-30}
       URL_FETCH_MAX_RESPONSE_BYTES: ${URL_FETCH_MAX_RESPONSE_BYTES:-52428800}
-      SSRF_BLOCKED_CIDRS: ${SSRF_BLOCKED_CIDRS:-127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,::1/128,fc00::/7}
       WORKER_HEALTH_PORT: 9092
-    volumes:
-      - .:/app
-      - fetcher_node_modules:/app/node_modules
-      - fetcher_pnpm_store:/app/.pnpm-store
     expose:
       - "9092"
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "curl -f http://localhost:9092/health || node -e \"fetch('http://localhost:9092/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9092/health', timeout=2).read()\"",
         ]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 180s
     depends_on:
-      redis:
+      cherry-api:
         condition: service_healthy
+      minio:
+        condition: service_healthy
+      egress-proxy:
+        condition: service_started
+    networks:
+      - url_fetch_private
+
+  egress-proxy:
+    image: ubuntu/squid:latest
+    restart: unless-stopped
+    volumes:
+      - ./ops/squid/squid.conf:/etc/squid/squid.conf:ro
+    expose:
+      - "3128"
+    networks:
+      - default
+      - url_fetch_private
 
   indexer-worker:
     image: node:20-slim
@@ -408,11 +434,14 @@ volumes:
   api_pnpm_store:
   web_node_modules:
   web_pnpm_store:
-  fetcher_node_modules:
-  fetcher_pnpm_store:
   indexer_node_modules:
   indexer_pnpm_store:
   docmost_storage:
   docmost_db_data:
   docmost_redis_data:
   wiki_repo:
+
+networks:
+  default:
+  url_fetch_private:
+    internal: true

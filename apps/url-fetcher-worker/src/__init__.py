@@ -1,0 +1,1 @@
+"""CherryWiki URL fetcher worker."""
