@@ -47,6 +47,12 @@ describe('ErrorCode', () => {
     expect(ErrorCode.INVALID_URL_PROTOCOL).toBe('INVALID_URL_PROTOCOL');
     expect(ErrorCode.UPLOAD_NOT_FOUND).toBe('UPLOAD_NOT_FOUND');
     expect(ErrorCode.ILLEGAL_STATUS_TRANSITION).toBe('ILLEGAL_STATUS_TRANSITION');
+    expect(ErrorCode.MIME_MISMATCH).toBe('MIME_MISMATCH');
+    expect(ErrorCode.ZIP_BOMB_DETECTED).toBe('ZIP_BOMB_DETECTED');
+    expect(ErrorCode.PATH_TRAVERSAL_DETECTED).toBe('PATH_TRAVERSAL_DETECTED');
+    expect(ErrorCode.ZIP_NESTING_EXCEEDED).toBe('ZIP_NESTING_EXCEEDED');
+    expect(ErrorCode.ZIP_SYMLINK_DETECTED).toBe('ZIP_SYMLINK_DETECTED');
+    expect(ErrorCode.PROMPT_INJECTION_DETECTED).toBe('PROMPT_INJECTION_DETECTED');
   });
 
   it('uses uppercase snake case for every value', () => {

@@ -28,6 +28,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "drizzle-orm": "^0.45.2",
+    "file-type": "^22.0.1",
     "ioredis": "^5.10.1",
     "jose": "^6.2.3",
     "pg": "^8.20.0",
@@ -35,7 +36,8 @@
     "pino-http": "^11.0.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "uuid": "^14.0.0"
+    "uuid": "^14.0.0",
+    "yauzl": "^3.3.0"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.21",
@@ -43,6 +45,7 @@
     "@types/node": "^20.19.0",
     "@types/pg": "^8.20.0",
     "@types/supertest": "^7.2.0",
+    "@types/yauzl": "^2.10.3",
     "supertest": "^7.2.2",
     "typescript": "^5.9.3",
     "vitest": "^4.0.7"

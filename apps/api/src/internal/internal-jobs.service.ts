@@ -474,6 +474,20 @@ export class InternalJobsService {
     }
 
     try {
+      const validation = await this.uploadsService.validateQuarantinedUpload(
+        {
+          sourceDocumentId,
+          quarantineKey,
+        },
+        {
+          tenantId: job.tenant_id,
+          ...(job.created_by !== null ? { actorUserId: job.created_by, userId: job.created_by } : {}),
+        },
+      );
+      if (!validation.pass) {
+        return;
+      }
+
       await this.uploadsService.completeValidation(
         {
           sourceDocumentId,

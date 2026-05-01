@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import type { ErrorCode } from '@cherrygraph/shared';
 
 import { PaginationQueryDto } from '../common/dto/pagination.dto.js';
 
@@ -75,6 +76,7 @@ export type UploadResponseDto = {
   job_id: string | null;
   status: string;
   created: boolean;
+  error_code?: ErrorCode;
 };
 
 export type UploadDetailDto = {

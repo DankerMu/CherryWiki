@@ -23,6 +23,10 @@ import {
 } from '../uploads.repository.js';
 import { UPLOAD_MAX_BYTES } from '../uploads.constants.js';
 import { UploadsService, type UploadContext } from '../uploads.service.js';
+import { MimeValidator } from '../validators/mime-validator.js';
+import { PromptInjectionScanner } from '../validators/prompt-injection-scanner.js';
+import { ValidationPipeline, type RecordedValidationPipelineResult } from '../validators/validation-pipeline.js';
+import { ZipValidator } from '../validators/zip-validator.js';
 
 describe('UploadsService', () => {
   afterEach(() => {
@@ -196,6 +200,35 @@ describe('UploadsService', () => {
     expect(err.getStatus()).toBe(413);
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.FILE_TOO_LARGE);
     expect(storage.uploadToQuarantine).not.toHaveBeenCalled();
+  });
+
+  it('returns 422 and records rejection when synchronous validation rejects a disguised binary upload', async () => {
+    const { service, db, storage, sourceDocuments } = createServiceContext({ validation: 'real' });
+    db.queueSelect([{ id: TEST_SPACE_ID }]);
+
+    const err = await getRejectedHttpException(
+      service.uploadFile(
+        {
+          spaceId: TEST_SPACE_ID,
+          file: createUploadedFile(Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46]), Buffer.alloc(128)]), {
+            originalname: 'report.pdf',
+            mimetype: 'application/pdf',
+          }),
+        },
+        createAdminContext(),
+      ),
+    );
+
+    expect(err.getStatus()).toBe(422);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.MIME_MISMATCH);
+    expect(getHttpExceptionErrorCode(err)).toBe(ErrorCode.MIME_MISMATCH);
+    expect(sourceDocuments.rows[0]).toMatchObject({
+      status: 'security_rejected',
+      metadata_json: {
+        rejection_reason: ErrorCode.MIME_MISMATCH,
+      },
+    });
+    expect(storage.promoteToArchive).not.toHaveBeenCalled();
   });
 
   it('creates URL upload source documents and url-fetch jobs', async () => {
@@ -438,7 +471,7 @@ describe('UploadsService', () => {
   });
 });
 
-function createServiceContext(): {
+function createServiceContext(options: { validation?: 'pass' | 'real' } = {}): {
   service: UploadsService;
   db: ScriptedDb;
   storage: FakeStorageService;
@@ -452,14 +485,31 @@ function createServiceContext(): {
   const sourceDocuments = new InMemorySourceDocumentRepository();
   const jobs = new JobCreateHarness();
   vi.spyOn(JobRepository, 'create').mockImplementation((jobDb, data) => jobs.create(jobDb, data));
+  const validationPipeline =
+    options.validation === 'real'
+      ? new ValidationPipeline(
+          new MimeValidator(),
+          new ZipValidator(),
+          new PromptInjectionScanner(),
+          sourceDocuments as unknown as SourceDocumentRepository,
+        )
+      : createPassingValidationPipeline();
   const service = new UploadsService(
     db.asDrizzle(),
     storage as unknown as StorageService,
     fileBlobs as unknown as FileBlobRepository,
     sourceDocuments as unknown as SourceDocumentRepository,
+    validationPipeline as unknown as ValidationPipeline,
   );
 
   return { service, db, storage, fileBlobs, sourceDocuments, jobs };
+}
+
+function createPassingValidationPipeline(): Pick<ValidationPipeline, 'validateAndRecord' | 'markPromptInjectionScan'> {
+  return {
+    validateAndRecord: vi.fn((): Promise<RecordedValidationPipelineResult> => Promise.resolve({ pass: true })),
+    markPromptInjectionScan: vi.fn((sourceDocument: SourceDocumentRow) => Promise.resolve(sourceDocument)),
+  };
 }
 
 class FakeStorageService {
@@ -709,6 +759,19 @@ function createUploadedFile(
 
 function sha256Hex(buffer: Buffer): string {
   return createHash('sha256').update(buffer).digest('hex');
+}
+
+function getHttpExceptionErrorCode(err: unknown): unknown {
+  if (!(err instanceof Error) || !('getResponse' in err) || typeof err.getResponse !== 'function') {
+    return undefined;
+  }
+
+  const response = err.getResponse() as unknown;
+  if (typeof response !== 'object' || response === null || !('error_code' in response)) {
+    return undefined;
+  }
+
+  return (response as Record<string, unknown>).error_code;
 }
 
 function createJobRow(overrides: Partial<JobRow> = {}): JobRow {
