@@ -64,6 +64,13 @@ describe('App routing', () => {
     expect(screen.getByRole('heading', { name: 'Wiki' })).toBeInTheDocument();
   });
 
+  it('renders Upload Center for /spaces/:spaceId/uploads when authenticated', async () => {
+    mockUploadApi();
+    renderRoute('/spaces/test-space/uploads', ADMIN_USER);
+
+    expect(await screen.findByRole('heading', { name: 'Upload Center' })).toBeInTheDocument();
+  });
+
   it('redirects unauthenticated admin users to /login', () => {
     renderRoute('/admin');
 
@@ -311,6 +318,32 @@ function mockAdminApi(): void {
             },
           },
           meta: { request_id: 'req-health' },
+        }));
+      }
+
+      return Promise.resolve(jsonResponse({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404));
+    }),
+  );
+}
+
+function mockUploadApi(): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn<typeof fetch>((input) => {
+      const path = getRequestPath(input);
+
+      if (path.startsWith('/api/spaces/test-space/uploads')) {
+        return Promise.resolve(jsonResponse({
+          data: [],
+          meta: {
+            request_id: 'req-uploads',
+            pagination: {
+              page: 1,
+              per_page: 20,
+              total: 0,
+              has_next: false,
+            },
+          },
         }));
       }
 
