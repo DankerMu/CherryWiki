@@ -107,7 +107,7 @@ export class UploadsService {
     const sha256 = createHash('sha256').update(input.file.buffer).digest('hex');
     const now = new Date();
     const batchId = await this.assignBatchId(tenantId, input.spaceId, now);
-    const baseMetadata = await this.normalizeMetadata(input.metadata, { batchId });
+    const baseMetadata = this.normalizeMetadata(input.metadata, { batchId });
     const existingBlob = await this.fileBlobRepository.findByTenantAndSha256(tenantId, sha256);
 
     if (existingBlob !== undefined) {
@@ -256,7 +256,7 @@ export class UploadsService {
 
     const url = parseHttpUrl(input.url);
     const batchId = await this.assignBatchId(tenantId, input.spaceId, new Date());
-    const metadata = await this.normalizeMetadata(input.metadata, {
+    const metadata = this.normalizeMetadata(input.metadata, {
       batchId,
       sourceUrl: url.toString(),
     });

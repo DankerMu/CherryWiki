@@ -313,7 +313,7 @@ function readMultipartStringField(fields: MultipartFile['fields'], key: keyof Cr
     return undefined;
   }
 
-  return String(value.value);
+  return JSON.stringify(value.value);
 }
 
 function isMultipartFileTooLargeError(err: unknown): boolean {

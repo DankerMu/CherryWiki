@@ -45,7 +45,7 @@ describe('UploadsController', () => {
     expect(service.uploadFile).toHaveBeenCalledWith(
       expect.objectContaining({
         spaceId: TEST_SPACE_ID,
-        file: expect.objectContaining({ originalname: 'report.pdf' }),
+        file: expect.objectContaining({ originalname: 'report.pdf' }) as Record<string, unknown>,
       }),
       expect.objectContaining({
         tenantId: TEST_TENANT_ID,
@@ -220,7 +220,7 @@ function createMultipartRequest(
   return {
     ...createRequest(),
     isMultipart: vi.fn(() => true),
-    file: vi.fn(async () => ({
+    file: vi.fn(() => Promise.resolve({
       type: 'file' as const,
       fieldname: 'file',
       filename: options.filename,
@@ -231,8 +231,8 @@ function createMultipartRequest(
   };
 }
 
-async function* toAsyncChunks(buffer: Buffer): AsyncIterable<Buffer> {
-  yield buffer;
+async function* toAsyncChunks(buffer: Buffer): AsyncGenerator<Buffer> {
+  yield await Promise.resolve(buffer);
 }
 
 function createResponse(): {
@@ -245,5 +245,5 @@ function createResponse(): {
 
 function getMetadata(methodName: keyof UploadsController): unknown {
   const descriptor = Object.getOwnPropertyDescriptor(UploadsController.prototype, methodName);
-  return Reflect.getMetadata(PERMISSIONS_METADATA_KEY, descriptor?.value);
+  return Reflect.getMetadata(PERMISSIONS_METADATA_KEY, descriptor?.value as object);
 }

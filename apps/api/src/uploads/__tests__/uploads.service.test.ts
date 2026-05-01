@@ -47,7 +47,7 @@ describe('UploadsService', () => {
     );
 
     expect(result).toMatchObject({
-      file_blob_id: expect.any(String),
+      file_blob_id: expect.any(String) as string,
       job_id: 'job-1',
       status: 'archived',
       created: true,
@@ -59,7 +59,7 @@ describe('UploadsService', () => {
     expect(sourceDocuments.rows[0]?.metadata_json).toMatchObject({
       tags: ['auth'],
       processing_strategy: 'immediate',
-      archive_key: expect.stringContaining('archive/'),
+      archive_key: expect.stringContaining('archive/') as string,
     });
     expect(jobs.created[0]).toMatchObject({
       queue_name: 'ingestion',
@@ -137,8 +137,8 @@ describe('UploadsService', () => {
       priority: expectedPriority,
       payload_json: {
         source_document_id: 'source-1',
-        quarantine_uri: expect.stringContaining('quarantine/'),
-        quarantine_key: expect.stringContaining('quarantine/'),
+        quarantine_uri: expect.stringContaining('quarantine/') as string,
+        quarantine_key: expect.stringContaining('quarantine/') as string,
       },
     });
   });
@@ -328,7 +328,7 @@ describe('UploadsService', () => {
         processing_strategy: 'stash',
         parsed_uri: 's3://cherrywiki-parsed/source-1.md',
         preview_uri: 's3://cherrywiki-previews/source-1.json',
-        parsed_at: expect.any(String),
+        parsed_at: expect.any(String) as string,
       },
     });
   });
@@ -554,22 +554,22 @@ function createPassingValidationPipeline(): Pick<ValidationPipeline, 'validateAn
 }
 
 class FakeStorageService {
-  readonly uploadToQuarantine = vi.fn(async (input: Parameters<StorageService['uploadToQuarantine']>[0]) => {
+  readonly uploadToQuarantine = vi.fn((input: Parameters<StorageService['uploadToQuarantine']>[0]) => {
     const key = ArchivePathHelper.quarantinePath(input);
-    return {
+    return Promise.resolve({
       bucket: 'cherrywiki-uploads',
       key,
       uri: `s3://cherrywiki-uploads/${key}`,
-    };
+    });
   });
 
-  readonly promoteToArchive = vi.fn(async (input: Parameters<StorageService['promoteToArchive']>[0]) => {
+  readonly promoteToArchive = vi.fn((input: Parameters<StorageService['promoteToArchive']>[0]) => {
     const key = ArchivePathHelper.originalFilePath(input);
-    return {
+    return Promise.resolve({
       bucket: 'cherrywiki-archives',
       key,
       uri: `s3://cherrywiki-archives/${key}`,
-    };
+    });
   });
 
   readonly deleteQuarantineFile = vi.fn<StorageService['deleteQuarantineFile']>(() => Promise.resolve());
@@ -585,11 +585,11 @@ class InMemoryFileBlobRepository {
     return row;
   }
 
-  async create(input: Parameters<FileBlobRepository['create']>[0]): Promise<FileBlobRow> {
+  create(input: Parameters<FileBlobRepository['create']>[0]): Promise<FileBlobRow> {
     if (this.createError !== undefined) {
       const err = this.createError;
       delete this.createError;
-      throw err;
+      return Promise.reject(err);
     }
 
     const row = createFileBlobRow({
@@ -601,19 +601,19 @@ class InMemoryFileBlobRepository {
       storage_uri: input.storage_uri,
     });
     this.rows.push(row);
-    return row;
+    return Promise.resolve(row);
   }
 
-  async findByTenantAndSha256(tenantId: string, sha256: string): Promise<FileBlobRow | undefined> {
+  findByTenantAndSha256(tenantId: string, sha256: string): Promise<FileBlobRow | undefined> {
     if (this.findByShaQueue.length > 0) {
-      return this.findByShaQueue.shift();
+      return Promise.resolve(this.findByShaQueue.shift());
     }
 
-    return this.rows.find((row) => row.tenant_id === tenantId && row.sha256 === sha256);
+    return Promise.resolve(this.rows.find((row) => row.tenant_id === tenantId && row.sha256 === sha256));
   }
 
-  async findById(id: string): Promise<FileBlobRow | undefined> {
-    return this.rows.find((row) => row.id === id);
+  findById(id: string): Promise<FileBlobRow | undefined> {
+    return Promise.resolve(this.rows.find((row) => row.id === id));
   }
 
   async updateStorageUri(id: string, storageUri: string): Promise<FileBlobRow> {
@@ -635,7 +635,7 @@ class InMemorySourceDocumentRepository {
     return row;
   }
 
-  async create(input: Parameters<SourceDocumentRepository['create']>[0]): Promise<SourceDocumentRow> {
+  create(input: Parameters<SourceDocumentRepository['create']>[0]): Promise<SourceDocumentRow> {
     const row = createSourceDocumentRow({
       id: input.id ?? `source-${this.rows.length + 1}`,
       tenant_id: input.tenant_id,
@@ -650,21 +650,21 @@ class InMemorySourceDocumentRepository {
       metadata_json: input.metadata_json ?? {},
     });
     this.rows.push(row);
-    return row;
+    return Promise.resolve(row);
   }
 
-  async findById(id: string): Promise<SourceDocumentRow | undefined> {
-    return this.rows.find((row) => row.id === id);
+  findById(id: string): Promise<SourceDocumentRow | undefined> {
+    return Promise.resolve(this.rows.find((row) => row.id === id));
   }
 
-  async findBySpaceAndBlob(
+  findBySpaceAndBlob(
     tenantId: string,
     spaceId: string,
     fileBlobId: string,
   ): Promise<SourceDocumentRow | undefined> {
-    return this.rows.find(
+    return Promise.resolve(this.rows.find(
       (row) => row.tenant_id === tenantId && row.space_id === spaceId && row.file_blob_id === fileBlobId,
-    );
+    ));
   }
 
   async updateStatus(
@@ -714,24 +714,24 @@ class InMemorySourceDocumentRepository {
     return row;
   }
 
-  async findByFilter(): Promise<never> {
-    throw new Error('findByFilter is not used by these tests');
+  findByFilter(): Promise<never> {
+    return Promise.reject(new Error('findByFilter is not used by these tests'));
   }
 
-  async findRecentBatchId(tenantId: string, spaceId: string, since: Date): Promise<string | undefined> {
+  findRecentBatchId(tenantId: string, spaceId: string, since: Date): Promise<string | undefined> {
     const recent = [...this.rows]
       .reverse()
       .find((row) => row.tenant_id === tenantId && row.space_id === spaceId && row.created_at >= since);
     const metadata = recent?.metadata_json;
     if (typeof metadata === 'object' && metadata !== null && 'batch_id' in metadata && typeof metadata.batch_id === 'string') {
-      return metadata.batch_id;
+      return Promise.resolve(metadata.batch_id);
     }
 
-    return undefined;
+    return Promise.resolve(undefined);
   }
 
-  async findByBatch(tenantId: string, spaceId: string, batchId: string): Promise<SourceDocumentRow[]> {
-    return this.rows.filter((row) => {
+  findByBatch(tenantId: string, spaceId: string, batchId: string): Promise<SourceDocumentRow[]> {
+    return Promise.resolve(this.rows.filter((row) => {
       const metadata = row.metadata_json;
       return (
         row.tenant_id === tenantId &&
@@ -741,7 +741,7 @@ class InMemorySourceDocumentRepository {
         'batch_id' in metadata &&
         metadata.batch_id === batchId
       );
-    });
+    }));
   }
 }
 
@@ -749,11 +749,11 @@ class JobCreateHarness {
   readonly created: JobCreateInput[] = [];
   private readonly rowsByIdempotencyKey = new Map<string, JobRow>();
 
-  async create(_db: unknown, input: JobCreateInput): Promise<JobRow> {
+  create(_db: unknown, input: JobCreateInput): Promise<JobRow> {
     if (input.idempotency_key !== undefined && input.idempotency_key !== null) {
       const existing = this.rowsByIdempotencyKey.get(input.idempotency_key);
       if (existing !== undefined) {
-        return existing;
+        return Promise.resolve(existing);
       }
     }
 
@@ -773,7 +773,7 @@ class JobCreateHarness {
       this.rowsByIdempotencyKey.set(input.idempotency_key, row);
     }
 
-    return row;
+    return Promise.resolve(row);
   }
 }
 
@@ -803,11 +803,11 @@ function sha256Hex(buffer: Buffer): string {
 }
 
 function getHttpExceptionErrorCode(err: unknown): unknown {
-  if (!(err instanceof Error) || !('getResponse' in err) || typeof err.getResponse !== 'function') {
+  if (!(err instanceof Error) || !('getResponse' in err) || typeof (err as Record<string, unknown>).getResponse !== 'function') {
     return undefined;
   }
 
-  const response = err.getResponse() as unknown;
+  const response = ((err as Record<string, unknown>).getResponse as () => unknown)();
   if (typeof response !== 'object' || response === null || !('error_code' in response)) {
     return undefined;
   }
