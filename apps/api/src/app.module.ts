@@ -17,6 +17,7 @@ import { SpaceModule } from './spaces/space.module.js';
 import { StorageModule } from './storage/storage.module.js';
 import { UploadsModule } from './uploads/uploads.module.js';
 import { UserModule } from './users/user.module.js';
+import { WikiModule } from './wiki/wiki.module.js';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { UserModule } from './users/user.module.js';
     ModelConfigModule,
     StorageModule,
     UploadsModule,
+    WikiModule,
     HealthModule,
     AdminHealthModule,
   ],

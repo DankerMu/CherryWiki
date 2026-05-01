@@ -55,6 +55,12 @@ describe('ErrorCode', () => {
     expect(ErrorCode.PROMPT_INJECTION_DETECTED).toBe('PROMPT_INJECTION_DETECTED');
   });
 
+  it('contains wiki module error codes', () => {
+    expect(ErrorCode.WIKI_PAGE_NOT_FOUND).toBe('WIKI_PAGE_NOT_FOUND');
+    expect(ErrorCode.VERSION_NOT_FOUND).toBe('VERSION_NOT_FOUND');
+    expect(ErrorCode.VERSION_ALREADY_PUBLISHED).toBe('VERSION_ALREADY_PUBLISHED');
+  });
+
   it('uses uppercase snake case for every value', () => {
     const uppercaseSnakeCase = /^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$/;
 
