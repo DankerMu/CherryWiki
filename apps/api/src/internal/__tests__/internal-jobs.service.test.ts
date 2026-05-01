@@ -118,7 +118,7 @@ describe('InternalJobsService', () => {
     const eventSpy = vi
       .spyOn(JobEventRepository, 'create')
       .mockResolvedValue({} as Awaited<ReturnType<typeof JobEventRepository.create>>);
-    vi.spyOn(RedisJobLock, 'renew').mockResolvedValue(false);
+    vi.spyOn(RedisJobLock, 'acquire').mockResolvedValue(false);
 
     await expect(
       service.reportProgress('job-1', {
