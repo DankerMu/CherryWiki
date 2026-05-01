@@ -24,6 +24,24 @@ const validModelConfigInput = {
   model_type: 'chat',
 };
 
+const validWikiPageInput = {
+  tenant_id: 'tenant-1',
+  space_id: 'space-1',
+  page_id: 'rd-platform.community.community_1',
+  title: 'Community 1',
+  slug: 'Community_1',
+};
+
+const validWikiPageVersionInput = {
+  tenant_id: 'tenant-1',
+  space_id: 'space-1',
+  wiki_page_pk: 'wiki-page-pk-1',
+  page_id: 'rd-platform.community.community_1',
+  version_no: 1,
+  content_markdown: '# Community 1',
+  source: 'graphify',
+};
+
 describe('Zod schema validation', () => {
   it('validates insertUserSchema inputs', () => {
     expect(schema.insertUserSchema.safeParse(validUserInput).success).toBe(true);
@@ -151,6 +169,38 @@ describe('Zod schema validation', () => {
   });
 });
 
+describe('Wiki Zod validation', () => {
+  it('validates insertWikiPageSchema inputs', () => {
+    const parsed = schema.insertWikiPageSchema.parse({ ...validWikiPageInput, extra: 'ignored' });
+    expect(parsed.status).toBe('draft');
+    expect(Object.hasOwn(parsed, 'extra')).toBe(false);
+
+    const missingTitle: Record<string, unknown> = { ...validWikiPageInput };
+    delete missingTitle.title;
+    expect(schema.insertWikiPageSchema.safeParse(missingTitle).success).toBe(false);
+  });
+
+  it('validates insertWikiPageVersionSchema inputs', () => {
+    const parsed = schema.insertWikiPageVersionSchema.parse(validWikiPageVersionInput);
+    expect(parsed.frontmatter_json).toEqual({});
+    expect(parsed.status).toBe('draft');
+
+    expect(schema.insertWikiPageVersionSchema.safeParse({ ...validWikiPageVersionInput, source: 'crawler' }).success).toBe(false);
+  });
+
+  it('validates publishRequestSchema inputs', () => {
+    expect(schema.publishRequestSchema.safeParse({ version_id: 'version-1' }).success).toBe(true);
+    expect(schema.publishRequestSchema.safeParse({ version_id: 'version-1', publish_note: 'Ready' }).success).toBe(true);
+    expect(schema.publishRequestSchema.safeParse({ version_id: '' }).success).toBe(false);
+  });
+
+  it('validates rollbackRequestSchema inputs', () => {
+    expect(schema.rollbackRequestSchema.safeParse({ target_version_id: 'version-1' }).success).toBe(true);
+    expect(schema.rollbackRequestSchema.safeParse({ target_version_id: 'version-1', reason: 'Restore prior content' }).success).toBe(true);
+    expect(schema.rollbackRequestSchema.safeParse({ target_version_id: '' }).success).toBe(false);
+  });
+});
+
 const tenantScopedTables = [
   schema.users,
   schema.groups,
@@ -164,4 +214,8 @@ const tenantScopedTables = [
   schema.system_settings,
   schema.file_blobs,
   schema.source_documents,
+  schema.wikiPages,
+  schema.wikiPageVersions,
+  schema.wikiSections,
+  schema.sourceLinks,
 ] as const satisfies readonly { tenant_id: { notNull: boolean } }[];
