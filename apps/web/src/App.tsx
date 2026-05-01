@@ -15,6 +15,7 @@ import Home from './pages/Home';
 import Login from './pages/Login';
 import NotFound from './pages/NotFound';
 import Wiki from './pages/Wiki';
+import UploadCenter from './pages/uploads/UploadCenter';
 
 export function AppRoutes() {
   return (
@@ -25,6 +26,7 @@ export function AppRoutes() {
       <Route path="/chat/:id" element={<Chat />} />
       <Route path="/wiki/:spaceId" element={<Wiki />} />
       <Route path="/wiki/:spaceId/:pageId" element={<Wiki />} />
+      <Route path="/spaces/:spaceId/uploads" element={<UploadCenter />} />
       <Route
         path="/admin"
         element={
