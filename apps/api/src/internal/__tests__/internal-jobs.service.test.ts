@@ -194,6 +194,69 @@ describe('InternalJobsService', () => {
     expect(releaseSpy).toHaveBeenCalledWith(expect.anything(), 'job-1', 'worker-1');
   });
 
+  it('completes upload validation when a validation job succeeds', async () => {
+    const db = createDb();
+    const redis = createRedisMock();
+    const uploadsService = {
+      completeValidation: vi.fn(async () => ({
+        source_document_id: 'source-1',
+        file_blob_id: 'blob-1',
+        job_id: 'job-ingestion',
+        status: 'archived',
+        created: true,
+      })),
+    };
+    const service = new InternalJobsService(db.asDb() as never, redis.asClient() as never, uploadsService as never);
+    const runningJob = createJobRow({
+      tenant_id: 'tenant-1',
+      type: 'validation',
+      status: JobStatus.RUNNING,
+      locked_by: 'worker-1',
+      locked_at: new Date('2026-04-30T11:55:00.000Z'),
+      started_at: new Date('2026-04-30T11:55:00.000Z'),
+      payload_json: {
+        source_document_id: 'source-1',
+        quarantine_uri: 's3://cherrywiki-uploads/quarantine/tenant-1/space-1/upload-1.pdf',
+        quarantine_key: 'quarantine/tenant-1/space-1/upload-1.pdf',
+      },
+      created_by: 'user-1',
+    });
+    const completedJob = createJobRow({
+      ...runningJob,
+      status: JobStatus.SUCCEEDED,
+      locked_by: null,
+      locked_at: null,
+      completed_at: new Date('2026-04-30T12:00:00.000Z'),
+    });
+
+    vi.spyOn(JobRepository, 'findById').mockResolvedValue(runningJob);
+    vi.spyOn(RedisJobLock, 'renew').mockResolvedValue(true);
+    vi.spyOn(JobStateMachine, 'transition').mockResolvedValue(completedJob);
+    vi.spyOn(JobEventRepository, 'create').mockResolvedValue({} as Awaited<ReturnType<typeof JobEventRepository.create>>);
+    vi.spyOn(RedisJobLock, 'release').mockResolvedValue(true);
+
+    await expect(
+      service.reportComplete('job-1', {
+        worker_id: 'worker-1',
+        result_json: { clean: true },
+      }),
+    ).resolves.toMatchObject({
+      job_id: 'job-1',
+      status: JobStatus.SUCCEEDED,
+    });
+    expect(uploadsService.completeValidation).toHaveBeenCalledWith(
+      {
+        sourceDocumentId: 'source-1',
+        quarantineKey: 'quarantine/tenant-1/space-1/upload-1.pdf',
+      },
+      {
+        tenantId: 'tenant-1',
+        actorUserId: 'user-1',
+        userId: 'user-1',
+      },
+    );
+  });
+
   it('fails a running job and schedules a retry when attempts remain', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-04-30T12:00:00.000Z'));

@@ -149,7 +149,7 @@ describe('StorageService', () => {
     });
   });
 
-  it('builds canonical archive paths with date partitions and sha prefix', () => {
+  it('builds canonical archive paths with date partitions and full sha256', () => {
     expect(
       ArchivePathHelper.originalFilePath({
         tenantId: 't1',
@@ -158,7 +158,7 @@ describe('StorageService', () => {
         filename: 'report.pdf',
         archivedAt: new Date('2026-04-30T13:15:00.000Z'),
       }),
-    ).toBe('archive/t1/sp1/2026/04/30/abc12345_report.pdf');
+    ).toBe('archive/t1/sp1/2026/04/30/abc12345ffffffffffffffffffffffffffffffffffffffffffffffffffffffff_report.pdf');
   });
 
   it('promotes quarantine files by copying to archives and deleting quarantine', async () => {
@@ -176,14 +176,14 @@ describe('StorageService', () => {
 
     expect(result).toEqual({
       bucket: getBucketName(STORAGE_BUCKET_NAMES.ARCHIVES),
-      key: 'archive/tenant-1/space-1/2026/04/30/abc12345_report.pdf',
-      uri: `s3://${getBucketName(STORAGE_BUCKET_NAMES.ARCHIVES)}/archive/tenant-1/space-1/2026/04/30/abc12345_report.pdf`,
+      key: 'archive/tenant-1/space-1/2026/04/30/abc12345ffffffffffffffffffffffffffffffffffffffffffffffffffffffff_report.pdf',
+      uri: `s3://${getBucketName(STORAGE_BUCKET_NAMES.ARCHIVES)}/archive/tenant-1/space-1/2026/04/30/abc12345ffffffffffffffffffffffffffffffffffffffffffffffffffffffff_report.pdf`,
     });
     expect(sendMock).toHaveBeenCalledTimes(2);
     expect(sendMock.mock.calls[0]?.[0]).toBeInstanceOf(AwsCopyObjectCommand);
     expect(sendMock.mock.calls[0]?.[0].input).toEqual({
       Bucket: getBucketName(STORAGE_BUCKET_NAMES.ARCHIVES),
-      Key: 'archive/tenant-1/space-1/2026/04/30/abc12345_report.pdf',
+      Key: 'archive/tenant-1/space-1/2026/04/30/abc12345ffffffffffffffffffffffffffffffffffffffffffffffffffffffff_report.pdf',
       CopySource: `${getBucketName(STORAGE_BUCKET_NAMES.UPLOADS)}/quarantine/tenant-1/space-1/upload-1_report.pdf`,
     });
     expect(sendMock.mock.calls[1]?.[0]).toBeInstanceOf(AwsDeleteObjectCommand);

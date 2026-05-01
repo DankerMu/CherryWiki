@@ -31,14 +31,12 @@ describe('UploadsController', () => {
 
     const result = await controller.createUpload(
       TEST_SPACE_ID,
-      {
-        originalname: 'report.pdf',
-        mimetype: 'application/pdf',
-        size: 5,
-        buffer: Buffer.from('hello'),
-      },
       { processing_strategy: 'immediate' },
-      createRequest(),
+      createMultipartRequest(Buffer.from('hello'), {
+        filename: 'report.pdf',
+        mimetype: 'application/pdf',
+        fields: { processing_strategy: 'immediate' },
+      }),
       response,
     );
 
@@ -69,7 +67,6 @@ describe('UploadsController', () => {
 
     const result = await controller.createUpload(
       TEST_SPACE_ID,
-      undefined,
       { source_type: 'url', url: 'https://example.com/doc' },
       createRequest(),
       response,
@@ -99,14 +96,11 @@ describe('UploadsController', () => {
 
     await controller.createUpload(
       TEST_SPACE_ID,
-      {
-        originalname: 'report.pdf',
-        mimetype: 'application/pdf',
-        size: 5,
-        buffer: Buffer.from('hello'),
-      },
       {},
-      createRequest(),
+      createMultipartRequest(Buffer.from('hello'), {
+        filename: 'report.pdf',
+        mimetype: 'application/pdf',
+      }),
       response,
     );
 
@@ -117,7 +111,7 @@ describe('UploadsController', () => {
     const { controller } = createControllerContext();
 
     try {
-      await controller.createUpload(TEST_SPACE_ID, undefined, {}, createRequest(), createResponse());
+      await controller.createUpload(TEST_SPACE_ID, {}, createRequest(), createResponse());
     } catch (err) {
       expect(err).toBeInstanceOf(HttpException);
       expect((err as HttpException).getStatus()).toBe(400);
@@ -190,6 +184,55 @@ function createRequest(): {
       token_use: 'access',
     },
   };
+}
+
+function createMultipartRequest(
+  buffer: Buffer,
+  options: {
+    filename: string;
+    mimetype: string;
+    fields?: Record<string, string>;
+  },
+): ReturnType<typeof createRequest> & {
+  isMultipart: () => boolean;
+  file: (requestOptions?: {
+    throwFileSizeLimit?: boolean;
+    limits?: {
+      fileSize?: number;
+      files?: number;
+      fields?: number;
+      parts?: number;
+    };
+  }) => Promise<{
+    type: 'file';
+    fieldname: string;
+    filename: string;
+    mimetype: string;
+    file: AsyncIterable<Buffer>;
+    fields: Record<string, { type: 'field'; value: string }>;
+  }>;
+} {
+  const fields: Record<string, { type: 'field'; value: string }> = {};
+  for (const [key, value] of Object.entries(options.fields ?? {})) {
+    fields[key] = { type: 'field', value };
+  }
+
+  return {
+    ...createRequest(),
+    isMultipart: vi.fn(() => true),
+    file: vi.fn(async () => ({
+      type: 'file' as const,
+      fieldname: 'file',
+      filename: options.filename,
+      mimetype: options.mimetype,
+      file: toAsyncChunks(buffer),
+      fields,
+    })),
+  };
+}
+
+async function* toAsyncChunks(buffer: Buffer): AsyncIterable<Buffer> {
+  yield buffer;
 }
 
 function createResponse(): {

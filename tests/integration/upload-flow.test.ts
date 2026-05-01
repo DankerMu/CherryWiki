@@ -39,7 +39,7 @@ describe('upload flow integration', () => {
       /^quarantine\/tenant-1\/space-1\/.+_report\.pdf$/,
     );
     expect(context.storage.archivePromotions[0]?.key).toMatch(
-      /^archive\/tenant-1\/space-1\/\d{4}\/\d{2}\/\d{2}\/[a-f0-9]{8}_report\.pdf$/,
+      /^archive\/tenant-1\/space-1\/\d{4}\/\d{2}\/\d{2}\/[a-f0-9]{64}_report\.pdf$/,
     );
     expect(context.sourceDocuments.rows[0]).toMatchObject({
       id: 'source-1',

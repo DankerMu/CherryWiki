@@ -4,7 +4,7 @@ import { IsEnum, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from '
 
 import { PaginationQueryDto } from '../common/dto/pagination.dto.js';
 
-export const JOB_TYPES = ['ingestion', 'graphify', 'reindex', 'rebuild', 'wiki_sync'] as const;
+export const JOB_TYPES = ['ingestion', 'validation', 'url_fetch', 'graphify', 'reindex', 'rebuild', 'wiki_sync'] as const;
 export const JOB_SORT_FIELDS = ['created_at', 'priority', 'next_run_at'] as const;
 
 export type JobType = (typeof JOB_TYPES)[number];

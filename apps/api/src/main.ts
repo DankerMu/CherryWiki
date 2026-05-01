@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 
 import { HttpStatus, UnprocessableEntityException, ValidationPipe } from '@nestjs/common';
+import fastifyMultipart from '@fastify/multipart';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { fileURLToPath } from 'node:url';
@@ -55,6 +56,12 @@ export async function bootstrap(): Promise<void> {
     },
   );
   configureApp(app);
+  await app.register(fastifyMultipart, {
+    limits: {
+      fileSize: UPLOAD_MAX_BYTES,
+      files: 1,
+    },
+  });
   await app.listen(parsePort(process.env.PORT), process.env.HOST ?? '0.0.0.0');
 }
 

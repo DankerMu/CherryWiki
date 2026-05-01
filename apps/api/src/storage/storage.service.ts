@@ -322,9 +322,9 @@ export class ArchivePathHelper {
   }): string {
     const archivedAt = input.archivedAt ?? new Date();
     const { year, month, day } = toDatePathParts(archivedAt);
-    const shaPrefix = input.sha256.slice(0, 8).toLowerCase();
+    const sha = input.sha256.toLowerCase();
 
-    return `archive/${sanitizePathSegment(input.tenantId)}/${sanitizePathSegment(input.spaceId)}/${year}/${month}/${day}/${shaPrefix}_${sanitizeFilename(
+    return `archive/${sanitizePathSegment(input.tenantId)}/${sanitizePathSegment(input.spaceId)}/${year}/${month}/${day}/${sha}_${sanitizeFilename(
       input.filename,
     )}`;
   }
@@ -347,9 +347,9 @@ export class ArchivePathHelper {
   }): string {
     const archivedAt = input.archivedAt ?? new Date();
     const { year, month, day } = toDatePathParts(archivedAt);
-    const shaPrefix = input.sha256.slice(0, 8).toLowerCase();
+    const sha = input.sha256.toLowerCase();
 
-    return `archive/${sanitizePathSegment(input.tenantId)}/${sanitizePathSegment(input.spaceId)}/${year}/${month}/${day}/${shaPrefix}_${sanitizeFilename(
+    return `archive/${sanitizePathSegment(input.tenantId)}/${sanitizePathSegment(input.spaceId)}/${year}/${month}/${day}/${sha}_${sanitizeFilename(
       input.hostname,
     )}.snapshot`;
   }
@@ -360,9 +360,9 @@ export class ArchivePathHelper {
   ): string {
     const archivedAt = input.archivedAt ?? new Date();
     const { year, month, day } = toDatePathParts(archivedAt);
-    const shaPrefix = input.sha256.slice(0, 8).toLowerCase();
+    const sha = input.sha256.toLowerCase();
 
-    return `archive/${sanitizePathSegment(input.tenantId)}/${sanitizePathSegment(input.spaceId)}/${year}/${month}/${day}/${shaPrefix}.${suffix}`;
+    return `archive/${sanitizePathSegment(input.tenantId)}/${sanitizePathSegment(input.spaceId)}/${year}/${month}/${day}/${sha}.${suffix}`;
   }
 }
 

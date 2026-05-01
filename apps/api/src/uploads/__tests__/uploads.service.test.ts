@@ -131,6 +131,51 @@ describe('UploadsService', () => {
       queue_name: 'validation',
       type: 'validation',
       priority: expectedPriority,
+      payload_json: {
+        source_document_id: 'source-1',
+        quarantine_uri: expect.stringContaining('quarantine/'),
+        quarantine_key: expect.stringContaining('quarantine/'),
+      },
+    });
+  });
+
+  it('does not mark cross-space duplicates as archived while their shared blob is still quarantined', async () => {
+    const { service, db, fileBlobs, sourceDocuments, jobs } = createServiceContext();
+    fileBlobs.seed(
+      createFileBlobRow({
+        sha256: sha256Hex(Buffer.from('medium')),
+        storage_uri: 's3://cherrywiki-uploads/quarantine/tenant-1/space-1/upload-1_medium.pdf',
+      }),
+    );
+    db.queueSelect([{ id: TEST_SPACE_ID }]);
+
+    const result = await service.uploadFile(
+      {
+        spaceId: TEST_SPACE_ID,
+        file: createUploadedFile(Buffer.from('medium'), {
+          size: 25 * 1024 * 1024,
+          originalname: 'medium.pdf',
+        }),
+      },
+      createAdminContext(),
+    );
+
+    expect(result.status).toBe('validating');
+    expect(sourceDocuments.rows[0]).toMatchObject({
+      status: 'validating',
+      file_blob_id: 'blob-1',
+    });
+    expect(sourceDocuments.rows[0]?.metadata_json).toMatchObject({
+      quarantine_uri: 's3://cherrywiki-uploads/quarantine/tenant-1/space-1/upload-1_medium.pdf',
+      quarantine_key: 'quarantine/tenant-1/space-1/upload-1_medium.pdf',
+    });
+    expect(jobs.created[0]).toMatchObject({
+      queue_name: 'validation',
+      type: 'validation',
+      payload_json: {
+        source_document_id: 'source-1',
+        quarantine_key: 'quarantine/tenant-1/space-1/upload-1_medium.pdf',
+      },
     });
   });
 
@@ -221,6 +266,94 @@ describe('UploadsService', () => {
     sourceDocuments.rows[0] = createSourceDocumentRow({ status: 'security_rejected' });
     const rejectedErr = await getRejectedHttpException(service.reprocess('source-1', createAdminContext()));
     expect(rejectedErr.getStatus()).toBe(409);
+  });
+
+  it('links fetched URL content, archives the URL source, and queues ingestion', async () => {
+    const { service, sourceDocuments, jobs } = createServiceContext();
+    sourceDocuments.seed(
+      createSourceDocumentRow({
+        id: 'source-url',
+        source_type: 'url',
+        file_blob_id: null,
+        status: 'uploaded',
+      }),
+    );
+
+    const result = await service.linkBlob(
+      {
+        sourceDocumentId: 'source-url',
+        sha256: sha256Hex(Buffer.from('fetched')),
+        sizeBytes: 7,
+        mimeType: 'text/html',
+        storageUri: 's3://cherrywiki-archives/archive/tenant-1/space-1/2026/04/30/fetched.snapshot',
+        filename: 'example.com',
+      },
+      createAdminContext(),
+    );
+
+    expect(result).toMatchObject({
+      id: 'source-url',
+      status: 'archived',
+      sha256: sha256Hex(Buffer.from('fetched')),
+    });
+    expect(sourceDocuments.rows[0]).toMatchObject({
+      status: 'archived',
+      file_blob_id: 'blob-1',
+    });
+    expect(jobs.created[0]).toMatchObject({
+      queue_name: 'ingestion',
+      type: 'ingestion',
+      payload_json: {
+        source_document_id: 'source-url',
+        archive_uri: 's3://cherrywiki-archives/archive/tenant-1/space-1/2026/04/30/fetched.snapshot',
+      },
+    });
+  });
+
+  it('finalizes duplicate URL source documents instead of leaving them uploaded', async () => {
+    const { service, fileBlobs, sourceDocuments, jobs } = createServiceContext();
+    const blob = fileBlobs.seed(
+      createFileBlobRow({
+        id: 'blob-existing',
+        sha256: sha256Hex(Buffer.from('fetched')),
+      }),
+    );
+    sourceDocuments.seed(createSourceDocumentRow({ id: 'source-existing', file_blob_id: blob.id, status: 'archived' }));
+    sourceDocuments.seed(
+      createSourceDocumentRow({
+        id: 'source-url',
+        source_type: 'url',
+        file_blob_id: null,
+        status: 'uploaded',
+      }),
+    );
+
+    const result = await service.linkBlob(
+      {
+        sourceDocumentId: 'source-url',
+        sha256: blob.sha256,
+        sizeBytes: blob.size_bytes,
+        mimeType: blob.mime_type,
+        storageUri: blob.storage_uri,
+        filename: 'example.com',
+      },
+      createAdminContext(),
+    );
+
+    expect(result).toMatchObject({
+      id: 'source-url',
+      status: 'archived',
+    });
+    expect(sourceDocuments.rows[1]).toMatchObject({
+      status: 'archived',
+      file_blob_id: null,
+      metadata_json: {
+        duplicate: true,
+        duplicate_of_source_document_id: 'source-existing',
+        duplicate_file_blob_id: blob.id,
+      },
+    });
+    expect(jobs.created).toHaveLength(0);
   });
 
   it('falls back to the existing file blob when a concurrent create hits the unique constraint', async () => {

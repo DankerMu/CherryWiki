@@ -232,6 +232,7 @@ export class UploadsService {
       userId,
       validating,
       quarantine.uri,
+      quarantine.key,
       priority,
     );
 
@@ -388,6 +389,7 @@ export class UploadsService {
   async linkBlob(input: LinkBlobInput, context: UploadContext = {}): Promise<UploadDetailDto> {
     const tenantId = resolveTenantId(context);
     const document = await this.getTenantDocument(input.sourceDocumentId, tenantId);
+    const actorUserId = context.actorUserId ?? context.userId ?? document.uploader_id ?? null;
     let blob = await this.fileBlobRepository.findByTenantAndSha256(tenantId, input.sha256);
 
     if (blob === undefined) {
@@ -414,7 +416,30 @@ export class UploadsService {
     const existingSource = await this.sourceDocumentRepository.findBySpaceAndBlob(tenantId, document.space_id, blob.id);
 
     if (existingSource !== undefined && existingSource.id !== document.id) {
-      return this.toUploadDetail(existingSource);
+      const duplicateMetadata = {
+        ...asJsonRecord(document.metadata_json),
+        linked_at: new Date().toISOString(),
+        duplicate: true,
+        duplicate_of_source_document_id: existingSource.id,
+        duplicate_file_blob_id: blob.id,
+        archive_uri: blob.storage_uri,
+      };
+      const duplicate = await this.sourceDocumentRepository.updateMetadata(document.id, duplicateMetadata);
+
+      if (duplicate.status === 'uploaded') {
+        if (!isArchiveStorageUri(blob.storage_uri)) {
+          return this.toUploadDetail(duplicate);
+        }
+        const validating = await this.sourceDocumentRepository.updateStatus(duplicate.id, 'validating', {
+          metadata_json: duplicateMetadata,
+        });
+        const archived = await this.sourceDocumentRepository.updateStatus(validating.id, 'archived', {
+          metadata_json: duplicateMetadata,
+        });
+        return this.toUploadDetail(archived);
+      }
+
+      return this.toUploadDetail(duplicate);
     }
 
     const metadata = {
@@ -430,6 +455,15 @@ export class UploadsService {
       const archived = await this.sourceDocumentRepository.updateStatus(validating.id, 'archived', {
         metadata_json: metadata,
       });
+      await this.createIngestionJob(
+        tenantId,
+        archived.space_id,
+        actorUserId,
+        archived,
+        blob,
+        priorityForSize(blob.size_bytes),
+        false,
+      );
       return this.toUploadDetail(archived);
     }
 
@@ -540,6 +574,17 @@ export class UploadsService {
       return toUploadResponse(existingSource, null, false);
     }
 
+    const isArchivedBlob = isArchiveStorageUri(input.blob.storage_uri);
+    const isQuarantinedBlob = isQuarantineStorageUri(input.blob.storage_uri);
+    const quarantineKey = isQuarantinedBlob ? storageKeyFromUri(input.blob.storage_uri) : undefined;
+    if (!isArchivedBlob && !isQuarantinedBlob) {
+      throwApiError(
+        ErrorCode.CONFLICT,
+        'Existing file blob is neither archived nor quarantined',
+        HttpStatus.CONFLICT,
+      );
+    }
+
     const sourceDocument = await this.createSourceDocumentWithDedup({
       tenantId: input.tenantId,
       spaceId: input.spaceId,
@@ -548,15 +593,51 @@ export class UploadsService {
       filename: input.file.originalname,
       sourceType: 'upload',
       classification: normalizeOptionalString(input.metadata.classification),
-      status: 'archived',
-      metadata: {
-        ...input.metadata,
-        archive_uri: input.blob.storage_uri,
-      },
+      status: isArchivedBlob ? 'archived' : 'uploaded',
+      metadata: isArchivedBlob
+        ? {
+            ...input.metadata,
+            archive_uri: input.blob.storage_uri,
+          }
+        : {
+            ...input.metadata,
+            quarantine_uri: input.blob.storage_uri,
+            ...(quarantineKey !== undefined ? { quarantine_key: quarantineKey } : {}),
+          },
     });
 
     if (!sourceDocument.created) {
       return toUploadResponse(sourceDocument.row, null, false);
+    }
+
+    if (!isArchivedBlob) {
+      if (quarantineKey === undefined) {
+        throwApiError(
+          ErrorCode.CONFLICT,
+          'Existing file blob is not archived and does not have a quarantine key',
+          HttpStatus.CONFLICT,
+        );
+      }
+
+      const metadata = {
+        ...asJsonRecord(sourceDocument.row.metadata_json),
+        quarantine_uri: input.blob.storage_uri,
+        quarantine_key: quarantineKey,
+      };
+      const validating = await this.sourceDocumentRepository.updateStatus(sourceDocument.row.id, 'validating', {
+        metadata_json: metadata,
+      });
+      const validationJob = await this.createValidationJob(
+        input.tenantId,
+        input.spaceId,
+        input.userId,
+        validating,
+        input.blob.storage_uri,
+        quarantineKey,
+        input.priority,
+      );
+
+      return toUploadResponse(validating, validationJob, true);
     }
 
     const job = await this.createIngestionJob(
@@ -618,6 +699,7 @@ export class UploadsService {
     userId: string,
     document: SourceDocumentRow,
     quarantineUri: string,
+    quarantineKey: string,
     priority: number,
   ): Promise<JobRow> {
     return JobRepository.create(this.db, {
@@ -629,6 +711,7 @@ export class UploadsService {
       payload_json: {
         source_document_id: document.id,
         quarantine_uri: quarantineUri,
+        quarantine_key: quarantineKey,
       },
       idempotency_key: `validation:${document.id}`,
       created_by: userId,
@@ -638,7 +721,7 @@ export class UploadsService {
   private async createIngestionJob(
     tenantId: string,
     spaceId: string,
-    userId: string,
+    userId: string | null,
     document: SourceDocumentRow,
     blob: FileBlobRow,
     priority: number,
@@ -900,6 +983,33 @@ function hasImplicitSpaceAccess(role: string | undefined): boolean {
 
 function asJsonRecord(value: unknown): JsonRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as JsonRecord : {};
+}
+
+function isArchiveStorageUri(storageUri: string): boolean {
+  const key = storageKeyFromUri(storageUri);
+  return storageUri.startsWith('archive/') || key?.startsWith('archive/') === true;
+}
+
+function isQuarantineStorageUri(storageUri: string): boolean {
+  const key = storageKeyFromUri(storageUri);
+  return storageUri.startsWith('quarantine/') || key?.startsWith('quarantine/') === true;
+}
+
+function storageKeyFromUri(storageUri: string): string | undefined {
+  if (storageUri.startsWith('archive/') || storageUri.startsWith('quarantine/')) {
+    return storageUri;
+  }
+
+  if (!storageUri.startsWith('s3://')) {
+    return undefined;
+  }
+
+  const keyStart = storageUri.indexOf('/', 's3://'.length);
+  if (keyStart === -1 || keyStart === storageUri.length - 1) {
+    return undefined;
+  }
+
+  return storageUri.slice(keyStart + 1);
 }
 
 function isUniqueViolation(err: unknown, constraint: string): boolean {
