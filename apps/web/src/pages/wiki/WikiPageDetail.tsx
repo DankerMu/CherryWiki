@@ -82,6 +82,7 @@ export default function WikiPageDetail({ spaceId, pageId, versionId }: WikiPageD
     );
   }
 
+  // Space-level wiki permissions are not exposed to the frontend yet; API authorization gates publish for now.
   const canPublish = page !== null && page.status === 'draft' && page.current_version_id !== null;
 
   return (
@@ -128,7 +129,13 @@ export default function WikiPageDetail({ spaceId, pageId, versionId }: WikiPageD
             <span>Updated {formatDate(page.updated_at)}</span>
             {versionId !== undefined && versionId.length > 0 ? <span>Version {content.version_id}</span> : null}
           </div>
-          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeHighlight]}
+            components={{
+              img: (props) => <img {...props} referrerPolicy="no-referrer" loading="lazy" />,
+            }}
+          >
             {content.content_markdown}
           </ReactMarkdown>
         </article>

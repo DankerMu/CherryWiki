@@ -73,11 +73,11 @@ export default function WikiVersionHistory({ spaceId, pageId }: WikiVersionHisto
   }, [loadVersions]);
 
   async function rollbackVersion(version: WikiPageVersion): Promise<void> {
-    setRollingBackVersionId(version.id);
+    setRollingBackVersionId(version.version_id);
     setError(null);
 
     try {
-      await wikiApi.rollback(spaceId, pageId, version.id);
+      await wikiApi.rollback(spaceId, pageId, version.version_id);
       void navigate(`/spaces/${encodeURIComponent(spaceId)}/wiki/${encodeURIComponent(pageId)}`);
     } catch (err) {
       setError(getErrorMessage(err));
@@ -88,7 +88,7 @@ export default function WikiVersionHistory({ spaceId, pageId }: WikiVersionHisto
 
   function openVersion(version: WikiPageVersion): void {
     void navigate(
-      `/spaces/${encodeURIComponent(spaceId)}/wiki/${encodeURIComponent(pageId)}?version_id=${encodeURIComponent(version.id)}`,
+      `/spaces/${encodeURIComponent(spaceId)}/wiki/${encodeURIComponent(pageId)}?version_id=${encodeURIComponent(version.version_id)}`,
     );
   }
 
@@ -135,10 +135,10 @@ export default function WikiVersionHistory({ spaceId, pageId }: WikiVersionHisto
                 </thead>
                 <tbody>
                   {versions.map((version) => {
-                    const isCurrent = page?.current_version_id === version.id;
+                    const isCurrent = version.status === 'current';
                     return (
                       <tr
-                        key={version.id}
+                        key={version.version_id}
                         className="interactive-row"
                         tabIndex={0}
                         onClick={() => openVersion(version)}
@@ -150,27 +150,27 @@ export default function WikiVersionHistory({ spaceId, pageId }: WikiVersionHisto
                         }}
                       >
                         <td>
-                          <strong>Version {version.version_no}</strong>
-                          <span className="subtle-id">{version.id}</span>
+                          <strong>{version.version_id}</strong>
                         </td>
-                        <td>{formatLabel(version.source)}</td>
+                        <td>{formatLabel(version.source_run_id ?? 'manual')}</td>
                         <td>
                           <WikiStatusBadge status={version.status} />
                         </td>
-                        <td>{version.created_by ?? 'Unknown'}</td>
+                        <td>{version.author}</td>
                         <td>{formatDate(version.created_at)}</td>
                         <td>
+                          {/* Space-level wiki permissions are not exposed to the frontend yet; API authorization gates rollback for now. */}
                           {!isCurrent ? (
                             <button
                               className="button button-secondary"
                               type="button"
-                              disabled={rollingBackVersionId === version.id}
+                              disabled={rollingBackVersionId === version.version_id}
                               onClick={(event) => {
                                 event.stopPropagation();
                                 void rollbackVersion(version);
                               }}
                             >
-                              {rollingBackVersionId === version.id ? 'Rolling back...' : 'Rollback'}
+                              {rollingBackVersionId === version.version_id ? 'Rolling back...' : 'Rollback'}
                             </button>
                           ) : (
                             <span className="pagination-summary">Current</span>

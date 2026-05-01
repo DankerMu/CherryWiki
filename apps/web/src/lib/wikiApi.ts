@@ -15,12 +15,11 @@ export type WikiPage = {
 };
 
 export type WikiPageVersion = {
-  id: string;
-  page_id: string;
-  version_no: number;
-  source: string;
-  status: string;
-  created_by: string | null;
+  version_id: string;
+  content_hash: string;
+  author: string;
+  source_run_id: string | null;
+  status: 'current' | 'archived';
   created_at: string;
 };
 

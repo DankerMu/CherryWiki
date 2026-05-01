@@ -118,8 +118,8 @@ describe('WikiVersionHistory', () => {
       if (path.endsWith('/versions')) {
         return Promise.resolve({
           data: [
-            buildVersion({ id: 'version-2', version_no: 2, source: 'graphify', status: 'published' }),
-            buildVersion({ id: 'version-1', version_no: 1, source: 'manual', status: 'archived' }),
+            buildVersion({ version_id: 'version-2', source_run_id: 'graphify', status: 'current' }),
+            buildVersion({ version_id: 'version-1', source_run_id: null, status: 'archived' }),
           ],
           meta: { pagination: { page: 1, per_page: 20, total: 2, has_next: false } },
         });
@@ -130,9 +130,9 @@ describe('WikiVersionHistory', () => {
 
     renderWithRouter(<WikiVersionHistory spaceId="space-1" pageId="page-1" />);
 
-    expect(await screen.findByText('Version 2')).toBeInTheDocument();
+    expect(await screen.findByText('version-2')).toBeInTheDocument();
     expect(screen.getByText('Graphify')).toBeInTheDocument();
-    expect(screen.getByText('Version 1')).toBeInTheDocument();
+    expect(screen.getByText('version-1')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Rollback' })).toBeInTheDocument();
   });
 });
@@ -186,12 +186,11 @@ function buildContent(overrides: Partial<WikiPageContent> = {}): WikiPageContent
 
 function buildVersion(overrides: Partial<WikiPageVersion> = {}): WikiPageVersion {
   return {
-    id: 'version-1',
-    page_id: 'page-1',
-    version_no: 1,
-    source: 'manual',
-    status: 'draft',
-    created_by: 'author-1',
+    version_id: 'version-1',
+    content_hash: 'sha256:version-1',
+    author: 'author-1',
+    source_run_id: null,
+    status: 'archived',
     created_at: '2026-05-01T09:00:00.000Z',
     ...overrides,
   };
