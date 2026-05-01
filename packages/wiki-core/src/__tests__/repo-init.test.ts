@@ -43,4 +43,8 @@ describe('initWikiRepo', () => {
 
     expect(fs.readFileSync(path.join(spacePath, '_metadata', 'pages.jsonl'), 'utf-8')).toBe('');
   });
+
+  it('rejects path traversal space ids', () => {
+    expect(() => initWikiRepo(basePath, '../../etc')).toThrow();
+  });
 });

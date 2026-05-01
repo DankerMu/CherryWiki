@@ -2,7 +2,7 @@ import { JSON_SCHEMA, dump, load } from 'js-yaml';
 
 import type { WikiFrontmatter } from './types.js';
 
-const frontmatterPattern = /^---[ \t]*\r?\n([\s\S]*?)^---[ \t]*(?:\r?\n|$)/m;
+const frontmatterPattern = /^---[ \t]*\r?\n(?:(.*?)\r?\n)?---[ \t]*(?:\r?\n|$)/s;
 
 export function parseFrontmatter(markdown: string): { frontmatter: Partial<WikiFrontmatter>; content: string } {
   const match = frontmatterPattern.exec(markdown);

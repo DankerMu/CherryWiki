@@ -39,6 +39,15 @@ describe('frontmatter', () => {
     });
   });
 
+  it('does not parse body horizontal rules as frontmatter', () => {
+    const markdown = '# Just content\n\n---\ntitle: Not frontmatter\n---\n\nBody';
+
+    expect(parseFrontmatter(markdown)).toEqual({
+      frontmatter: {},
+      content: markdown,
+    });
+  });
+
   it('returns empty frontmatter for empty frontmatter', () => {
     expect(parseFrontmatter('---\n---\n# Content')).toEqual({
       frontmatter: {},

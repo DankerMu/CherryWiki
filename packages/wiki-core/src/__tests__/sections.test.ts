@@ -24,6 +24,27 @@ describe('extractSections', () => {
     expect(section?.section_id).toBe('page-1#heading-section-a');
   });
 
+  it('preserves Chinese heading text in section ids', () => {
+    const [section] = extractSections('## 数据库设计', 'page-1');
+
+    expect(section?.section_id).toBe('page-1#heading-数据库设计');
+  });
+
+  it('deduplicates repeated heading section ids', () => {
+    const sections = extractSections('## Foo\n\n## Foo', 'page-1');
+
+    expect(sections.map((section) => section.section_id)).toEqual([
+      'page-1#heading-foo',
+      'page-1#heading-foo-2',
+    ]);
+  });
+
+  it('uses a fallback section id for punctuation-only headings', () => {
+    const [section] = extractSections('## !!!', 'page-1');
+
+    expect(section?.section_id).toBe('page-1#heading-section-0');
+  });
+
   it('returns correct heading levels', () => {
     const sections = extractSections('## Section A\n\n### Sub', 'page-1');
 
