@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
+import { Readable } from 'node:stream';
 
 import { JobRepository, type JobCreateInput, type JobRow } from '@cherrygraph/job-core';
 import type { SourceDocumentStatus } from '@cherrygraph/shared';
 import { vi } from 'vitest';
 
+import type { AuditEntry, AuditService } from '../../apps/api/src/audit/audit.service.js';
 import { ArchivePathHelper, type StorageService } from '../../apps/api/src/storage/storage.service.js';
 import { SourceDocumentStateMachine } from '../../apps/api/src/uploads/source-document-state.js';
 import {
@@ -13,6 +15,10 @@ import {
   type SourceDocumentRow,
 } from '../../apps/api/src/uploads/uploads.repository.js';
 import { UploadsService, type UploadContext } from '../../apps/api/src/uploads/uploads.service.js';
+import { MimeValidator } from '../../apps/api/src/uploads/validators/mime-validator.js';
+import { PromptInjectionScanner } from '../../apps/api/src/uploads/validators/prompt-injection-scanner.js';
+import { ValidationPipeline } from '../../apps/api/src/uploads/validators/validation-pipeline.js';
+import { ZipValidator } from '../../apps/api/src/uploads/validators/zip-validator.js';
 import { ScriptedDb } from '../../apps/api/src/users/__tests__/user-group-service-test-utils.js';
 
 export const UPLOAD_TEST_TENANT_ID = 'tenant-1';
@@ -27,21 +33,33 @@ export type UploadIntegrationContext = {
   fileBlobs: IntegrationFileBlobRepository;
   sourceDocuments: IntegrationSourceDocumentRepository;
   jobs: IntegrationJobHarness;
+  audit: IntegrationAuditService;
   queueSpaceExists: (spaceId?: string) => void;
 };
 
-export function createUploadIntegrationContext(): UploadIntegrationContext {
+export function createUploadIntegrationContext(options: { validation?: boolean } = {}): UploadIntegrationContext {
   const db = new ScriptedDb();
   const storage = new IntegrationStorageService();
   const fileBlobs = new IntegrationFileBlobRepository();
   const sourceDocuments = new IntegrationSourceDocumentRepository();
   const jobs = new IntegrationJobHarness();
+  const audit = new IntegrationAuditService();
   vi.spyOn(JobRepository, 'create').mockImplementation((jobDb, data) => jobs.create(jobDb, data));
+  const validationPipeline = options.validation === true
+    ? new ValidationPipeline(
+        new MimeValidator(),
+        new ZipValidator(),
+        new PromptInjectionScanner(),
+        sourceDocuments as unknown as SourceDocumentRepository,
+        audit as unknown as AuditService,
+      )
+    : undefined;
   const service = new UploadsService(
     db.asDrizzle(),
     storage as unknown as StorageService,
     fileBlobs as unknown as FileBlobRepository,
     sourceDocuments as unknown as SourceDocumentRepository,
+    validationPipeline,
   );
 
   return {
@@ -51,6 +69,7 @@ export function createUploadIntegrationContext(): UploadIntegrationContext {
     fileBlobs,
     sourceDocuments,
     jobs,
+    audit,
     queueSpaceExists: (spaceId = UPLOAD_TEST_SPACE_ID) => db.queueSelect([{ id: spaceId }]),
   };
 }
@@ -86,6 +105,22 @@ export class IntegrationStorageService {
   async deleteQuarantineFile(key: string): Promise<void> {
     this.deletedQuarantineKeys.push(key);
   }
+
+  async download(_bucket: string, key: string): Promise<Readable> {
+    const upload = this.quarantineUploads.find((item) => item.key === key);
+    if (upload === undefined) {
+      throw new Error(`Missing quarantined upload ${key}`);
+    }
+
+    return Readable.from([upload.body]);
+  }
+}
+
+export class IntegrationAuditService {
+  readonly entries: AuditEntry[] = [];
+  readonly push = vi.fn((entry: AuditEntry) => {
+    this.entries.push(entry);
+  });
 }
 
 export class IntegrationFileBlobRepository {

@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import { JobRepository, job_events, jobs, type JobRow } from '@cherrygraph/job-core';
 import {
   ErrorCode,
@@ -13,9 +13,11 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { createHash, randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
+import type { Readable } from 'node:stream';
 
 import { buildPaginationMeta, paginatedResponse, type PaginatedResponse } from '../common/dto/pagination.dto.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
+import { getBucketName, STORAGE_BUCKET_NAMES } from '../storage/storage.constants.js';
 import { StorageService } from '../storage/storage.service.js';
 import {
   MEDIUM_FILE_MAX_BYTES,
@@ -39,6 +41,7 @@ import type {
   UploadResponseDto,
   UploadStatusDto,
 } from './uploads.dto.js';
+import { ValidationPipeline, type RecordedValidationPipelineResult } from './validators/validation-pipeline.js';
 
 type UploadsDatabase = NodePgDatabase;
 type JsonRecord = Record<string, unknown>;
@@ -88,6 +91,7 @@ export class UploadsService {
     private readonly storageService: StorageService,
     private readonly fileBlobRepository: FileBlobRepository,
     private readonly sourceDocumentRepository: SourceDocumentRepository,
+    @Optional() private readonly validationPipeline?: ValidationPipeline,
   ) {}
 
   async uploadFile(input: UploadFileInput, context: UploadContext = {}): Promise<UploadResponseDto> {
@@ -193,6 +197,11 @@ export class UploadsService {
       const validating = await this.sourceDocumentRepository.updateStatus(sourceDocument.row.id, 'validating', {
         metadata_json: metadata,
       });
+      const validation = await this.runSecurityValidation(validating, blob, input.file.buffer, userId);
+      if (!validation.pass) {
+        return toUploadResponse(validation.sourceDocument, null, true, validation.code);
+      }
+
       const archive = await this.storageService.promoteToArchive({
         tenantId,
         spaceId: input.spaceId,
@@ -508,6 +517,37 @@ export class UploadsService {
     return toUploadResponse(archived, job, true);
   }
 
+  async validateQuarantinedUpload(
+    input: CompleteValidationInput & { buffer?: Buffer },
+    context: UploadContext = {},
+  ): Promise<RecordedValidationPipelineResult> {
+    const tenantId = resolveTenantId(context);
+    const userId = resolveContextUserId(context);
+    const document = await this.getTenantDocument(input.sourceDocumentId, tenantId);
+    if (document.file_blob_id === null) {
+      throwApiError(ErrorCode.CONFLICT, 'Cannot validate a source document without a file blob', HttpStatus.CONFLICT);
+    }
+
+    const blob = await this.requireBlob(document.file_blob_id, tenantId);
+    const buffer = input.buffer ?? await this.readQuarantineFile(input.quarantineKey);
+    return this.runSecurityValidation(document, blob, buffer, userId);
+  }
+
+  async markPromptInjectionScan(
+    sourceDocumentId: string,
+    parsedMarkdown: string,
+    context: UploadContext = {},
+  ): Promise<UploadDetailDto> {
+    const tenantId = resolveTenantId(context);
+    const document = await this.getTenantDocument(sourceDocumentId, tenantId);
+    if (this.validationPipeline === undefined) {
+      return this.toUploadDetail(document);
+    }
+
+    const updated = await this.validationPipeline.markPromptInjectionScan(document, parsedMarkdown);
+    return this.toUploadDetail(updated);
+  }
+
   async handleGraphifyHandoff(sourceDocumentId: string, context: UploadContext = {}): Promise<JobRow | null> {
     const tenantId = resolveTenantId(context);
     const document = await this.getTenantDocument(sourceDocumentId, tenantId);
@@ -743,6 +783,30 @@ export class UploadsService {
     });
   }
 
+  private async runSecurityValidation(
+    document: SourceDocumentRow,
+    blob: FileBlobRow,
+    buffer: Buffer,
+    actorUserId: string | null,
+  ): Promise<RecordedValidationPipelineResult> {
+    if (this.validationPipeline === undefined) {
+      return { pass: true };
+    }
+
+    return this.validationPipeline.validateAndRecord({
+      sourceDocument: document,
+      filename: document.filename,
+      declaredMimeType: blob.mime_type,
+      buffer,
+      actorUserId,
+    });
+  }
+
+  private async readQuarantineFile(quarantineKey: string): Promise<Buffer> {
+    const stream = await this.storageService.download(getBucketName(STORAGE_BUCKET_NAMES.QUARANTINE), quarantineKey);
+    return readStream(stream);
+  }
+
   private async toUploadDetail(document: SourceDocumentRow): Promise<UploadDetailDto> {
     const blob = document.file_blob_id === null ? undefined : await this.fileBlobRepository.findById(document.file_blob_id);
 
@@ -763,10 +827,10 @@ export class UploadsService {
     };
   }
 
-  private async normalizeMetadata(
+  private normalizeMetadata(
     input: CreateUploadDto | undefined,
     options: { batchId: string; sourceUrl?: string },
-  ): Promise<JsonRecord> {
+  ): JsonRecord {
     const parsed = sourceDocumentMetadataSchema.safeParse({
       ...(options.sourceUrl !== undefined ? { source_url: options.sourceUrl } : {}),
       ...(input?.tags !== undefined ? { tags: parseTags(input.tags) } : {}),
@@ -886,13 +950,19 @@ export class UploadsService {
   }
 }
 
-function toUploadResponse(document: SourceDocumentRow, job: JobRow | null, created: boolean): UploadResponseDto {
+function toUploadResponse(
+  document: SourceDocumentRow,
+  job: JobRow | null,
+  created: boolean,
+  errorCode?: ErrorCode,
+): UploadResponseDto {
   return {
     source_document_id: document.id,
     file_blob_id: document.file_blob_id,
     job_id: job?.id ?? null,
     status: document.status,
     created,
+    ...(errorCode !== undefined ? { error_code: errorCode } : {}),
   };
 }
 
@@ -1010,6 +1080,19 @@ function storageKeyFromUri(storageUri: string): string | undefined {
   }
 
   return storageUri.slice(keyStart + 1);
+}
+
+function readStream(stream: Readable): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    stream.on('data', (chunk: Buffer | string) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    stream.on('error', reject);
+    stream.on('end', () => {
+      resolve(Buffer.concat(chunks));
+    });
+  });
 }
 
 function isUniqueViolation(err: unknown, constraint: string): boolean {

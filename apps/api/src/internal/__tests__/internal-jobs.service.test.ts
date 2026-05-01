@@ -6,6 +6,7 @@ import {
   RedisJobLock,
   type JobRow,
 } from '@cherrygraph/job-core';
+import { ErrorCode } from '@cherrygraph/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { InternalJobsService } from '../internal-jobs.service.js';
@@ -198,7 +199,8 @@ describe('InternalJobsService', () => {
     const db = createDb();
     const redis = createRedisMock();
     const uploadsService = {
-      completeValidation: vi.fn(async () => ({
+      validateQuarantinedUpload: vi.fn(() => Promise.resolve({ pass: true })),
+      completeValidation: vi.fn(() => Promise.resolve({
         source_document_id: 'source-1',
         file_blob_id: 'blob-1',
         job_id: 'job-ingestion',
@@ -244,6 +246,17 @@ describe('InternalJobsService', () => {
       job_id: 'job-1',
       status: JobStatus.SUCCEEDED,
     });
+    expect(uploadsService.validateQuarantinedUpload).toHaveBeenCalledWith(
+      {
+        sourceDocumentId: 'source-1',
+        quarantineKey: 'quarantine/tenant-1/space-1/upload-1.pdf',
+      },
+      {
+        tenantId: 'tenant-1',
+        actorUserId: 'user-1',
+        userId: 'user-1',
+      },
+    );
     expect(uploadsService.completeValidation).toHaveBeenCalledWith(
       {
         sourceDocumentId: 'source-1',
@@ -255,6 +268,60 @@ describe('InternalJobsService', () => {
         userId: 'user-1',
       },
     );
+  });
+
+  it('does not archive the upload when validation completion rejects the file', async () => {
+    const db = createDb();
+    const redis = createRedisMock();
+    const uploadsService = {
+      validateQuarantinedUpload: vi.fn(() => Promise.resolve({
+        pass: false,
+        code: ErrorCode.MIME_MISMATCH,
+        reason: 'bad mime',
+        details: {},
+        sourceDocument: { id: 'source-1', status: 'security_rejected' },
+      })),
+      completeValidation: vi.fn(),
+    };
+    const service = new InternalJobsService(db.asDb() as never, redis.asClient() as never, uploadsService as never);
+    const runningJob = createJobRow({
+      tenant_id: 'tenant-1',
+      type: 'validation',
+      status: JobStatus.RUNNING,
+      locked_by: 'worker-1',
+      locked_at: new Date('2026-04-30T11:55:00.000Z'),
+      started_at: new Date('2026-04-30T11:55:00.000Z'),
+      payload_json: {
+        source_document_id: 'source-1',
+        quarantine_key: 'quarantine/tenant-1/space-1/upload-1.pdf',
+      },
+      created_by: 'user-1',
+    });
+    const completedJob = createJobRow({
+      ...runningJob,
+      status: JobStatus.SUCCEEDED,
+      locked_by: null,
+      locked_at: null,
+      completed_at: new Date('2026-04-30T12:00:00.000Z'),
+    });
+
+    vi.spyOn(JobRepository, 'findById').mockResolvedValue(runningJob);
+    vi.spyOn(RedisJobLock, 'renew').mockResolvedValue(true);
+    vi.spyOn(JobStateMachine, 'transition').mockResolvedValue(completedJob);
+    vi.spyOn(JobEventRepository, 'create').mockResolvedValue({} as Awaited<ReturnType<typeof JobEventRepository.create>>);
+    vi.spyOn(RedisJobLock, 'release').mockResolvedValue(true);
+
+    await expect(
+      service.reportComplete('job-1', {
+        worker_id: 'worker-1',
+        result_json: { clean: false },
+      }),
+    ).resolves.toMatchObject({
+      job_id: 'job-1',
+      status: JobStatus.SUCCEEDED,
+    });
+    expect(uploadsService.validateQuarantinedUpload).toHaveBeenCalledTimes(1);
+    expect(uploadsService.completeValidation).not.toHaveBeenCalled();
   });
 
   it('fails a running job and schedules a retry when attempts remain', async () => {
