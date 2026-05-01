@@ -1,0 +1,2 @@
+"""CherryWiki ingestion worker."""
+
