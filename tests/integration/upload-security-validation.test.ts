@@ -2,7 +2,6 @@ import { ErrorCode } from '@cherrygraph/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createZipFixture } from '../../apps/api/src/uploads/__tests__/zip-fixture.js';
-import type { UploadResponseDto } from '../../apps/api/src/uploads/uploads.dto.js';
 import {
   UPLOAD_TEST_SPACE_ID,
   createAdminUploadContext,
@@ -20,21 +19,20 @@ describe('upload security validation integration', () => {
     const context = createUploadIntegrationContext({ validation: true });
     context.queueSpaceExists();
 
-    const result = await context.service.uploadFile(
-      {
-        spaceId: UPLOAD_TEST_SPACE_ID,
-        file: createUploadedFile(elfBuffer(), {
-          originalname: 'report.pdf',
-          mimetype: 'application/pdf',
-        }),
-      },
-      createAdminUploadContext(),
+    await expectSecurityRejection(
+      context.service.uploadFile(
+        {
+          spaceId: UPLOAD_TEST_SPACE_ID,
+          file: createUploadedFile(elfBuffer(), {
+            originalname: 'report.pdf',
+            mimetype: 'application/pdf',
+          }),
+        },
+        createAdminUploadContext(),
+      ),
+      ErrorCode.MIME_MISMATCH,
     );
 
-    expect(result).toMatchObject({
-      status: 'security_rejected',
-      error_code: ErrorCode.MIME_MISMATCH,
-    });
     expect(context.storage.archivePromotions).toHaveLength(0);
     expect(context.sourceDocuments.rows[0]?.metadata_json).toMatchObject({
       rejection_reason: ErrorCode.MIME_MISMATCH,
@@ -51,31 +49,30 @@ describe('upload security validation integration', () => {
     const context = createUploadIntegrationContext({ validation: true });
     context.queueSpaceExists();
 
-    const result = await context.service.uploadFile(
-      {
-        spaceId: UPLOAD_TEST_SPACE_ID,
-        file: createUploadedFile(
-          createZipFixture([
+    await expectSecurityRejection(
+      context.service.uploadFile(
+        {
+          spaceId: UPLOAD_TEST_SPACE_ID,
+          file: createUploadedFile(
+            createZipFixture([
+              {
+                name: 'huge.txt',
+                data: Buffer.from('x'),
+                compressedSize: 1,
+                uncompressedSize: 501 * 1024 * 1024,
+              },
+            ]),
             {
-              name: 'huge.txt',
-              data: Buffer.from('x'),
-              compressedSize: 1,
-              uncompressedSize: 501 * 1024 * 1024,
+              originalname: 'bundle.zip',
+              mimetype: 'application/zip',
             },
-          ]),
-          {
-            originalname: 'bundle.zip',
-            mimetype: 'application/zip',
-          },
-        ),
-      },
-      createAdminUploadContext(),
+          ),
+        },
+        createAdminUploadContext(),
+      ),
+      ErrorCode.ZIP_BOMB_DETECTED,
     );
 
-    expect(result).toMatchObject({
-      status: 'security_rejected',
-      error_code: ErrorCode.ZIP_BOMB_DETECTED,
-    });
     expect(context.storage.archivePromotions).toHaveLength(0);
     expect(context.audit.entries[0]?.metadata_json).toMatchObject({
       code: ErrorCode.ZIP_BOMB_DETECTED,
@@ -86,12 +83,10 @@ describe('upload security validation integration', () => {
     const context = createUploadIntegrationContext({ validation: true });
     context.queueSpaceExists();
 
-    const result = await uploadZip(context, createZipFixture([{ name: '../../evil.txt', data: Buffer.from('x') }]));
-
-    expect(result).toMatchObject({
-      status: 'security_rejected',
-      error_code: ErrorCode.PATH_TRAVERSAL_DETECTED,
-    });
+    await expectSecurityRejection(
+      uploadZip(context, createZipFixture([{ name: '../../evil.txt', data: Buffer.from('x') }])),
+      ErrorCode.PATH_TRAVERSAL_DETECTED,
+    );
   });
 
   it('rejects ZIP nesting deeper than three levels', async () => {
@@ -103,12 +98,7 @@ describe('upload security validation integration', () => {
     const level1 = createZipFixture([{ name: 'level2.zip', data: level2 }]);
     const root = createZipFixture([{ name: 'level1.zip', data: level1 }]);
 
-    const result = await uploadZip(context, root);
-
-    expect(result).toMatchObject({
-      status: 'security_rejected',
-      error_code: ErrorCode.ZIP_NESTING_EXCEEDED,
-    });
+    await expectSecurityRejection(uploadZip(context, root), ErrorCode.ZIP_NESTING_EXCEEDED);
   });
 
   it('marks parsed prompt injection risk in source document metadata', async () => {
@@ -161,49 +151,45 @@ describe('upload security validation integration', () => {
     const context = createUploadIntegrationContext({ validation: true });
     context.queueSpaceExists();
 
-    const result = await context.service.uploadFile(
-      {
-        spaceId: UPLOAD_TEST_SPACE_ID,
-        file: createUploadedFile(Buffer.from('#!/bin/sh\necho owned\n'), {
-          originalname: 'notes.txt',
-          mimetype: 'text/plain',
-        }),
-      },
-      createAdminUploadContext(),
+    await expectSecurityRejection(
+      context.service.uploadFile(
+        {
+          spaceId: UPLOAD_TEST_SPACE_ID,
+          file: createUploadedFile(Buffer.from('#!/bin/sh\necho owned\n'), {
+            originalname: 'notes.txt',
+            mimetype: 'text/plain',
+          }),
+        },
+        createAdminUploadContext(),
+      ),
+      ErrorCode.MIME_MISMATCH,
     );
-
-    expect(result).toMatchObject({
-      status: 'security_rejected',
-      error_code: ErrorCode.MIME_MISMATCH,
-    });
   });
 
   it('rejects ZIP symlink entries', async () => {
     const context = createUploadIntegrationContext({ validation: true });
     context.queueSpaceExists();
 
-    const result = await uploadZip(
-      context,
-      createZipFixture([
-        {
-          name: 'link.txt',
-          data: Buffer.from('target'),
-          externalFileAttributes: 0o120777 << 16,
-        },
-      ]),
+    await expectSecurityRejection(
+      uploadZip(
+        context,
+        createZipFixture([
+          {
+            name: 'link.txt',
+            data: Buffer.from('target'),
+            externalFileAttributes: 0o120777 << 16,
+          },
+        ]),
+      ),
+      ErrorCode.ZIP_SYMLINK_DETECTED,
     );
-
-    expect(result).toMatchObject({
-      status: 'security_rejected',
-      error_code: ErrorCode.ZIP_SYMLINK_DETECTED,
-    });
   });
 });
 
 async function uploadZip(
   context: ReturnType<typeof createUploadIntegrationContext>,
   buffer: Buffer,
-): Promise<UploadResponseDto> {
+): Promise<unknown> {
   return context.service.uploadFile(
     {
       spaceId: UPLOAD_TEST_SPACE_ID,
@@ -214,6 +200,46 @@ async function uploadZip(
     },
     createAdminUploadContext(),
   );
+}
+
+type HttpExceptionLike = {
+  getStatus: () => number;
+  getResponse: () => string | object;
+};
+
+async function expectSecurityRejection(promise: Promise<unknown>, expectedCode: ErrorCode): Promise<HttpExceptionLike> {
+  try {
+    await promise;
+  } catch (err) {
+    expect(isHttpExceptionLike(err)).toBe(true);
+    const exception = err as HttpExceptionLike;
+    expect(exception.getStatus()).toBe(422);
+    expect(getHttpExceptionField(exception, 'code')).toBe(expectedCode);
+    expect(getHttpExceptionField(exception, 'error_code')).toBe(expectedCode);
+    return exception;
+  }
+
+  throw new Error('Expected upload to reject with HttpException');
+}
+
+function isHttpExceptionLike(err: unknown): err is HttpExceptionLike {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'getStatus' in err &&
+    typeof err.getStatus === 'function' &&
+    'getResponse' in err &&
+    typeof err.getResponse === 'function'
+  );
+}
+
+function getHttpExceptionField(exception: HttpExceptionLike, field: string): unknown {
+  const response = exception.getResponse();
+  if (typeof response !== 'object' || response === null || !(field in response)) {
+    return undefined;
+  }
+
+  return (response as Record<string, unknown>)[field];
 }
 
 function validPdfBuffer(): Buffer {

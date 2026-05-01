@@ -93,6 +93,23 @@ describe('ZipValidator', () => {
     });
   });
 
+  it('rejects ZIP entries whose magic bytes do not match the allowed extension', async () => {
+    const result = await new ZipValidator().validate({
+      filename: 'disguised.zip',
+      buffer: createZipFixture([
+        {
+          name: 'payload.pdf',
+          data: Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46]), Buffer.alloc(128)]),
+        },
+      ]),
+    });
+
+    expect(result).toMatchObject({
+      pass: false,
+      code: ErrorCode.MIME_MISMATCH,
+    });
+  });
+
   it('rejects symlink entries', async () => {
     const result = await new ZipValidator().validate({
       filename: 'links.zip',

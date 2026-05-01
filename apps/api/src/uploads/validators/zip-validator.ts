@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import type { Readable } from 'node:stream';
 import yauzl, { type Entry, type ZipFile } from 'yauzl';
 
-import { getUploadExtension } from './mime-validator.js';
+import { MIME_HEADER_BYTES, getUploadExtension, validateUploadMagicBytes } from './mime-validator.js';
 import { type SecurityValidationResult, validationPass, validationReject } from './validation-result.js';
 
 export type ZipValidationInput = {
@@ -193,10 +193,28 @@ export class ZipValidator {
     }
 
     if (extension !== '.zip') {
-      return validationPass();
+      const entryHeader = await readEntryHeader(zipfile, entry, MIME_HEADER_BYTES);
+      return validateUploadMagicBytes({
+        filename: entry.fileName,
+        buffer: entryHeader,
+      });
     }
 
-    const nestedBuffer = await readEntryBuffer(zipfile, entry);
+    let nestedBuffer: Buffer;
+    try {
+      nestedBuffer = await readEntryBuffer(zipfile, entry, MAX_TOTAL_UNCOMPRESSED_BYTES);
+    } catch (err) {
+      if (err instanceof ZipEntrySizeLimitError) {
+        return validationReject(ErrorCode.ZIP_BOMB_DETECTED, 'ZIP entry decompressed size exceeded', {
+          entry: entry.fileName,
+          bytes_read: err.bytesRead,
+          max_total_uncompressed_bytes: err.maxBytes,
+        });
+      }
+
+      throw err;
+    }
+
     return this.validateBuffer(nestedBuffer, depth + 1, entry.fileName);
   }
 }
@@ -245,7 +263,7 @@ function isDirectoryEntry(entry: Entry): boolean {
   return entry.fileName.endsWith('/');
 }
 
-function readEntryBuffer(zipfile: ZipFile, entry: Entry): Promise<Buffer> {
+function readEntryHeader(zipfile: ZipFile, entry: Entry, maxBytes: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     zipfile.openReadStream(entry, (err, stream) => {
       if ((err !== null && err !== undefined) || stream === undefined) {
@@ -253,20 +271,121 @@ function readEntryBuffer(zipfile: ZipFile, entry: Entry): Promise<Buffer> {
         return;
       }
 
-      resolve(readStream(stream));
+      resolve(readStreamHeader(stream, maxBytes));
     });
   });
 }
 
-function readStream(stream: Readable): Promise<Buffer> {
+function readEntryBuffer(zipfile: ZipFile, entry: Entry, maxBytes: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    stream.on('data', (chunk: Buffer | string) => {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    });
-    stream.on('error', reject);
-    stream.on('end', () => {
-      resolve(Buffer.concat(chunks));
+    zipfile.openReadStream(entry, (err, stream) => {
+      if ((err !== null && err !== undefined) || stream === undefined) {
+        reject(err ?? new Error(`Failed to read ZIP entry ${entry.fileName}`));
+        return;
+      }
+
+      resolve(readStream(stream, entry.fileName, maxBytes));
     });
   });
+}
+
+function readStreamHeader(stream: Readable, maxBytes: number): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let settled = false;
+
+    const finish = (buffer: Buffer): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      resolve(buffer);
+    };
+
+    const fail = (err: Error): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      reject(err);
+    };
+
+    stream.on('data', (chunk: Buffer | string) => {
+      if (settled) {
+        return;
+      }
+
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      const remaining = maxBytes - size;
+      if (remaining > 0) {
+        const slice = buffer.length > remaining ? buffer.subarray(0, remaining) : buffer;
+        chunks.push(slice);
+        size += slice.length;
+      }
+
+      if (size >= maxBytes) {
+        stream.destroy();
+        finish(Buffer.concat(chunks, size));
+      }
+    });
+    stream.on('error', fail);
+    stream.on('end', () => {
+      finish(Buffer.concat(chunks, size));
+    });
+  });
+}
+
+function readStream(stream: Readable, entryName: string, maxBytes: number): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let settled = false;
+
+    const fail = (err: Error): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      stream.destroy();
+      reject(err);
+    };
+
+    stream.on('data', (chunk: Buffer | string) => {
+      if (settled) {
+        return;
+      }
+
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      size += buffer.length;
+      if (size > maxBytes) {
+        fail(new ZipEntrySizeLimitError(entryName, size, maxBytes));
+        return;
+      }
+
+      chunks.push(buffer);
+    });
+    stream.on('error', fail);
+    stream.on('end', () => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      resolve(Buffer.concat(chunks, size));
+    });
+  });
+}
+
+class ZipEntrySizeLimitError extends Error {
+  constructor(
+    readonly entryName: string,
+    readonly bytesRead: number,
+    readonly maxBytes: number,
+  ) {
+    super(`ZIP entry ${entryName} exceeded ${maxBytes} bytes while reading`);
+  }
 }

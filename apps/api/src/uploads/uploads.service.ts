@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
+import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { JobRepository, job_events, jobs, type JobRow } from '@cherrygraph/job-core';
 import {
   ErrorCode,
@@ -91,7 +91,7 @@ export class UploadsService {
     private readonly storageService: StorageService,
     private readonly fileBlobRepository: FileBlobRepository,
     private readonly sourceDocumentRepository: SourceDocumentRepository,
-    @Optional() private readonly validationPipeline?: ValidationPipeline,
+    private readonly validationPipeline: ValidationPipeline,
   ) {}
 
   async uploadFile(input: UploadFileInput, context: UploadContext = {}): Promise<UploadResponseDto> {
@@ -199,7 +199,7 @@ export class UploadsService {
       });
       const validation = await this.runSecurityValidation(validating, blob, input.file.buffer, userId);
       if (!validation.pass) {
-        return toUploadResponse(validation.sourceDocument, null, true, validation.code);
+        throwSecurityValidationError(validation);
       }
 
       const archive = await this.storageService.promoteToArchive({
@@ -540,10 +540,6 @@ export class UploadsService {
   ): Promise<UploadDetailDto> {
     const tenantId = resolveTenantId(context);
     const document = await this.getTenantDocument(sourceDocumentId, tenantId);
-    if (this.validationPipeline === undefined) {
-      return this.toUploadDetail(document);
-    }
-
     const updated = await this.validationPipeline.markPromptInjectionScan(document, parsedMarkdown);
     return this.toUploadDetail(updated);
   }
@@ -789,10 +785,6 @@ export class UploadsService {
     buffer: Buffer,
     actorUserId: string | null,
   ): Promise<RecordedValidationPipelineResult> {
-    if (this.validationPipeline === undefined) {
-      return { pass: true };
-    }
-
     return this.validationPipeline.validateAndRecord({
       sourceDocument: document,
       filename: document.filename,
@@ -1105,4 +1097,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function throwApiError(code: ErrorCode, message: string, status: HttpStatus): never {
   throw new HttpException({ code, message }, status);
+}
+
+function throwSecurityValidationError(result: RecordedValidationPipelineResult): never {
+  if (result.pass) {
+    throwApiError(ErrorCode.INTERNAL_ERROR, 'Security validation unexpectedly passed', HttpStatus.INTERNAL_SERVER_ERROR);
+  }
+
+  throw new HttpException(
+    {
+      code: result.code,
+      error_code: result.code,
+      message: result.reason,
+    },
+    HttpStatus.UNPROCESSABLE_ENTITY,
+  );
 }

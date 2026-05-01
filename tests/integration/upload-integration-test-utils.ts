@@ -17,7 +17,10 @@ import {
 import { UploadsService, type UploadContext } from '../../apps/api/src/uploads/uploads.service.js';
 import { MimeValidator } from '../../apps/api/src/uploads/validators/mime-validator.js';
 import { PromptInjectionScanner } from '../../apps/api/src/uploads/validators/prompt-injection-scanner.js';
-import { ValidationPipeline } from '../../apps/api/src/uploads/validators/validation-pipeline.js';
+import {
+  ValidationPipeline,
+  type RecordedValidationPipelineResult,
+} from '../../apps/api/src/uploads/validators/validation-pipeline.js';
 import { ZipValidator } from '../../apps/api/src/uploads/validators/zip-validator.js';
 import { ScriptedDb } from '../../apps/api/src/users/__tests__/user-group-service-test-utils.js';
 
@@ -45,21 +48,22 @@ export function createUploadIntegrationContext(options: { validation?: boolean }
   const jobs = new IntegrationJobHarness();
   const audit = new IntegrationAuditService();
   vi.spyOn(JobRepository, 'create').mockImplementation((jobDb, data) => jobs.create(jobDb, data));
-  const validationPipeline = options.validation === true
-    ? new ValidationPipeline(
-        new MimeValidator(),
-        new ZipValidator(),
-        new PromptInjectionScanner(),
-        sourceDocuments as unknown as SourceDocumentRepository,
-        audit as unknown as AuditService,
-      )
-    : undefined;
+  const validationPipeline =
+    options.validation === true
+      ? new ValidationPipeline(
+          new MimeValidator(),
+          new ZipValidator(),
+          new PromptInjectionScanner(),
+          sourceDocuments as unknown as SourceDocumentRepository,
+          audit as unknown as AuditService,
+        )
+      : createPassingValidationPipeline();
   const service = new UploadsService(
     db.asDrizzle(),
     storage as unknown as StorageService,
     fileBlobs as unknown as FileBlobRepository,
     sourceDocuments as unknown as SourceDocumentRepository,
-    validationPipeline,
+    validationPipeline as unknown as ValidationPipeline,
   );
 
   return {
@@ -71,6 +75,13 @@ export function createUploadIntegrationContext(options: { validation?: boolean }
     jobs,
     audit,
     queueSpaceExists: (spaceId = UPLOAD_TEST_SPACE_ID) => db.queueSelect([{ id: spaceId }]),
+  };
+}
+
+function createPassingValidationPipeline(): Pick<ValidationPipeline, 'validateAndRecord' | 'markPromptInjectionScan'> {
+  return {
+    validateAndRecord: vi.fn((): Promise<RecordedValidationPipelineResult> => Promise.resolve({ pass: true })),
+    markPromptInjectionScan: vi.fn((sourceDocument: SourceDocumentRow) => Promise.resolve(sourceDocument)),
   };
 }
 
