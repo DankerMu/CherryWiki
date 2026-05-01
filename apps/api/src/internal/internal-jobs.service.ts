@@ -85,7 +85,7 @@ export class InternalJobsService {
             result_json: null,
           });
 
-          await this.renewOwnedJobLock(job.id, input.worker_id);
+          await this.acquireJobLock(job.id, input.worker_id);
 
           await JobEventRepository.create(txDb, {
             job_id: job.id,
@@ -312,6 +312,13 @@ export class InternalJobsService {
     }
   }
 
+  private async acquireJobLock(jobId: string, workerId: string): Promise<void> {
+    const redis = this.getRequiredRedis();
+    if (!(await RedisJobLock.acquire(redis, jobId, workerId, DEFAULT_LOCK_TTL_SECONDS))) {
+      throwApiError(ErrorCode.CONFLICT, 'Job lock already held by another worker', HttpStatus.CONFLICT);
+    }
+  }
+
   private async tryRenewOwnedJobLock(jobId: string, workerId: string): Promise<boolean> {
     const redis = this.getRequiredRedis();
     return RedisJobLock.renew(redis, jobId, workerId, DEFAULT_LOCK_TTL_SECONDS);
@@ -467,6 +474,11 @@ export class InternalJobsService {
       return;
     }
 
+    if (job.type === 'ingestion') {
+      await this.handleIngestionCompletion(job);
+      return;
+    }
+
     if (job.type !== 'validation') {
       return;
     }
@@ -550,7 +562,60 @@ export class InternalJobsService {
     }
   }
 
+  private async handleIngestionFailure(job: JobRow): Promise<void> {
+    const uploadsService = this.getRequiredUploadsService();
+    const payload = asJsonRecord(job.payload_json);
+    const sourceDocumentId = readString(payload.source_document_id);
+    if (sourceDocumentId === undefined) {
+      return;
+    }
+
+    const willRetry = job.attempt_count < job.max_attempts;
+    if (willRetry) {
+      return;
+    }
+
+    try {
+      await uploadsService.markIngestionFailed(sourceDocumentId, { tenantId: job.tenant_id });
+    } catch (err) {
+      getApiLogger().error(
+        { err, job_id: job.id, source_document_id: sourceDocumentId },
+        'Failed to mark source_document as parse_failed',
+      );
+    }
+  }
+
+  private async handleIngestionCompletion(job: JobRow): Promise<void> {
+    const uploadsService = this.getRequiredUploadsService();
+    const payload = asJsonRecord(job.payload_json);
+    const result = asJsonRecord(job.result_json);
+    const sourceDocumentId = readString(payload.source_document_id) ?? readString(asJsonRecord(result.metadata).source_document_id);
+    if (sourceDocumentId === undefined) {
+      getApiLogger().warn({ job_id: job.id }, 'Ingestion job missing source_document_id — skipping status update');
+      return;
+    }
+
+    try {
+      const parsedUri = readString(result.parsed_uri);
+      const previewUri = readString(result.preview_uri);
+      await uploadsService.markIngestionComplete(sourceDocumentId, {
+        ...(parsedUri !== undefined ? { parsedUri } : {}),
+        ...(previewUri !== undefined ? { previewUri } : {}),
+      }, { tenantId: job.tenant_id });
+    } catch (err) {
+      getApiLogger().error(
+        { err, job_id: job.id, source_document_id: sourceDocumentId },
+        'Ingestion job succeeded but status update failed — document may require manual reprocessing',
+      );
+    }
+  }
+
   private async handleFailedJob(job: JobRow, errorJson: Record<string, unknown>): Promise<void> {
+    if (job.type === 'ingestion') {
+      await this.handleIngestionFailure(job);
+      return;
+    }
+
     if (job.type !== 'url_fetch') {
       return;
     }

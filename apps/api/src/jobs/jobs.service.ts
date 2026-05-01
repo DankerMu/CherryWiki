@@ -430,6 +430,7 @@ function isJobSortField(field: string): field is JobSortField {
 function toJobDto(job: JobRow, progress: JobProgressDto | null): JobDto {
   return {
     job_id: job.id,
+    tenant_id: job.tenant_id,
     type: job.type,
     status: job.status,
     space_id: job.space_id,

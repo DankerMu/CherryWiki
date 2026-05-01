@@ -19,8 +19,6 @@ COPY packages/graph-core/package.json packages/graph-core/
 COPY packages/ai-core/package.json packages/ai-core/
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
-COPY apps/ingestion-worker/package.json apps/ingestion-worker/
-COPY apps/url-fetcher-worker/package.json apps/url-fetcher-worker/
 COPY apps/indexer-worker/package.json apps/indexer-worker/
 RUN pnpm install --frozen-lockfile
 
@@ -36,8 +34,6 @@ RUN pnpm build
 # ---- Deploy: create self-contained bundles per app ----
 FROM build AS deploy
 RUN pnpm deploy --legacy --filter=@cherrygraph/api /deploy/api
-RUN pnpm deploy --legacy --filter=@cherrygraph/ingestion-worker --prod /deploy/ingestion-worker
-RUN pnpm deploy --legacy --filter=@cherrygraph/url-fetcher-worker --prod /deploy/url-fetcher-worker
 RUN pnpm deploy --legacy --filter=@cherrygraph/indexer-worker --prod /deploy/indexer-worker
 # Copy migration/seed assets into api bundle
 RUN cp -r /app/schemas /deploy/api/schemas && \
@@ -66,18 +62,34 @@ EXPOSE 80
 # ============================================================
 # Target: ingestion-worker
 # ============================================================
-FROM base AS ingestion-worker
-COPY --from=deploy /deploy/ingestion-worker /app
+FROM python:3.11-slim AS ingestion-worker
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+WORKDIR /app
+RUN addgroup --system --gid 1000 worker \
+    && adduser --system --uid 1000 --ingroup worker worker
+COPY apps/ingestion-worker/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY apps/ingestion-worker/src/ src/
+USER worker
 EXPOSE 9091
-CMD ["node", "dist/main.js"]
+CMD ["python", "-m", "src"]
 
 # ============================================================
 # Target: url-fetcher-worker
 # ============================================================
-FROM base AS url-fetcher-worker
-COPY --from=deploy /deploy/url-fetcher-worker /app
+FROM python:3.11-slim AS url-fetcher-worker
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+WORKDIR /app
+RUN addgroup --system --gid 1000 worker \
+    && adduser --system --uid 1000 --ingroup worker worker
+COPY apps/url-fetcher-worker/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY apps/url-fetcher-worker/src/ src/
+USER worker
 EXPOSE 9092
-CMD ["node", "dist/main.js"]
+CMD ["python", "-m", "src"]
 
 # ============================================================
 # Target: indexer-worker

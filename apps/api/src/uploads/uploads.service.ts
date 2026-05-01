@@ -533,6 +533,48 @@ export class UploadsService {
     return this.runSecurityValidation(document, blob, buffer, userId);
   }
 
+  async markIngestionFailed(
+    sourceDocumentId: string,
+    context: UploadContext = {},
+  ): Promise<void> {
+    const tenantId = resolveTenantId(context);
+    const document = await this.getTenantDocument(sourceDocumentId, tenantId);
+    if (document.status === 'parse_failed') {
+      return;
+    }
+
+    if (document.status === 'archived') {
+      await this.sourceDocumentRepository.updateStatus(document.id, 'parsing');
+    }
+
+    await this.sourceDocumentRepository.updateStatus(document.id, 'parse_failed');
+  }
+
+  async markIngestionComplete(
+    sourceDocumentId: string,
+    result: { parsedUri?: string; previewUri?: string },
+    context: UploadContext = {},
+  ): Promise<void> {
+    const tenantId = resolveTenantId(context);
+    const document = await this.getTenantDocument(sourceDocumentId, tenantId);
+    if (document.status === 'parsed') {
+      return;
+    }
+
+    if (document.status === 'archived') {
+      await this.sourceDocumentRepository.updateStatus(document.id, 'parsing');
+    }
+
+    await this.sourceDocumentRepository.updateStatus(document.id, 'parsed', {
+      metadata_json: {
+        ...asJsonRecord(document.metadata_json),
+        ...(result.parsedUri !== undefined ? { parsed_uri: result.parsedUri } : {}),
+        ...(result.previewUri !== undefined ? { preview_uri: result.previewUri } : {}),
+        parsed_at: new Date().toISOString(),
+      },
+    });
+  }
+
   async markPromptInjectionScan(
     sourceDocumentId: string,
     parsedMarkdown: string,

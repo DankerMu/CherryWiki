@@ -394,9 +394,9 @@
 | 幂等策略 | `X-Idempotency-Key`（基于文件 hash 去重） |
 | 审计动作 | `upload.create` |
 | Rate Limit | 10 req/min/user |
-| Content-Type | `multipart/form-data` |
+| Content-Type | `multipart/form-data`（文件上传）或 `application/json`（URL 抓取） |
 
-输入（form fields）：
+输入方式一：文件上传（`multipart/form-data`）：
 
 | Field | 类型 | 必填 | 说明 |
 |---|---|---|---|
@@ -404,6 +404,15 @@
 | `title` | string | 否 | 自定义标题（默认用文件名） |
 | `tags` | string[] | 否 | 标签 |
 | `auto_graphify` | boolean | 否 | 上传后自动触发 Graphify（默认 false） |
+
+输入方式二：URL 抓取（`application/json`）：
+
+| Field | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `url` | string (URI) | 是 | 目标 URL（由 url-fetcher-worker 抓取，source_type=url） |
+| `title` | string | 否 | 自定义标题（默认用页面 title） |
+| `tags` | string[] | 否 | 标签 |
+| `auto_graphify` | boolean | 否 | 抓取后自动触发 Graphify（默认 false） |
 
 输出：
 
@@ -432,6 +441,11 @@
 | `UNSUPPORTED_FILE_TYPE` | 不支持的文件格式 |
 | `DUPLICATE_FILE` | 相同 hash 文件已存在（返回已有 source_document_id） |
 | `STORAGE_QUOTA_EXCEEDED` | Space 存储配额超限 |
+| `SSRF_BLOCKED` | URL 指向内网/metadata/被拦截地址 |
+| `MIME_MISMATCH` | 文件 magic bytes 与扩展名/Content-Type 不匹配 |
+| `ZIP_BOMB_DETECTED` | ZIP 解压后超过大小限制（>500MB） |
+| `PATH_TRAVERSAL_DETECTED` | ZIP 内含路径穿越条目（../../） |
+| `ZIP_NESTING_EXCEEDED` | ZIP 嵌套超过 3 层 |
 
 ### GET `/api/uploads/{source_document_id}`
 
