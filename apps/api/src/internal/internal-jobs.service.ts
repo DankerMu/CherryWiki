@@ -71,6 +71,7 @@ export class InternalJobsService {
 
     if (isJobStatus(job.status, JobStatus.PENDING)) {
       await this.touchWorkerHeartbeat(input.worker_id);
+      let lockAcquired = false;
 
       try {
         const runningJob = await this.db.transaction(async (tx) => {
@@ -86,6 +87,7 @@ export class InternalJobsService {
           });
 
           await this.acquireJobLock(job.id, input.worker_id);
+          lockAcquired = true;
 
           await JobEventRepository.create(txDb, {
             job_id: job.id,
@@ -108,6 +110,17 @@ export class InternalJobsService {
 
         return toJobDto(runningJob, progress);
       } catch (error) {
+        if (lockAcquired) {
+          try {
+            await this.releaseJobLock(job.id, input.worker_id);
+          } catch (releaseError) {
+            getApiLogger().error(
+              { err: releaseError, job_id: job.id, worker_id: input.worker_id },
+              'Failed to release job lock after pending job activation rollback',
+            );
+          }
+        }
+
         handleJobConflict(error);
         throw error;
       }
@@ -221,7 +234,7 @@ export class InternalJobsService {
       });
 
       await this.releaseJobLock(job.id, input.worker_id);
-      await this.handleFailedJob(job, input.error_json);
+      await this.handleFailedJob(job, input.error_json, willRetry);
       return {
         job: toJobDto(nextJob),
         will_retry: willRetry,
@@ -450,6 +463,10 @@ export class InternalJobsService {
       });
 
       await this.releaseJobLock(job.id, workerId);
+      if (job.type === 'ingestion' && !willRetry) {
+        await this.handleIngestionFailure(job, willRetry);
+      }
+
       return 1;
     } catch (error) {
       if (error instanceof JobConflictError) {
@@ -562,16 +579,15 @@ export class InternalJobsService {
     }
   }
 
-  private async handleIngestionFailure(job: JobRow): Promise<void> {
+  private async handleIngestionFailure(job: JobRow, willRetry: boolean): Promise<void> {
+    if (willRetry) {
+      return;
+    }
+
     const uploadsService = this.getRequiredUploadsService();
     const payload = asJsonRecord(job.payload_json);
     const sourceDocumentId = readString(payload.source_document_id);
     if (sourceDocumentId === undefined) {
-      return;
-    }
-
-    const willRetry = job.attempt_count < job.max_attempts;
-    if (willRetry) {
       return;
     }
 
@@ -602,17 +618,18 @@ export class InternalJobsService {
         ...(parsedUri !== undefined ? { parsedUri } : {}),
         ...(previewUri !== undefined ? { previewUri } : {}),
       }, { tenantId: job.tenant_id });
+      await uploadsService.handleGraphifyHandoff(sourceDocumentId, { tenantId: job.tenant_id });
     } catch (err) {
       getApiLogger().error(
         { err, job_id: job.id, source_document_id: sourceDocumentId },
-        'Ingestion job succeeded but status update failed — document may require manual reprocessing',
+        'Ingestion job succeeded but status update or graphify handoff failed — document may require manual reprocessing',
       );
     }
   }
 
-  private async handleFailedJob(job: JobRow, errorJson: Record<string, unknown>): Promise<void> {
+  private async handleFailedJob(job: JobRow, errorJson: Record<string, unknown>, willRetry: boolean): Promise<void> {
     if (job.type === 'ingestion') {
-      await this.handleIngestionFailure(job);
+      await this.handleIngestionFailure(job, willRetry);
       return;
     }
 

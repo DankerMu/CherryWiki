@@ -139,6 +139,32 @@ describe('InternalJobsService', () => {
     expect(eventSpy).not.toHaveBeenCalled();
   });
 
+  it('releases a Redis lock when pending job activation fails after acquiring it', async () => {
+    const service = createService();
+    const runningJob = createJobRow({
+      status: JobStatus.RUNNING,
+      locked_by: 'worker-1',
+      locked_at: new Date('2026-04-30T11:55:00.000Z'),
+      started_at: new Date('2026-04-30T11:55:00.000Z'),
+    });
+    const eventError = new Error('event insert failed');
+
+    vi.spyOn(JobRepository, 'findById').mockResolvedValue(createJobRow());
+    vi.spyOn(JobStateMachine, 'transition').mockResolvedValue(runningJob);
+    vi.spyOn(RedisJobLock, 'acquire').mockResolvedValue(true);
+    vi.spyOn(JobEventRepository, 'create').mockRejectedValue(eventError);
+    const releaseSpy = vi.spyOn(RedisJobLock, 'release').mockResolvedValue(true);
+
+    await expect(
+      service.reportProgress('job-1', {
+        worker_id: 'worker-1',
+        percent: 10,
+      }),
+    ).rejects.toBe(eventError);
+
+    expect(releaseSpy).toHaveBeenCalledWith(expect.anything(), 'job-1', 'worker-1');
+  });
+
   it('transitions a running job to succeeded, releases the lock, and writes an event', async () => {
     const service = createService();
     const runningJob = createJobRow({
@@ -395,6 +421,108 @@ describe('InternalJobsService', () => {
     );
   });
 
+  it('marks ingestion complete and triggers graphify handoff when an ingestion job succeeds', async () => {
+    const db = createDb();
+    const redis = createRedisMock();
+    const uploadsService = {
+      markIngestionComplete: vi.fn(() => Promise.resolve()),
+      handleGraphifyHandoff: vi.fn(() => Promise.resolve(null)),
+    };
+    const service = new InternalJobsService(db.asDb() as never, redis.asClient() as never, uploadsService as never);
+    const runningJob = createJobRow({
+      tenant_id: 'tenant-1',
+      type: 'ingestion',
+      status: JobStatus.RUNNING,
+      locked_by: 'worker-1',
+      locked_at: new Date('2026-04-30T11:55:00.000Z'),
+      started_at: new Date('2026-04-30T11:55:00.000Z'),
+      payload_json: {
+        source_document_id: 'source-1',
+      },
+    });
+    const completedJob = createJobRow({
+      ...runningJob,
+      status: JobStatus.SUCCEEDED,
+      locked_by: null,
+      locked_at: null,
+      result_json: {
+        parsed_uri: 's3://cherrywiki-parsed/source-1.md',
+        preview_uri: 's3://cherrywiki-previews/source-1.json',
+      },
+      completed_at: new Date('2026-04-30T12:00:00.000Z'),
+    });
+
+    vi.spyOn(JobRepository, 'findById').mockResolvedValue(runningJob);
+    vi.spyOn(RedisJobLock, 'renew').mockResolvedValue(true);
+    vi.spyOn(JobStateMachine, 'transition').mockResolvedValue(completedJob);
+    vi.spyOn(JobEventRepository, 'create').mockResolvedValue({} as Awaited<ReturnType<typeof JobEventRepository.create>>);
+    vi.spyOn(RedisJobLock, 'release').mockResolvedValue(true);
+
+    await expect(
+      service.reportComplete('job-1', {
+        worker_id: 'worker-1',
+        result_json: completedJob.result_json as Record<string, unknown>,
+      }),
+    ).resolves.toMatchObject({
+      job_id: 'job-1',
+      status: JobStatus.SUCCEEDED,
+    });
+    expect(uploadsService.markIngestionComplete).toHaveBeenCalledWith(
+      'source-1',
+      {
+        parsedUri: 's3://cherrywiki-parsed/source-1.md',
+        previewUri: 's3://cherrywiki-previews/source-1.json',
+      },
+      { tenantId: 'tenant-1' },
+    );
+    expect(uploadsService.handleGraphifyHandoff).toHaveBeenCalledWith('source-1', { tenantId: 'tenant-1' });
+  });
+
+  it('logs but does not throw when graphify handoff fails after ingestion completion', async () => {
+    const db = createDb();
+    const redis = createRedisMock();
+    const uploadsService = {
+      markIngestionComplete: vi.fn(() => Promise.resolve()),
+      handleGraphifyHandoff: vi.fn(() => Promise.reject(new Error('graphify queue full'))),
+    };
+    const service = new InternalJobsService(db.asDb() as never, redis.asClient() as never, uploadsService as never);
+    const runningJob = createJobRow({
+      tenant_id: 'tenant-1',
+      type: 'ingestion',
+      status: JobStatus.RUNNING,
+      locked_by: 'worker-1',
+      locked_at: new Date('2026-04-30T11:55:00.000Z'),
+      started_at: new Date('2026-04-30T11:55:00.000Z'),
+      payload_json: { source_document_id: 'source-1' },
+    });
+    const completedJob = createJobRow({
+      ...runningJob,
+      status: JobStatus.SUCCEEDED,
+      locked_by: null,
+      locked_at: null,
+      result_json: { parsed_uri: 's3://parsed/source-1.md' },
+      completed_at: new Date('2026-04-30T12:00:00.000Z'),
+    });
+
+    vi.spyOn(JobRepository, 'findById').mockResolvedValue(runningJob);
+    vi.spyOn(RedisJobLock, 'renew').mockResolvedValue(true);
+    vi.spyOn(JobStateMachine, 'transition').mockResolvedValue(completedJob);
+    vi.spyOn(JobEventRepository, 'create').mockResolvedValue({} as Awaited<ReturnType<typeof JobEventRepository.create>>);
+    vi.spyOn(RedisJobLock, 'release').mockResolvedValue(true);
+
+    await expect(
+      service.reportComplete('job-1', {
+        worker_id: 'worker-1',
+        result_json: completedJob.result_json as Record<string, unknown>,
+      }),
+    ).resolves.toMatchObject({
+      job_id: 'job-1',
+      status: JobStatus.SUCCEEDED,
+    });
+    expect(uploadsService.markIngestionComplete).toHaveBeenCalled();
+    expect(uploadsService.handleGraphifyHandoff).toHaveBeenCalled();
+  });
+
   it('records an audit event when a url_fetch job fails with ssrf_blocked', async () => {
     const db = createDb();
     const redis = createRedisMock();
@@ -459,6 +587,64 @@ describe('InternalJobsService', () => {
         },
       }),
     );
+  });
+
+  it.each([
+    {
+      label: 'non-retryable failures',
+      attemptCount: 0,
+      maxAttempts: 3,
+      retryable: false,
+    },
+    {
+      label: 'the last allowed attempt',
+      attemptCount: 2,
+      maxAttempts: 3,
+      retryable: true,
+    },
+  ])('marks ingestion failed for $label', async ({ attemptCount, maxAttempts, retryable }) => {
+    const db = createDb();
+    const redis = createRedisMock();
+    const uploadsService = {
+      markIngestionFailed: vi.fn(() => Promise.resolve()),
+    };
+    const service = new InternalJobsService(db.asDb() as never, redis.asClient() as never, uploadsService as never);
+    const runningJob = createJobRow({
+      tenant_id: 'tenant-1',
+      type: 'ingestion',
+      status: JobStatus.RUNNING,
+      attempt_count: attemptCount,
+      max_attempts: maxAttempts,
+      locked_by: 'worker-1',
+      locked_at: new Date('2026-04-30T11:55:00.000Z'),
+      started_at: new Date('2026-04-30T11:55:00.000Z'),
+      payload_json: {
+        source_document_id: 'source-1',
+      },
+    });
+    const failedJob = createJobRow({
+      ...runningJob,
+      status: JobStatus.FAILED,
+      attempt_count: attemptCount + 1,
+      locked_by: null,
+      locked_at: null,
+      completed_at: new Date('2026-04-30T12:00:00.000Z'),
+    });
+
+    vi.spyOn(JobRepository, 'findById').mockResolvedValue(runningJob);
+    vi.spyOn(RedisJobLock, 'renew').mockResolvedValue(true);
+    vi.spyOn(JobStateMachine, 'transition').mockResolvedValue(failedJob);
+    vi.spyOn(JobEventRepository, 'create').mockResolvedValue({} as Awaited<ReturnType<typeof JobEventRepository.create>>);
+    vi.spyOn(RedisJobLock, 'release').mockResolvedValue(true);
+
+    const result = await service.reportFailure('job-1', {
+      worker_id: 'worker-1',
+      error_json: { code: 'PARSE_ERROR', message: 'boom' },
+      retryable,
+    });
+
+    expect(result.will_retry).toBe(false);
+    expect(uploadsService.markIngestionFailed).toHaveBeenCalledWith('source-1', { tenantId: 'tenant-1' });
   });
 
   it('fails a running job and schedules a retry when attempts remain', async () => {
@@ -633,6 +819,38 @@ describe('InternalJobsService', () => {
       }),
     );
     expect(releaseSpy).toHaveBeenCalledWith(expect.anything(), 'job-1', 'worker-1');
+  });
+
+  it('marks ingestion failed when a dead worker exhausts retries', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-30T12:00:00.000Z'));
+
+    const db = createDb([
+      createJobRow({
+        type: 'ingestion',
+        status: JobStatus.RUNNING,
+        locked_by: 'worker-1',
+        locked_at: new Date('2026-04-30T11:55:00.000Z'),
+        started_at: new Date('2026-04-30T11:55:00.000Z'),
+        max_attempts: 1,
+        payload_json: {
+          source_document_id: 'source-1',
+        },
+      }),
+    ]);
+    const redis = createRedisMock();
+    redis.values.set('worker:heartbeat:worker-1', JSON.stringify({ seen_at: '2026-04-30T11:58:00.000Z' }));
+    const uploadsService = {
+      markIngestionFailed: vi.fn(() => Promise.resolve()),
+    };
+    const service = new InternalJobsService(db.asDb() as never, redis.asClient() as never, uploadsService as never);
+    vi.spyOn(JobStateMachine, 'transition').mockResolvedValue(createJobRow({ status: JobStatus.FAILED, attempt_count: 1 }));
+    vi.spyOn(JobEventRepository, 'create').mockResolvedValue({} as Awaited<ReturnType<typeof JobEventRepository.create>>);
+    vi.spyOn(RedisJobLock, 'release').mockResolvedValue(true);
+
+    await expect(service.scanDeadWorkers()).resolves.toBe(1);
+
+    expect(uploadsService.markIngestionFailed).toHaveBeenCalledWith('source-1', { tenantId: 'tenant-1' });
   });
 
   it('scanDeadWorkers skips workers with recent heartbeats', async () => {

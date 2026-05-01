@@ -539,15 +539,13 @@ export class UploadsService {
   ): Promise<void> {
     const tenantId = resolveTenantId(context);
     const document = await this.getTenantDocument(sourceDocumentId, tenantId);
-    if (document.status === 'parse_failed') {
+    if (document.status === 'parsed' || document.status === 'parse_failed') {
       return;
     }
 
-    if (document.status === 'archived') {
-      await this.sourceDocumentRepository.updateStatus(document.id, 'parsing');
-    }
+    const parsingDocument = await this.advanceDocumentToParsing(document);
 
-    await this.sourceDocumentRepository.updateStatus(document.id, 'parse_failed');
+    await this.sourceDocumentRepository.updateStatus(parsingDocument.id, 'parse_failed');
   }
 
   async markIngestionComplete(
@@ -557,21 +555,20 @@ export class UploadsService {
   ): Promise<void> {
     const tenantId = resolveTenantId(context);
     const document = await this.getTenantDocument(sourceDocumentId, tenantId);
-    if (document.status === 'parsed') {
+    if (document.status === 'parsed' || document.status === 'parse_failed') {
       return;
     }
 
-    if (document.status === 'archived') {
-      await this.sourceDocumentRepository.updateStatus(document.id, 'parsing');
-    }
+    const parsingDocument = await this.advanceDocumentToParsing(document);
 
-    await this.sourceDocumentRepository.updateStatus(document.id, 'parsed', {
+    await this.sourceDocumentRepository.updateStatus(parsingDocument.id, 'parsed', {
       metadata_json: {
-        ...asJsonRecord(document.metadata_json),
+        ...asJsonRecord(parsingDocument.metadata_json),
         ...(result.parsedUri !== undefined ? { parsed_uri: result.parsedUri } : {}),
         ...(result.previewUri !== undefined ? { preview_uri: result.previewUri } : {}),
         parsed_at: new Date().toISOString(),
       },
+      ...(result.parsedUri !== undefined ? { parsed_uri: result.parsedUri } : {}),
     });
   }
 
@@ -729,6 +726,20 @@ export class UploadsService {
     );
 
     return toUploadResponse(sourceDocument.row, job, true);
+  }
+
+  private async advanceDocumentToParsing(document: SourceDocumentRow): Promise<SourceDocumentRow> {
+    if (document.status === 'uploaded') {
+      const validating = await this.sourceDocumentRepository.updateStatus(document.id, 'validating');
+      const archived = await this.sourceDocumentRepository.updateStatus(validating.id, 'archived');
+      return this.sourceDocumentRepository.updateStatus(archived.id, 'parsing');
+    }
+
+    if (document.status === 'archived') {
+      return this.sourceDocumentRepository.updateStatus(document.id, 'parsing');
+    }
+
+    return document;
   }
 
   private async createSourceDocumentWithDedup(input: {
