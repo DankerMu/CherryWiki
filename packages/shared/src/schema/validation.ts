@@ -230,6 +230,46 @@ export const updateSourceDocumentSchema = z
   })
   .partial();
 
+export const wikiPageStatusSchema = z.enum(['draft', 'published', 'archived']);
+export const wikiVersionSourceSchema = z.enum(['graphify', 'human', 'import', 'rollback']);
+
+export const insertWikiPageSchema = z.object({
+  id: optionalIdSchema.optional(),
+  tenant_id: idSchema,
+  space_id: idSchema,
+  page_id: nonEmptyString.max(500),
+  title: nonEmptyString.max(500),
+  slug: nonEmptyString.max(500),
+  status: wikiPageStatusSchema.default('draft'),
+  created_by: optionalIdSchema.nullable().optional(),
+});
+
+export const insertWikiPageVersionSchema = z.object({
+  id: optionalIdSchema.optional(),
+  tenant_id: idSchema,
+  space_id: idSchema,
+  wiki_page_pk: idSchema,
+  page_id: nonEmptyString.max(500),
+  version_no: z.number().int().positive(),
+  content_markdown: z.string(),
+  frontmatter_json: unstructuredJsonRecordSchema.default({}),
+  source: wikiVersionSourceSchema,
+  graphify_run_id: optionalIdSchema.nullable().optional(),
+  commit_hash: z.string().max(200).nullable().optional(),
+  status: wikiPageStatusSchema.default('draft'),
+  created_by: optionalIdSchema.nullable().optional(),
+});
+
+export const publishRequestSchema = z.object({
+  version_id: nonEmptyString.max(200),
+  publish_note: z.string().max(1000).optional(),
+});
+
+export const rollbackRequestSchema = z.object({
+  target_version_id: nonEmptyString.max(200),
+  reason: z.string().max(1000).optional(),
+});
+
 export type InsertUserInput = z.infer<typeof insertUserSchema>;
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 export type InsertSpaceInput = z.infer<typeof insertSpaceSchema>;
@@ -248,3 +288,9 @@ export type SourceDocumentMetadata = z.infer<typeof sourceDocumentMetadataSchema
 export type InsertFileBlobInput = z.infer<typeof insertFileBlobSchema>;
 export type InsertSourceDocumentInput = z.infer<typeof insertSourceDocumentSchema>;
 export type UpdateSourceDocumentInput = z.infer<typeof updateSourceDocumentSchema>;
+export type WikiPageStatus = z.infer<typeof wikiPageStatusSchema>;
+export type WikiVersionSource = z.infer<typeof wikiVersionSourceSchema>;
+export type InsertWikiPageInput = z.infer<typeof insertWikiPageSchema>;
+export type InsertWikiPageVersionInput = z.infer<typeof insertWikiPageVersionSchema>;
+export type PublishRequestInput = z.infer<typeof publishRequestSchema>;
+export type RollbackRequestInput = z.infer<typeof rollbackRequestSchema>;

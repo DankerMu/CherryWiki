@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
-import { bigint, boolean, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique } from 'drizzle-orm/pg-core';
+import { bigint, boolean, foreignKey, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique } from 'drizzle-orm/pg-core';
+import type { PgTableExtraConfigValue } from 'drizzle-orm/pg-core';
 
 export const tenants = pgTable('tenants', {
   id: text('id').primaryKey(),
@@ -320,4 +321,134 @@ export const job_events = pgTable(
     created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index('idx_job_events_job').on(table.job_id, table.created_at)],
+);
+
+export const wikiPages = pgTable(
+  'wiki_pages',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    space_id: text('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    page_id: text('page_id').notNull(),
+    title: text('title').notNull(),
+    slug: text('slug').notNull(),
+    status: text('status').notNull().default('draft'),
+    current_version_id: text('current_version_id'),
+    indexed_version_id: text('indexed_version_id'),
+    sync_status: text('sync_status').notNull().default('synced'),
+    docmost_page_id: text('docmost_page_id'),
+    created_by: text('created_by').references(() => users.id),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table): PgTableExtraConfigValue[] => [
+    unique('wiki_pages_tenant_id_space_id_page_id_unique').on(table.tenant_id, table.space_id, table.page_id),
+    index('idx_wiki_pages_indexed_version').on(table.indexed_version_id),
+    index('idx_wiki_pages_current_indexed').on(table.current_version_id, table.indexed_version_id),
+    foreignKey({
+      name: 'fk_wiki_pages_current_version',
+      columns: [table.current_version_id],
+      foreignColumns: [wikiPageVersions.id],
+    }),
+    foreignKey({
+      name: 'fk_wiki_pages_indexed_version',
+      columns: [table.indexed_version_id],
+      foreignColumns: [wikiPageVersions.id],
+    }),
+  ],
+);
+
+export const wikiPageVersions = pgTable(
+  'wiki_page_versions',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    space_id: text('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    wiki_page_pk: text('wiki_page_pk')
+      .notNull()
+      .references(() => wikiPages.id),
+    page_id: text('page_id').notNull(),
+    version_no: integer('version_no').notNull(),
+    content_markdown: text('content_markdown').notNull(),
+    frontmatter_json: jsonb('frontmatter_json').notNull().default(sql`'{}'::jsonb`),
+    source: text('source').notNull(),
+    graphify_run_id: text('graphify_run_id'),
+    commit_hash: text('commit_hash'),
+    status: text('status').notNull().default('draft'),
+    created_by: text('created_by').references(() => users.id),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table): PgTableExtraConfigValue[] => [
+    unique('wiki_page_versions_wiki_page_pk_version_no_unique').on(table.wiki_page_pk, table.version_no),
+    index('idx_wiki_versions_status').on(table.tenant_id, table.space_id, table.status, table.created_at.desc()),
+  ],
+);
+
+export const wikiSections = pgTable(
+  'wiki_sections',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    space_id: text('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    wiki_page_pk: text('wiki_page_pk')
+      .notNull()
+      .references(() => wikiPages.id),
+    page_version_id: text('page_version_id')
+      .notNull()
+      .references(() => wikiPageVersions.id),
+    section_id: text('section_id').notNull(),
+    heading: text('heading').notNull(),
+    level: integer('level').notNull().default(2),
+    section_index: integer('section_index').notNull(),
+    start_offset: integer('start_offset'),
+    end_offset: integer('end_offset'),
+    content_hash: text('content_hash'),
+    acl_json: jsonb('acl_json').notNull().default(sql`'{}'::jsonb`),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('wiki_sections_page_version_id_section_id_unique').on(table.page_version_id, table.section_id),
+    index('idx_wiki_sections_page_version').on(table.page_version_id),
+  ],
+);
+
+export const sourceLinks = pgTable(
+  'source_links',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    space_id: text('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    wiki_page_pk: text('wiki_page_pk')
+      .notNull()
+      .references(() => wikiPages.id),
+    page_version_id: text('page_version_id')
+      .notNull()
+      .references(() => wikiPageVersions.id),
+    section_id: text('section_id').references(() => wikiSections.id),
+    source_document_id: text('source_document_id').references(() => source_documents.id),
+    source_uri: text('source_uri'),
+    quote_hash: text('quote_hash'),
+    evidence_type: text('evidence_type').notNull().default('reference'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_source_links_page_version').on(table.page_version_id),
+    index('idx_source_links_source_doc').on(table.source_document_id),
+  ],
 );
