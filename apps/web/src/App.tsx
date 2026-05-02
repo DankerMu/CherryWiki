@@ -11,11 +11,14 @@ import ModelsPage from './pages/admin/ModelsPage';
 import SpacesPage from './pages/admin/SpacesPage';
 import UsersPage from './pages/admin/UsersPage';
 import Chat from './pages/Chat';
+import GraphifyRunDetailPage from './pages/GraphifyRunDetailPage';
+import GraphifyRunsPage from './pages/GraphifyRunsPage';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import NotFound from './pages/NotFound';
 import Wiki from './pages/Wiki';
 import UploadCenter from './pages/uploads/UploadCenter';
+import GraphifyPage from './pages/admin/GraphifyPage';
 
 export function AppRoutes() {
   return (
@@ -27,6 +30,8 @@ export function AppRoutes() {
       <Route path="/spaces/:spaceId/wiki" element={<Wiki />} />
       <Route path="/spaces/:spaceId/wiki/:pageId" element={<Wiki />} />
       <Route path="/spaces/:spaceId/wiki/:pageId/history" element={<Wiki />} />
+      <Route path="/spaces/:spaceId/graphify" element={<GraphifyRunsPage />} />
+      <Route path="/spaces/:spaceId/graphify/:runId" element={<GraphifyRunDetailPage />} />
       <Route path="/spaces/:spaceId/uploads" element={<UploadCenter />} />
       <Route
         path="/admin"
@@ -45,6 +50,7 @@ export function AppRoutes() {
         <Route path="health" element={<HealthPage />} />
         <Route path="jobs" element={<JobsPage />} />
         <Route path="jobs/:jobId" element={<JobDetailPage />} />
+        <Route path="graphify" element={<GraphifyPage />} />
       </Route>
       <Route path="*" element={<NotFound />} />
     </Routes>

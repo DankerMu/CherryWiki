@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { label: 'Audit Logs', to: '/admin/audit' },
   { label: 'Task Center', to: '/admin/jobs' },
   { label: 'System Health', to: '/admin/health' },
+  { label: 'Graphify', to: '/admin/graphify' },
 ];
 
 export default function AdminLayout() {

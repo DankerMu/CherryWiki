@@ -100,6 +100,8 @@ export type GraphifyRunResponse = {
     graph_json_uri: string | null;
     report_uri: string | null;
   };
+  stats_json: unknown;
+  error_json: unknown;
   created_at: Date;
   started_at: Date | null;
   completed_at: Date | null;
@@ -844,6 +846,8 @@ function toGraphifyRunResponse(run: GraphifyRunRow): GraphifyRunResponse {
       graph_json_uri: run.graph_json_uri,
       report_uri: run.report_uri,
     },
+    stats_json: run.stats_json,
+    error_json: run.error_json,
     created_at: run.created_at,
     started_at: run.started_at,
     completed_at: run.completed_at,

@@ -233,6 +233,8 @@ function createRunResponse(
       graph_json_uri: null,
       report_uri: null,
     },
+    stats_json: {},
+    error_json: null,
     created_at: new Date('2026-05-01T00:00:00.000Z'),
     started_at: null,
     completed_at: null,

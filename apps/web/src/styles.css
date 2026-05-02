@@ -339,6 +339,43 @@ textarea:focus {
   padding: 14px;
 }
 
+.toolbar-span {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 7px;
+}
+
+.status-filter-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.status-filter-tab {
+  min-height: 34px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-2);
+  padding: 7px 11px;
+  font-weight: 800;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.status-filter-tab:hover {
+  border-color: var(--color-text-4);
+  color: var(--color-text-1);
+}
+
+.status-filter-tab.active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-mute);
+  color: var(--color-primary-hover);
+}
+
 .table-wrap {
   overflow-x: auto;
   border: 1px solid var(--color-border);
@@ -389,6 +426,60 @@ tbody tr:last-child td {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.graphify-status-cell {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.quarantine-icon {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-full);
+  background: var(--color-warning-soft);
+  color: var(--color-status-degraded-text);
+  font-size: 0.82rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.graphify-quarantined-row td:first-child {
+  border-left: 4px solid var(--color-warning);
+}
+
+.graphify-inline-details {
+  max-width: 280px;
+}
+
+.graphify-inline-details summary {
+  cursor: pointer;
+  color: var(--color-text-2);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.graphify-inline-details pre,
+.graphify-report-pre {
+  margin: 0;
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-background-soft);
+  color: var(--color-text-1);
+  font-family: var(--font-family-mono);
+  font-size: 0.84rem;
+  line-height: 1.55;
+  padding: 16px;
+}
+
+.graphify-report-pre {
+  white-space: pre-wrap;
 }
 
 .status-badge {
