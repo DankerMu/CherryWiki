@@ -8,6 +8,7 @@ import { AdminHealthModule } from './admin/admin-health.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { DrizzleModule } from './database/drizzle.module.js';
+import { GraphifyModule } from './graphify/graphify.module.js';
 import { GroupModule } from './groups/group.module.js';
 import { HealthModule } from './health/health.module.js';
 import { InternalModule } from './internal/internal.module.js';
@@ -34,6 +35,7 @@ import { WikiModule } from './wiki/wiki.module.js';
     ModelConfigModule,
     StorageModule,
     UploadsModule,
+    GraphifyModule,
     WikiModule,
     HealthModule,
     AdminHealthModule,

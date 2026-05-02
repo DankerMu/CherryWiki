@@ -61,6 +61,13 @@ describe('ErrorCode', () => {
     expect(ErrorCode.VERSION_ALREADY_PUBLISHED).toBe('VERSION_ALREADY_PUBLISHED');
   });
 
+  it('contains graphify module error codes', () => {
+    expect(ErrorCode.GRAPHIFY_RUN_NOT_FOUND).toBe('GRAPHIFY_RUN_NOT_FOUND');
+    expect(ErrorCode.GRAPHIFY_RUN_IN_PROGRESS).toBe('GRAPHIFY_RUN_IN_PROGRESS');
+    expect(ErrorCode.GRAPHIFY_RUN_NOT_CANCELLABLE).toBe('GRAPHIFY_RUN_NOT_CANCELLABLE');
+    expect(ErrorCode.GRAPHIFY_RUN_NOT_RETRYABLE).toBe('GRAPHIFY_RUN_NOT_RETRYABLE');
+  });
+
   it('uses uppercase snake case for every value', () => {
     const uppercaseSnakeCase = /^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$/;
 
