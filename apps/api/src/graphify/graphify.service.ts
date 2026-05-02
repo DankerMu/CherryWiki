@@ -666,7 +666,7 @@ export class GraphifyService {
     const filters: SQL[] = [
       eq(source_documents.tenant_id, tenantId),
       eq(source_documents.space_id, spaceId),
-      eq(source_documents.status, 'parsed'),
+      inArray(source_documents.status, ['parsed', 'graphify_pending']),
     ];
 
     if (inputScope?.source_document_ids !== undefined) {
