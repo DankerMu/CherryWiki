@@ -123,6 +123,10 @@ export class ScriptedQueryBuilder implements PromiseLike<unknown[]> {
     return this;
   }
 
+  leftJoin(): this {
+    return this;
+  }
+
   where(): this {
     return this;
   }
