@@ -281,9 +281,14 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://cherrygraph:cherrygraph_dev@postgres:5432/cherrygraph}
       REDIS_URL: ${COMPOSE_REDIS_URL:-redis://redis:6379}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin_dev_secret}
+      STORAGE_BUCKET_PREFIX: ${STORAGE_BUCKET_PREFIX:-cherrywiki}
       MODEL_API_BASE_URL: ${MODEL_API_BASE_URL:-http://localhost:11434}
       MODEL_API_KEY: ${MODEL_API_KEY:-dev-model-key}
-      API_BASE_URL: http://cherry-api:8080
+      CHERRY_API_URL: ${CHERRY_API_URL:-http://cherry-api:8080/api}
+      API_BASE_URL: http://cherry-api:8080/api
+      WORKER_API_KEY: ${WORKER_API_KEY:-dev-worker-api-key}
       GRAPHIFY_WORKDIR: ${GRAPHIFY_WORKDIR:-/work/graphify}
       GRAPHIFY_DEFAULT_MODE: ${GRAPHIFY_DEFAULT_MODE:-deep}
       GRAPHIFY_ENABLE_WIKI: ${GRAPHIFY_ENABLE_WIKI:-true}

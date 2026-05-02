@@ -23,6 +23,7 @@ async def poll_jobs(
     redis_url: str | None = None,
     worker_id: str | None = None,
     stop_event: asyncio.Event | None = None,
+    api_key: str | None = None,
 ) -> None:
     own_redis_client = redis_client is None
     redis = redis_client or Redis.from_url(
@@ -32,8 +33,12 @@ async def poll_jobs(
     current_worker_id = worker_id or f"graphify-worker-{uuid.uuid4()}"
 
     try:
+        headers: dict[str, str] = {}
+        if api_key:
+            headers["x-worker-key"] = api_key
         async with httpx.AsyncClient(
-            base_url=api_base_url.rstrip("/"), timeout=10, trust_env=False
+            base_url=api_base_url.rstrip("/"), timeout=10, trust_env=False,
+            headers=headers,
         ) as http_client:
             while stop_event is None or not stop_event.is_set():
                 try:
@@ -95,7 +100,7 @@ async def _fail_job(
     http_client: httpx.AsyncClient, job_id: str, exc: Exception
 ) -> None:
     response = await http_client.patch(
-        f"/internal/jobs/{job_id}/failed",
+        f"/internal/jobs/{job_id}/fail",
         json={
             "status": "failed",
             "error": str(exc),
@@ -123,6 +128,11 @@ def _parse_pending_job(payload: Any) -> dict[str, Any] | None:
 
     if not isinstance(payload, dict):
         return None
+
+    data = payload.get("data")
+    if isinstance(data, list):
+        first_job = data[0] if data else None
+        return first_job if isinstance(first_job, dict) else None
 
     job = payload.get("job")
     if isinstance(job, dict):
