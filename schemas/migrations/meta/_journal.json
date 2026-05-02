@@ -43,6 +43,13 @@
       "when": 1777640673096,
       "tag": "0005_small_vance_astro",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777681099690,
+      "tag": "0006_wild_zemo",
+      "breakpoints": true
     }
   ]
 }

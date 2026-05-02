@@ -204,8 +204,53 @@ describe('Wiki Zod validation', () => {
 describe('Stage 5 Zod validation', () => {
   it('validates createGraphifyRunSchema inputs', () => {
     expect(schema.createGraphifyRunSchema.safeParse({ mode: 'full', trigger_type: 'manual' }).success).toBe(true);
+    expect(
+      schema.createGraphifyRunSchema.safeParse({
+        mode: 'incremental',
+        trigger_type: 'scheduled',
+        input_scope: {
+          page_ids: ['page-1'],
+          source_document_ids: ['source-document-1'],
+        },
+        options: {
+          wiki: false,
+          no_viz: true,
+          directed: true,
+        },
+      }).success,
+    ).toBe(true);
+
+    const parsedWithDefaultOptions = schema.createGraphifyRunSchema.parse({
+      mode: 'update',
+      trigger_type: 'auto',
+      options: {},
+    });
+    expect(parsedWithDefaultOptions.options).toEqual({
+      wiki: true,
+      no_viz: false,
+      directed: false,
+    });
+
     expect(schema.createGraphifyRunSchema.safeParse({ mode: 'rebuild', trigger_type: 'manual' }).success).toBe(false);
     expect(schema.createGraphifyRunSchema.safeParse({ mode: 'full', trigger_type: 'webhook' }).success).toBe(false);
+    expect(
+      schema.createGraphifyRunSchema.safeParse({
+        mode: 'full',
+        trigger_type: 'manual',
+        input_scope: {
+          page_ids: Array.from({ length: 1001 }, (_, index) => `page-${index}`),
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      schema.createGraphifyRunSchema.safeParse({
+        mode: 'full',
+        trigger_type: 'manual',
+        input_scope: {
+          source_document_ids: Array.from({ length: 1001 }, (_, index) => `source-document-${index}`),
+        },
+      }).success,
+    ).toBe(false);
   });
 
   it('validates graphNodeSchema inputs', () => {
@@ -257,12 +302,12 @@ describe('Stage 5 Zod validation', () => {
   it('validates pageBlockMetadataSchema inputs', () => {
     const validBlock = {
       block_id: 'block-1',
-      owner: 'graphify:managed',
+      owner: 'graphify',
       content_hash: 'sha256:abc',
     };
 
     expect(schema.pageBlockMetadataSchema.safeParse(validBlock).success).toBe(true);
-    expect(schema.pageBlockMetadataSchema.safeParse({ ...validBlock, owner: 'graphify' }).success).toBe(false);
+    expect(schema.pageBlockMetadataSchema.safeParse({ ...validBlock, owner: 'graphify:managed' }).success).toBe(false);
   });
 });
 

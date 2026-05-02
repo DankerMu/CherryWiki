@@ -27,7 +27,7 @@ export const graphifyRunModeSchema = z.enum(['full', 'update', 'incremental']);
 export const graphifyRunStatusSchema = z.enum(['pending', 'running', 'succeeded', 'failed', 'cancelled']);
 export const graphifyTriggerTypeSchema = z.enum(['manual', 'scheduled', 'auto']);
 export const confidenceLabelSchema = z.enum(['EXTRACTED', 'INFERRED', 'AMBIGUOUS']);
-export const blockOwnerSchema = z.enum(['graphify:managed', 'human:curated']);
+export const blockOwnerSchema = z.enum(['graphify', 'human']);
 export const proposalTypeSchema = z.enum(['conflict', 'deprecation', 'new_page']);
 export const proposalStatusSchema = z.enum(['pending', 'accepted', 'rejected']);
 export const indexSnapshotStatusSchema = z.enum(['building', 'ready', 'active', 'failed']);
@@ -281,7 +281,19 @@ export const rollbackRequestSchema = z.object({
 export const createGraphifyRunSchema = z.object({
   mode: graphifyRunModeSchema,
   trigger_type: graphifyTriggerTypeSchema,
-  source_document_ids: z.array(idSchema).optional(),
+  input_scope: z
+    .object({
+      page_ids: z.array(idSchema).max(1000).optional(),
+      source_document_ids: z.array(idSchema).max(1000).optional(),
+    })
+    .optional(),
+  options: z
+    .object({
+      wiki: z.boolean().default(true),
+      no_viz: z.boolean().default(false),
+      directed: z.boolean().default(false),
+    })
+    .optional(),
 });
 
 export const graphNodeSchema = z.object({
