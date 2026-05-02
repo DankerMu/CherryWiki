@@ -10,6 +10,7 @@ import {
   getErrorMessage,
 } from '../../components/adminUi.js';
 import { ApiError, type ApiMeta } from '../../lib/api.js';
+import { useAuth } from '../../lib/auth.js';
 import { wikiApi, type WikiPage, type WikiPageVersion } from '../../lib/wikiApi.js';
 import NotFound from '../NotFound.js';
 import { WIKI_PAGE_SIZE, WikiStatusBadge, getFirstItemIndex, getLastItemIndex } from './wikiUi.js';
@@ -27,6 +28,8 @@ const DEFAULT_PAGINATION: NonNullable<ApiMeta['pagination']> = {
 };
 
 export default function WikiVersionHistory({ spaceId, pageId }: WikiVersionHistoryProps) {
+  const { hasSpacePermission } = useAuth();
+  const canRollback = hasSpacePermission(spaceId, 'wiki:rollback');
   const navigate = useNavigate();
   const [page, setPage] = useState<WikiPage | null>(null);
   const [versions, setVersions] = useState<WikiPageVersion[]>([]);
@@ -159,8 +162,7 @@ export default function WikiVersionHistory({ spaceId, pageId }: WikiVersionHisto
                         <td>{version.author}</td>
                         <td>{formatDate(version.created_at)}</td>
                         <td>
-                          {/* Space-level wiki permissions are not exposed to the frontend yet; API authorization gates rollback for now. */}
-                          {!isCurrent ? (
+                          {!isCurrent && canRollback ? (
                             <button
                               className="button button-secondary"
                               type="button"

@@ -11,6 +11,7 @@ import {
   getErrorMessage,
 } from '../../components/adminUi.js';
 import { ApiError } from '../../lib/api.js';
+import { useAuth } from '../../lib/auth.js';
 import { wikiApi, type WikiPage, type WikiPageContent } from '../../lib/wikiApi.js';
 import NotFound from '../NotFound.js';
 import { WikiStatusBadge } from './wikiUi.js';
@@ -22,6 +23,7 @@ type WikiPageDetailProps = {
 };
 
 export default function WikiPageDetail({ spaceId, pageId, versionId }: WikiPageDetailProps) {
+  const { hasSpacePermission } = useAuth();
   const [page, setPage] = useState<WikiPage | null>(null);
   const [content, setContent] = useState<WikiPageContent | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -82,8 +84,11 @@ export default function WikiPageDetail({ spaceId, pageId, versionId }: WikiPageD
     );
   }
 
-  // Space-level wiki permissions are not exposed to the frontend yet; API authorization gates publish for now.
-  const canPublish = page !== null && page.status === 'draft' && page.current_version_id !== null;
+  const canPublish =
+    page !== null &&
+    page.status === 'draft' &&
+    page.current_version_id !== null &&
+    hasSpacePermission(spaceId, 'wiki:publish');
 
   return (
     <main className="admin-content wiki-page">

@@ -37,7 +37,9 @@ async def poll_jobs(
         if api_key:
             headers["x-worker-key"] = api_key
         async with httpx.AsyncClient(
-            base_url=api_base_url.rstrip("/"), timeout=10, trust_env=False,
+            base_url=api_base_url.rstrip("/"),
+            timeout=10,
+            trust_env=False,
             headers=headers,
         ) as http_client:
             while stop_event is None or not stop_event.is_set():

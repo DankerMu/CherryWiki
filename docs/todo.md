@@ -50,7 +50,8 @@
 
 - [x] **I-01** Stage 1 Auth/RBAC/Space/Admin 基础已完成；文档追踪矩阵、Docker Compose 和环境变量样例已收口。
 - [x] **I-02** Stage 2 Job 系统/对象存储/任务中心已完成；jobs service、BullMQ 队列、Worker 协议、MinIO 封装、任务中心 UI 已交付。
-- [ ] **I-03** Stage 3 上传/归档/解析/URL Fetcher；需求矩阵已补齐（含 URL 抓取、SSRF、Prompt Injection、ZIP 安全、Magic bytes），CI 已加 MinIO service + 集成测试步骤（当前 MinIO 测试用 MemoryS3Client，真实 MinIO 连通性测试在 Stage 3 编码时补充），待编码。
+- [x] **I-03** Stage 3 上传/归档/解析/URL Fetcher 已完成；ingestion-worker、url-fetcher-worker、SSRF 防护、ZIP 安全解压、Magic bytes 校验、Prompt injection 标记已交付。
+- [x] **I-04** Stage 4 Canonical Wiki Repo / wiki-core / 只读 Wiki 已完成；wiki-core 42 测试 + wiki API 25 测试 + wiki UI 5 测试 + schema/validation 21 测试已交付，移交测试债务记录在需求追踪矩阵 §6.1。
 
 ---
 
@@ -71,23 +72,22 @@
 
 ### P1：Phase 1 开发中补充
 
-- [ ] **T-15.1** 编写 env.example 完整版。
-  - 补充：`WORKER_HEALTH_PORT`, `GRAPHIFY_TIMEOUT_SECONDS`, `UPLOAD_MAX_SIZE_MB`, `SSRF_BLOCKED_CIDRS` 等新增配置项。
+- [x] **T-15.1** 编写 env.example 完整版。
+  - 已补齐：`API_BASE_URL`、`WORKER_ID`、`S3_REGION`、`GRAPHIFY_*`、`SSRF_*`、`UPLOAD_*` 等 Worker 配置项。
 
 - [ ] **T-15.2** 编写 nginx.conf.example。
   - Phase 1：代理 cherry-web + cherry-api。
   - Phase 2：追加 docmost upstream。
   - 安全 header（CSP, HSTS, X-Frame-Options）。
 
-- [ ] **T-15.3** 定义 CI/CD pipeline 骨架。
-  - lint → test → build → security scan → deploy。
-  - PR 门禁：unit test + type check + lint。
-  - main 门禁：integration test + security test。
+- [x] **T-15.3** CI/CD pipeline 已实现。
+  - `.github/workflows/ci.yml`：Node（lint/typecheck/build/test/集成测试/audit）+ Python 三 Worker（ruff/pytest）+ Schema 校验（OpenAPI/SQL/Docker Compose）。
+  - `.github/workflows/governance.yml`：PR 审查证据门禁。
 
-- [ ] **T-15.4** 编写 `tests/fixtures/` 测试数据集。
-  - test-corpus-small（10 文件）
-  - test-corpus-security（恶意样本）
-  - 见 Doc 25 §6。
+- [x] **T-15.4** 编写 `tests/fixtures/` 测试数据集。
+  - `test-corpus-small/`：4 个 parsed.md 文件（auth/rbac/upload/deployment）。
+  - `test-corpus-security/`：SSRF URL 列表、XSS Markdown、Prompt injection 样本。
+  - `test-graphify-output/`：graph.json（10 nodes/9 edges）+ GRAPH_REPORT.md + 4 个 wiki 页面，供 Stage 5 导入测试使用。
 
 ### P2：后续 Phase 前完善
 
@@ -113,3 +113,4 @@
 | 日期 | 说明 |
 |---|---|
 | 2026-04-28 | v0.4 审查整改，新增 T-14 ~ T-16 系列。旧 T-1 ~ T-10 全部完成，归档。 |
+| 2026-05-01 | Stage 3/4 标记完成（I-03/I-04），T-15.1/T-15.3/T-15.4 完成，Stage 5 开工门禁就绪。 |

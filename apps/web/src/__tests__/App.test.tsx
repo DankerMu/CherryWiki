@@ -157,6 +157,13 @@ describe('AuthProvider', () => {
         }));
       }
 
+      if (path === '/api/auth/me') {
+        return Promise.resolve(jsonResponse({
+          data: { ...ADMIN_USER, spaces: [] },
+          meta: { request_id: 'req-me' },
+        }));
+      }
+
       if (path === '/api/auth/logout') {
         expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer access-123');
         return Promise.resolve(jsonResponse({ data: { success: true }, meta: { request_id: 'req-logout' } }));
@@ -182,7 +189,7 @@ describe('AuthProvider', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Logout' }));
 
     await waitFor(() => expect(screen.getByText('anonymous')).toBeInTheDocument());
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });
 

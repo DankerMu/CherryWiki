@@ -37,7 +37,12 @@ async def main() -> None:
 
     worker_api_key = os.environ.get("WORKER_API_KEY")
     polling_task = asyncio.create_task(
-        poll_jobs(api_base_url, redis_url=redis_url, stop_event=stop_event, api_key=worker_api_key),
+        poll_jobs(
+            api_base_url,
+            redis_url=redis_url,
+            stop_event=stop_event,
+            api_key=worker_api_key,
+        ),
         name="graphify-job-poller",
     )
     _register_shutdown_handlers(stop_event)

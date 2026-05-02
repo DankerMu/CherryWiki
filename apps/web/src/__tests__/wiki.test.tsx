@@ -4,6 +4,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { AuthProvider, type AuthUser } from '../lib/auth.js';
 import type { WikiPage, WikiPageContent, WikiPageVersion } from '../lib/wikiApi.js';
 import WikiPageDetail from '../pages/wiki/WikiPageDetail.js';
 import WikiPageList from '../pages/wiki/WikiPageList.js';
@@ -35,9 +36,11 @@ vi.mock('../lib/api.js', () => {
 
   return {
     ApiError,
+    configureApiClient: vi.fn(),
     api: {
       getWrapped: apiMocks.getWrapped,
       post: apiMocks.post,
+      get: vi.fn(),
     },
   };
 });
@@ -153,8 +156,21 @@ describe('WikiStatusBadge', () => {
   });
 });
 
+const testUser: AuthUser = {
+  id: 'test-user',
+  email: 'test@test.local',
+  name: 'Test',
+  role: 'admin',
+  groups: [],
+  spaces: [{ id: 'space-1', name: 'Test Space', role: 'admin' }],
+};
+
 function renderWithRouter(element: ReactElement): void {
-  render(<MemoryRouter>{element}</MemoryRouter>);
+  render(
+    <MemoryRouter>
+      <AuthProvider initialSession={{ user: testUser, accessToken: 'test-token' }}>{element}</AuthProvider>
+    </MemoryRouter>,
+  );
 }
 
 function buildPage(overrides: Partial<WikiPage> = {}): WikiPage {

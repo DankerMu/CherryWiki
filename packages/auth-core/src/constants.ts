@@ -37,6 +37,8 @@ export const ROLE_PERMISSIONS = {
     'space:admin',
     'upload:create',
     'upload:read',
+    'wiki:publish',
+    'wiki:rollback',
     'graphify:run',
     'graphify:view',
     'admin',

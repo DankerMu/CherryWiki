@@ -113,20 +113,21 @@ services:
       - url_fetch_private
 
   cherry-web:
-    image: node:20-slim
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
     restart: unless-stopped
-    working_dir: /app
-    command: >-
-      sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm --filter @cherrygraph/web dev --host 0.0.0.0"
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       API_BASE_URL: http://cherry-api:8080
     ports:
       - "127.0.0.1:5174:5173"
     volumes:
-      - .:/app
-      - web_node_modules:/app/node_modules
-      - web_pnpm_store:/app/.pnpm-store
+      - ./apps/web/src:/app/apps/web/src
+      - ./apps/web/index.html:/app/apps/web/index.html
+      - ./apps/web/vite.config.ts:/app/apps/web/vite.config.ts
+      - ./apps/web/tsconfig.json:/app/apps/web/tsconfig.json
+      - ./tsconfig.base.json:/app/tsconfig.base.json
     healthcheck:
       test:
         [
@@ -136,7 +137,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
-      start_period: 180s
+      start_period: 60s
     depends_on:
       cherry-api:
         condition: service_healthy
@@ -156,6 +157,11 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin_dev_secret}
       STORAGE_BUCKET_PREFIX: ${STORAGE_BUCKET_PREFIX:-cherrywiki}
       INGESTION_TIMEOUT_SECONDS: ${INGESTION_TIMEOUT_SECONDS:-300}
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      no_proxy: cherry-api,minio,localhost,127.0.0.1
       WORKER_HEALTH_PORT: 9091
     expose:
       - "9091"
@@ -194,9 +200,12 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin_dev_secret}
       STORAGE_BUCKET_PREFIX: ${STORAGE_BUCKET_PREFIX:-cherrywiki}
       DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-default}
-      HTTP_PROXY: ${HTTP_PROXY:-http://egress-proxy:3128}
-      HTTPS_PROXY: ${HTTPS_PROXY:-http://egress-proxy:3128}
-      NO_PROXY: ${NO_PROXY:-cherry-api,minio,localhost,127.0.0.1}
+      HTTP_PROXY: http://egress-proxy:3128
+      HTTPS_PROXY: http://egress-proxy:3128
+      http_proxy: http://egress-proxy:3128
+      https_proxy: http://egress-proxy:3128
+      NO_PROXY: cherry-api,minio,localhost,127.0.0.1
+      no_proxy: cherry-api,minio,localhost,127.0.0.1
       URL_FETCH_TIMEOUT_SECONDS: ${URL_FETCH_TIMEOUT_SECONDS:-30}
       URL_FETCH_MAX_RESPONSE_BYTES: ${URL_FETCH_MAX_RESPONSE_BYTES:-52428800}
       WORKER_HEALTH_PORT: 9092
@@ -248,6 +257,11 @@ services:
       MODEL_API_BASE_URL: ${MODEL_API_BASE_URL:-http://localhost:11434}
       MODEL_API_KEY: ${MODEL_API_KEY:-dev-model-key}
       DEFAULT_EMBEDDING_MODEL: ${DEFAULT_EMBEDDING_MODEL:-text-embedding-3-large}
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      no_proxy: cherry-api,minio,localhost,127.0.0.1
       WORKER_HEALTH_PORT: 9093
     volumes:
       - .:/app
@@ -270,7 +284,9 @@ services:
         condition: service_healthy
 
   graphify-worker:
-    image: python:3.11-slim
+    build:
+      context: ./apps/graphify-worker
+      dockerfile: Dockerfile
     restart: unless-stopped
     working_dir: /app/apps/graphify-worker
     command: >-
@@ -296,6 +312,11 @@ services:
       GRAPHIFY_TIMEOUT_SECONDS: ${GRAPHIFY_TIMEOUT_SECONDS:-3600}
       GRAPHIFY_MAX_NODES: ${GRAPHIFY_MAX_NODES:-50000}
       GRAPHIFY_MAX_EDGES: ${GRAPHIFY_MAX_EDGES:-200000}
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      no_proxy: cherry-api,minio,localhost,127.0.0.1
       WORKER_HEALTH_PORT: 9094
     volumes:
       - .:/app
@@ -437,8 +458,6 @@ volumes:
   graphify_work:
   api_node_modules:
   api_pnpm_store:
-  web_node_modules:
-  web_pnpm_store:
   indexer_node_modules:
   indexer_pnpm_store:
   docmost_storage:

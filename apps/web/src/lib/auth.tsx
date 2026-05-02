@@ -11,12 +11,15 @@ import {
 import { useNavigate } from 'react-router';
 import { api, configureApiClient } from './api';
 
+export type SpaceRole = 'viewer' | 'editor' | 'admin';
+
 export type AuthUser = {
   id: string;
   email: string;
   name: string;
   role: string;
   groups: string[] | Array<{ id: string; name: string }>;
+  spaces?: Array<{ id: string; name: string; role: SpaceRole }>;
 };
 
 type LoginResponse = {
@@ -24,6 +27,15 @@ type LoginResponse = {
   refresh_token?: string;
   expires_in: number;
   user: AuthUser;
+};
+
+type CurrentUserResponse = {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  groups: Array<{ id: string; name: string }>;
+  spaces: Array<{ id: string; name: string; role: SpaceRole }>;
 };
 
 type TokenPairResponse = {
@@ -40,6 +52,7 @@ type AuthContextValue = {
   refresh: () => Promise<void>;
   isAuthenticated: boolean;
   isAdmin: boolean;
+  hasSpacePermission: (spaceId: string, permission: string) => boolean;
 };
 
 type InitialSession = {
@@ -91,10 +104,17 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
   const login = useCallback(
     async (email: string, password: string): Promise<AuthUser> => {
       const result = await api.post<LoginResponse>('/auth/login', { email, password });
-      setUser(result.user);
       setAccessToken(result.access_token);
       scheduleRefresh(result.expires_in, refreshTimerRef, refresh);
-      return result.user;
+      try {
+        const me = await api.get<CurrentUserResponse>('/auth/me');
+        const enriched: AuthUser = { ...result.user, spaces: me.spaces };
+        setUser(enriched);
+        return enriched;
+      } catch {
+        setUser(result.user);
+        return result.user;
+      }
     },
     [refresh, setAccessToken],
   );
@@ -130,6 +150,11 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
     };
   }, [clearRefreshTimer, initialSession?.accessToken, initialSession?.expiresIn, refresh]);
 
+  const hasSpacePermission = useCallback(
+    (spaceId: string, permission: string): boolean => checkSpacePermission(user, spaceId, permission),
+    [user],
+  );
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -139,8 +164,9 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
       refresh,
       isAuthenticated: accessToken !== null && user !== null,
       isAdmin: user !== null && isAdminRole(user.role),
+      hasSpacePermission,
     }),
-    [accessToken, login, logout, refresh, user],
+    [accessToken, hasSpacePermission, login, logout, refresh, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -157,6 +183,21 @@ export function useAuth(): AuthContextValue {
 
 export function isAdminRole(role: string): boolean {
   return role === 'admin' || role === 'owner';
+}
+
+const SPACE_ROLE_PERMISSIONS: Record<SpaceRole, readonly string[]> = {
+  viewer: [],
+  editor: ['wiki:publish'],
+  admin: ['wiki:publish', 'wiki:rollback'],
+};
+
+function checkSpacePermission(user: AuthUser | null, spaceId: string, permission: string): boolean {
+  if (user === null) return false;
+  if (user.role === 'owner') return true;
+  if (user.role === 'admin') return true;
+  const space = user.spaces?.find((s) => s.id === spaceId);
+  if (space === undefined) return false;
+  return SPACE_ROLE_PERMISSIONS[space.role]?.includes(permission) === true;
 }
 
 function scheduleRefresh(
