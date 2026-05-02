@@ -4,7 +4,6 @@ import asyncio
 import json
 import shutil
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -26,12 +25,10 @@ def test_runner_integration_with_prepared_graphify_output(
     install_runner_config(monkeypatch, tmp_path)
     monkeypatch.setattr(runner, "MinioStorageClient", StorageFactory)
 
-    def fake_subprocess_run(cmd: list[str], **_kwargs: Any) -> SimpleNamespace:
-        output_dir = Path(cmd[cmd.index("--output") + 1])
+    async def fake_execute(input_dir: Path, output_dir: Path, mode: str) -> None:
         shutil.copytree(FIXTURE_OUTPUT, output_dir, dirs_exist_ok=True)
-        return SimpleNamespace(returncode=0, stderr="", stdout="")
 
-    monkeypatch.setattr(runner.subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(runner.graphify_pipeline, "execute", fake_execute)
 
     result = asyncio.run(
         runner.run(
