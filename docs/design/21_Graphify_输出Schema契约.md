@@ -9,8 +9,10 @@ Graphify 是 CherryGraph 的知识图谱与 Wiki 生成引擎。为避免 Graphi
 Graphify 当前流程：
 
 ```text
-detect() → extract() → build_graph() → cluster() → analyze() → report() → export()
+detect() → extract(AST) → semantic_extract(LLM) → build_graph() → cluster() → analyze() → report() → export()
 ```
+
+> **注意**：`semantic_extract` 步骤需要 LLM 参与（读取文档提取概念和关系）。graphify CLI binary 不包含完整 pipeline，CherryWiki 通过 Python API + LLM 调用实现。详见 Doc 22 勘误。
 
 ### 2.1 实际输出目录结构
 
@@ -123,7 +125,7 @@ CherryGraph v1 解析器必须兼容 Graphify v0.5.3 的实际输出（最小结
 
 | 字段 | 来源 |
 |---|---|
-| `metadata.graphify_version` | 从 `GRAPHIFY_PINNED_REF` 环境变量或 `graphify --version` 获取 |
+| `metadata.graphify_version` | 从 `GRAPHIFY_PINNED_REF` 环境变量获取（CLI 不支持 `--version`，见 Doc 22 勘误） |
 | `metadata.generated_at` | 从 `graphify_runs.completed_at` 获取 |
 | `communities[]` 顶层数组 | 从节点 `community` 字段归并生成，写入 `graph_communities` 表 |
 | `edge.evidence[]` | 默认 `[]`，后续由知识治理补充 |
@@ -210,7 +212,7 @@ wiki-core 通过文件名和 index.md 中的引用关系判断页面类型（com
 
 ## 5. 版本兼容策略
 
-1. `GRAPHIFY_PINNED_REF` 当前锁定版本：v0.5.3。必须记录在环境变量和 Admin 页面。
+1. `GRAPHIFY_PINNED_REF` 当前锁定版本：需更新到包含 `wiki.py` 模块的版本（原 pinned commit `7359cdac` 缺少该模块，见 Doc 22 勘误）。必须记录在环境变量和 Admin 页面。
 2. Graphify 升级必须走 ADR。
 3. 每次升级前执行 schema contract test。
 4. graph-core 不直接依赖 Graphify 内部 Python 类，只读取文件契约。

@@ -25,7 +25,7 @@ Cherry Studio Web
 | 编号 | 决策 |
 |---|---|
 | D1 | Fork 开源 Cherry Studio，路线 A，重构 Web 版 |
-| D2 | Graphify CLI 由 Cherry Web 后台自动调度 |
+| D2 | Graphify Python API 由 Cherry Web 后台自动调度（见 Doc 22 勘误） |
 | D3 | 不考虑内网模型限制，按互联网可用模型处理 |
 | D4 | Docmost Fork 开源版 + 自建 Bridge endpoint，不购买企业版 |
 | D5 | Graphify Wiki 是唯一信息源 |

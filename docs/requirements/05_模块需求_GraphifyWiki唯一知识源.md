@@ -269,7 +269,7 @@ Python Worker 从 cherry-api Job API 拉取任务，payload 格式：
 |---|---|
 | `run_id` | 全局唯一运行 ID |
 | `input_repo_commit` | Canonical Wiki Repo 的 git commit SHA，确保输入可复现 |
-| `graphify_ref` | Graphify CLI/library 的 pinned 版本（git ref），确保行为可复现 |
+| `graphify_ref` | Graphify Python 库的 pinned 版本（git commit SHA），确保行为可复现（见 Doc 22 勘误） |
 | `mode` | `build`（全量）/ `update`（增量）/ `rebuild`（全量 + 清除旧图） |
 | `timeout_seconds` | Worker 超时上限（默认 3600s），超时自动标记 failed |
 | `manifest_uri` | 输入 manifest 的 MinIO URI（见 §5.1A），Worker 据此组装输入目录 |
@@ -422,7 +422,7 @@ pending → cancelled
 |---|---|
 | `pending` | 等待 Worker 拉取 |
 | `preparing` | 下载 manifest、checkout Wiki Repo、组装输入目录（见 §5.1A） |
-| `running_graphify` | 执行 Graphify CLI |
+| `running_graphify` | 执行 Graphify Python pipeline（含 LLM 语义提取，见 Doc 22 勘误） |
 | `parsing_output` | 校验输出 schema（graph.json、wiki/、report） |
 | `importing_wiki` | 写入 Canonical Wiki Repo + graph_nodes / graph_edges / graph_communities |
 | `indexing` | 生成 chunks、embeddings、构建新 index_snapshot |
@@ -490,7 +490,7 @@ Quarantine 状态下：
 
 ### 5.6 输出上传契约
 
-Worker 完成 Graphify CLI 后，按以下结构上传到 `output_uri`：
+Worker 完成 Graphify pipeline 后，按以下结构上传到 `output_uri`：
 
 ```text
 s3://cherry/graphify/{run_id}/
