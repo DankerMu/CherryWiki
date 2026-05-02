@@ -4,7 +4,9 @@ import datetime as dt
 import json
 import logging
 import os
+import re
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -21,20 +23,40 @@ GRAPHIFY_REF = os.environ.get("GRAPHIFY_PINNED_REF")
 MAX_FILE_SIZE = 100 * 1024 * 1024
 MAX_TOTAL_SIZE = 1024 * 1024 * 1024
 OUTPUT_BUCKET = os.environ.get("GRAPHIFY_OUTPUT_BUCKET", "cherrywiki-graphify-out")
+_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_SCRUB_KEYS = {
+    "MINIO_ENDPOINT",
+    "MINIO_ACCESS_KEY",
+    "MINIO_SECRET_KEY",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "S3_ENDPOINT",
+    "WORKER_API_KEY",
+    "DATABASE_URL",
+    "REDIS_URL",
+}
 
 
 async def run(job_data: dict[str, Any]) -> dict[str, Any]:
     job_id = job_data.get("id") or job_data.get("job_id")
     payload = _payload(job_data)
-    tenant_id = str(payload.get("tenant_id") or job_data.get("tenant_id") or "default")
-    space_id = str(payload.get("space_id") or job_data.get("space_id") or "")
-    run_id = str(payload.get("run_id") or job_id)
+    tenant_id = _safe_id(
+        str(payload.get("tenant_id") or job_data.get("tenant_id") or "default")
+    )
+    space_id = _safe_id(str(payload.get("space_id") or job_data.get("space_id") or ""))
+    run_id = _safe_id(str(payload.get("run_id") or job_id))
     mode = str(payload.get("mode") or GRAPHIFY_MODE)
     input_uris = _input_uris(payload)
 
-    workdir = Path(GRAPHIFY_WORKDIR) / run_id
+    base = Path(GRAPHIFY_WORKDIR).resolve()
+    workdir = (base / run_id).resolve()
+    if not workdir.is_relative_to(base):
+        raise ValueError(f"workdir escapes base: {workdir}")
+
     input_dir = workdir / "input"
     output_dir = workdir / "output"
+    key_prefix = f"graphify-out/{tenant_id}/{space_id}/{run_id}"
 
     logger.info(
         "starting graphify job",
@@ -71,6 +93,7 @@ async def run(job_data: dict[str, Any]) -> dict[str, Any]:
                 text=True,
                 timeout=GRAPHIFY_TIMEOUT,
                 cwd=str(workdir),
+                env=_subprocess_env(),
             )
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError(
@@ -83,7 +106,7 @@ async def run(job_data: dict[str, Any]) -> dict[str, Any]:
                     {
                         "reason": "cli_error",
                         "exit_code": result.returncode,
-                        "stderr": result.stderr[:2000],
+                        "stderr": _redacted_stderr(result.stderr or ""),
                     }
                 )
             )
@@ -92,27 +115,29 @@ async def run(job_data: dict[str, Any]) -> dict[str, Any]:
             output_dir, run_id=run_id, graphify_ref=GRAPHIFY_REF
         )
         report_path = output_dir / "validation_report.json"
-        report_path.write_text(json.dumps(validation, indent=2), encoding="utf-8")
+        _write_validation_report(report_path, validation)
         if not validation["validation_passed"]:
-            failed_checks = [
-                check for check in validation["checks"] if check["status"] == "failed"
-            ]
-            reason = failed_checks[0]["name"] if failed_checks else "validation_failed"
-            raise RuntimeError(
-                json.dumps({"reason": reason, "validation_report": validation})
-            )
+            try:
+                storage.upload_file(
+                    report_path, OUTPUT_BUCKET, f"{key_prefix}/validation_report.json"
+                )
+            except Exception:
+                logger.warning("Failed to upload validation report", exc_info=True)
+            raise RuntimeError(json.dumps(_validation_error(validation)))
 
-        key_prefix = f"graphify-out/{tenant_id}/{space_id}/{run_id}"
         storage.upload_directory(output_dir, OUTPUT_BUCKET, key_prefix)
 
         base_uri = f"s3://{OUTPUT_BUCKET}/{key_prefix}"
         graph_html_path = output_dir / "graph.html"
+        report_md_path = output_dir / "GRAPH_REPORT.md"
 
         return {
             "status": "success",
             "graph_json_uri": f"{base_uri}/graph.json",
             "wiki_output_uri": f"{base_uri}/wiki",
-            "report_uri": f"{base_uri}/GRAPH_REPORT.md",
+            "report_uri": f"{base_uri}/GRAPH_REPORT.md"
+            if report_md_path.exists()
+            else None,
             "graph_html_uri": f"{base_uri}/graph.html"
             if graph_html_path.exists()
             else None,
@@ -127,6 +152,66 @@ async def run(job_data: dict[str, Any]) -> dict[str, Any]:
     finally:
         if workdir.exists():
             shutil.rmtree(workdir, ignore_errors=True)
+
+
+def _safe_id(value: str) -> str:
+    if not _SAFE_ID_RE.match(value):
+        raise ValueError(f"Invalid id for path use: {value!r}")
+    return value
+
+
+def _subprocess_env() -> dict[str, str]:
+    return {key: value for key, value in os.environ.items() if key not in _SCRUB_KEYS}
+
+
+def _redacted_stderr(stderr: str) -> str:
+    scrubbed = stderr[:2000]
+    for key in _SCRUB_KEYS:
+        value = os.environ.get(key)
+        if value and value in scrubbed:
+            scrubbed = scrubbed.replace(value, "***REDACTED***")
+    return scrubbed[:2000]
+
+
+def _write_validation_report(report_path: Path, validation: dict[str, Any]) -> None:
+    if report_path.exists() or report_path.is_symlink():
+        if report_path.is_dir() and not report_path.is_symlink():
+            shutil.rmtree(report_path)
+        else:
+            report_path.unlink()
+    report_path.write_text(json.dumps(validation, indent=2), encoding="utf-8")
+
+
+def _validation_error(validation: dict[str, Any]) -> dict[str, Any]:
+    failed_checks = [
+        check for check in validation["checks"] if check["status"] == "failed"
+    ]
+    failed_check = failed_checks[0] if failed_checks else {}
+    reason = failed_check.get("name", "validation_failed")
+    details = failed_check.get("details", "")
+
+    if reason in {"file_size", "total_size"}:
+        return {
+            "reason": "quarantined",
+            "quarantine_type": reason,
+            "details": details,
+            "validation_report": validation,
+        }
+
+    if reason == "path_traversal":
+        return {
+            "reason": "path_traversal",
+            "file": _failed_path_from_details(details),
+            "validation_report": validation,
+        }
+
+    return {"reason": reason, "validation_report": validation}
+
+
+def _failed_path_from_details(details: str) -> str:
+    if ": " in details:
+        return details.split(": ", 1)[1]
+    return details
 
 
 def _payload(job_data: dict[str, Any]) -> dict[str, Any]:
@@ -196,6 +281,120 @@ def _validate_output(
     node_count = 0
     edge_count = 0
     wiki_page_count = 0
+
+    output_root = output_dir.resolve()
+    for path in output_dir.rglob("*"):
+        rel = path.relative_to(output_dir)
+        rel_str = rel.as_posix()
+        path_stat = path.lstat()
+
+        if ".." in rel.parts:
+            checks.append(
+                {
+                    "name": "path_traversal",
+                    "status": "failed",
+                    "details": f"path traversal: {rel_str}",
+                }
+            )
+            return _report(
+                checks,
+                False,
+                node_count,
+                edge_count,
+                wiki_page_count,
+                total_size,
+                run_id,
+                graphify_ref,
+            )
+
+        if stat.S_ISLNK(path_stat.st_mode):
+            checks.append(
+                {
+                    "name": "path_traversal",
+                    "status": "failed",
+                    "details": f"symlink: {rel_str}",
+                }
+            )
+            return _report(
+                checks,
+                False,
+                node_count,
+                edge_count,
+                wiki_page_count,
+                total_size,
+                run_id,
+                graphify_ref,
+            )
+
+        if not path.resolve().is_relative_to(output_root):
+            checks.append(
+                {
+                    "name": "path_traversal",
+                    "status": "failed",
+                    "details": f"path escapes output directory: {rel_str}",
+                }
+            )
+            return _report(
+                checks,
+                False,
+                node_count,
+                edge_count,
+                wiki_page_count,
+                total_size,
+                run_id,
+                graphify_ref,
+            )
+
+        if not stat.S_ISREG(path_stat.st_mode):
+            continue
+
+        size = path_stat.st_size
+        total_size += size
+        if size > MAX_FILE_SIZE:
+            checks.append(
+                {
+                    "name": "file_size",
+                    "status": "failed",
+                    "details": f"{rel_str}: {size} bytes > {MAX_FILE_SIZE}",
+                }
+            )
+            return _report(
+                checks,
+                False,
+                node_count,
+                edge_count,
+                wiki_page_count,
+                total_size,
+                run_id,
+                graphify_ref,
+            )
+
+    if total_size > MAX_TOTAL_SIZE:
+        checks.append(
+            {
+                "name": "total_size",
+                "status": "failed",
+                "details": f"total {total_size} bytes > {MAX_TOTAL_SIZE}",
+            }
+        )
+        return _report(
+            checks,
+            False,
+            node_count,
+            edge_count,
+            wiki_page_count,
+            total_size,
+            run_id,
+            graphify_ref,
+        )
+
+    checks.append(
+        {
+            "name": "size_limits",
+            "status": "passed",
+            "details": f"total {total_size} bytes",
+        }
+    )
 
     graph_json = output_dir / "graph.json"
     if graph_json.exists():
@@ -269,121 +468,6 @@ def _validate_output(
                 "details": "GRAPH_REPORT.md missing (non-fatal warning)",
             }
         )
-
-    output_root = output_dir.resolve()
-    for path in output_dir.rglob("*"):
-        rel = path.relative_to(output_dir)
-        rel_str = rel.as_posix()
-
-        if ".." in rel.parts:
-            checks.append(
-                {
-                    "name": "path_traversal",
-                    "status": "failed",
-                    "details": f"path traversal: {rel_str}",
-                }
-            )
-            return _report(
-                checks,
-                False,
-                node_count,
-                edge_count,
-                wiki_page_count,
-                total_size,
-                run_id,
-                graphify_ref,
-            )
-
-        if path.is_symlink():
-            checks.append(
-                {
-                    "name": "path_traversal",
-                    "status": "failed",
-                    "details": f"symlink: {rel_str}",
-                }
-            )
-            return _report(
-                checks,
-                False,
-                node_count,
-                edge_count,
-                wiki_page_count,
-                total_size,
-                run_id,
-                graphify_ref,
-            )
-
-        try:
-            path.resolve().relative_to(output_root)
-        except ValueError:
-            checks.append(
-                {
-                    "name": "path_traversal",
-                    "status": "failed",
-                    "details": f"path escapes output directory: {rel_str}",
-                }
-            )
-            return _report(
-                checks,
-                False,
-                node_count,
-                edge_count,
-                wiki_page_count,
-                total_size,
-                run_id,
-                graphify_ref,
-            )
-
-        if not path.is_file():
-            continue
-
-        size = path.stat().st_size
-        total_size += size
-        if size > MAX_FILE_SIZE:
-            checks.append(
-                {
-                    "name": "file_size",
-                    "status": "failed",
-                    "details": f"{rel_str}: {size} bytes > {MAX_FILE_SIZE}",
-                }
-            )
-            return _report(
-                checks,
-                False,
-                node_count,
-                edge_count,
-                wiki_page_count,
-                total_size,
-                run_id,
-                graphify_ref,
-            )
-
-    if total_size > MAX_TOTAL_SIZE:
-        checks.append(
-            {
-                "name": "total_size",
-                "status": "failed",
-                "details": f"total {total_size} bytes > {MAX_TOTAL_SIZE}",
-            }
-        )
-        return _report(
-            checks,
-            False,
-            node_count,
-            edge_count,
-            wiki_page_count,
-            total_size,
-            run_id,
-            graphify_ref,
-        )
-
-    checks.append(
-        {
-            "name": "size_limits",
-            "status": "passed",
-            "details": f"total {total_size} bytes",
-        }
-    )
 
     has_failures = any(check["status"] == "failed" for check in checks)
     return _report(
