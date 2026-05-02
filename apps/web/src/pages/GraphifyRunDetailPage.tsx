@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import {
   EmptyState,
@@ -63,7 +63,14 @@ export default function GraphifyRunDetailPage() {
 
       try {
         const runResponse = await getGraphifyRun(runId);
-        setRun(runResponse.data);
+        const currentRun = runResponse.data;
+        setRun(currentRun);
+
+        if (isGraphifyRunActive(currentRun)) {
+          setReport(null);
+          setSummary(null);
+          return;
+        }
 
         const [reportResult, summaryResult] = await Promise.allSettled([
           getGraphifyReport(runId),
@@ -273,7 +280,7 @@ export default function GraphifyRunDetailPage() {
             {report === null ? (
               <EmptyState label="No Graphify report is available for this run." />
             ) : (
-              <pre className="graphify-report-pre">{report.content}</pre>
+              <GraphifyMarkdown content={report.content} />
             )}
           </section>
 
@@ -308,6 +315,84 @@ function StatCard({ label, value }: { label: string; value: number | null }) {
       <span className="job-meta-value">{formatCount(value)}</span>
     </div>
   );
+}
+
+function GraphifyMarkdown({ content }: { content: string }) {
+  return <div className="markdown-body">{renderMarkdownBlocks(content)}</div>;
+}
+
+function renderMarkdownBlocks(content: string): ReactNode[] {
+  const blocks: ReactNode[] = [];
+  let listItems: ReactNode[] = [];
+
+  function flushList(): void {
+    if (listItems.length === 0) {
+      return;
+    }
+
+    blocks.push(<ul key={`list-${blocks.length}`}>{listItems}</ul>);
+    listItems = [];
+  }
+
+  content.split(/\r?\n/).forEach((line, index) => {
+    const listMatch = /^-\s+(.+)$/.exec(line);
+    if (listMatch !== null) {
+      listItems.push(<li key={`li-${index}`}>{renderBoldMarkdown(listMatch[1] ?? '', `li-${index}`)}</li>);
+      return;
+    }
+
+    flushList();
+
+    if (line.trim().length === 0) {
+      return;
+    }
+
+    const headingMatch = /^(#{1,4})\s+(.+)$/.exec(line);
+    if (headingMatch !== null) {
+      const headingMarks = headingMatch[1] ?? '';
+      const headingText = headingMatch[2] ?? '';
+      const children = renderBoldMarkdown(headingText, `h-${index}`);
+      const level = headingMarks.length;
+
+      if (level === 1) {
+        blocks.push(<h1 key={`h-${index}`}>{children}</h1>);
+      } else if (level === 2) {
+        blocks.push(<h2 key={`h-${index}`}>{children}</h2>);
+      } else if (level === 3) {
+        blocks.push(<h3 key={`h-${index}`}>{children}</h3>);
+      } else {
+        blocks.push(<h4 key={`h-${index}`}>{children}</h4>);
+      }
+      return;
+    }
+
+    blocks.push(<p key={`p-${index}`}>{renderBoldMarkdown(line, `p-${index}`)}</p>);
+  });
+
+  flushList();
+  return blocks;
+}
+
+function renderBoldMarkdown(text: string, keyPrefix: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const boldPattern = /\*\*(.+?)\*\*/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = boldPattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+
+    nodes.push(<strong key={`${keyPrefix}-strong-${match.index}`}>{match[1] ?? ''}</strong>);
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+
+  return nodes;
 }
 
 function formatInputScope(run: GraphifyRun): string {

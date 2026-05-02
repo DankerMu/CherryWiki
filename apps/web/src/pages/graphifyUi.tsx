@@ -16,6 +16,7 @@ export const GRAPHIFY_PAGE_SIZE = 20;
 
 export const GRAPHIFY_STATUS_FILTERS = [
   { value: '', label: 'All' },
+  { value: 'pending', label: 'Pending' },
   { value: 'running', label: 'Running' },
   { value: 'succeeded', label: 'Succeeded' },
   { value: 'failed', label: 'Failed' },

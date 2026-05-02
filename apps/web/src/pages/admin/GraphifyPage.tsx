@@ -43,7 +43,7 @@ const PER_PAGE_OPTIONS = [10, 20, 50, 100];
 export default function GraphifyPage() {
   const navigate = useNavigate();
   const [runs, setRuns] = useState<GraphifyRun[]>([]);
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState('failed');
   const [triggerType, setTriggerType] = useState('');
   const [spaceId, setSpaceId] = useState('');
   const deferredSpaceId = useDeferredValue(spaceId);
