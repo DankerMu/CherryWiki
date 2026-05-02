@@ -1,3 +1,4 @@
 redis
 httpx
 aiohttp
+requests
