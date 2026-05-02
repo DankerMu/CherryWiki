@@ -697,7 +697,7 @@ export class GraphifyService {
       return;
     }
 
-    if (job.status === JobStatus.PENDING) {
+    if (job.status === (JobStatus.PENDING as string)) {
       await db
         .update(jobs)
         .set({
