@@ -1,4 +1,10 @@
-import type { ConfidenceLabel, GraphEdge, GraphOutput, GraphNode, ValidationResult } from './types.js';
+import type {
+  ConfidenceLabel,
+  GraphEdge,
+  GraphOutput,
+  GraphNode,
+  ValidationResult,
+} from './types.js';
 
 export const MAX_NODES = 50_000;
 export const MAX_EDGES = 200_000;
@@ -9,7 +15,12 @@ export function isConfidenceLabel(value: string): value is ConfidenceLabel {
   return VALID_LABELS.has(value);
 }
 
-export function validateGraphOutput(parsed: GraphOutput): ValidationResult {
+export function validateGraphOutput(
+  parsed: GraphOutput,
+  limits: { maxNodes?: number; maxEdges?: number } = {},
+): ValidationResult {
+  const maxNodes = limits.maxNodes ?? MAX_NODES;
+  const maxEdges = limits.maxEdges ?? MAX_EDGES;
   const errors: string[] = [];
   const warnings: string[] = [];
   const validNodes: GraphNode[] = [];
@@ -20,13 +31,13 @@ export function validateGraphOutput(parsed: GraphOutput): ValidationResult {
     return { valid: false, errors, warnings, validNodes, validEdges };
   }
 
-  if (parsed.nodes.length > MAX_NODES) {
-    errors.push(`node count ${parsed.nodes.length} exceeds limit ${MAX_NODES}`);
+  if (parsed.nodes.length > maxNodes) {
+    errors.push(`node count ${parsed.nodes.length} exceeds limit ${maxNodes}`);
     return { valid: false, errors, warnings, validNodes, validEdges };
   }
 
-  if (parsed.edges.length > MAX_EDGES) {
-    errors.push(`edge count ${parsed.edges.length} exceeds limit ${MAX_EDGES}`);
+  if (parsed.edges.length > maxEdges) {
+    errors.push(`edge count ${parsed.edges.length} exceeds limit ${maxEdges}`);
     return { valid: false, errors, warnings, validNodes, validEdges };
   }
 
@@ -48,6 +59,9 @@ export function validateGraphOutput(parsed: GraphOutput): ValidationResult {
 
   for (const edge of parsed.edges) {
     if (!edge.source || !edge.target || !edge.relation) {
+      warnings.push(
+        `edge missing required field: source=${edge.source}, target=${edge.target}, relation=${edge.relation}`,
+      );
       continue;
     }
 

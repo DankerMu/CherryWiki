@@ -28,7 +28,9 @@ function edge(overrides: Partial<GraphEdge> = {}): GraphEdge {
   };
 }
 
-function graph(validNodes: GraphNode[] = [node(), node({ id: 'n2', label: 'Node 2', norm_label: 'node_2' })]): ValidGraphOutput {
+function graph(
+  validNodes: GraphNode[] = [node(), node({ id: 'n2', label: 'Node 2', norm_label: 'node_2' })],
+): ValidGraphOutput {
   return {
     validNodes,
     validEdges: validNodes.length >= 2 ? [edge()] : [],
@@ -41,7 +43,9 @@ describe('GraphImportService', () => {
 
     expect(operation.nodes).toHaveLength(2);
     expect(operation.edges).toHaveLength(1);
-    expect(operation.communities).toEqual([{ community_key: 'auth_system', label: 'auth_system', node_count: 2 }]);
+    expect(operation.communities).toEqual([
+      { community_key: 'auth_system', label: 'auth_system', node_count: 2 },
+    ]);
     expect(operation.aliases).toHaveLength(2);
     expect(operation.nodes[0]?.sourceRefsJson).toEqual([{ file: 'auth.md', location: 'L1' }]);
     expect(operation.edges[0]).toMatchObject({
@@ -78,7 +82,12 @@ describe('GraphImportService', () => {
       node({ id: `n${index}`, label: `Node ${index}`, norm_label: `node_${index}` }),
     );
 
-    const operation = new GraphImportService().prepareImport('space-1', graph(validNodes), new Set<string>(), 100);
+    const operation = new GraphImportService().prepareImport(
+      'space-1',
+      graph(validNodes),
+      new Set<string>(),
+      100,
+    );
 
     expect(operation.nodes).toEqual([]);
     expect(operation.edges).toEqual([]);
@@ -93,7 +102,12 @@ describe('GraphImportService', () => {
       node({ id: `n${index}`, label: `Node ${index}`, norm_label: `node_${index}` }),
     );
 
-    const operation = new GraphImportService().prepareImport('space-1', graph(validNodes), new Set<string>(), 100);
+    const operation = new GraphImportService().prepareImport(
+      'space-1',
+      graph(validNodes),
+      new Set<string>(),
+      100,
+    );
 
     expect(operation.nodes).toHaveLength(25);
     expect(operation.stats.shrinkDetected).toBe(false);
@@ -102,8 +116,15 @@ describe('GraphImportService', () => {
   it('supports importRun as a pure wrapper around prepareImport', () => {
     const existingStableKeys = new Set<string>([computeStableKey('space-1', 'node_1', 'concept')]);
 
-    const operation = new GraphImportService().importRun('tenant-1', 'space-1', 'run-1', graph(), { existingStableKeys });
+    const operation = new GraphImportService().importRun('tenant-1', 'space-1', 'run-1', graph(), {
+      existingStableKeys,
+    });
 
+    expect(operation).toMatchObject({
+      tenantId: 'tenant-1',
+      spaceId: 'space-1',
+      runId: 'run-1',
+    });
     expect(operation.stats.nodesMatched).toBe(1);
   });
 });

@@ -74,6 +74,9 @@ export interface ImportEdgeOperation {
 }
 
 export interface ImportOperation {
+  tenantId?: string;
+  spaceId?: string;
+  runId?: string;
   nodes: ImportNodeOperation[];
   edges: ImportEdgeOperation[];
   communities: GraphCommunity[];

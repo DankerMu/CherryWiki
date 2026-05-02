@@ -1,5 +1,6 @@
 import { normalizeLabel } from './normalize-label.js';
 import type { GraphEdge, GraphNode, GraphOutput } from './types.js';
+import { MAX_EDGES, MAX_NODES } from './validator.js';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -59,12 +60,28 @@ function parseEdge(value: unknown): GraphEdge {
 }
 
 export function parseGraphJson(raw: string): GraphOutput {
-  const data = JSON.parse(raw) as unknown;
+  let data: unknown;
+  try {
+    data = JSON.parse(raw) as unknown;
+  } catch {
+    throw new Error('Invalid graph.json: malformed JSON');
+  }
+
   const record = isRecord(data) ? data : {};
+  const rawNodes = readArray(record, 'nodes');
+  const rawEdges = readArray(record, 'edges');
+
+  if (rawNodes.length > MAX_NODES) {
+    throw new Error(`graph.json node count ${rawNodes.length} exceeds limit ${MAX_NODES}`);
+  }
+
+  if (rawEdges.length > MAX_EDGES) {
+    throw new Error(`graph.json edge count ${rawEdges.length} exceeds limit ${MAX_EDGES}`);
+  }
 
   return {
-    nodes: readArray(record, 'nodes').map(parseNode),
-    edges: readArray(record, 'edges').map(parseEdge),
+    nodes: rawNodes.map(parseNode),
+    edges: rawEdges.map(parseEdge),
     hyperedges: readArray(record, 'hyperedges'),
   };
 }

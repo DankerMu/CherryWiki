@@ -59,13 +59,23 @@ describe('validateGraphOutput', () => {
   });
 
   it('normalizes invalid confidence labels to AMBIGUOUS', () => {
-    const result = validateGraphOutput(graph({ edges: [edge({ confidence: 'UNKNOWN', confidence_score: 0.9 })] }));
+    const result = validateGraphOutput(
+      graph({ edges: [edge({ confidence: 'UNKNOWN', confidence_score: 0.9 })] }),
+    );
 
     expect(result.valid).toBe(true);
     expect(result.warnings).toContain('invalid confidence label "UNKNOWN" normalized to AMBIGUOUS');
     expect(result.validEdges).toHaveLength(1);
     expect(result.validEdges[0]?.confidence).toBe('AMBIGUOUS');
     expect(result.validEdges[0]?.confidence_score).toBe(0.2);
+  });
+
+  it('warns and excludes edges missing required fields', () => {
+    const result = validateGraphOutput(graph({ edges: [edge({ source: '', relation: '' })] }));
+
+    expect(result.valid).toBe(true);
+    expect(result.warnings).toContain('edge missing required field: source=, target=n2, relation=');
+    expect(result.validEdges).toHaveLength(0);
   });
 
   it('rejects node labels longer than 256 characters', () => {
@@ -82,7 +92,9 @@ describe('validateGraphOutput', () => {
   });
 
   it('rejects node count above the configured limit', () => {
-    const result = validateGraphOutput(graph({ nodes: new Array<GraphNode>(MAX_NODES + 1), edges: [] }));
+    const result = validateGraphOutput(
+      graph({ nodes: new Array<GraphNode>(MAX_NODES + 1), edges: [] }),
+    );
 
     expect(result.valid).toBe(false);
     expect(result.errors).toContain(`node count ${MAX_NODES + 1} exceeds limit ${MAX_NODES}`);
@@ -93,5 +105,18 @@ describe('validateGraphOutput', () => {
 
     expect(result.valid).toBe(false);
     expect(result.errors).toContain(`edge count ${MAX_EDGES + 1} exceeds limit ${MAX_EDGES}`);
+  });
+
+  it('supports custom node and edge limits', () => {
+    const nodeLimited = validateGraphOutput(graph(), { maxNodes: 1 });
+    const edgeLimited = validateGraphOutput(
+      graph({ edges: [edge(), edge({ relation: 'depends_on' })] }),
+      { maxEdges: 1 },
+    );
+
+    expect(nodeLimited.valid).toBe(false);
+    expect(nodeLimited.errors).toContain('node count 2 exceeds limit 1');
+    expect(edgeLimited.valid).toBe(false);
+    expect(edgeLimited.errors).toContain('edge count 2 exceeds limit 1');
   });
 });

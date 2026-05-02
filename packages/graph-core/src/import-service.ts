@@ -1,10 +1,18 @@
 import { mergeCommunities } from './communities.js';
 import { mapConfidence } from './confidence.js';
 import { computeStableKey } from './stable-key.js';
-import type { ConfidenceLabel, ImportOperation, ImportRunOptions, ValidGraphOutput } from './types.js';
+import type {
+  ConfidenceLabel,
+  ImportOperation,
+  ImportRunOptions,
+  ValidGraphOutput,
+} from './types.js';
 import { isConfidenceLabel } from './validator.js';
 
-function sourceRefsFor(sourceFile: string | undefined, sourceLocation: string | undefined): unknown[] {
+function sourceRefsFor(
+  sourceFile: string | undefined,
+  sourceLocation: string | undefined,
+): unknown[] {
   if (sourceFile === undefined || sourceFile.length === 0) {
     return [];
   }
@@ -68,7 +76,9 @@ export class GraphImportService {
     });
 
     const edges = graphOutput.validEdges.map((edge) => {
-      const confidenceLabel: ConfidenceLabel = isConfidenceLabel(edge.confidence) ? edge.confidence : 'AMBIGUOUS';
+      const confidenceLabel: ConfidenceLabel = isConfidenceLabel(edge.confidence)
+        ? edge.confidence
+        : 'AMBIGUOUS';
       const confidence = mapConfidence(confidenceLabel, edge.confidence_score);
 
       return {
@@ -109,8 +119,16 @@ export class GraphImportService {
     graphOutput: ValidGraphOutput,
     options: ImportRunOptions = {},
   ): ImportOperation {
-    void tenantId;
-    void runId;
-    return this.prepareImport(spaceId, graphOutput, options.existingStableKeys, options.previousNodeCount);
+    return {
+      ...this.prepareImport(
+        spaceId,
+        graphOutput,
+        options.existingStableKeys,
+        options.previousNodeCount,
+      ),
+      tenantId,
+      spaceId,
+      runId,
+    };
   }
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { parseGraphJson } from '../parser.js';
+import { MAX_EDGES, MAX_NODES } from '../validator.js';
 
 describe('parseGraphJson', () => {
   it('parses minimal valid graph.json with defaults', () => {
@@ -87,6 +88,25 @@ describe('parseGraphJson', () => {
   });
 
   it('throws for invalid JSON', () => {
-    expect(() => parseGraphJson('{')).toThrow(SyntaxError);
+    expect(() => parseGraphJson('{')).toThrow('Invalid graph.json: malformed JSON');
+  });
+
+  it('rejects oversized node arrays before mapping', () => {
+    const raw = JSON.stringify({ nodes: new Array(MAX_NODES + 1).fill(null), edges: [] });
+
+    expect(() => parseGraphJson(raw)).toThrow(
+      `graph.json node count ${MAX_NODES + 1} exceeds limit ${MAX_NODES}`,
+    );
+  });
+
+  it('rejects oversized edge arrays before mapping', () => {
+    const raw = JSON.stringify({
+      nodes: [{ id: 'n1', label: 'Node 1' }],
+      edges: new Array(MAX_EDGES + 1).fill(null),
+    });
+
+    expect(() => parseGraphJson(raw)).toThrow(
+      `graph.json edge count ${MAX_EDGES + 1} exceeds limit ${MAX_EDGES}`,
+    );
   });
 });
