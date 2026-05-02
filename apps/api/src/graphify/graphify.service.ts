@@ -26,6 +26,7 @@ import {
   parseSortField,
   type PaginatedResponse,
 } from '../common/dto/pagination.dto.js';
+import { getApiLogger } from '../common/logger/logger.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { AuditService } from '../audit/audit.service.js';
 
@@ -394,14 +395,29 @@ export class GraphifyService {
         error_json: null,
         completed_at: completedAt,
       })
-      .where(eq(graphifyRuns.id, run.id))
+      .where(and(eq(graphifyRuns.id, run.id), inArray(graphifyRuns.status, ['pending', 'running'])))
       .returning();
 
     if (updated === undefined) {
-      throw new Error(`Failed to complete graphify run ${run.id}`);
+      getApiLogger().warn(
+        { run_id: run.id, selected_status: run.status },
+        'Graphify run completion skipped — run not in active state',
+      );
+      return toGraphifyRunResponse(run);
     }
 
     return toGraphifyRunResponse(updated);
+  }
+
+  async handleRunFailure(runId: string, error: { error_json: Record<string, unknown> }): Promise<void> {
+    await this.db
+      .update(graphifyRuns)
+      .set({
+        status: 'failed',
+        error_json: error.error_json,
+        completed_at: new Date(),
+      })
+      .where(and(eq(graphifyRuns.id, runId), inArray(graphifyRuns.status, ['pending', 'running'])));
   }
 
   private async createRunRecord(

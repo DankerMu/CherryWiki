@@ -662,6 +662,21 @@ export class InternalJobsService {
       return;
     }
 
+    if (job.type === 'graphify') {
+      if (willRetry) {
+        return;
+      }
+
+      const payload = asJsonRecord(job.payload_json);
+      const runId = readString(payload.run_id) ?? job.id;
+      await this.graphifyService?.handleRunFailure(runId, {
+        error_json: Object.keys(errorJson).length > 0
+          ? errorJson
+          : { reason: 'worker_failure', details: String(job.error_json) },
+      });
+      return;
+    }
+
     if (job.type !== 'url_fetch') {
       return;
     }

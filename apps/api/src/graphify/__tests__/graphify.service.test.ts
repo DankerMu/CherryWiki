@@ -271,6 +271,50 @@ describe('GraphifyService', () => {
     });
   });
 
+  it('handleRunCompletion skips already-cancelled runs', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([
+      createRunRow({
+        status: 'cancelled',
+        completed_at: new Date('2026-05-01T00:30:00.000Z'),
+      }),
+    ]);
+    db.queueUpdate([]);
+
+    const result = await service.handleRunCompletion('run-1', {
+      graph_json_uri: 's3://out/graph.json',
+      stats_json: { node_count: 5 },
+    });
+
+    expect(result).toMatchObject({
+      run_id: 'run-1',
+      status: 'cancelled',
+      result: {
+        graph_json_uri: null,
+      },
+    });
+    expect(db.updates).toHaveLength(1);
+    expect(requireRecord(db.updates[0]?.value)).toMatchObject({
+      status: 'succeeded',
+      graph_json_uri: 's3://out/graph.json',
+    });
+  });
+
+  it('handleRunFailure marks an active run failed with error_json', async () => {
+    const { service, db } = createServiceContext();
+
+    await service.handleRunFailure('run-1', {
+      error_json: { code: 'WORKER_FAILURE', message: 'worker crashed' },
+    });
+
+    expect(db.updates).toHaveLength(1);
+    expect(requireRecord(db.updates[0]?.value)).toMatchObject({
+      status: 'failed',
+      error_json: { code: 'WORKER_FAILURE', message: 'worker crashed' },
+      completed_at: expect.any(Date) as Date,
+    });
+  });
+
   it('throws 403 when graphify view permission is missing', async () => {
     const { service, db } = createServiceContext();
     db.queueSelect([createRunRow()]);
