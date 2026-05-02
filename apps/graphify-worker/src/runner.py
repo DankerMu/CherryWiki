@@ -266,9 +266,7 @@ def _download_inputs(
             input_files.append(local_path)
         except Exception as exc:
             raise RuntimeError(
-                json.dumps(
-                    {"reason": "download_failed", "uri": uri, "error": str(exc)}
-                )
+                json.dumps({"reason": "download_failed", "uri": uri, "error": str(exc)})
             ) from exc
     return input_files
 
