@@ -1,0 +1,160 @@
+{
+  "nodes": [
+    {
+      "id": "jwt_authentication",
+      "label": "JWT Authentication",
+      "norm_label": "jwt_authentication",
+      "type": "concept",
+      "community": "auth_system",
+      "source_file": "parsed-auth-design.md",
+      "source_location": "L5"
+    },
+    {
+      "id": "refresh_token_rotation",
+      "label": "Refresh Token Rotation",
+      "norm_label": "refresh_token_rotation",
+      "type": "mechanism",
+      "community": "auth_system",
+      "source_file": "parsed-auth-design.md",
+      "source_location": "L9"
+    },
+    {
+      "id": "session_management",
+      "label": "Session Management",
+      "norm_label": "session_management",
+      "type": "module",
+      "community": "auth_system",
+      "source_file": "parsed-auth-design.md",
+      "source_location": "L13"
+    },
+    {
+      "id": "rbac_model",
+      "label": "RBAC Permission Model",
+      "norm_label": "rbac_permission_model",
+      "type": "concept",
+      "community": "permission_system",
+      "source_file": "parsed-rbac-permissions.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "space_permissions",
+      "label": "Space Permissions",
+      "norm_label": "space_permissions",
+      "type": "mechanism",
+      "community": "permission_system",
+      "source_file": "parsed-rbac-permissions.md",
+      "source_location": "L13"
+    },
+    {
+      "id": "permission_version",
+      "label": "Permission Version Mechanism",
+      "norm_label": "permission_version_mechanism",
+      "type": "mechanism",
+      "community": "permission_system",
+      "source_file": "parsed-rbac-permissions.md",
+      "source_location": "L27"
+    },
+    {
+      "id": "upload_pipeline",
+      "label": "Upload Pipeline",
+      "norm_label": "upload_pipeline",
+      "type": "module",
+      "community": "ingestion",
+      "source_file": "parsed-upload-pipeline.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "ssrf_protection",
+      "label": "SSRF Protection",
+      "norm_label": "ssrf_protection",
+      "type": "mechanism",
+      "community": "ingestion",
+      "source_file": "parsed-upload-pipeline.md",
+      "source_location": "L39"
+    },
+    {
+      "id": "docker_deployment",
+      "label": "Docker Deployment",
+      "norm_label": "docker_deployment",
+      "type": "concept",
+      "community": "operations",
+      "source_file": "parsed-deployment-guide.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "health_checks",
+      "label": "Health Checks",
+      "norm_label": "health_checks",
+      "type": "mechanism",
+      "community": "operations",
+      "source_file": "parsed-deployment-guide.md",
+      "source_location": "L33"
+    }
+  ],
+  "edges": [
+    {
+      "source": "jwt_authentication",
+      "target": "refresh_token_rotation",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0
+    },
+    {
+      "source": "jwt_authentication",
+      "target": "session_management",
+      "relation": "creates",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0
+    },
+    {
+      "source": "rbac_model",
+      "target": "space_permissions",
+      "relation": "defines",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0
+    },
+    {
+      "source": "space_permissions",
+      "target": "permission_version",
+      "relation": "triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0
+    },
+    {
+      "source": "jwt_authentication",
+      "target": "rbac_model",
+      "relation": "integrates_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.5
+    },
+    {
+      "source": "upload_pipeline",
+      "target": "ssrf_protection",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0
+    },
+    {
+      "source": "docker_deployment",
+      "target": "health_checks",
+      "relation": "configures",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0
+    },
+    {
+      "source": "upload_pipeline",
+      "target": "docker_deployment",
+      "relation": "deployed_via",
+      "confidence": "INFERRED",
+      "confidence_score": 0.5
+    },
+    {
+      "source": "session_management",
+      "target": "rbac_model",
+      "relation": "enforces",
+      "confidence": "AMBIGUOUS",
+      "confidence_score": 0.2
+    }
+  ],
+  "hyperedges": []
+}
