@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 import { GraphImportService, MAX_NODES, parseGraphJson, validateGraphOutput, type ImportOperation } from '@cherrygraph/graph-core';
@@ -17,6 +18,14 @@ import {
   createUploadIntegrationContext,
   type UploadIntegrationContext,
 } from './upload-integration-test-utils.js';
+
+vi.mock('node:crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:crypto')>();
+  return {
+    ...actual,
+    randomUUID: vi.fn(actual.randomUUID),
+  };
+});
 
 type GraphifyRunRow = typeof graphifyRuns.$inferSelect;
 type WikiPageRow = typeof wikiPages.$inferSelect;
@@ -227,13 +236,12 @@ describe('graphify e2e integration', () => {
     });
 
     const oversizedValidation = validateGraphOutput({
-      nodes: Array.from({ length: MAX_NODES + 1 }, (_, index) => ({
-        id: `node-${index}`,
-        label: `Node ${index}`,
-        norm_label: `node_${index}`,
-        type: 'concept',
-        community: null,
-      })),
+      nodes: new Array(MAX_NODES + 1).fill({
+        id: 'node',
+        label: 'Node',
+        norm_label: 'node',
+        type: 'concept' as const,
+      }),
       edges: [],
       hyperedges: [],
     });
@@ -324,6 +332,14 @@ async function createQueuedGraphifyRun(
   context.queueSpaceExists();
   context.db.queueSelect([]);
   context.db.queueSelect(sourceDocuments.map((row) => ({ parsed_uri: row.parsed_uri })));
+  context.db.queueInsert([
+    createGraphifyRunRow({
+      id: input.runId,
+      job_id: null,
+      status: 'pending',
+      stats_json: statsJson,
+    }),
+  ]);
   context.db.queueUpdate([
     createGraphifyRunRow({
       id: input.runId,
@@ -333,7 +349,9 @@ async function createQueuedGraphifyRun(
     }),
   ]);
 
-  return context.graphify.createRun(
+  vi.mocked(crypto.randomUUID).mockReturnValueOnce(input.runId as ReturnType<typeof crypto.randomUUID>);
+
+  const created = await context.graphify.createRun(
     UPLOAD_TEST_SPACE_ID,
     {
       mode: 'full',
@@ -343,6 +361,12 @@ async function createQueuedGraphifyRun(
     },
     createAdminGraphifyContext(),
   );
+
+  expect(created.run_id).toBe(input.runId);
+  const graphifyJob = context.jobs.rows.filter((job) => job.type === 'graphify').at(-1);
+  expect(readRecord(graphifyJob?.payload_json).run_id).toBe(created.run_id);
+
+  return created;
 }
 
 function queueRunCompletion(
