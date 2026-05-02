@@ -44,6 +44,11 @@ describe('importGraphifyWiki', () => {
       'sources',
     ]);
     expect(authPage.sections.map(section => section.heading)).toContain('JWT Authentication');
+    const jwtSection = authPage.sections.find(section => section.heading === 'JWT Authentication');
+    if (typeof jwtSection?.start_offset !== 'number') {
+      throw new Error('JWT Authentication section should have a numeric start offset');
+    }
+    expect(authPage.contentMarkdown.slice(jwtSection.start_offset).startsWith('### JWT Authentication')).toBe(true);
 
     const parsed = parseFrontmatter(authPage.contentMarkdown);
     expect(parsed.frontmatter).toMatchObject({
@@ -82,6 +87,53 @@ describe('importGraphifyWiki', () => {
     expect(second.pagesUpdated).toHaveLength(5);
     expect(bySlug(second.pagesUpdated, 'auth-system').versionNo).toBe(2);
     expect(parseFrontmatter(bySlug(second.pagesUpdated, 'auth-system').contentMarkdown).frontmatter.version).toBe(2);
+  });
+
+  it('uses matched community labels rather than filename stems for community page IDs', () => {
+    const result = importGraphifyWiki({
+      ...baseParams(),
+      spaceId: 'space-1',
+      spaceSlug: 'space',
+      communityLabels: ['C++'],
+      godNodeLabels: [],
+      stableKeys: new Map(),
+      wikiFiles: new Map([['c++.md', '# C++\n\n## Overview\nText']]),
+      reportMarkdown: '',
+    });
+
+    expect(result.pagesCreated[0]?.pageType).toBe('community');
+    expect(result.pagesCreated[0]?.pageId).toBe('space-1.community.c__');
+  });
+
+  it('classifies existing pages with matching content hashes as unchanged', () => {
+    const content = '# Auth System\n\n## Overview\nText';
+    const existingPage: ExistingPageInfo = {
+      pageId: 'space-1.community.auth_system',
+      slug: 'auth-system',
+      currentVersionNo: 1,
+      status: 'draft',
+      pageType: 'community',
+      contentHash: hash(content),
+    };
+    const result = importGraphifyWiki({
+      ...baseParams(),
+      spaceId: 'space-1',
+      spaceSlug: 'space',
+      runId: 'gf_unchanged',
+      communityLabels: ['Auth System'],
+      godNodeLabels: [],
+      stableKeys: new Map(),
+      wikiFiles: new Map([['auth-system.md', content]]),
+      reportMarkdown: '',
+      existingPages: new Map([[existingPage.pageId, existingPage]]),
+      existingBlockMetadata: new Map(),
+    });
+
+    expect(result.pagesCreated).toHaveLength(0);
+    expect(result.pagesUpdated).toHaveLength(0);
+    expect(result.pagesUnchanged).toEqual([existingPage.pageId]);
+    expect(result.indexUpdateManifest.pagesUpdated).toEqual([]);
+    expect(result.gitCommits[0]?.message).toBe('[space][graphify][gf_unchanged] no changes');
   });
 
   it('preserves human-owned blocks and creates graphify suggestion proposals', () => {
@@ -159,6 +211,24 @@ describe('importGraphifyWiki', () => {
 
     expect(result.pagesCreated.some(page => page.slug === 'GRAPH_REPORT')).toBe(false);
     expect(result.graphReport?.reportMarkdown).toContain('# Graph Report');
+  });
+
+  it('rejects unsafe space IDs before constructing repo paths', () => {
+    expect(() => importGraphifyWiki({ ...baseParams(), spaceId: '../rd-platform' })).toThrow(
+      'Invalid spaceId for path',
+    );
+  });
+
+  it('rejects slugs containing path separators', () => {
+    expect(() =>
+      importGraphifyWiki({
+        ...baseParams(),
+        communityLabels: [],
+        godNodeLabels: [],
+        stableKeys: new Map(),
+        wikiFiles: new Map([['bad\\slug.md', '# Bad Slug\n\n## Overview\nText']]),
+      }),
+    ).toThrow('Invalid slug for path');
   });
 });
 

@@ -39,4 +39,11 @@ describe('sanitizeMarkdown', () => {
   it('removes javascript markdown links but preserves link text', () => {
     expect(sanitizeMarkdown('[click](javascript:alert(1))')).toBe('click');
   });
+
+  it('handles long script payloads without pathological regex behavior', () => {
+    const payload = 'x'.repeat(10000);
+
+    expect(sanitizeMarkdown(`<script>${payload}</script>Body`)).toBe('Body');
+    expect(sanitizeMarkdown(`<script>${payload}`)).toBe(payload);
+  });
 });

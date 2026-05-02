@@ -14,6 +14,8 @@ import { identifyPageType } from './identify-page-type.js';
 import { safeFilename } from './safe-filename.js';
 import { sanitizeMarkdown } from './sanitize-markdown.js';
 
+const SAFE_PATH_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
 export interface NormalizationParams {
   tenantId: string;
   spaceId: string;
@@ -39,6 +41,7 @@ export interface ExistingPageInfo {
   title?: string;
   repoPath?: string;
   contentMarkdown?: string;
+  contentHash?: string;
   createdAt?: string;
 }
 
@@ -115,6 +118,7 @@ export function importGraphifyWiki(params: NormalizationParams): NormalizationRe
     existingBlockMetadata,
     sourceDocumentIds,
   } = params;
+  const safeSpaceId = safePath(spaceId, 'spaceId');
 
   const pagesCreated: WikiPageImport[] = [];
   const pagesUpdated: WikiPageImport[] = [];
@@ -135,7 +139,7 @@ export function importGraphifyWiki(params: NormalizationParams): NormalizationRe
     const pageType = identifyPageType(filename, communityLabels, godNodeLabels);
     const title = resolveTitle(fileStem, pageType, communityLabels, godNodeLabels);
     const baseSlug = safeFilename(fileStem);
-    const pageId = buildPageId(spaceId, pageType, fileStem, title, baseSlug, stableKeys);
+    const pageId = buildPageId(safeSpaceId, pageType, fileStem, title, baseSlug, stableKeys, communityLabels);
     const existingPage = existingPages.get(pageId);
     const slug = existingPage ? existingPage.slug : resolveSlug(baseSlug, runId, usedSlugs, existingPageBySlug);
     usedSlugs.add(slug);
@@ -144,8 +148,14 @@ export function importGraphifyWiki(params: NormalizationParams): NormalizationRe
       incomingCommunityPageIds.add(pageId);
     }
 
-    const repoPath = repoPathForPage(spaceId, pageType, slug);
+    const repoPath = repoPathForPage(safeSpaceId, pageType, slug);
     const sanitized = sanitizeMarkdown(rawContent);
+    const newContentHash = hashContent(sanitized);
+    if (existingPage?.contentHash === newContentHash) {
+      pagesUnchanged.push(pageId);
+      continue;
+    }
+
     const ownership = buildContentWithBlockOwnership({
       pageId,
       sanitizedContent: sanitized,
@@ -160,7 +170,7 @@ export function importGraphifyWiki(params: NormalizationParams): NormalizationRe
     const frontmatter: WikiFrontmatter = {
       page_id: pageId,
       title,
-      space_id: spaceId,
+      space_id: safeSpaceId,
       page_type: pageType,
       status: normalizeStatus(existingPage?.status),
       curation_status: ownership.blockMetadata.some(block => block.owner === 'human') ? 'mixed' : 'auto_generated',
@@ -188,7 +198,7 @@ export function importGraphifyWiki(params: NormalizationParams): NormalizationRe
       frontmatter: frontmatter as unknown as Record<string, unknown>,
       versionNo,
       source: 'graphify',
-      sections: extractSections(ownership.finalContent, pageId),
+      sections: extractSections(fullContent, pageId),
       blockMetadata: ownership.blockMetadata,
     };
 
@@ -320,13 +330,14 @@ function buildPageId(
   title: string,
   baseSlug: string,
   stableKeys: Map<string, string>,
+  communityLabels: string[],
 ): string {
   if (pageType === 'index') {
     return generatePageId(spaceId, 'index', 'root');
   }
 
   if (pageType === 'community') {
-    return generatePageId(spaceId, 'community', communityKey(fileStem));
+    return generatePageId(spaceId, 'community', communityKey(fileStem, communityLabels));
   }
 
   if (pageType === 'god_node') {
@@ -425,13 +436,15 @@ function repoPathForPage(spaceId: string, pageType: WikiPageType, slug: string):
     return `spaces/${spaceId}/index.md`;
   }
 
+  const safeSlug = safeSlugPathSegment(slug);
+
   const typeDir: Record<Exclude<WikiPageType, 'index'>, string> = {
     community: 'communities',
     god_node: 'god-nodes',
     generated_article: 'pages',
   };
 
-  return `spaces/${spaceId}/${typeDir[pageType]}/${slug}.md`;
+  return `spaces/${spaceId}/${typeDir[pageType]}/${safeSlug}.md`;
 }
 
 function parseReportStats(markdown: string): Record<string, unknown> {
@@ -512,8 +525,13 @@ function normalizeStatus(status: string | undefined): WikiFrontmatter['status'] 
   return 'draft';
 }
 
-function communityKey(fileStem: string): string {
-  return fileStem.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'community';
+function communityKey(fileStem: string, communityLabels: string[]): string {
+  const matchingLabel =
+    communityLabels.find(label => safeFilename(label) === fileStem) ??
+    communityLabels.find(label => labelMatchesStem(label, fileStem));
+  const keySource = matchingLabel ?? fileStem;
+
+  return keySource.toLowerCase().replace(/[^a-z0-9]/g, '_') || 'community';
 }
 
 function normalizeForComparison(value: string): string {
@@ -526,6 +544,22 @@ function stripFrontmatter(markdown: string): string {
 
 function basename(path: string): string {
   return path.split('/').pop() ?? path;
+}
+
+function safePath(value: string, name: string): string {
+  if (!SAFE_PATH_RE.test(value)) {
+    throw new Error(`Invalid ${name} for path: ${value}`);
+  }
+
+  return value;
+}
+
+function safeSlugPathSegment(slug: string): string {
+  if (slug.includes('/') || slug.includes('\\') || slug === '.' || slug === '..') {
+    throw new Error(`Invalid slug for path: ${slug}`);
+  }
+
+  return slug;
 }
 
 function hashContent(content: string): string {
