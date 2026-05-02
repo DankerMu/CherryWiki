@@ -201,6 +201,116 @@ describe('Wiki Zod validation', () => {
   });
 });
 
+describe('Stage 5 Zod validation', () => {
+  it('validates createGraphifyRunSchema inputs', () => {
+    expect(schema.createGraphifyRunSchema.safeParse({ mode: 'full', trigger_type: 'manual' }).success).toBe(true);
+    expect(
+      schema.createGraphifyRunSchema.safeParse({
+        mode: 'incremental',
+        trigger_type: 'scheduled',
+        input_scope: {
+          page_ids: ['page-1'],
+          source_document_ids: ['source-document-1'],
+        },
+        options: {
+          wiki: false,
+          no_viz: true,
+          directed: true,
+        },
+      }).success,
+    ).toBe(true);
+
+    const parsedWithDefaultOptions = schema.createGraphifyRunSchema.parse({
+      mode: 'update',
+      trigger_type: 'auto',
+      options: {},
+    });
+    expect(parsedWithDefaultOptions.options).toEqual({
+      wiki: true,
+      no_viz: false,
+      directed: false,
+    });
+
+    expect(schema.createGraphifyRunSchema.safeParse({ mode: 'rebuild', trigger_type: 'manual' }).success).toBe(false);
+    expect(schema.createGraphifyRunSchema.safeParse({ mode: 'full', trigger_type: 'webhook' }).success).toBe(false);
+    expect(
+      schema.createGraphifyRunSchema.safeParse({
+        mode: 'full',
+        trigger_type: 'manual',
+        input_scope: {
+          page_ids: Array.from({ length: 1001 }, (_, index) => `page-${index}`),
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      schema.createGraphifyRunSchema.safeParse({
+        mode: 'full',
+        trigger_type: 'manual',
+        input_scope: {
+          source_document_ids: Array.from({ length: 1001 }, (_, index) => `source-document-${index}`),
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('validates graphNodeSchema inputs', () => {
+    const validNode = {
+      node_key: 'node:auth',
+      stable_key: 'stable:auth',
+      label: 'Authentication',
+    };
+
+    expect(schema.graphNodeSchema.safeParse(validNode).success).toBe(true);
+    expect(schema.graphNodeSchema.safeParse({ ...validNode, label: 'a'.repeat(257) }).success).toBe(false);
+
+    const missingNodeKey: Record<string, unknown> = { ...validNode };
+    delete missingNodeKey.node_key;
+    expect(schema.graphNodeSchema.safeParse(missingNodeKey).success).toBe(false);
+  });
+
+  it('validates graphEdgeSchema inputs', () => {
+    const validEdge = {
+      source_node_id: 'node-1',
+      target_node_id: 'node-2',
+      relation_type: 'depends_on',
+      confidence_label: 'EXTRACTED',
+    };
+
+    expect(schema.graphEdgeSchema.safeParse(validEdge).success).toBe(true);
+    expect(schema.graphEdgeSchema.safeParse({ ...validEdge, confidence_label: 'UNKNOWN' }).success).toBe(false);
+    expect(schema.graphEdgeSchema.safeParse({ ...validEdge, raw_confidence_score: 1.2 }).success).toBe(false);
+  });
+
+  it('validates graphCommunitySchema inputs', () => {
+    expect(
+      schema.graphCommunitySchema.safeParse({
+        community_key: 'community:platform',
+        label: 'Platform',
+        summary: 'Platform services',
+      }).success,
+    ).toBe(true);
+
+    expect(
+      schema.graphCommunitySchema.safeParse({
+        community_key: 'community:platform',
+        label: null,
+        summary: null,
+      }).success,
+    ).toBe(true);
+  });
+
+  it('validates pageBlockMetadataSchema inputs', () => {
+    const validBlock = {
+      block_id: 'block-1',
+      owner: 'graphify',
+      content_hash: 'sha256:abc',
+    };
+
+    expect(schema.pageBlockMetadataSchema.safeParse(validBlock).success).toBe(true);
+    expect(schema.pageBlockMetadataSchema.safeParse({ ...validBlock, owner: 'graphify:managed' }).success).toBe(false);
+  });
+});
+
 const tenantScopedTables = [
   schema.users,
   schema.groups,
@@ -218,4 +328,15 @@ const tenantScopedTables = [
   schema.wikiPageVersions,
   schema.wikiSections,
   schema.sourceLinks,
+  schema.graphifyRuns,
+  schema.graphNodes,
+  schema.graphEdges,
+  schema.graphCommunities,
+  schema.graphNodeAliases,
+  schema.graphNodeMerges,
+  schema.graphReports,
+  schema.pageBlockMetadata,
+  schema.graphEvidenceRefs,
+  schema.wikiUpdateProposals,
+  schema.indexSnapshots,
 ] as const satisfies readonly { tenant_id: { notNull: boolean } }[];

@@ -1,5 +1,18 @@
 import { sql } from 'drizzle-orm';
-import { bigint, boolean, foreignKey, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique } from 'drizzle-orm/pg-core';
+import {
+  bigint,
+  boolean,
+  doublePrecision,
+  foreignKey,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  unique,
+} from 'drizzle-orm/pg-core';
 import type { PgTableExtraConfigValue } from 'drizzle-orm/pg-core';
 
 export const tenants = pgTable('tenants', {
@@ -323,6 +336,187 @@ export const job_events = pgTable(
   (table) => [index('idx_job_events_job').on(table.job_id, table.created_at)],
 );
 
+export const graphifyRuns = pgTable(
+  'graphify_runs',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    space_id: text('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    job_id: text('job_id').references(() => jobs.id),
+    trigger_type: text('trigger_type').notNull(),
+    mode: text('mode').notNull(),
+    status: text('status').notNull().default('pending'),
+    input_version: text('input_version'),
+    output_version: text('output_version'),
+    graphify_ref: text('graphify_ref'),
+    graph_json_uri: text('graph_json_uri'),
+    wiki_output_uri: text('wiki_output_uri'),
+    report_uri: text('report_uri'),
+    graph_html_uri: text('graph_html_uri'),
+    schema_version: text('schema_version').notNull().default('v1'),
+    stats_json: jsonb('stats_json').notNull().default(sql`'{}'::jsonb`),
+    error_json: jsonb('error_json'),
+    created_by: text('created_by').references(() => users.id),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    started_at: timestamp('started_at', { withTimezone: true }),
+    completed_at: timestamp('completed_at', { withTimezone: true }),
+  },
+  (table) => [index('idx_graphify_runs_job').on(table.job_id)],
+);
+
+export const graphNodes = pgTable(
+  'graph_nodes',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    space_id: text('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    graphify_run_id: text('graphify_run_id')
+      .notNull()
+      .references(() => graphifyRuns.id),
+    node_key: text('node_key').notNull(),
+    stable_key: text('stable_key').notNull(),
+    label: text('label').notNull(),
+    norm_label: text('norm_label'),
+    type: text('type'),
+    community_id: text('community_id'),
+    wiki_page_pk: text('wiki_page_pk').references(() => wikiPages.id),
+    page_version_id: text('page_version_id').references(() => wikiPageVersions.id),
+    source_refs_json: jsonb('source_refs_json').notNull().default(sql`'[]'::jsonb`),
+    acl_json: jsonb('acl_json').notNull().default(sql`'{}'::jsonb`),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('graph_nodes_tenant_id_space_id_graphify_run_id_node_key_unique').on(table.tenant_id, table.space_id, table.graphify_run_id, table.node_key),
+    index('idx_graph_nodes_stable_key').on(table.tenant_id, table.space_id, table.stable_key),
+    index('idx_graph_nodes_label_trgm').using('gin', sql`${table.label} gin_trgm_ops`),
+  ],
+);
+
+export const graphNodeAliases = pgTable(
+  'graph_node_aliases',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    space_id: text('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    node_stable_key: text('node_stable_key').notNull(),
+    alias: text('alias').notNull(),
+    source: text('source').notNull().default('graphify'),
+    confidence: doublePrecision('confidence').notNull().default(1.0),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('graph_node_aliases_tenant_id_space_id_node_stable_key_alias_unique').on(table.tenant_id, table.space_id, table.node_stable_key, table.alias),
+    index('idx_graph_node_aliases_lookup').on(table.tenant_id, table.space_id, table.alias),
+  ],
+);
+
+export const graphNodeMerges = pgTable(
+  'graph_node_merges',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    space_id: text('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    from_stable_key: text('from_stable_key').notNull(),
+    to_stable_key: text('to_stable_key').notNull(),
+    reason: text('reason').notNull(),
+    created_by: text('created_by').references(() => users.id),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('idx_graph_node_merges_from').on(table.tenant_id, table.space_id, table.from_stable_key)],
+);
+
+export const graphEdges = pgTable(
+  'graph_edges',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    space_id: text('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    graphify_run_id: text('graphify_run_id')
+      .notNull()
+      .references(() => graphifyRuns.id),
+    source_node_id: text('source_node_id')
+      .notNull()
+      .references(() => graphNodes.id),
+    target_node_id: text('target_node_id')
+      .notNull()
+      .references(() => graphNodes.id),
+    relation_type: text('relation_type').notNull(),
+    confidence_label: text('confidence_label').notNull(),
+    raw_confidence_score: doublePrecision('raw_confidence_score'),
+    effective_confidence_score: doublePrecision('effective_confidence_score'),
+    evidence_count: integer('evidence_count').notNull().default(1),
+    evidence_refs_json: jsonb('evidence_refs_json').notNull().default(sql`'[]'::jsonb`),
+    acl_json: jsonb('acl_json').notNull().default(sql`'{}'::jsonb`),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_graph_edges_source').on(table.source_node_id),
+    index('idx_graph_edges_target').on(table.target_node_id),
+    index('idx_graph_edges_confidence').on(table.confidence_label, table.effective_confidence_score),
+  ],
+);
+
+export const graphCommunities = pgTable(
+  'graph_communities',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    space_id: text('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    graphify_run_id: text('graphify_run_id')
+      .notNull()
+      .references(() => graphifyRuns.id),
+    community_key: text('community_key').notNull(),
+    label: text('label'),
+    summary: text('summary'),
+    node_count: integer('node_count').notNull().default(0),
+    metadata_json: jsonb('metadata_json').notNull().default(sql`'{}'::jsonb`),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('graph_communities_tenant_id_space_id_graphify_run_id_community_key_unique').on(table.tenant_id, table.space_id, table.graphify_run_id, table.community_key),
+  ],
+);
+
+export const graphReports = pgTable('graph_reports', {
+  id: text('id').primaryKey(),
+  tenant_id: text('tenant_id')
+    .notNull()
+    .references(() => tenants.id),
+  space_id: text('space_id')
+    .notNull()
+    .references(() => spaces.id),
+  graphify_run_id: text('graphify_run_id')
+    .notNull()
+    .references(() => graphifyRuns.id),
+  report_markdown: text('report_markdown').notNull(),
+  stats_json: jsonb('stats_json').notNull().default(sql`'{}'::jsonb`),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const wikiPages = pgTable(
   'wiki_pages',
   {
@@ -424,6 +618,38 @@ export const wikiSections = pgTable(
   ],
 );
 
+export const pageBlockMetadata = pgTable(
+  'page_block_metadata',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    space_id: text('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    wiki_page_pk: text('wiki_page_pk')
+      .notNull()
+      .references(() => wikiPages.id),
+    page_version_id: text('page_version_id')
+      .notNull()
+      .references(() => wikiPageVersions.id),
+    block_id: text('block_id').notNull(),
+    owner: text('owner').notNull().default('graphify'),
+    content_hash: text('content_hash').notNull(),
+    graphify_run_id: text('graphify_run_id'),
+    last_editor: text('last_editor').references(() => users.id),
+    editable: boolean('editable').notNull().default(false),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('page_block_metadata_page_version_id_block_id_unique').on(table.page_version_id, table.block_id),
+    index('idx_page_blocks_page_version').on(table.page_version_id),
+    index('idx_page_blocks_owner').on(table.wiki_page_pk, table.owner),
+  ],
+);
+
 export const sourceLinks = pgTable(
   'source_links',
   {
@@ -450,5 +676,76 @@ export const sourceLinks = pgTable(
   (table) => [
     index('idx_source_links_page_version').on(table.page_version_id),
     index('idx_source_links_source_doc').on(table.source_document_id),
+  ],
+);
+
+export const graphEvidenceRefs = pgTable(
+  'graph_evidence_refs',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    space_id: text('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    edge_id: text('edge_id')
+      .notNull()
+      .references(() => graphEdges.id, { onDelete: 'cascade' }),
+    page_id: text('page_id').references(() => wikiPages.id),
+    page_version_id: text('page_version_id').references(() => wikiPageVersions.id),
+    section_id: text('section_id').references(() => wikiSections.id),
+    source_document_id: text('source_document_id').references(() => source_documents.id),
+    quote_text: text('quote_text'),
+    confidence_contribution: doublePrecision('confidence_contribution'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_graph_evidence_refs_edge').on(table.edge_id),
+    index('idx_graph_evidence_refs_page').on(table.page_id, table.page_version_id),
+    index('idx_graph_evidence_refs_source_doc').on(table.source_document_id),
+  ],
+);
+
+export const wikiUpdateProposals = pgTable('wiki_update_proposals', {
+  id: text('id').primaryKey(),
+  tenant_id: text('tenant_id')
+    .notNull()
+    .references(() => tenants.id),
+  space_id: text('space_id')
+    .notNull()
+    .references(() => spaces.id),
+  wiki_page_pk: text('wiki_page_pk').references(() => wikiPages.id),
+  graphify_run_id: text('graphify_run_id').references(() => graphifyRuns.id),
+  proposal_type: text('proposal_type').notNull(),
+  status: text('status').notNull().default('pending'),
+  diff_json: jsonb('diff_json').notNull().default(sql`'{}'::jsonb`),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  resolved_at: timestamp('resolved_at', { withTimezone: true }),
+});
+
+export const indexSnapshots = pgTable(
+  'index_snapshots',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    space_id: text('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    graphify_run_id: text('graphify_run_id').references(() => graphifyRuns.id),
+    wiki_repo_commit_hash: text('wiki_repo_commit_hash').notNull(),
+    embedding_model_id: text('embedding_model_id').notNull(),
+    chunk_count: integer('chunk_count').notNull().default(0),
+    node_count: integer('node_count').notNull().default(0),
+    edge_count: integer('edge_count').notNull().default(0),
+    status: text('status').notNull().default('building'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    activated_at: timestamp('activated_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('idx_index_snapshots_space').on(table.tenant_id, table.space_id, table.status),
+    index('idx_index_snapshots_active').on(table.space_id, table.activated_at.desc()),
   ],
 );
