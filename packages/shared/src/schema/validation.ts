@@ -23,6 +23,14 @@ export const sourceDocumentStatusSchema = z.enum([
   'index_failed',
 ]);
 export const sourceDocumentProcessingStrategySchema = z.enum(['immediate', 'stash', 'archive_only']);
+export const graphifyRunModeSchema = z.enum(['full', 'update', 'incremental']);
+export const graphifyRunStatusSchema = z.enum(['pending', 'running', 'succeeded', 'failed', 'cancelled']);
+export const graphifyTriggerTypeSchema = z.enum(['manual', 'scheduled', 'auto']);
+export const confidenceLabelSchema = z.enum(['EXTRACTED', 'INFERRED', 'AMBIGUOUS']);
+export const blockOwnerSchema = z.enum(['graphify:managed', 'human:curated']);
+export const proposalTypeSchema = z.enum(['conflict', 'deprecation', 'new_page']);
+export const proposalStatusSchema = z.enum(['pending', 'accepted', 'rejected']);
+export const indexSnapshotStatusSchema = z.enum(['building', 'ready', 'active', 'failed']);
 
 const nonEmptyString = z.string().trim().min(1);
 const idSchema = nonEmptyString.max(200);
@@ -270,6 +278,45 @@ export const rollbackRequestSchema = z.object({
   reason: z.string().max(1000).optional(),
 });
 
+export const createGraphifyRunSchema = z.object({
+  mode: graphifyRunModeSchema,
+  trigger_type: graphifyTriggerTypeSchema,
+  source_document_ids: z.array(idSchema).optional(),
+});
+
+export const graphNodeSchema = z.object({
+  node_key: nonEmptyString.max(500),
+  stable_key: nonEmptyString.max(500),
+  label: nonEmptyString.max(256),
+  norm_label: z.string().max(256).nullable().optional(),
+  type: z.string().max(100).nullable().optional(),
+  community_id: z.string().max(200).nullable().optional(),
+});
+
+export const graphEdgeSchema = z.object({
+  source_node_id: idSchema,
+  target_node_id: idSchema,
+  relation_type: nonEmptyString.max(500),
+  confidence_label: confidenceLabelSchema,
+  raw_confidence_score: z.number().min(0).max(1).nullable().optional(),
+  effective_confidence_score: z.number().min(0).max(1).nullable().optional(),
+  evidence_count: z.number().int().nonnegative().default(1),
+});
+
+export const graphCommunitySchema = z.object({
+  community_key: nonEmptyString.max(500),
+  label: z.string().max(500).nullable().optional(),
+  summary: z.string().max(10000).nullable().optional(),
+  node_count: z.number().int().nonnegative().default(0),
+});
+
+export const pageBlockMetadataSchema = z.object({
+  block_id: nonEmptyString.max(500),
+  owner: blockOwnerSchema,
+  content_hash: nonEmptyString.max(200),
+  editable: z.boolean().default(false),
+});
+
 export type InsertUserInput = z.infer<typeof insertUserSchema>;
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 export type InsertSpaceInput = z.infer<typeof insertSpaceSchema>;
@@ -294,3 +341,16 @@ export type InsertWikiPageInput = z.infer<typeof insertWikiPageSchema>;
 export type InsertWikiPageVersionInput = z.infer<typeof insertWikiPageVersionSchema>;
 export type PublishRequestInput = z.infer<typeof publishRequestSchema>;
 export type RollbackRequestInput = z.infer<typeof rollbackRequestSchema>;
+export type GraphifyRunMode = z.infer<typeof graphifyRunModeSchema>;
+export type GraphifyRunStatus = z.infer<typeof graphifyRunStatusSchema>;
+export type GraphifyTriggerType = z.infer<typeof graphifyTriggerTypeSchema>;
+export type ConfidenceLabel = z.infer<typeof confidenceLabelSchema>;
+export type BlockOwner = z.infer<typeof blockOwnerSchema>;
+export type ProposalType = z.infer<typeof proposalTypeSchema>;
+export type ProposalStatus = z.infer<typeof proposalStatusSchema>;
+export type IndexSnapshotStatus = z.infer<typeof indexSnapshotStatusSchema>;
+export type CreateGraphifyRunInput = z.infer<typeof createGraphifyRunSchema>;
+export type GraphNodeInput = z.infer<typeof graphNodeSchema>;
+export type GraphEdgeInput = z.infer<typeof graphEdgeSchema>;
+export type GraphCommunityInput = z.infer<typeof graphCommunitySchema>;
+export type PageBlockMetadataInput = z.infer<typeof pageBlockMetadataSchema>;
