@@ -98,16 +98,19 @@ describe('GraphifyRunsPage', () => {
 describe('GraphifyRunDetailPage', () => {
   it('shows cancel and retry buttons only for matching statuses', async () => {
     await renderDetailStatus('running');
-    expect(screen.getByRole('button', { name: 'Cancel Run' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Cancel Run' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Retry Run' })).not.toBeInTheDocument();
     cleanup();
 
     await renderDetailStatus('failed');
-    expect(screen.getByRole('button', { name: 'Retry Run' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Retry Run' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Cancel Run' })).not.toBeInTheDocument();
     cleanup();
 
     await renderDetailStatus('succeeded');
+    await waitFor(() => {
+      expect(screen.queryByText('Loading graphify run details...')).not.toBeInTheDocument();
+    });
     expect(screen.queryByRole('button', { name: 'Cancel Run' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Retry Run' })).not.toBeInTheDocument();
   });
