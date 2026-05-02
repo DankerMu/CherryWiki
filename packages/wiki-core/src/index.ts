@@ -7,3 +7,8 @@ export * from './sections.js';
 export * from './version.js';
 export * from './repo-init.js';
 export * from './source-links.js';
+export * from './normalization/safe-filename.js';
+export * from './normalization/identify-page-type.js';
+export * from './normalization/sanitize-markdown.js';
+export * from './normalization/block-markers.js';
+export * from './normalization/import-graphify-wiki.js';
