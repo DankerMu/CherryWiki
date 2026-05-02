@@ -101,6 +101,14 @@ async def execute(input_dir: Path, output_dir: Path, mode: str) -> None:
         "input": extraction.get("input_tokens", 0),
         "output": extraction.get("output_tokens", 0),
     }
+    detection_result = {
+        "total_files": len(input_files),
+        "total_words": sum(
+            len(f.read_text(encoding="utf-8").split())
+            for f in input_files
+            if f.exists()
+        ),
+    }
     report = generate_report(
         G,
         communities,
@@ -108,7 +116,7 @@ async def execute(input_dir: Path, output_dir: Path, mode: str) -> None:
         labels,
         gods,
         surprises,
-        {},
+        detection_result,
         tokens,
         str(input_dir),
         suggested_questions=questions,
@@ -220,7 +228,7 @@ async def _call_llm(prompt: str) -> tuple[dict[str, Any], dict[str, int]]:
         "response_format": {"type": "json_object"},
     }
 
-    async with httpx.AsyncClient(timeout=120) as client:
+    async with httpx.AsyncClient(timeout=300) as client:
         resp = await client.post(url, json=body, headers=headers)
         resp.raise_for_status()
         data = resp.json()
