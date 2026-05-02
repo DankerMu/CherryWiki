@@ -589,6 +589,59 @@ describe('InternalJobsService', () => {
     );
   });
 
+  it('marks a graphify run failed when a graphify job reaches terminal failure', async () => {
+    const db = createDb();
+    const redis = createRedisMock();
+    const graphifyService = {
+      handleRunFailure: vi.fn(() => Promise.resolve()),
+    };
+    const service = new InternalJobsService(
+      db.asDb() as never,
+      redis.asClient() as never,
+      undefined,
+      undefined,
+      graphifyService as never,
+    );
+    const runningJob = createJobRow({
+      tenant_id: 'tenant-1',
+      space_id: 'space-1',
+      type: 'graphify',
+      status: JobStatus.RUNNING,
+      locked_by: 'worker-1',
+      locked_at: new Date('2026-04-30T11:55:00.000Z'),
+      started_at: new Date('2026-04-30T11:55:00.000Z'),
+      payload_json: {
+        run_id: 'run-1',
+      },
+    });
+    const failedJob = createJobRow({
+      ...runningJob,
+      status: JobStatus.FAILED,
+      locked_by: null,
+      locked_at: null,
+      attempt_count: 1,
+      completed_at: new Date('2026-04-30T12:00:00.000Z'),
+    });
+    const errorJson = { code: 'GRAPHIFY_ERROR', message: 'worker crashed' };
+
+    vi.spyOn(JobRepository, 'findById').mockResolvedValue(runningJob);
+    vi.spyOn(RedisJobLock, 'renew').mockResolvedValue(true);
+    vi.spyOn(JobStateMachine, 'transition').mockResolvedValue(failedJob);
+    vi.spyOn(JobEventRepository, 'create').mockResolvedValue({} as Awaited<ReturnType<typeof JobEventRepository.create>>);
+    vi.spyOn(RedisJobLock, 'release').mockResolvedValue(true);
+
+    const result = await service.reportFailure('job-1', {
+      worker_id: 'worker-1',
+      error_json: errorJson,
+      retryable: false,
+    });
+
+    expect(result.will_retry).toBe(false);
+    expect(graphifyService.handleRunFailure).toHaveBeenCalledWith('run-1', {
+      error_json: errorJson,
+    });
+  });
+
   it.each([
     {
       label: 'non-retryable failures',

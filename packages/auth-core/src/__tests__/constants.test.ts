@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { PERMISSION_POINTS, ROLE_PERMISSIONS, ROLES } from '../constants.js';
 
 describe('auth constants', () => {
-  it('defines all 14 permission points', () => {
-    expect(PERMISSION_POINTS).toHaveLength(14);
+  it('defines all 15 permission points', () => {
+    expect(PERMISSION_POINTS).toHaveLength(15);
   });
 
   it('defines all 6 roles', () => {

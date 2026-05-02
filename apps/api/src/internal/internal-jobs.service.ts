@@ -18,6 +18,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { getApiLogger } from '../common/logger/logger.module.js';
 import { REDIS_CLIENT, type OptionalRedisClient } from '../common/redis/redis.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
+import { GraphifyService } from '../graphify/graphify.service.js';
 import { UploadsService } from '../uploads/uploads.service.js';
 import type {
   JobCompletionDto,
@@ -53,6 +54,7 @@ export class InternalJobsService {
     @Optional() @Inject(REDIS_CLIENT) private readonly redis?: OptionalRedisClient,
     @Optional() private readonly uploadsService?: UploadsService,
     @Optional() private readonly auditService?: AuditService,
+    @Optional() private readonly graphifyService?: GraphifyService,
   ) {}
 
   async pollPendingJobs(type: string, limit: number): Promise<JobDto[]> {
@@ -496,6 +498,11 @@ export class InternalJobsService {
       return;
     }
 
+    if (job.type === 'graphify') {
+      await this.handleGraphifyCompletion(job);
+      return;
+    }
+
     if (job.type !== 'validation') {
       return;
     }
@@ -627,9 +634,46 @@ export class InternalJobsService {
     }
   }
 
+  private async handleGraphifyCompletion(job: JobRow): Promise<void> {
+    if (this.graphifyService === undefined) {
+      getApiLogger().warn(
+        { job_id: job.id },
+        'Graphify job succeeded but GraphifyService is not configured — skipping API post-completion pipeline',
+      );
+      return;
+    }
+
+    const payload = asJsonRecord(job.payload_json);
+    const runId = readString(payload.run_id) ?? job.id;
+
+    try {
+      await this.graphifyService.handleRunCompletion(runId, asJsonRecord(job.result_json));
+    } catch (err) {
+      getApiLogger().error(
+        { err, job_id: job.id, run_id: runId },
+        'Graphify job succeeded but API post-completion pipeline failed — run may require manual reconciliation',
+      );
+    }
+  }
+
   private async handleFailedJob(job: JobRow, errorJson: Record<string, unknown>, willRetry: boolean): Promise<void> {
     if (job.type === 'ingestion') {
       await this.handleIngestionFailure(job, willRetry);
+      return;
+    }
+
+    if (job.type === 'graphify') {
+      if (willRetry) {
+        return;
+      }
+
+      const payload = asJsonRecord(job.payload_json);
+      const runId = readString(payload.run_id) ?? job.id;
+      await this.graphifyService?.handleRunFailure(runId, {
+        error_json: Object.keys(errorJson).length > 0
+          ? errorJson
+          : { reason: 'worker_failure', details: String(job.error_json) },
+      });
       return;
     }
 
