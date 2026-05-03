@@ -448,7 +448,7 @@ export class ChatService {
       yield { type: 'citations', citations };
       yield { type: 'usage', usage };
       this.auditCompletion(prepared, usage, retrievalResults.length, citations.length > 0, assistant.id);
-    } catch (err) {
+    } catch {
       yield {
         type: 'error',
         code: ErrorCode.INTERNAL_ERROR,

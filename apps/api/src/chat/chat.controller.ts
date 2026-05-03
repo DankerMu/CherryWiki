@@ -73,7 +73,7 @@ export class ChatController {
         writeSseEvent(reply, event);
         lastWriteAt = Date.now();
       }
-    } catch (err) {
+    } catch {
       if (isReplyWritable(reply)) {
         writeSseEvent(reply, {
           type: 'error',
