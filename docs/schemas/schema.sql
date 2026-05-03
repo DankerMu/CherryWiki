@@ -349,7 +349,7 @@ CREATE TABLE wiki_chunks (
   source_chain_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   acl_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (page_version_id, chunk_index)
+  UNIQUE (index_snapshot_id, page_version_id, chunk_index)
 );
 
 -- Phase 1: 单模型，VECTOR 维度与 model_configs.embedding_dim 对应。

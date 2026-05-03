@@ -11,6 +11,15 @@
   "exclude": ["dist", "node_modules"],
   "references": [
     {
+      "path": "../../packages/shared"
+    },
+    {
+      "path": "../../packages/ai-core"
+    },
+    {
+      "path": "../../packages/rag-core"
+    },
+    {
       "path": "../../packages/job-core"
     }
   ]
