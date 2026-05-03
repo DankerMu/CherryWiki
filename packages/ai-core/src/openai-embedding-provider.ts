@@ -50,9 +50,15 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
       }),
     );
 
-    return [...response.data]
-      .sort((left, right) => left.index - right.index)
-      .map((item) => item.embedding);
+    const sortedData = [...response.data].sort((left, right) => left.index - right.index);
+
+    if (sortedData.length !== texts.length) {
+      throw new Error(
+        `OpenAI embedding response cardinality mismatch: expected ${texts.length} embeddings, received ${sortedData.length}`,
+      );
+    }
+
+    return sortedData.map((item) => item.embedding);
   }
 }
 

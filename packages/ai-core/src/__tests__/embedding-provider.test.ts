@@ -81,6 +81,16 @@ describe('OpenAIEmbeddingProvider', () => {
     expect(embeddings[4999]).toEqual([4999]);
   });
 
+  it('rejects embedding responses with mismatched cardinality', async () => {
+    createMock.mockResolvedValueOnce(createEmbeddingResponse([[0.1, 0.2, 0.3]]));
+
+    const provider = createProvider();
+
+    await expect(provider.embedBatch(['one', 'two'])).rejects.toThrow(
+      'OpenAI embedding response cardinality mismatch: expected 2 embeddings, received 1',
+    );
+  });
+
   it('retries 429 and 5xx errors but fails 4xx errors immediately', async () => {
     vi.useFakeTimers();
 

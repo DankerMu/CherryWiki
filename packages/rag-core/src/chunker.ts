@@ -83,7 +83,7 @@ export function chunkPage(
 function normalizeChunkOptions(options: ChunkOptions): Required<ChunkOptions> {
   const maxChunkTokens =
     typeof options.maxChunkTokens === 'number' && Number.isFinite(options.maxChunkTokens) && options.maxChunkTokens > 0
-      ? Math.floor(options.maxChunkTokens)
+      ? Math.max(1, Math.floor(options.maxChunkTokens))
       : DEFAULT_MAX_CHUNK_TOKENS;
   const rawOverlapTokens =
     typeof options.overlapTokens === 'number' && Number.isFinite(options.overlapTokens) && options.overlapTokens >= 0
