@@ -134,7 +134,7 @@ describe('WikiVersionHistory', () => {
     renderWithRouter(<WikiVersionHistory spaceId="space-1" pageId="page-1" />);
 
     expect(await screen.findByText('version-2')).toBeInTheDocument();
-    expect(screen.getByText('Graphify')).toBeInTheDocument();
+    expect(screen.getAllByText('Graphify').length).toBeGreaterThan(0);
     expect(screen.getByText('version-1')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Rollback' })).toBeInTheDocument();
   });

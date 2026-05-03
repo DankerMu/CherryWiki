@@ -25,8 +25,7 @@ export function AppRoutes() {
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/login" element={<Login />} />
-      <Route path="/chat" element={<Chat />} />
-      <Route path="/chat/:id" element={<Chat />} />
+      <Route path="/spaces/:spaceId/chat" element={<Chat />} />
       <Route path="/spaces/:spaceId/wiki" element={<Wiki />} />
       <Route path="/spaces/:spaceId/wiki/:pageId" element={<Wiki />} />
       <Route path="/spaces/:spaceId/wiki/:pageId/history" element={<Wiki />} />

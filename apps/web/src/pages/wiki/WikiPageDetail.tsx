@@ -10,6 +10,7 @@ import {
   formatDate,
   getErrorMessage,
 } from '../../components/adminUi.js';
+import SpaceNav from '../../components/SpaceNav.js';
 import { ApiError } from '../../lib/api.js';
 import { useAuth } from '../../lib/auth.js';
 import { wikiApi, type WikiPage, type WikiPageContent } from '../../lib/wikiApi.js';
@@ -101,6 +102,7 @@ export default function WikiPageDetail({ spaceId, pageId, versionId }: WikiPageD
           : {})}
         actions={
           <>
+            <SpaceNav spaceId={spaceId} />
             <Link className="button button-secondary" to={`/spaces/${encodeURIComponent(spaceId)}/wiki`}>
               Back to Wiki
             </Link>

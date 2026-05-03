@@ -53,10 +53,17 @@ describe('App routing', () => {
     expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
   });
 
-  it('renders Chat for /chat', () => {
-    renderRoute('/chat');
+  it('redirects unauthenticated chat access to /login', () => {
+    renderRoute('/spaces/test-space/chat');
 
-    expect(screen.getByRole('heading', { name: 'Chat' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  });
+
+  it('renders Chat for /spaces/:spaceId/chat', async () => {
+    mockChatSessionsApi();
+    renderRoute('/spaces/test-space/chat', ADMIN_USER);
+
+    expect(await screen.findByRole('heading', { name: 'Chat' })).toBeInTheDocument();
   });
 
   it('renders Wiki for /spaces/:spaceId/wiki', async () => {
@@ -118,12 +125,6 @@ describe('App routing', () => {
       expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument();
       unmount();
     }
-  });
-
-  it('renders Chat for /chat/:id', () => {
-    renderRoute('/chat/conv-123');
-
-    expect(screen.queryAllByRole('heading', { name: 'Chat' }).length).toBeGreaterThan(0);
   });
 
   it('renders Wiki for /spaces/:spaceId/wiki/:pageId', async () => {
@@ -377,6 +378,32 @@ function mockWikiListApi(): void {
             pagination: {
               page: 1,
               per_page: 20,
+              total: 0,
+              has_next: false,
+            },
+          },
+        }));
+      }
+
+      return Promise.resolve(jsonResponse({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404));
+    }),
+  );
+}
+
+function mockChatSessionsApi(): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn<typeof fetch>((input) => {
+      const path = getRequestPath(input);
+
+      if (path.startsWith('/api/spaces/test-space/chat/sessions')) {
+        return Promise.resolve(jsonResponse({
+          data: [],
+          meta: {
+            request_id: 'req-chat-sessions',
+            pagination: {
+              page: 1,
+              per_page: 50,
               total: 0,
               has_next: false,
             },

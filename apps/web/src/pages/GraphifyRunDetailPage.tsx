@@ -10,6 +10,7 @@ import {
   formatLabel,
   getErrorMessage,
 } from '../components/adminUi.js';
+import SpaceNav from '../components/SpaceNav.js';
 import {
   cancelGraphifyRun,
   getGraphifyReport,
@@ -158,6 +159,7 @@ export default function GraphifyRunDetailPage() {
         description="Inspect Graphify metadata, import statistics, reports, and failures."
         actions={
           <>
+            <SpaceNav spaceId={spaceId} />
             <button
               className="button button-secondary"
               type="button"

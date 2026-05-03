@@ -2,7 +2,7 @@ export type Role = 'owner' | 'admin' | 'space_admin' | 'editor' | 'viewer' | 'au
 
 export const ROLE_OPTIONS: Role[] = ['owner', 'admin', 'space_admin', 'editor', 'viewer', 'auditor'];
 
-export const SPACE_PERMISSION_OPTIONS = ['space:view', 'space:edit', 'space:admin'] as const;
+export const SPACE_PERMISSION_OPTIONS = ['space:view', 'space:edit', 'space:admin', 'chat:use'] as const;
 
 export type SpacePermission = (typeof SPACE_PERMISSION_OPTIONS)[number];
 
