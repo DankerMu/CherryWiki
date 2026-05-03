@@ -181,7 +181,8 @@ describe('Drizzle core schema', () => {
     expect(schema.wikiChunks.acl_json.notNull).toBe(true);
     expect(schema.wikiChunks.created_at.getSQLType()).toBe('timestamp with time zone');
 
-    expect(uniqueColumns(schema.wikiChunks, 'wiki_chunks_page_version_id_chunk_index_unique')).toEqual([
+    expect(uniqueColumns(schema.wikiChunks, 'wiki_chunks_snapshot_page_version_chunk_unique')).toEqual([
+      'index_snapshot_id',
       'page_version_id',
       'chunk_index',
     ]);

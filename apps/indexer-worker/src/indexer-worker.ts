@@ -6,6 +6,7 @@ import type { EmbeddingProvider } from '@cherrygraph/ai-core';
 import type { RedisJobLockClient, JobDatabase, JobRow } from '@cherrygraph/job-core';
 import {
   embeddings,
+  graphEdges,
   graphEvidenceRefs,
   indexSnapshots,
   model_configs,
@@ -94,6 +95,7 @@ export class IndexerWorker extends AbstractBullMQWorker<IndexerBullMQPayload, In
     void bullJob;
 
     let snapshotId: string | undefined;
+    let activationCommitted = false;
 
     try {
       const payload = indexerPayloadSchema.parse(job.payload_json);
@@ -140,6 +142,7 @@ export class IndexerWorker extends AbstractBullMQWorker<IndexerBullMQPayload, In
 
       await this.markSnapshotReady(snapshot.id, chunkPlans.length);
       await this.activateSnapshot(snapshot.id, payload.space_id);
+      activationCommitted = true;
       await this.recordProgress(job.id, {
         stage: 'snapshot_activated',
         snapshot_id: snapshot.id,
@@ -152,7 +155,7 @@ export class IndexerWorker extends AbstractBullMQWorker<IndexerBullMQPayload, In
     } catch (error) {
       await this.recordFailureProgress(job.id, error);
 
-      if (snapshotId !== undefined) {
+      if (snapshotId !== undefined && !activationCommitted) {
         await this.resetSnapshotToBuilding(snapshotId);
       }
 
@@ -283,8 +286,13 @@ export class IndexerWorker extends AbstractBullMQWorker<IndexerBullMQPayload, In
             edge_id: graphEvidenceRefs.edge_id,
             source_document_id: graphEvidenceRefs.source_document_id,
             confidence_contribution: graphEvidenceRefs.confidence_contribution,
+            source_node_id: graphEdges.source_node_id,
+            target_node_id: graphEdges.target_node_id,
+            confidence_label: graphEdges.confidence_label,
+            effective_confidence_score: graphEdges.effective_confidence_score,
           })
           .from(graphEvidenceRefs)
+          .leftJoin(graphEdges, eq(graphEdges.id, graphEvidenceRefs.edge_id))
           .where(and(eq(graphEvidenceRefs.page_id, pageId), eq(graphEvidenceRefs.page_version_id, pageVersionId))),
     });
   }

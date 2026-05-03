@@ -799,7 +799,11 @@ export const wikiChunks = pgTable(
     created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    unique('wiki_chunks_page_version_id_chunk_index_unique').on(table.page_version_id, table.chunk_index),
+    unique('wiki_chunks_snapshot_page_version_chunk_unique').on(
+      table.index_snapshot_id,
+      table.page_version_id,
+      table.chunk_index,
+    ),
     index('idx_wiki_chunks_space').on(table.tenant_id, table.space_id),
     index('idx_wiki_chunks_index_status').on(table.index_status, table.index_snapshot_id),
     // idx_wiki_chunks_fts is created by SQL migration because it requires a GIN to_tsvector expression.

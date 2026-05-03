@@ -135,6 +135,21 @@ describe('IndexerWorker', () => {
     expect(failingWorker.snapshots.at(-1)?.status).toBe('building');
   });
 
+  it('does not reset the snapshot when a failure occurs after activation commits', async () => {
+    worker.snapshots = [createSnapshot('old-snapshot', 'activated')];
+    worker.activeSnapshotId = 'old-snapshot';
+    worker.pages = [createPublishedPage('page-1', 'hello')];
+    worker.failProgressStage = 'snapshot_activated';
+
+    await expect(worker.run(createJob())).rejects.toThrow('progress failed');
+
+    const newSnapshot = worker.snapshots.at(-1);
+    expect(worker.activeSnapshotId).toBe(newSnapshot?.id);
+    expect(newSnapshot?.status).toBe('activated');
+    expect(newSnapshot?.activated_at).toBe(now);
+    expect(worker.snapshots.find((snapshot) => snapshot.id === 'old-snapshot')?.status).toBe('superseded');
+  });
+
   it('4.T7 isolates embedding failures from the active snapshot', async () => {
     worker.snapshots = [createSnapshot('old-snapshot', 'activated')];
     worker.activeSnapshotId = 'old-snapshot';
@@ -242,6 +257,7 @@ class HarnessIndexerWorker extends IndexerWorker {
   activeSnapshotId: string | undefined;
   buildingExists = false;
   failActivation = false;
+  failProgressStage: string | undefined;
 
   constructor(readonly mockEmbeddingProvider: MockEmbeddingProvider) {
     super({} as JobDatabase, new RedisStub(), mockEmbeddingProvider, 'indexer-worker-test');
@@ -256,6 +272,10 @@ class HarnessIndexerWorker extends IndexerWorker {
   }
 
   protected override recordProgress(_jobId: string, detail: Record<string, unknown>): Promise<void> {
+    if (detail.stage === this.failProgressStage) {
+      return Promise.reject(new Error('progress failed'));
+    }
+
     this.events.push(detail);
     return Promise.resolve();
   }

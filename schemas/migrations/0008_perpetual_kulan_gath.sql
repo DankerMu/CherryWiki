@@ -1,0 +1,2 @@
+ALTER TABLE "wiki_chunks" DROP CONSTRAINT "wiki_chunks_page_version_id_chunk_index_unique";--> statement-breakpoint
+ALTER TABLE "wiki_chunks" ADD CONSTRAINT "wiki_chunks_snapshot_page_version_chunk_unique" UNIQUE("index_snapshot_id","page_version_id","chunk_index");
