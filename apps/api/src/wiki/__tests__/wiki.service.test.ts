@@ -1,6 +1,7 @@
 import { ErrorCode, sourceLinks, wikiPageVersions, wikiPages } from '@cherrygraph/shared';
+import { JobRepository, QueueFactory, QUEUE_INDEXING, type JobRow } from '@cherrygraph/job-core';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AuditEntry, AuditService } from '../../audit/audit.service.js';
 import {
@@ -17,6 +18,10 @@ type WikiPageVersionRow = typeof wikiPageVersions.$inferSelect;
 type SourceLinkRow = typeof sourceLinks.$inferSelect;
 
 describe('WikiService', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('listPages returns a paginated response', async () => {
     const { service, db } = createServiceContext();
     db.queueSelect([
@@ -223,6 +228,104 @@ describe('WikiService', () => {
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.VERSION_NOT_FOUND);
   });
 
+  it('creates a single-page reindex job, enqueues it, and writes audit', async () => {
+    const { service, db, audit } = createServiceContext({ redis: createRedisMock() });
+    const queue = createQueueMock();
+    const indexJob = createJobRow({ id: 'job-reindex' });
+    db.queueSelect([]);
+    db.queueSelect([{ page: createPageRow(), currentVersion: { source: 'graphify', frontmatter_json: {} } }]);
+    db.queueSelect([]);
+    const createJobSpy = vi.spyOn(JobRepository, 'create').mockResolvedValue(indexJob);
+    vi.spyOn(QueueFactory, 'createQueue').mockReturnValue(queue as never);
+
+    const result = await service.reindexPage(
+      TEST_TENANT_ID,
+      TEST_SPACE_ID,
+      'page-1',
+      TEST_USER_ID,
+      'idem-key-1',
+      { requestId: 'req-1' },
+    );
+
+    expect(result).toEqual({
+      page_id: 'page-1',
+      reindex_job_id: 'job-reindex',
+      status: 'accepted',
+    });
+    expect(createJobSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        tenant_id: TEST_TENANT_ID,
+        space_id: TEST_SPACE_ID,
+        queue_name: QUEUE_INDEXING,
+        type: 'reindex',
+        payload_json: {
+          tenant_id: TEST_TENANT_ID,
+          space_id: TEST_SPACE_ID,
+          page_id: 'page-1',
+          trigger: 'manual_reindex',
+          scope: 'single_page',
+        },
+        idempotency_key: 'idem-key-1',
+        created_by: TEST_USER_ID,
+      }),
+    );
+    expect(queue.add).toHaveBeenCalledWith('reindex', { jobId: 'job-reindex' });
+    expect(queue.close).toHaveBeenCalledTimes(1);
+    expect(audit.push).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'wiki.page.reindex',
+        resource_type: 'wiki_page',
+        resource_id: 'page-1',
+        space_id: TEST_SPACE_ID,
+        request_id: 'req-1',
+        metadata_json: {
+          reindex_job_id: 'job-reindex',
+          trigger: 'manual_reindex',
+          scope: 'single_page',
+        },
+      }) as AuditEntry,
+    );
+  });
+
+  it('returns 409 when a building index snapshot already exists for page reindex', async () => {
+    const { service, db } = createServiceContext({ redis: createRedisMock() });
+    db.queueSelect([{ page: createPageRow(), currentVersion: { source: 'graphify', frontmatter_json: {} } }]);
+    db.queueSelect([{ id: 'snapshot-building' }]);
+
+    const err = await getRejectedHttpException(
+      service.reindexPage(TEST_TENANT_ID, TEST_SPACE_ID, 'page-1', TEST_USER_ID),
+    );
+
+    expect(err.getStatus()).toBe(409);
+    expect(getHttpExceptionCode(err)).toBe('REINDEX_ALREADY_RUNNING');
+  });
+
+  it('returns the idempotent reindex job without creating or enqueueing another job', async () => {
+    const { service, db, audit } = createServiceContext({ redis: createRedisMock() });
+    const existingJob = createJobRow({ id: 'job-existing', idempotency_key: 'idem-key-1' });
+    db.queueSelect([existingJob]);
+    const createJobSpy = vi.spyOn(JobRepository, 'create');
+    const createQueueSpy = vi.spyOn(QueueFactory, 'createQueue');
+
+    const result = await service.reindexPage(
+      TEST_TENANT_ID,
+      TEST_SPACE_ID,
+      'page-1',
+      TEST_USER_ID,
+      'idem-key-1',
+    );
+
+    expect(result).toEqual({
+      page_id: 'page-1',
+      reindex_job_id: 'job-existing',
+      status: 'accepted',
+    });
+    expect(createJobSpy).not.toHaveBeenCalled();
+    expect(createQueueSpy).not.toHaveBeenCalled();
+    expect(audit.push).not.toHaveBeenCalled();
+  });
+
   it('creates source links', async () => {
     const { service, db } = createServiceContext();
     db.queueSelect([createVersionRow()]);
@@ -316,7 +419,7 @@ describe('WikiService', () => {
   });
 });
 
-function createServiceContext(): {
+function createServiceContext(options: { redis?: unknown } = {}): {
   service: WikiService;
   db: ScriptedWikiDb;
   audit: {
@@ -327,9 +430,31 @@ function createServiceContext(): {
   const audit = {
     push: vi.fn<(entry: AuditEntry) => void>(),
   };
-  const service = new WikiService(db.asDrizzle(), audit as unknown as AuditService);
+  const service = new WikiService(db.asDrizzle(), audit as unknown as AuditService, options.redis as never);
 
   return { service, db, audit };
+}
+
+function createRedisMock(): {
+  get: ReturnType<typeof vi.fn<(key: string) => Promise<string | null>>>;
+  set: ReturnType<typeof vi.fn<(key: string, value: string, ...args: Array<string | number>) => Promise<string | null>>>;
+  eval: ReturnType<typeof vi.fn<() => Promise<number>>>;
+} {
+  return {
+    get: vi.fn(() => Promise.resolve(null)),
+    set: vi.fn(() => Promise.resolve('OK')),
+    eval: vi.fn(() => Promise.resolve(1)),
+  };
+}
+
+function createQueueMock(): {
+  add: ReturnType<typeof vi.fn<(name: string, data: { jobId: string }) => Promise<void>>>;
+  close: ReturnType<typeof vi.fn<() => Promise<void>>>;
+} {
+  return {
+    add: vi.fn(() => Promise.resolve()),
+    close: vi.fn(() => Promise.resolve()),
+  };
 }
 
 type OperationRecord = {
@@ -533,6 +658,40 @@ function createSourceLinkRow(overrides: Partial<SourceLinkRow> = {}): SourceLink
     quote_hash: 'quote-hash-1',
     evidence_type: 'quote',
     created_at: new Date('2026-05-01T00:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+function createJobRow(overrides: Partial<JobRow> = {}): JobRow {
+  return {
+    id: 'job-reindex',
+    tenant_id: TEST_TENANT_ID,
+    space_id: TEST_SPACE_ID,
+    queue_name: QUEUE_INDEXING,
+    type: 'reindex',
+    priority: 100,
+    status: 'pending',
+    attempt_count: 0,
+    max_attempts: 3,
+    timeout_seconds: null,
+    locked_by: null,
+    locked_at: null,
+    next_run_at: null,
+    cancel_requested_at: null,
+    payload_json: {
+      tenant_id: TEST_TENANT_ID,
+      space_id: TEST_SPACE_ID,
+      page_id: 'page-1',
+      trigger: 'manual_reindex',
+      scope: 'single_page',
+    },
+    result_json: null,
+    error_json: null,
+    idempotency_key: null,
+    created_by: TEST_USER_ID,
+    created_at: new Date('2026-05-01T00:00:00.000Z'),
+    started_at: null,
+    completed_at: null,
     ...overrides,
   };
 }

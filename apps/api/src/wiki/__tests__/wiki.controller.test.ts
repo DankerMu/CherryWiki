@@ -1,7 +1,9 @@
 import 'reflect-metadata';
 
-import { HttpException, HttpStatus } from '@nestjs/common';
-import { PERMISSIONS_METADATA_KEY } from '@cherrygraph/auth-core';
+import { HttpException, HttpStatus, type ExecutionContext } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { HTTP_CODE_METADATA } from '@nestjs/common/constants.js';
+import { PERMISSIONS_METADATA_KEY, RbacGuard } from '@cherrygraph/auth-core';
 import { ErrorCode } from '@cherrygraph/shared';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -23,6 +25,8 @@ describe('WikiController', () => {
     expect(getMetadata('listVersions')).toEqual(['space:view']);
     expect(getMetadata('publish')).toEqual(['wiki:publish']);
     expect(getMetadata('rollback')).toEqual(['wiki:rollback']);
+    expect(getMetadata('reindexPage')).toEqual(['wiki:publish']);
+    expect(getHttpCode('reindexPage')).toBe(HttpStatus.ACCEPTED);
   });
 
   it('dispatches list pages requests to the service', async () => {
@@ -134,6 +138,57 @@ describe('WikiController', () => {
     );
   });
 
+  it('dispatches reindex requests with idempotency and audit context', async () => {
+    const { controller, service } = createControllerContext();
+    service.reindexPage.mockResolvedValue({
+      page_id: 'page-1',
+      reindex_job_id: 'job-reindex',
+      status: 'accepted',
+    });
+
+    const result = await controller.reindexPage(TEST_SPACE_ID, 'page-1', 'idem-key-1', createRequest());
+
+    expect(result).toEqual({
+      data: {
+        page_id: 'page-1',
+        reindex_job_id: 'job-reindex',
+        status: 'accepted',
+      },
+    });
+    expect(service.reindexPage).toHaveBeenCalledWith(
+      TEST_TENANT_ID,
+      TEST_SPACE_ID,
+      'page-1',
+      TEST_USER_ID,
+      'idem-key-1',
+      expect.objectContaining({
+        requestId: 'req-1',
+      }) as Record<string, unknown>,
+    );
+  });
+
+  it('RBAC rejects reindex requests without wiki publish permission', async () => {
+    const guard = new RbacGuard(new Reflector());
+    const request = {
+      ...createRequest('editor'),
+      params: { spaceId: TEST_SPACE_ID },
+      space_permissions: {
+        [TEST_SPACE_ID]: ['space:view'],
+      },
+    };
+
+    try {
+      await guard.canActivate(createGuardContext('reindexPage', request));
+    } catch (err) {
+      expect(err).toBeInstanceOf(HttpException);
+      expect((err as HttpException).getStatus()).toBe(403);
+      expect(getHttpExceptionCode(err)).toBe(ErrorCode.PERMISSION_DENIED);
+      return;
+    }
+
+    throw new Error('Expected RBAC guard to reject missing wiki:publish permission');
+  });
+
   it.each([
     {
       method: 'getPage' as const,
@@ -150,6 +205,12 @@ describe('WikiController', () => {
       code: ErrorCode.VERSION_ALREADY_PUBLISHED,
       invoke: (controller: WikiController) =>
         controller.publish(TEST_SPACE_ID, 'page-1', { version_id: 'version-1' }, createRequest()),
+    },
+    {
+      method: 'reindexPage' as const,
+      code: ErrorCode.WIKI_PAGE_NOT_FOUND,
+      invoke: (controller: WikiController) =>
+        controller.reindexPage(TEST_SPACE_ID, 'missing', undefined, createRequest()),
     },
   ])('propagates $code errors from $method', async ({ method, code, invoke }) => {
     const { controller, service } = createControllerContext();
@@ -184,6 +245,7 @@ function createControllerContext(): {
     listVersions: ReturnType<typeof vi.fn<WikiService['listVersions']>>;
     publish: ReturnType<typeof vi.fn<WikiService['publish']>>;
     rollback: ReturnType<typeof vi.fn<WikiService['rollback']>>;
+    reindexPage: ReturnType<typeof vi.fn<WikiService['reindexPage']>>;
   };
 } {
   const service = {
@@ -193,6 +255,7 @@ function createControllerContext(): {
     listVersions: vi.fn<WikiService['listVersions']>(),
     publish: vi.fn<WikiService['publish']>(),
     rollback: vi.fn<WikiService['rollback']>(),
+    reindexPage: vi.fn<WikiService['reindexPage']>(),
   };
 
   return {
@@ -201,7 +264,7 @@ function createControllerContext(): {
   };
 }
 
-function createRequest(): {
+function createRequest(role = 'editor'): {
   user: {
     sub: string;
     tenant_id: string;
@@ -218,7 +281,7 @@ function createRequest(): {
       sub: TEST_USER_ID,
       tenant_id: TEST_TENANT_ID,
       email: 'user@example.com',
-      role: 'editor',
+      role,
       group_ids: ['group-1'],
       token_use: 'access',
     },
@@ -255,4 +318,20 @@ function createPaginatedResult<T>(data: T[]): PaginatedResponse<T> {
 function getMetadata(methodName: keyof WikiController): unknown {
   const descriptor = Object.getOwnPropertyDescriptor(WikiController.prototype, methodName);
   return Reflect.getMetadata(PERMISSIONS_METADATA_KEY, descriptor?.value as object);
+}
+
+function getHttpCode(methodName: keyof WikiController): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(WikiController.prototype, methodName);
+  return Reflect.getMetadata(HTTP_CODE_METADATA, descriptor?.value as object);
+}
+
+function createGuardContext(methodName: keyof WikiController, request: unknown): ExecutionContext {
+  const descriptor = Object.getOwnPropertyDescriptor(WikiController.prototype, methodName);
+  return {
+    getHandler: () => descriptor?.value,
+    getClass: () => WikiController,
+    switchToHttp: () => ({
+      getRequest: () => request,
+    }),
+  } as unknown as ExecutionContext;
 }

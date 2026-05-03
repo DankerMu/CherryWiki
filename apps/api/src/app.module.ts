@@ -5,6 +5,7 @@ import { IdempotencyMiddleware } from './common/middleware/idempotency.middlewar
 import { RequestContextMiddleware } from './common/middleware/request-context.middleware.js';
 import { RedisModule } from './common/redis/redis.module.js';
 import { AdminHealthModule } from './admin/admin-health.module.js';
+import { AdminIndexModule } from './admin/admin-index.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { DrizzleModule } from './database/drizzle.module.js';
@@ -39,6 +40,7 @@ import { WikiModule } from './wiki/wiki.module.js';
     WikiModule,
     HealthModule,
     AdminHealthModule,
+    AdminIndexModule,
   ],
 })
 export class AppModule implements NestModule {

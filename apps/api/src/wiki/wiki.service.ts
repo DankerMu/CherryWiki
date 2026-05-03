@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import {
   batchCreateSourceLinks as normalizeSourceLinks,
   createSourceLink as normalizeSourceLink,
@@ -6,7 +6,22 @@ import {
   PublishStateMachine,
   type SourceLink,
 } from '@cherrygraph/wiki-core';
-import { ErrorCode, sourceLinks, wikiPageVersions, wikiPages, wikiSections } from '@cherrygraph/shared';
+import {
+  ErrorCode,
+  indexSnapshots,
+  sourceLinks,
+  wikiPageVersions,
+  wikiPages,
+  wikiSections,
+} from '@cherrygraph/shared';
+import {
+  JobRepository,
+  QueueFactory,
+  QUEUE_INDEXING,
+  jobs,
+  type BullMQConnection,
+  type JobRow,
+} from '@cherrygraph/job-core';
 import { and, asc, count, desc, eq, ilike, sql, type SQL } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { createHash, randomUUID } from 'node:crypto';
@@ -19,6 +34,7 @@ import {
 } from '../common/dto/pagination.dto.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { AuditService } from '../audit/audit.service.js';
+import { REDIS_CLIENT, type OptionalRedisClient } from '../common/redis/redis.module.js';
 
 type WikiDatabase = NodePgDatabase;
 type WikiPageRow = typeof wikiPages.$inferSelect;
@@ -89,6 +105,12 @@ export type WikiRollbackResponse = {
   published_by: string;
 };
 
+export type WikiReindexResponse = {
+  page_id: string;
+  reindex_job_id: string;
+  status: 'accepted';
+};
+
 export type CreateSourceLinkInput = {
   wiki_page_pk: string;
   page_version_id: string;
@@ -118,6 +140,7 @@ export class WikiService {
   constructor(
     @Inject(DRIZZLE) private readonly db: WikiDatabase,
     private readonly auditService: AuditService,
+    @Optional() @Inject(REDIS_CLIENT) private readonly redis?: OptionalRedisClient,
   ) {}
 
   async listPages(
@@ -350,6 +373,59 @@ export class WikiService {
     };
   }
 
+  async reindexPage(
+    tenantId: string,
+    spaceId: string,
+    pageId: string,
+    actorUserId: string,
+    idempotencyKey?: string,
+    auditContext: WikiAuditContext = {},
+  ): Promise<WikiReindexResponse> {
+    const existingJob = await this.findIdempotentJob(tenantId, idempotencyKey);
+    if (existingJob !== undefined) {
+      return toReindexResponse(pageId, existingJob);
+    }
+
+    await this.requirePage(tenantId, spaceId, pageId);
+    await this.assertNoBuildingSnapshot(tenantId, spaceId, 'REINDEX_ALREADY_RUNNING', 'A reindex job is already running for this space');
+
+    const job = await JobRepository.create(this.db, {
+      tenant_id: tenantId,
+      space_id: spaceId,
+      queue_name: QUEUE_INDEXING,
+      type: 'reindex',
+      payload_json: {
+        tenant_id: tenantId,
+        space_id: spaceId,
+        page_id: pageId,
+        trigger: 'manual_reindex',
+        scope: 'single_page',
+      },
+      ...(idempotencyKey !== undefined ? { idempotency_key: idempotencyKey } : {}),
+      created_by: actorUserId,
+    });
+
+    await this.enqueueIndexingJob(job.id);
+    this.auditService.push({
+      tenant_id: tenantId,
+      actor_user_id: actorUserId,
+      action: 'wiki.page.reindex',
+      resource_type: 'wiki_page',
+      resource_id: pageId,
+      space_id: spaceId,
+      ...(auditContext.ip !== undefined ? { ip: auditContext.ip } : {}),
+      ...(auditContext.userAgent !== undefined ? { user_agent: auditContext.userAgent } : {}),
+      ...(auditContext.requestId !== undefined ? { request_id: auditContext.requestId } : {}),
+      metadata_json: {
+        reindex_job_id: job.id,
+        trigger: 'manual_reindex',
+        scope: 'single_page',
+      },
+    });
+
+    return toReindexResponse(pageId, job);
+  }
+
   async createSourceLink(
     tenantId: string,
     spaceId: string,
@@ -452,6 +528,60 @@ export class WikiService {
     }
 
     return row.page;
+  }
+
+  private async findIdempotentJob(tenantId: string, idempotencyKey: string | undefined): Promise<JobRow | undefined> {
+    if (idempotencyKey === undefined || idempotencyKey.trim().length === 0) {
+      return undefined;
+    }
+
+    const [job] = await this.db
+      .select()
+      .from(jobs)
+      .where(and(eq(jobs.tenant_id, tenantId), eq(jobs.idempotency_key, idempotencyKey)))
+      .limit(1);
+
+    return job as JobRow | undefined;
+  }
+
+  private async assertNoBuildingSnapshot(
+    tenantId: string,
+    spaceId: string,
+    code: string,
+    message: string,
+  ): Promise<void> {
+    const [existing] = await this.db
+      .select({ id: indexSnapshots.id })
+      .from(indexSnapshots)
+      .where(
+        and(
+          eq(indexSnapshots.tenant_id, tenantId),
+          eq(indexSnapshots.space_id, spaceId),
+          eq(indexSnapshots.status, 'building'),
+        ),
+      )
+      .limit(1);
+
+    if (existing !== undefined) {
+      throwApiError(code, message, HttpStatus.CONFLICT);
+    }
+  }
+
+  private async enqueueIndexingJob(jobId: string): Promise<void> {
+    const queue = QueueFactory.createQueue<{ jobId: string }>(QUEUE_INDEXING, this.getRequiredRedis());
+    try {
+      await queue.add('reindex', { jobId });
+    } finally {
+      await queue.close();
+    }
+  }
+
+  private getRequiredRedis(): BullMQConnection {
+    if (this.redis === undefined) {
+      throwApiError(ErrorCode.INTERNAL_ERROR, 'Redis is not configured', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    return this.redis;
   }
 
   private async findPageVersion(
@@ -626,6 +756,14 @@ function toVersionResponse(version: WikiPageVersionRow, currentVersionId: string
   };
 }
 
+function toReindexResponse(pageId: string, job: JobRow): WikiReindexResponse {
+  return {
+    page_id: pageId,
+    reindex_job_id: job.id,
+    status: 'accepted',
+  };
+}
+
 function toSourceLinkInsert(
   tenantId: string,
   spaceId: string,
@@ -747,6 +885,6 @@ function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, '\\$&');
 }
 
-function throwApiError(code: ErrorCode, message: string, status: HttpStatus): never {
+function throwApiError(code: ErrorCode | string, message: string, status: HttpStatus): never {
   throw new HttpException({ code, message }, status);
 }
