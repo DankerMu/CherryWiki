@@ -23,7 +23,7 @@ describe('JobsPage', () => {
     expect(screen.getByLabelText('Status')).toBeInTheDocument();
     expect(screen.getByLabelText('Page')).toBeInTheDocument();
     expect(screen.getByLabelText('Per page')).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: 'Progress' })).toBeInTheDocument();
+    expect(await screen.findByRole('columnheader', { name: 'Progress' })).toBeInTheDocument();
     expect(await screen.findByText('job-1')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalled();
   });

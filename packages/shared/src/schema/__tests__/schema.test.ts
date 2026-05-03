@@ -155,6 +155,64 @@ describe('Drizzle core schema', () => {
     expect(primaryKey).toBeDefined();
     expect(primaryKey?.columns.map((column) => column.name)).toEqual(['group_id', 'user_id']);
   });
+
+  it('defines wikiChunks columns, defaults, uniqueness, and indexes', () => {
+    expect(schema.wikiChunks.id.getSQLType()).toBe('text');
+    expect(schema.wikiChunks.tenant_id.notNull).toBe(true);
+    expect(schema.wikiChunks.space_id.notNull).toBe(true);
+    expect(schema.wikiChunks.wiki_page_pk.notNull).toBe(true);
+    expect(schema.wikiChunks.page_version_id.notNull).toBe(true);
+    expect(schema.wikiChunks.section_id.notNull).toBe(false);
+    expect(schema.wikiChunks.chunk_index.getSQLType()).toBe('integer');
+    expect(schema.wikiChunks.chunk_index.notNull).toBe(true);
+    expect(schema.wikiChunks.content.getSQLType()).toBe('text');
+    expect(schema.wikiChunks.content.notNull).toBe(true);
+    expect(schema.wikiChunks.content_hash.notNull).toBe(false);
+    expect(schema.wikiChunks.token_count.getSQLType()).toBe('integer');
+    expect(schema.wikiChunks.index_status.default).toBe('pending');
+    expect(schema.wikiChunks.index_snapshot_id.notNull).toBe(false);
+    expect(schema.wikiChunks.indexed_at.getSQLType()).toBe('timestamp with time zone');
+    expect(schema.wikiChunks.embedding_model_id.notNull).toBe(false);
+    expect(schema.wikiChunks.injection_risk.getSQLType()).toBe('boolean');
+    expect(schema.wikiChunks.injection_risk.default).toBe(false);
+    expect(schema.wikiChunks.source_chain_json.getSQLType()).toBe('jsonb');
+    expect(schema.wikiChunks.source_chain_json.notNull).toBe(true);
+    expect(schema.wikiChunks.acl_json.getSQLType()).toBe('jsonb');
+    expect(schema.wikiChunks.acl_json.notNull).toBe(true);
+    expect(schema.wikiChunks.created_at.getSQLType()).toBe('timestamp with time zone');
+
+    expect(uniqueColumns(schema.wikiChunks, 'wiki_chunks_page_version_id_chunk_index_unique')).toEqual([
+      'page_version_id',
+      'chunk_index',
+    ]);
+    expect(indexColumns(schema.wikiChunks, 'idx_wiki_chunks_space')).toEqual(['tenant_id', 'space_id']);
+    expect(indexColumns(schema.wikiChunks, 'idx_wiki_chunks_index_status')).toEqual([
+      'index_status',
+      'index_snapshot_id',
+    ]);
+  });
+
+  it('defines embeddings columns, cascade chunk foreign key, model foreign key, and index', () => {
+    expect(schema.embeddings.id.getSQLType()).toBe('text');
+    expect(schema.embeddings.tenant_id.notNull).toBe(true);
+    expect(schema.embeddings.space_id.notNull).toBe(true);
+    expect(schema.embeddings.chunk_id.notNull).toBe(true);
+    expect(schema.embeddings.model_config_id.notNull).toBe(true);
+    expect(schema.embeddings.embedding.getSQLType()).toBe('vector');
+    expect(schema.embeddings.embedding.notNull).toBe(false);
+    expect(schema.embeddings.created_at.getSQLType()).toBe('timestamp with time zone');
+
+    expect(foreignKeyOnDelete(schema.embeddings, 'embeddings_chunk_id_wiki_chunks_id_fk')).toBe('cascade');
+    expect(foreignKeyColumns(schema.embeddings, 'embeddings_model_config_id_model_configs_id_fk')).toEqual([
+      'model_config_id',
+    ]);
+    expect(indexColumns(schema.embeddings, 'idx_embeddings_model')).toEqual(['model_config_id']);
+  });
+
+  it('defines the pgvector custom type used by embeddings', () => {
+    expect(Object.hasOwn(schema, 'pgVector')).toBe(true);
+    expect(schema.embeddings.embedding.getSQLType()).toBe('vector');
+  });
 });
 
 function indexColumns(table: PgTable, indexName: string): string[] {
@@ -182,4 +240,13 @@ function foreignKeyOnDelete(table: PgTable, foreignKeyName: string): string | un
   expect(foreignKey).toBeDefined();
 
   return foreignKey?.onDelete;
+}
+
+function foreignKeyColumns(table: PgTable, foreignKeyName: string): string[] {
+  const tableConfig = getTableConfig(table);
+  const foreignKey = tableConfig.foreignKeys.find((candidate) => candidate.getName() === foreignKeyName);
+
+  expect(foreignKey).toBeDefined();
+
+  return foreignKey?.reference().columns.map((column) => column.name) ?? [];
 }

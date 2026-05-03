@@ -1,4 +1,8 @@
+import { createInsertSchema, createSelectSchema } from 'drizzle-zod';
 import { z } from 'zod';
+import { z as z4 } from 'zod/v4';
+
+import { embeddings, wikiChunks } from './core.js';
 
 export const userRoleSchema = z.enum(['owner', 'admin', 'space_admin', 'editor', 'viewer', 'auditor']);
 export const userStatusSchema = z.enum(['active', 'disabled']);
@@ -30,7 +34,8 @@ export const confidenceLabelSchema = z.enum(['EXTRACTED', 'INFERRED', 'AMBIGUOUS
 export const blockOwnerSchema = z.enum(['graphify', 'human']);
 export const proposalTypeSchema = z.enum(['conflict', 'deprecation', 'new_page']);
 export const proposalStatusSchema = z.enum(['pending', 'accepted', 'rejected']);
-export const indexSnapshotStatusSchema = z.enum(['building', 'ready', 'active', 'failed']);
+export const indexSnapshotStatusSchema = z.enum(['building', 'ready', 'activated', 'superseded']);
+export const chunkIndexStatusSchema = z4.enum(['pending', 'indexed']);
 
 const nonEmptyString = z.string().trim().min(1);
 const idSchema = nonEmptyString.max(200);
@@ -329,6 +334,26 @@ export const pageBlockMetadataSchema = z.object({
   editable: z.boolean().default(false),
 });
 
+const jsonObjectSchemaV4 = z4.record(z4.string(), z4.unknown());
+
+export const insertWikiChunkSchema = createInsertSchema(wikiChunks, {
+  index_status: chunkIndexStatusSchema,
+  source_chain_json: jsonObjectSchemaV4,
+  acl_json: jsonObjectSchemaV4,
+});
+export const selectWikiChunkSchema = createSelectSchema(wikiChunks, {
+  index_status: chunkIndexStatusSchema,
+  source_chain_json: jsonObjectSchemaV4,
+  acl_json: jsonObjectSchemaV4,
+});
+
+export const insertEmbeddingSchema = createInsertSchema(embeddings, {
+  embedding: z4.array(z4.number()),
+});
+export const selectEmbeddingSchema = createSelectSchema(embeddings, {
+  embedding: z4.array(z4.number()),
+});
+
 export type InsertUserInput = z.infer<typeof insertUserSchema>;
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 export type InsertSpaceInput = z.infer<typeof insertSpaceSchema>;
@@ -361,8 +386,13 @@ export type BlockOwner = z.infer<typeof blockOwnerSchema>;
 export type ProposalType = z.infer<typeof proposalTypeSchema>;
 export type ProposalStatus = z.infer<typeof proposalStatusSchema>;
 export type IndexSnapshotStatus = z.infer<typeof indexSnapshotStatusSchema>;
+export type ChunkIndexStatus = z4.infer<typeof chunkIndexStatusSchema>;
 export type CreateGraphifyRunInput = z.infer<typeof createGraphifyRunSchema>;
 export type GraphNodeInput = z.infer<typeof graphNodeSchema>;
 export type GraphEdgeInput = z.infer<typeof graphEdgeSchema>;
 export type GraphCommunityInput = z.infer<typeof graphCommunitySchema>;
 export type PageBlockMetadataInput = z.infer<typeof pageBlockMetadataSchema>;
+export type InsertWikiChunkInput = z4.infer<typeof insertWikiChunkSchema>;
+export type SelectWikiChunkInput = z4.infer<typeof selectWikiChunkSchema>;
+export type InsertEmbeddingInput = z4.infer<typeof insertEmbeddingSchema>;
+export type SelectEmbeddingInput = z4.infer<typeof selectEmbeddingSchema>;
