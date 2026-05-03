@@ -52,6 +52,8 @@
 - [x] **I-02** Stage 2 Job 系统/对象存储/任务中心已完成；jobs service、BullMQ 队列、Worker 协议、MinIO 封装、任务中心 UI 已交付。
 - [x] **I-03** Stage 3 上传/归档/解析/URL Fetcher 已完成；ingestion-worker、url-fetcher-worker、SSRF 防护、ZIP 安全解压、Magic bytes 校验、Prompt injection 标记已交付。
 - [x] **I-04** Stage 4 Canonical Wiki Repo / wiki-core / 只读 Wiki 已完成；wiki-core 42 测试 + wiki API 25 测试 + wiki UI 5 测试 + schema/validation 21 测试已交付，移交测试债务记录在需求追踪矩阵 §6.1。
+- [x] **I-05** Stage 5 Graphify Worker / graph-core / wiki-normalization 已完成。
+- [x] **I-06** Stage 6 Indexer / Vector / BM25 / Source Chain 已完成；Drizzle schema（wikiChunks/embeddings + migration 0007/0008）、ai-core（EmbeddingProvider + OpenAI SDK）、rag-core（chunker + source chain + injection + ACL）、indexer-worker（完整索引管道 + snapshot 生命周期）、API 索引触发（Graphify 完成→reindex、手动 reindex、admin rebuild）已交付，679 自动化测试覆盖。
 
 ---
 
@@ -114,3 +116,4 @@
 |---|---|
 | 2026-04-28 | v0.4 审查整改，新增 T-14 ~ T-16 系列。旧 T-1 ~ T-10 全部完成，归档。 |
 | 2026-05-01 | Stage 3/4 标记完成（I-03/I-04），T-15.1/T-15.3/T-15.4 完成，Stage 5 开工门禁就绪。 |
+| 2026-05-03 | Stage 5/6 标记完成（I-05/I-06），索引构建全链路交付（schema→ai-core→rag-core→indexer-worker→API trigger）。 |
