@@ -133,16 +133,21 @@ export default function Chat() {
     );
   }
 
+  const sessionSwitchRef = useRef(0);
+
   async function openSession(nextSessionId: string): Promise<void> {
     setSessionsError(null);
     setIsMobileSidebarOpen(false);
+    const switchVersion = ++sessionSwitchRef.current;
 
     try {
       const detail = await api.get<ChatApiSessionDetail>(
         `/spaces/${encodeURIComponent(spaceId)}/chat/sessions/${encodeURIComponent(nextSessionId)}`,
       );
+      if (sessionSwitchRef.current !== switchVersion) return;
       loadSession(detail);
     } catch (err) {
+      if (sessionSwitchRef.current !== switchVersion) return;
       setSessionsError(getErrorMessage(err));
     }
   }
@@ -419,7 +424,7 @@ function AssistantMarkdown({ content, citations, spaceId }: { content: string; c
               </a>
             );
           },
-          img: (props) => <img {...props} referrerPolicy="no-referrer" loading="lazy" />,
+          img: () => null,
         }}
       >
         {markdown}
@@ -489,6 +494,7 @@ function buildCitationPath(spaceId: string, citation: ChatCitation): string {
 }
 
 export function getCitationPageId(citation: ChatCitation): string {
+  if (typeof citation.page_id === 'string' && citation.page_id.length > 0) return citation.page_id;
   const sourcePageId = citation.source_chain_json.page_id;
   return typeof sourcePageId === 'string' && sourcePageId.length > 0 ? sourcePageId : citation.wiki_page_pk;
 }

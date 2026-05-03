@@ -111,6 +111,7 @@ export type CitationResponse = {
   index: number;
   chunk_id: string;
   wiki_page_pk: string;
+  page_id: string;
   section_id: string | null;
   relevance_score: number;
   source_chain_json: Record<string, unknown>;
@@ -141,6 +142,7 @@ type SearchRow = {
   id: string;
   content: string;
   wiki_page_pk: string;
+  page_id: string | null;
   section_id: string | null;
   source_chain_json: Record<string, unknown> | null;
   injection_risk: boolean;
@@ -607,7 +609,7 @@ export class ChatService {
   private createVectorSearchFn(): VectorSearchFn {
     return async (params): Promise<SearchHit[]> => {
       const query = sql`
-        SELECT wc.id, wc.content, wc.wiki_page_pk, wc.section_id, wc.source_chain_json,
+        SELECT wc.id, wc.content, wc.wiki_page_pk, wp.page_id, wc.section_id, wc.source_chain_json,
                wc.injection_risk, wp.title as page_title, ws.heading as section_title,
                1 - (e.embedding <=> ${toPgVectorLiteral(params.queryEmbedding)}::vector) as score
         FROM wiki_chunks wc
@@ -640,7 +642,7 @@ export class ChatService {
       }
 
       const query = sql`
-        SELECT wc.id, wc.content, wc.wiki_page_pk, wc.section_id, wc.source_chain_json,
+        SELECT wc.id, wc.content, wc.wiki_page_pk, wp.page_id, wc.section_id, wc.source_chain_json,
                wc.injection_risk, wp.title as page_title, ws.heading as section_title,
                ts_rank_cd(to_tsvector('simple', wc.content), to_tsquery('simple', ${tsQuery})) as score
         FROM wiki_chunks wc
@@ -785,13 +787,15 @@ function truncateHistoryForBudget(
 }
 
 function toCitationResponse(result: RetrievalResult, index: number, fallback: boolean): CitationResponse {
+  const scj = normalizeJsonRecord(result.sourceChainJson);
   return {
     index,
     chunk_id: result.chunkId,
     wiki_page_pk: result.wikiPagePk,
+    page_id: typeof scj.page_id === 'string' ? scj.page_id : result.wikiPagePk,
     section_id: result.sectionId,
     relevance_score: result.score,
-    source_chain_json: normalizeJsonRecord(result.sourceChainJson),
+    source_chain_json: scj,
     display_text: formatCitationDisplayText(result),
     page_title: result.pageTitle,
     section_title: result.sectionTitle,
@@ -863,7 +867,7 @@ function normalizeSearchRows(result: SqlQueryResult<SearchRow>): SearchHit[] {
     score: normalizeScore(row.score),
     wikiPagePk: row.wiki_page_pk,
     sectionId: row.section_id,
-    sourceChainJson: normalizeSourceChainJson(row.source_chain_json),
+    sourceChainJson: { ...normalizeSourceChainJson(row.source_chain_json), page_id: row.page_id ?? row.wiki_page_pk },
     injectionRisk: row.injection_risk,
     pageTitle: row.page_title ?? 'Untitled',
     sectionTitle: row.section_title,

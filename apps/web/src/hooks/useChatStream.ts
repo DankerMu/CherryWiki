@@ -9,6 +9,7 @@ export type ChatCitation = {
   index: number;
   chunk_id: string;
   wiki_page_pk: string;
+  page_id?: string;
   section_id: string | null;
   relevance_score: number;
   source_chain_json: Record<string, unknown>;
