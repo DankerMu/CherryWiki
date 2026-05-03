@@ -148,9 +148,19 @@ export class AdminIndexService {
   }
 }
 
+const VALID_REBUILD_SCOPES = new Set(['full', 'incremental']);
+
 function normalizeScope(scope: string | undefined): string {
   const normalized = scope?.trim();
-  return normalized === undefined || normalized.length === 0 ? 'full' : normalized;
+  if (normalized === undefined || normalized.length === 0) {
+    return 'full';
+  }
+
+  if (!VALID_REBUILD_SCOPES.has(normalized)) {
+    throwApiError('INVALID_SCOPE', `Invalid rebuild scope: ${normalized}. Must be 'full' or 'incremental'.`, HttpStatus.BAD_REQUEST);
+  }
+
+  return normalized;
 }
 
 function throwApiError(code: ErrorCode | string, message: string, status: HttpStatus): never {

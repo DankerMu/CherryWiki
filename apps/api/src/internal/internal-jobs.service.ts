@@ -650,7 +650,15 @@ export class InternalJobsService {
     const runId = readString(payload.run_id) ?? job.id;
 
     try {
-      await this.graphifyService.handleRunCompletion(runId, asJsonRecord(job.result_json));
+      const completedRun = await this.graphifyService.handleRunCompletion(runId, asJsonRecord(job.result_json));
+      if (completedRun.status !== 'succeeded') {
+        getApiLogger().warn(
+          { job_id: job.id, run_id: runId, run_status: completedRun.status },
+          'Graphify run completion did not transition to succeeded — skipping indexing trigger',
+        );
+        return;
+      }
+
       const indexJob = await JobRepository.create(this.db, {
         tenant_id: job.tenant_id,
         space_id: job.space_id,
