@@ -10,6 +10,7 @@ import {
   jsonb,
   pgTable,
   primaryKey,
+  real,
   text,
   timestamp,
   unique,
@@ -830,4 +831,67 @@ export const embeddings = pgTable(
     created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index('idx_embeddings_model').on(table.model_config_id)],
+);
+
+export const chatSessions = pgTable(
+  'chat_sessions',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    space_id: text('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id),
+    title: text('title'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_chat_sessions_tenant_space_user').on(table.tenant_id, table.space_id, table.user_id),
+    index('idx_chat_sessions_user_updated').on(table.user_id, table.updated_at.desc()),
+  ],
+);
+
+export const chatMessages = pgTable(
+  'chat_messages',
+  {
+    id: text('id').primaryKey(),
+    session_id: text('session_id')
+      .notNull()
+      .references(() => chatSessions.id, { onDelete: 'cascade' }),
+    role: text('role').notNull(),
+    content: text('content').notNull(),
+    token_count: integer('token_count'),
+    citations_json: jsonb('citations_json').notNull().default(sql`'[]'::jsonb`),
+    metadata_json: jsonb('metadata_json').notNull().default(sql`'{}'::jsonb`),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('idx_chat_messages_session_created').on(table.session_id, table.created_at)],
+);
+
+export const answerCitations = pgTable(
+  'answer_citations',
+  {
+    id: text('id').primaryKey(),
+    message_id: text('message_id')
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: 'cascade' }),
+    wiki_page_pk: text('wiki_page_pk')
+      .notNull()
+      .references(() => wikiPages.id),
+    section_id: text('section_id').references(() => wikiSections.id, { onDelete: 'set null' }),
+    chunk_id: text('chunk_id').references(() => wikiChunks.id, { onDelete: 'set null' }),
+    relevance_score: real('relevance_score').notNull(),
+    source_chain_json: jsonb('source_chain_json').notNull(),
+    display_text: text('display_text').notNull(),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_answer_citations_message').on(table.message_id),
+    index('idx_answer_citations_page').on(table.wiki_page_pk),
+  ],
 );
