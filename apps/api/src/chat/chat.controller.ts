@@ -78,7 +78,7 @@ export class ChatController {
         writeSseEvent(reply, {
           type: 'error',
           code: ErrorCode.INTERNAL_ERROR,
-          message: err instanceof Error ? err.message : 'Chat completion failed',
+          message: 'Chat completion failed',
         });
       }
     } finally {

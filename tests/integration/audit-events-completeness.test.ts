@@ -20,14 +20,15 @@ const REQUIRED_AUDIT_EVENTS = [
   'admin.model.create',
   'admin.model.update',
   'admin.model.test',
+  'chat.completion',
 ] as const;
 
 describe('audit event completeness', () => {
-  it('defines all 17 required Stage 1 audit events', () => {
+  it('defines all 18 required audit events', () => {
     const definedEvents = Object.values(AUDIT_EVENTS);
 
-    expect(definedEvents).toHaveLength(17);
-    expect(new Set(definedEvents).size).toBe(17);
+    expect(definedEvents).toHaveLength(18);
+    expect(new Set(definedEvents).size).toBe(18);
     expect(new Set(definedEvents)).toEqual(new Set(REQUIRED_AUDIT_EVENTS));
   });
 });

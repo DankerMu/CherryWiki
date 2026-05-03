@@ -389,12 +389,12 @@ export class ChatService {
       }
 
       if (retrievalResults.length === 0 && prepared.space.strict_knowledge_only) {
-        yield { type: 'content', delta: NO_HIT_MESSAGE };
-        yield { type: 'citations', citations: [] };
-        yield { type: 'usage', usage };
         const assistant = await this.persistMessage(prepared.session.id, 'assistant', NO_HIT_MESSAGE, 0, [], {
           source: 'no_hit',
         });
+        yield { type: 'content', delta: NO_HIT_MESSAGE };
+        yield { type: 'citations', citations: [] };
+        yield { type: 'usage', usage };
         this.auditCompletion(prepared, usage, retrievalResults.length, false, assistant.id);
         return;
       }
@@ -428,7 +428,7 @@ export class ChatService {
           break;
         }
 
-        yield { type: 'error', code: ErrorCode.INTERNAL_ERROR, message: chunk.error };
+        yield { type: 'error', code: ErrorCode.INTERNAL_ERROR, message: 'Chat completion failed' };
         this.auditCompletion(prepared, usage, retrievalResults.length, false);
         return;
       }
@@ -452,7 +452,7 @@ export class ChatService {
       yield {
         type: 'error',
         code: ErrorCode.INTERNAL_ERROR,
-        message: err instanceof Error ? err.message : 'Chat completion failed',
+        message: 'Chat completion failed',
       };
       this.auditCompletion(prepared, usage, retrievalResults.length, false);
     }
@@ -774,7 +774,7 @@ function truncateHistoryForBudget(
 
     const tokenCount = row.token_count ?? countTokens(row.content, modelId);
     if (used + tokenCount > budget) {
-      continue;
+      break;
     }
 
     selected.push({ role: row.role, content: row.content });

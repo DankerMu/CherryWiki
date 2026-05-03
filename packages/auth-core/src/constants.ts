@@ -41,6 +41,8 @@ export const ROLE_PERMISSIONS = {
     'wiki:rollback',
     'graphify:run',
     'graphify:view',
+    'chat:use',
+    'model:use',
     'admin',
     'admin:user_manage',
     'admin:model_manage',
