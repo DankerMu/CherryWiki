@@ -171,6 +171,55 @@ describe('RbacGuard', () => {
     ).resolves.toBe(true);
   });
 
+  it('uses body space_id for space-scoped chat permissions', async () => {
+    let resolverInput: SpacePermissionResolverInput | undefined;
+    const guard = new RbacGuard(new Reflector(), {
+      getPermissionsForUser(input) {
+        resolverInput = input;
+        return Promise.resolve(['chat:use']);
+      },
+    });
+    const handler = withPermissions(['chat:use']);
+
+    await expect(
+      guard.canActivate(
+        createContext({
+          handler,
+          request: {
+            body: { space_id: 'space-1' },
+            user: createRequestUser(),
+          },
+        }),
+      ),
+    ).resolves.toBe(true);
+
+    expect(resolverInput).toMatchObject({
+      spaceId: 'space-1',
+      requiredPermissions: ['chat:use'],
+    });
+  });
+
+  it('throws 403 when chat permission is missing for the target space', async () => {
+    const guard = new RbacGuard(new Reflector(), {
+      getPermissionsForUser() {
+        return Promise.resolve(['space:view']);
+      },
+    });
+    const handler = withPermissions(['chat:use']);
+
+    await expect(
+      guard.canActivate(
+        createContext({
+          handler,
+          request: {
+            body: { space_id: 'space-1' },
+            user: createRequestUser(),
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+
   it('throws 401 for a malformed user without a role', async () => {
     const guard = new RbacGuard(new Reflector());
     const handler = withPermissions(['space:view']);
@@ -223,6 +272,7 @@ describe('RbacGuard', () => {
 type TestRequest = {
   headers?: Record<string, string | string[] | undefined>;
   params?: Record<string, string | undefined>;
+  body?: Record<string, unknown>;
   user?: unknown;
 };
 

@@ -59,12 +59,18 @@ importers:
       '@aws-sdk/s3-request-presigner':
         specifier: ^3.1039.0
         version: 3.1039.0
+      '@cherrygraph/ai-core':
+        specifier: workspace:*
+        version: link:../../packages/ai-core
       '@cherrygraph/auth-core':
         specifier: workspace:*
         version: link:../../packages/auth-core
       '@cherrygraph/job-core':
         specifier: workspace:*
         version: link:../../packages/job-core
+      '@cherrygraph/rag-core':
+        specifier: workspace:*
+        version: link:../../packages/rag-core
       '@cherrygraph/shared':
         specifier: workspace:*
         version: link:../../packages/shared

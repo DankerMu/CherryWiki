@@ -16,6 +16,7 @@ export const AUDIT_EVENTS = {
   ADMIN_MODEL_CREATE: 'admin.model.create',
   ADMIN_MODEL_UPDATE: 'admin.model.update',
   ADMIN_MODEL_TEST: 'admin.model.test',
+  CHAT_COMPLETION: 'chat.completion',
 } as const;
 
 export type AuditEventType = (typeof AUDIT_EVENTS)[keyof typeof AUDIT_EVENTS];

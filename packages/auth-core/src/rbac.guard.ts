@@ -45,6 +45,7 @@ type RequestUser = {
 type RequestWithAuth = {
   user?: unknown;
   params?: Record<string, string | null | undefined>;
+  body?: Record<string, unknown>;
   routeOptions?: {
     url?: string;
   };
@@ -177,20 +178,24 @@ async function getRequestPermissions(
 
 function getTargetSpaceId(request: RequestWithAuth): string | undefined {
   const params = request.params;
-  if (params === undefined) {
-    return undefined;
-  }
-
-  if (isNonEmptyString(params.space_id)) {
+  if (isNonEmptyString(params?.space_id)) {
     return params.space_id;
   }
 
-  if (isNonEmptyString(params.spaceId)) {
+  if (isNonEmptyString(params?.spaceId)) {
     return params.spaceId;
   }
 
-  if (isNonEmptyString(params.id) && isSpaceRoute(request)) {
+  if (isNonEmptyString(params?.id) && isSpaceRoute(request)) {
     return params.id;
+  }
+
+  if (isNonEmptyString(request.body?.space_id)) {
+    return request.body.space_id;
+  }
+
+  if (isNonEmptyString(request.body?.spaceId)) {
+    return request.body.spaceId;
   }
 
   return undefined;
