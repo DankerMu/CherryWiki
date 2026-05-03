@@ -167,6 +167,52 @@ describe('Zod schema validation', () => {
       expect(table.tenant_id.notNull).toBe(true);
     }
   });
+
+  it('validates wiki chunk and embedding insert schemas', () => {
+    const validWikiChunk = {
+      id: 'chunk-1',
+      tenant_id: 'tenant-1',
+      space_id: 'space-1',
+      wiki_page_pk: 'wiki-page-pk-1',
+      page_version_id: 'version-1',
+      chunk_index: 0,
+      content: 'Chunk content',
+      content_hash: 'a'.repeat(64),
+      token_count: 3,
+      index_status: 'pending',
+      source_chain_json: {},
+      acl_json: {},
+    };
+
+    expect(schema.insertWikiChunkSchema.safeParse(validWikiChunk).success).toBe(true);
+
+    const missingContent: Record<string, unknown> = { ...validWikiChunk };
+    delete missingContent.content;
+    expect(schema.insertWikiChunkSchema.safeParse(missingContent).success).toBe(false);
+    expect(schema.insertWikiChunkSchema.safeParse({ ...validWikiChunk, index_status: 'failed' }).success).toBe(false);
+
+    const validEmbedding = {
+      id: 'embedding-1',
+      tenant_id: 'tenant-1',
+      space_id: 'space-1',
+      chunk_id: 'chunk-1',
+      model_config_id: 'model-config-1',
+      embedding: [0.1, 0.2, 0.3],
+    };
+
+    expect(schema.insertEmbeddingSchema.safeParse(validEmbedding).success).toBe(true);
+
+    const missingChunkId: Record<string, unknown> = { ...validEmbedding };
+    delete missingChunkId.chunk_id;
+    expect(schema.insertEmbeddingSchema.safeParse(missingChunkId).success).toBe(false);
+  });
+
+  it('validates index snapshot status lifecycle values', () => {
+    expect(schema.indexSnapshotStatusSchema.safeParse('activated').success).toBe(true);
+    expect(schema.indexSnapshotStatusSchema.safeParse('superseded').success).toBe(true);
+    expect(schema.indexSnapshotStatusSchema.safeParse('active').success).toBe(false);
+    expect(schema.indexSnapshotStatusSchema.safeParse('failed').success).toBe(false);
+  });
 });
 
 describe('Wiki Zod validation', () => {
@@ -339,4 +385,6 @@ const tenantScopedTables = [
   schema.graphEvidenceRefs,
   schema.wikiUpdateProposals,
   schema.indexSnapshots,
+  schema.wikiChunks,
+  schema.embeddings,
 ] as const satisfies readonly { tenant_id: { notNull: boolean } }[];

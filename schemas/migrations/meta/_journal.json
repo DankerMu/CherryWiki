@@ -50,6 +50,13 @@
       "when": 1777681099690,
       "tag": "0006_wild_zemo",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1777804388923,
+      "tag": "0007_public_whiplash",
+      "breakpoints": true
     }
   ]
 }

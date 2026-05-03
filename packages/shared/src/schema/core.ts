@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
+  customType,
   doublePrecision,
   foreignKey,
   index,
@@ -14,6 +15,22 @@ import {
   unique,
 } from 'drizzle-orm/pg-core';
 import type { PgTableExtraConfigValue } from 'drizzle-orm/pg-core';
+
+export const pgVector = customType<{ data: number[]; driverData: string; config: { dimensions?: number } }>({
+  dataType(config) {
+    return typeof config?.dimensions === 'number' ? `vector(${config.dimensions})` : 'vector';
+  },
+  toDriver(value) {
+    return `[${value.join(',')}]`;
+  },
+  fromDriver(value) {
+    return value
+      .replace(/^\[|\]$/g, '')
+      .split(',')
+      .filter((part) => part.length > 0)
+      .map(Number);
+  },
+});
 
 export const tenants = pgTable('tenants', {
   id: text('id').primaryKey(),
@@ -748,4 +765,65 @@ export const indexSnapshots = pgTable(
     index('idx_index_snapshots_space').on(table.tenant_id, table.space_id, table.status),
     index('idx_index_snapshots_active').on(table.space_id, table.activated_at.desc()),
   ],
+);
+
+export const wikiChunks = pgTable(
+  'wiki_chunks',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    space_id: text('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    wiki_page_pk: text('wiki_page_pk')
+      .notNull()
+      .references(() => wikiPages.id),
+    page_version_id: text('page_version_id')
+      .notNull()
+      .references(() => wikiPageVersions.id),
+    section_id: text('section_id').references(() => wikiSections.id),
+    chunk_index: integer('chunk_index').notNull(),
+    content: text('content').notNull(),
+    content_hash: text('content_hash'),
+    token_count: integer('token_count'),
+    index_status: text('index_status').notNull().default('pending'),
+    index_snapshot_id: text('index_snapshot_id'),
+    index_version: text('index_version'),
+    indexed_at: timestamp('indexed_at', { withTimezone: true }),
+    embedding_model_id: text('embedding_model_id'),
+    injection_risk: boolean('injection_risk').notNull().default(false),
+    source_chain_json: jsonb('source_chain_json').notNull().default(sql`'{}'::jsonb`),
+    acl_json: jsonb('acl_json').notNull().default(sql`'{}'::jsonb`),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('wiki_chunks_page_version_id_chunk_index_unique').on(table.page_version_id, table.chunk_index),
+    index('idx_wiki_chunks_space').on(table.tenant_id, table.space_id),
+    index('idx_wiki_chunks_index_status').on(table.index_status, table.index_snapshot_id),
+    // idx_wiki_chunks_fts is created by SQL migration because it requires a GIN to_tsvector expression.
+  ],
+);
+
+export const embeddings = pgTable(
+  'embeddings',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    space_id: text('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    chunk_id: text('chunk_id')
+      .notNull()
+      .references(() => wikiChunks.id, { onDelete: 'cascade' }),
+    model_config_id: text('model_config_id')
+      .notNull()
+      .references(() => model_configs.id),
+    embedding: pgVector('embedding'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('idx_embeddings_model').on(table.model_config_id)],
 );
