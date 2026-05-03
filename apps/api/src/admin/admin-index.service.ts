@@ -127,7 +127,7 @@ export class AdminIndexService {
       .where(and(eq(jobs.tenant_id, tenantId), eq(jobs.idempotency_key, idempotencyKey)))
       .limit(1);
 
-    return job as JobRow | undefined;
+    return job;
   }
 
   private async enqueueIndexingJob(jobId: string): Promise<void> {

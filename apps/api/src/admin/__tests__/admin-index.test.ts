@@ -208,7 +208,7 @@ class ScriptedAdminDb {
     this.selectResults.push(result);
   }
 
-  select(_fields?: unknown): ScriptedQueryBuilder {
+  select(): ScriptedQueryBuilder {
     return new ScriptedQueryBuilder(this.selectResults.shift() ?? []);
   }
 }
@@ -216,15 +216,15 @@ class ScriptedAdminDb {
 class ScriptedQueryBuilder implements PromiseLike<unknown[]> {
   constructor(private readonly result: unknown[]) {}
 
-  from(_table?: unknown): this {
+  from(): this {
     return this;
   }
 
-  where(_where?: unknown): this {
+  where(): this {
     return this;
   }
 
-  limit(_limit?: number): this {
+  limit(): this {
     return this;
   }
 
@@ -343,7 +343,7 @@ function getHttpCode(methodName: keyof AdminIndexController): unknown {
 function createGuardContext(methodName: keyof AdminIndexController, request: unknown): ExecutionContext {
   const descriptor = Object.getOwnPropertyDescriptor(AdminIndexController.prototype, methodName);
   return {
-    getHandler: () => descriptor?.value,
+    getHandler: () => descriptor?.value as () => unknown,
     getClass: () => AdminIndexController,
     switchToHttp: () => ({
       getRequest: () => request,

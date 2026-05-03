@@ -328,7 +328,7 @@ function getHttpCode(methodName: keyof WikiController): unknown {
 function createGuardContext(methodName: keyof WikiController, request: unknown): ExecutionContext {
   const descriptor = Object.getOwnPropertyDescriptor(WikiController.prototype, methodName);
   return {
-    getHandler: () => descriptor?.value,
+    getHandler: () => descriptor?.value as () => unknown,
     getClass: () => WikiController,
     switchToHttp: () => ({
       getRequest: () => request,
