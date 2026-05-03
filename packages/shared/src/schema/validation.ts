@@ -2,7 +2,7 @@ import { createInsertSchema, createSelectSchema } from 'drizzle-zod';
 import { z } from 'zod';
 import { z as z4 } from 'zod/v4';
 
-import { embeddings, wikiChunks } from './core.js';
+import { answerCitations, chatMessages, chatSessions, embeddings, wikiChunks } from './core.js';
 
 export const userRoleSchema = z.enum(['owner', 'admin', 'space_admin', 'editor', 'viewer', 'auditor']);
 export const userStatusSchema = z.enum(['active', 'disabled']);
@@ -354,6 +354,32 @@ export const selectEmbeddingSchema = createSelectSchema(embeddings, {
   embedding: z4.array(z4.number()),
 });
 
+export const chatMessageRoleSchema = z4.enum(['user', 'assistant', 'system']);
+
+export const insertChatSessionSchema = createInsertSchema(chatSessions);
+export const selectChatSessionSchema = createSelectSchema(chatSessions);
+export const chatSessionSchema = insertChatSessionSchema;
+
+export const insertChatMessageSchema = createInsertSchema(chatMessages, {
+  role: chatMessageRoleSchema,
+  citations_json: z4.array(z4.any()),
+  metadata_json: jsonObjectSchemaV4,
+});
+export const selectChatMessageSchema = createSelectSchema(chatMessages, {
+  role: chatMessageRoleSchema,
+  citations_json: z4.array(z4.any()),
+  metadata_json: jsonObjectSchemaV4,
+});
+export const chatMessageSchema = insertChatMessageSchema;
+
+export const insertAnswerCitationSchema = createInsertSchema(answerCitations, {
+  source_chain_json: jsonObjectSchemaV4,
+});
+export const selectAnswerCitationSchema = createSelectSchema(answerCitations, {
+  source_chain_json: jsonObjectSchemaV4,
+});
+export const answerCitationSchema = insertAnswerCitationSchema;
+
 export type InsertUserInput = z.infer<typeof insertUserSchema>;
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 export type InsertSpaceInput = z.infer<typeof insertSpaceSchema>;
@@ -396,3 +422,7 @@ export type InsertWikiChunkInput = z4.infer<typeof insertWikiChunkSchema>;
 export type SelectWikiChunkInput = z4.infer<typeof selectWikiChunkSchema>;
 export type InsertEmbeddingInput = z4.infer<typeof insertEmbeddingSchema>;
 export type SelectEmbeddingInput = z4.infer<typeof selectEmbeddingSchema>;
+export type ChatMessageRole = z4.infer<typeof chatMessageRoleSchema>;
+export type InsertChatSessionInput = z4.infer<typeof insertChatSessionSchema>;
+export type InsertChatMessageInput = z4.infer<typeof insertChatMessageSchema>;
+export type InsertAnswerCitationInput = z4.infer<typeof insertAnswerCitationSchema>;
