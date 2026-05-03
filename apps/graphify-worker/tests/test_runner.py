@@ -3,9 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
-import subprocess
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -23,19 +21,17 @@ def test_run_success_uploads_outputs_and_cleans_workdir(
     install_runner_config(monkeypatch, tmp_path)
     captured_manifest: dict[str, Any] = {}
 
-    def fake_subprocess_run(cmd: list[str], **kwargs: Any) -> SimpleNamespace:
-        output_dir = Path(cmd[cmd.index("--output") + 1])
+    async def fake_execute(input_dir: Path, output_dir: Path, mode: str) -> None:
         captured_manifest.update(
             json.loads(
-                (Path(kwargs["cwd"]) / "graphify_input_manifest.json").read_text(
+                (input_dir.parent / "graphify_input_manifest.json").read_text(
                     encoding="utf-8"
                 )
             )
         )
         shutil.copytree(FIXTURE_OUTPUT, output_dir, dirs_exist_ok=True)
-        return SimpleNamespace(returncode=0, stderr="", stdout="")
 
-    monkeypatch.setattr(runner.subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(runner.graphify_pipeline, "execute", fake_execute)
 
     result = asyncio.run(runner.run(job_data()))
 
@@ -77,13 +73,11 @@ def test_run_success_omits_report_uri_when_report_missing(
     install_fake_storage(monkeypatch)
     install_runner_config(monkeypatch, tmp_path)
 
-    def fake_subprocess_run(cmd: list[str], **_kwargs: Any) -> SimpleNamespace:
-        output_dir = Path(cmd[cmd.index("--output") + 1])
+    async def fake_execute(input_dir: Path, output_dir: Path, mode: str) -> None:
         shutil.copytree(FIXTURE_OUTPUT, output_dir, dirs_exist_ok=True)
         (output_dir / "GRAPH_REPORT.md").unlink()
-        return SimpleNamespace(returncode=0, stderr="", stdout="")
 
-    monkeypatch.setattr(runner.subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(runner.graphify_pipeline, "execute", fake_execute)
 
     result = asyncio.run(runner.run(job_data()))
 
@@ -105,76 +99,23 @@ def test_run_rejects_unsafe_run_id(
     assert not any(tmp_path.iterdir())
 
 
-def test_run_timeout_reports_structured_error_and_cleans_workdir(
+def test_run_pipeline_error_reports_and_cleans_workdir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     install_fake_storage(monkeypatch)
     install_runner_config(monkeypatch, tmp_path)
 
-    def fake_subprocess_run(cmd: list[str], **_kwargs: Any) -> None:
-        raise subprocess.TimeoutExpired(cmd, timeout=runner.GRAPHIFY_TIMEOUT)
-
-    monkeypatch.setattr(runner.subprocess, "run", fake_subprocess_run)
-
-    with pytest.raises(RuntimeError) as exc_info:
-        asyncio.run(runner.run(job_data()))
-
-    assert json.loads(str(exc_info.value))["reason"] == "timeout"
-    assert not (tmp_path / "run-1").exists()
-
-
-def test_run_cli_failure_includes_stderr_and_cleans_workdir(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    install_fake_storage(monkeypatch)
-    install_runner_config(monkeypatch, tmp_path)
-
-    monkeypatch.setattr(
-        runner.subprocess,
-        "run",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            returncode=1, stderr="graphify exploded", stdout=""
-        ),
-    )
-
-    with pytest.raises(RuntimeError) as exc_info:
-        asyncio.run(runner.run(job_data()))
-
-    error = json.loads(str(exc_info.value))
-    assert error["reason"] == "cli_error"
-    assert error["stderr"] == "graphify exploded"
-    assert not (tmp_path / "run-1").exists()
-
-
-def test_run_cli_failure_scrubs_env_and_redacts_stderr(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    install_fake_storage(monkeypatch)
-    install_runner_config(monkeypatch, tmp_path)
-    monkeypatch.setenv("MINIO_SECRET_KEY", "super-secret")
-    monkeypatch.setenv("AWS_SESSION_TOKEN", "session-secret")
-    captured_env: dict[str, str] = {}
-
-    def fake_subprocess_run(_cmd: list[str], **kwargs: Any) -> SimpleNamespace:
-        captured_env.update(kwargs["env"])
-        return SimpleNamespace(
-            returncode=1,
-            stderr=f"failed with super-secret and session-secret {'x' * 3000}",
-            stdout="",
+    async def fake_execute(input_dir: Path, output_dir: Path, mode: str) -> None:
+        raise RuntimeError(
+            json.dumps({"reason": "llm_error", "details": "API unreachable"})
         )
 
-    monkeypatch.setattr(runner.subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(runner.graphify_pipeline, "execute", fake_execute)
 
     with pytest.raises(RuntimeError) as exc_info:
         asyncio.run(runner.run(job_data()))
 
-    error = json.loads(str(exc_info.value))
-    assert "MINIO_SECRET_KEY" not in captured_env
-    assert "AWS_SESSION_TOKEN" not in captured_env
-    assert "super-secret" not in error["stderr"]
-    assert "session-secret" not in error["stderr"]
-    assert "***REDACTED***" in error["stderr"]
-    assert len(error["stderr"]) <= 2000
+    assert json.loads(str(exc_info.value))["reason"] == "llm_error"
     assert not (tmp_path / "run-1").exists()
 
 
@@ -184,14 +125,12 @@ def test_run_missing_graph_json_fails_validation_and_cleans_workdir(
     storage = install_fake_storage(monkeypatch)
     install_runner_config(monkeypatch, tmp_path)
 
-    def fake_subprocess_run(cmd: list[str], **_kwargs: Any) -> SimpleNamespace:
-        output_dir = Path(cmd[cmd.index("--output") + 1])
+    async def fake_execute(input_dir: Path, output_dir: Path, mode: str) -> None:
         (output_dir / "wiki").mkdir(parents=True)
         (output_dir / "wiki" / "index.md").write_text("# Index", encoding="utf-8")
         (output_dir / "GRAPH_REPORT.md").write_text("report", encoding="utf-8")
-        return SimpleNamespace(returncode=0, stderr="", stdout="")
 
-    monkeypatch.setattr(runner.subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(runner.graphify_pipeline, "execute", fake_execute)
 
     with pytest.raises(RuntimeError) as exc_info:
         asyncio.run(runner.run(job_data()))
@@ -211,15 +150,13 @@ def test_run_missing_wiki_dir_fails_validation_and_cleans_workdir(
     storage = install_fake_storage(monkeypatch)
     install_runner_config(monkeypatch, tmp_path)
 
-    def fake_subprocess_run(cmd: list[str], **_kwargs: Any) -> SimpleNamespace:
-        output_dir = Path(cmd[cmd.index("--output") + 1])
+    async def fake_execute(input_dir: Path, output_dir: Path, mode: str) -> None:
         (output_dir / "graph.json").write_text(
             '{"nodes":[],"edges":[]}', encoding="utf-8"
         )
         (output_dir / "GRAPH_REPORT.md").write_text("report", encoding="utf-8")
-        return SimpleNamespace(returncode=0, stderr="", stdout="")
 
-    monkeypatch.setattr(runner.subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(runner.graphify_pipeline, "execute", fake_execute)
 
     with pytest.raises(RuntimeError) as exc_info:
         asyncio.run(runner.run(job_data()))
@@ -241,16 +178,14 @@ def test_run_path_traversal_detection_fails_on_symlink_and_cleans_workdir(
     outside = tmp_path / "outside.md"
     outside.write_text("outside", encoding="utf-8")
 
-    def fake_subprocess_run(cmd: list[str], **_kwargs: Any) -> SimpleNamespace:
-        output_dir = Path(cmd[cmd.index("--output") + 1])
+    async def fake_execute(input_dir: Path, output_dir: Path, mode: str) -> None:
         shutil.copytree(FIXTURE_OUTPUT, output_dir, dirs_exist_ok=True)
         try:
             (output_dir / "wiki" / "escape.md").symlink_to(outside)
         except OSError as exc:
             pytest.skip(f"symlink not available: {exc}")
-        return SimpleNamespace(returncode=0, stderr="", stdout="")
 
-    monkeypatch.setattr(runner.subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(runner.graphify_pipeline, "execute", fake_execute)
 
     with pytest.raises(RuntimeError) as exc_info:
         asyncio.run(runner.run(job_data()))
@@ -272,12 +207,10 @@ def test_run_file_size_check_fails_validation_and_cleans_workdir(
     install_runner_config(monkeypatch, tmp_path)
     monkeypatch.setattr(runner, "MAX_FILE_SIZE", 10)
 
-    def fake_subprocess_run(cmd: list[str], **_kwargs: Any) -> SimpleNamespace:
-        output_dir = Path(cmd[cmd.index("--output") + 1])
+    async def fake_execute(input_dir: Path, output_dir: Path, mode: str) -> None:
         shutil.copytree(FIXTURE_OUTPUT, output_dir, dirs_exist_ok=True)
-        return SimpleNamespace(returncode=0, stderr="", stdout="")
 
-    monkeypatch.setattr(runner.subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(runner.graphify_pipeline, "execute", fake_execute)
 
     with pytest.raises(RuntimeError) as exc_info:
         asyncio.run(runner.run(job_data()))
@@ -303,12 +236,10 @@ def test_run_total_size_check_uses_quarantine_error_shape(
     install_runner_config(monkeypatch, tmp_path)
     monkeypatch.setattr(runner, "MAX_TOTAL_SIZE", 10)
 
-    def fake_subprocess_run(cmd: list[str], **_kwargs: Any) -> SimpleNamespace:
-        output_dir = Path(cmd[cmd.index("--output") + 1])
+    async def fake_execute(input_dir: Path, output_dir: Path, mode: str) -> None:
         shutil.copytree(FIXTURE_OUTPUT, output_dir, dirs_exist_ok=True)
-        return SimpleNamespace(returncode=0, stderr="", stdout="")
 
-    monkeypatch.setattr(runner.subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(runner.graphify_pipeline, "execute", fake_execute)
 
     with pytest.raises(RuntimeError) as exc_info:
         asyncio.run(runner.run(job_data()))

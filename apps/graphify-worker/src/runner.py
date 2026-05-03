@@ -7,10 +7,10 @@ import os
 import re
 import shutil
 import stat
-import subprocess
 from pathlib import Path
 from typing import Any
 
+from . import graphify_pipeline
 from .manifest import generate_manifest
 from .storage_client import MinioStorageClient, parse_storage_uri
 
@@ -24,18 +24,6 @@ MAX_FILE_SIZE = 100 * 1024 * 1024
 MAX_TOTAL_SIZE = 1024 * 1024 * 1024
 OUTPUT_BUCKET = os.environ.get("GRAPHIFY_OUTPUT_BUCKET", "cherrywiki-graphify-out")
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-_SCRUB_KEYS = {
-    "MINIO_ENDPOINT",
-    "MINIO_ACCESS_KEY",
-    "MINIO_SECRET_KEY",
-    "AWS_ACCESS_KEY_ID",
-    "AWS_SECRET_ACCESS_KEY",
-    "AWS_SESSION_TOKEN",
-    "S3_ENDPOINT",
-    "WORKER_API_KEY",
-    "DATABASE_URL",
-    "REDIS_URL",
-}
 
 
 async def run(job_data: dict[str, Any]) -> dict[str, Any]:
@@ -74,42 +62,7 @@ async def run(job_data: dict[str, Any]) -> dict[str, Any]:
         manifest_path = workdir / "graphify_input_manifest.json"
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-        cmd = [
-            "graphify",
-            "--wiki",
-            "--mode",
-            mode,
-            "--output",
-            str(output_dir),
-            str(input_dir),
-        ]
-        if GRAPHIFY_REF:
-            cmd.extend(["--ref", GRAPHIFY_REF])
-
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=GRAPHIFY_TIMEOUT,
-                cwd=str(workdir),
-                env=_subprocess_env(),
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError(
-                json.dumps({"reason": "timeout", "timeout_seconds": GRAPHIFY_TIMEOUT})
-            ) from exc
-
-        if result.returncode != 0:
-            raise RuntimeError(
-                json.dumps(
-                    {
-                        "reason": "cli_error",
-                        "exit_code": result.returncode,
-                        "stderr": _redacted_stderr(result.stderr or ""),
-                    }
-                )
-            )
+        await graphify_pipeline.execute(input_dir, output_dir, mode)
 
         validation = _validate_output(
             output_dir, run_id=run_id, graphify_ref=GRAPHIFY_REF
@@ -158,19 +111,6 @@ def _safe_id(value: str) -> str:
     if not _SAFE_ID_RE.match(value):
         raise ValueError(f"Invalid id for path use: {value!r}")
     return value
-
-
-def _subprocess_env() -> dict[str, str]:
-    return {key: value for key, value in os.environ.items() if key not in _SCRUB_KEYS}
-
-
-def _redacted_stderr(stderr: str) -> str:
-    scrubbed = stderr[:2000]
-    for key in _SCRUB_KEYS:
-        value = os.environ.get(key)
-        if value and value in scrubbed:
-            scrubbed = scrubbed.replace(value, "***REDACTED***")
-    return scrubbed[:2000]
 
 
 def _write_validation_report(report_path: Path, validation: dict[str, Any]) -> None:
