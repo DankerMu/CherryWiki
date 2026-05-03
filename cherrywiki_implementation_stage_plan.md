@@ -998,7 +998,7 @@ Phase 4 不要提前做。它应在 Phase 1-3 跑稳后再进入。
 | Stage 12 | Phase 3 | Claude Code Agent / GraphRAG 深度路径 / 深度分析 | 依赖 Stage 11 |
 | Stage 13 | Phase 4 | 知识治理 | Phase 3 后 |
 | Stage 14 | Phase 4 | MCP Gateway（仅第三方工具） | Phase 3 后 |
-| Stage 15 | Phase 3+ | 数据库接入 / cherrydb CLI / 图表渲染 | 依赖 Stage 12 |
+| Stage 15 | Phase 3b | 数据库接入 / cherrydb CLI / 图表渲染 | 依赖 Stage 12，Phase 3 核心（Stage 12）上线后启动 |
 
 ---
 

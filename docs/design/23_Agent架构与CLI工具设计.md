@@ -190,8 +190,8 @@ cur.execute(wrapper)
 
 | 措施 | 实现位置 |
 |---|---|
-| 只读连接 | `conn.set_session(readonly=True)` |
-| 只允许 SELECT | CLI 内 `sqlparse` AST 检查 + 分号多语句拒绝 |
+| 只读连接（主防线） | `conn.set_session(readonly=True)` — PostgreSQL 级写保护，任何写操作直接报错，不依赖应用层检查 |
+| SELECT AST 检查（纵深防御） | CLI 内 `sqlparse` AST 检查 + 分号多语句拒绝。注意：`sqlparse` 对含写操作 CTE 的 `get_type()` 仍返回 `SELECT`，真正兜底靠 `readonly=True` |
 | 行数上限 1000 | CLI 内强制 LIMIT |
 | 超时 5s | `SET statement_timeout` |
 | 表 ACL 白名单 | 环境变量 `CHERRY_DB_ALLOWED_TABLES` |
@@ -251,51 +251,70 @@ graphify query "SSO 和权限" --graph /data/graphify-out/space_rd/graph.json
 
 ### 4.1 进程生命周期
 
-Claude Code 采用 `--print` 模式（一次性调用），每次用户消息 spawn 新进程，进程执行完正常退出。通过 `--resume` 参数恢复同一工作目录下的会话上下文。
+Claude Code 采用 `--print` 模式（一次性调用），每次用户消息 spawn 新进程，进程执行完正常退出。通过 `--resume <session_id>` 参数恢复会话上下文。会话状态由 Claude Code 存储在 `$HOME/.claude/projects/` 下（通过隔离 HOME 目录实现进程间隔离）。
 
 **首次 spawn（懒加载，不带 `--resume`）：**
 
 ```typescript
 // cherry-api 内部 — 首次触发 Agent 时
 import { spawn } from 'child_process';
+import { randomUUID } from 'crypto';
 
 const workDir = prepareWorkDir(conversationId, spaceId);
+const agentHome = join(workDir, '.home'); // 隔离 HOME，防止加载宿主 ~/.claude/ 配置
+mkdirSync(agentHome, { recursive: true });
+
 // 生成 CLAUDE.md（见 §4.3）
 await generateClaudeMd(workDir, spaceId, userSpaces, dbEnabled);
-// 写入 .claude/settings.json（权限配置）
-await writeSettings(workDir);
+// 生成 settings.json（权限配置，见 §4.6）
+const settingsPath = join(workDir, 'settings.json');
+await writeSettings(settingsPath);
 
+// 最小环境变量白名单 — 禁止 ...process.env 泄露服务端密钥
 const envVars: Record<string, string> = {
-  ...process.env,
+  PATH: process.env.PATH!,
+  HOME: agentHome,                        // 隔离 HOME，Claude Code 不会加载宿主配置/hooks/plugins
+  LANG: process.env.LANG || 'en_US.UTF-8',
+  TMPDIR: join(workDir, 'tmp'),
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY!,
   CHERRY_API_INTERNAL_URL: internalApiUrl,
   CHERRY_AGENT_TOKEN: agentToken,
 };
-// 仅在数据库开关开启时注入数据库相关环境变量
+// 仅在数据库开关开启时注入 — cherrydb CLI 通过此变量连接数据库
 if (dbEnabled) {
   envVars.CHERRY_DB_DSN = dbConnectionString;
   envVars.CHERRY_DB_ALLOWED_TABLES = allowedTables;
+  envVars.CHERRY_DB_MASKED_COLUMNS = maskedColumns;
 }
 
+const newSessionId = randomUUID();
 const proc = spawn('claude', [
   '--print',
   '--output-format', 'stream-json',
   '--verbose',
+  '--include-partial-messages',           // token 级流式输出（否则只在完整回合后输出）
   '--model', 'sonnet',
-  '--tools', 'Bash,Read',
+  '--max-budget-usd', '2',               // 单次调用成本上限
+  '--tools', 'Bash,Read',                // 限制可用工具集（注意 Bash 本身需 OS 级沙箱，见 §4.7）
+  '--permission-mode', 'bypassPermissions',
+  '--session-id', newSessionId,           // 显式设置 session ID（非 --resume）
+  '--settings', settingsPath,             // 显式加载 settings，不依赖全局配置
   '-p', userMessage,
 ], { cwd: workDir, env: envVars });
 
-// 1h 进程执行超时（防止挂起），超时后 kill，.claude/ 保留可 --resume 接续
+// 存储 session_id（也可从 system/init 事件或 result 事件中捕获验证）
+sessionManager.setSessionId(conversationId, newSessionId);
+
+// 1h 进程执行超时（防止挂起），超时后 kill，会话状态保留可 --resume 接续
 const killTimer = setTimeout(() => {
   proc.kill('SIGTERM');
   setTimeout(() => { if (!proc.killed) proc.kill('SIGKILL'); }, 5000);
 }, 3600_000);
 proc.on('exit', () => clearTimeout(killTimer));
 
-// stdout 逐行读取 stream-json 事件，转发为 SSE
-// 从首条 stream-json 事件中捕获 session_id，存入 sessionManager
+// stdout 逐行读取 stream-json 事件（见 §4.5），转发为 SSE
+// 首条事件为 type:"system" subtype:"init"，包含 session_id 可用于验证
 // 进程执行完正常退出（exit code 0）
-// 会话状态自动保存在 workDir/.claude/ 目录中
 ```
 
 **后续消息（带 `--resume`，恢复上下文）：**
@@ -304,15 +323,19 @@ proc.on('exit', () => clearTimeout(killTimer));
 // 用户发来追问消息时
 const workDir = sessionManager.getWorkDir(conversationId);
 const sessionId = sessionManager.getSessionId(conversationId);
-if (workDir && sessionId && existsSync(join(workDir, '.claude'))) {
-  // 工作目录 + session_id 存在 → 使用 --resume 恢复会话上下文
+if (workDir && sessionId) {
+  const settingsPath = join(workDir, 'settings.json');
   const proc = spawn('claude', [
     '--print',
     '--output-format', 'stream-json',
     '--verbose',
-    '--resume', sessionId,         // 显式传入 session_id 恢复上下文
+    '--include-partial-messages',
+    '--resume', sessionId,                // 显式传入 session_id 恢复上下文
     '--model', 'sonnet',
+    '--max-budget-usd', '2',
     '--tools', 'Bash,Read',
+    '--permission-mode', 'bypassPermissions',
+    '--settings', settingsPath,
     '-p', followUpMessage,
   ], { cwd: workDir, env: envVars });
   // 同样设置 1h kill 超时
@@ -322,9 +345,9 @@ if (workDir && sessionId && existsSync(join(workDir, '.claude'))) {
   }, 3600_000);
   proc.on('exit', () => clearTimeout(killTimer));
   // stdout 流式读取，进程完成后正常退出
-  // 若进程被 kill（超时），.claude/ 保留，下次追问仍可 --resume 接续
+  // 若进程被 kill（超时），会话状态保留，下次追问仍可 --resume 接续
 } else {
-  // 工作目录不存在 / session_id 丢失 / .claude/ 损坏 → 降级为新会话
+  // session_id 丢失 → 降级为新会话
   spawnNewSession(conversationId, spaceId, userMessage);
 }
 ```
@@ -334,14 +357,14 @@ if (workDir && sessionId && existsSync(join(workDir, '.claude'))) {
 ```typescript
 // 空闲超时 / 会话关闭
 sessionManager.cleanup(conversationId);
-// 删除整个工作目录（含 .claude/），释放磁盘空间
+// 删除整个工作目录（含 .home/），释放磁盘空间
 // 正常场景：进程每次调用完已退出，无需 kill
-// 超时场景：进程已被 1h kill timer 终止，.claude/ 仍存在
+// 超时场景：进程已被 1h kill timer 终止，会话状态仍保留在 .home/.claude/
 //   → 若用户在 kill 后继续追问，可通过 --resume <session_id> 接续上下文
 //   → 空闲超时 10 分钟后才清理工作目录，给用户重试窗口
 ```
 
-> 参考实现：happy 项目 `packages/happy-cli/src/claude/claudeLocal.ts`（spawn 模式）和 `packages/happy-cli/src/claude/sdk/query.ts`（stdout 逐行读取 JSON 消息协议）。CherryWiki 使用 `--print` + `--resume` 模式而非 happy 的交互模式，因为每次消息独立 spawn 更适合 Web 服务端的无状态架构。
+> 参考实现：happy 项目 `packages/happy-cli/src/claude/sdk/query.ts`（SDK 模式，`--output-format stream-json --verbose`，stdout 逐行读取 JSON）和 `packages/happy-cli/src/claude/claudeLocal.ts`（交互模式，`--session-id`/`--resume` 显式管理会话 ID，`--settings` 隔离配置，`--append-system-prompt` 注入规则）。CherryWiki 使用 `--print` + `--session-id`/`--resume` 模式，每次消息独立 spawn，适合 Web 服务端无状态架构。
 
 ### 4.2 工作目录结构
 
@@ -350,9 +373,13 @@ sessionManager.cleanup(conversationId);
 ```text
 /tmp/cherry-agent/{conversation_id}/
   CLAUDE.md           ← 注入规则（见 §4.3）
-  .claude/
-    settings.json     ← 权限配置
+  settings.json       ← 权限配置（通过 --settings 显式加载）
+  tmp/                ← Agent 进程的 TMPDIR
+  .home/              ← 隔离 HOME 目录（通过 env HOME 指向此处）
+    .claude/          ← Claude Code 会话状态（自动生成，含 session 持久化）
 ```
+
+**为什么隔离 HOME**：Claude Code 默认加载 `~/.claude/` 下的全局配置、hooks、plugins、MCP servers。服务端 spawn 必须将 HOME 指向隔离目录，否则 Agent 会继承宿主用户的全部配置。通过 `--settings <path>` 显式加载权限设置，`CLAUDE.md` 放在工作目录由 Claude Code 自动读取。
 
 **注意：不需要拷贝 graph.json 或 wiki 目录。** graphify CLI 的 `--graph` 参数直接指向共享存储路径：
 
@@ -445,18 +472,63 @@ data: {"chart_type": "bar", "echarts_option": {...}}
 
 ### 4.5 stream-json → SSE 事件映射
 
-Claude Code `--output-format stream-json` 的 stdout 逐行输出 JSON 事件。cherry-api 需要将这些事件解析并映射为前端 SSE 事件：
+Claude Code `--output-format stream-json --verbose --include-partial-messages` 的 stdout 逐行输出 JSON 事件（每行一个完整 SDKMessage）。事件类型基于 happy 项目 SDK types 验证：
 
 | Claude Code stream-json 事件 | cherry-api SSE 事件 | 说明 |
 |---|---|---|
-| `{"type":"assistant","content":[{"type":"text","text":"..."}]}` | `message.delta` | LLM 文本增量输出 |
-| `{"type":"tool_use","name":"Bash","input":{...}}` | `agent.tool_use` | Agent 调用 CLI 工具（展示"正在查询..."） |
-| `{"type":"tool_result","content":"..."}` | （不转发，内部消费） | 工具执行结果，由 Agent 内部处理 |
-| `{"type":"result","result":"..."}` | `message.completed` | Agent 最终回答完成 |
-| stdout 中匹配 `"type":"cherrywiki.chart"` 的行 | `chart.data` | 图表数据（从 tool_result 中提取） |
-| 进程 exit code 非 0 | `message.error` | Agent 执行失败 |
+| `{"type":"system","subtype":"init","session_id":"...","model":"...","tools":[...]}` | （内部消费） | 首条事件，捕获 session_id 验证，不转发 |
+| `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"..."}]}}` | `message.delta` | LLM 文本输出。加 `--include-partial-messages` 后每个 token chunk 独立输出 |
+| `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","id":"...","input":{...}}]}}` | `agent.tool_use` | Agent 发起工具调用（tool_use 嵌套在 assistant.message.content 数组内） |
+| `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"...","content":"..."}]}}` | （内部消费） | 工具执行结果（tool_result 嵌套在 user 消息内），由 Agent 内部处理 |
+| `{"type":"result","subtype":"success","result":"...","session_id":"...","total_cost_usd":...}` | `message.completed` | Agent 最终回答完成，含 session_id、usage、cost |
+| `{"type":"result","subtype":"error_max_turns"/"error_during_execution",...}` | `message.error` | Agent 执行失败或超限 |
+| tool_result content 中匹配 `"type":"cherrywiki.chart"` | `chart.data` | 图表数据（从 user 消息的 tool_result content 中提取） |
+| 进程 exit code 非 0 | `message.error` | 进程异常退出 |
 
-cherry-api 使用 readline 逐行解析 stdout，每行 `JSON.parse` 后按 type 字段分发。
+cherry-api 使用 readline 逐行解析 stdout，每行 `JSON.parse` 后按 `type` 字段分发。`assistant` 消息需遍历 `message.content[]` 数组区分 text（转发为 delta）和 tool_use（转发为 agent.tool_use）。
+
+> 注意：不加 `--include-partial-messages` 时，Claude Code 仅在完整 assistant 回合结束后才输出一次 assistant 消息（非 token 级流式）。CherryWiki 必须加此 flag 以实现前端实时打字效果。
+
+### 4.6 settings.json（权限配置）
+
+通过 `--settings <path>` 显式加载，不依赖全局 `~/.claude/settings.json`：
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(cherrywiki *)",
+      "Bash(cherrydb *)",
+      "Bash(graphify *)",
+      "Read(*)"
+    ],
+    "deny": [
+      "Bash(rm *)", "Bash(curl *)", "Bash(wget *)",
+      "Bash(chmod *)", "Bash(chown *)", "Bash(python *)",
+      "Bash(node *)", "Bash(sh *)", "Bash(bash -c *)",
+      "Bash(echo * > *)", "Bash(cat * > *)", "Bash(tee *)",
+      "Write", "Edit", "WebFetch"
+    ]
+  }
+}
+```
+
+### 4.7 OS 级沙箱（安全关键）
+
+`--tools Bash,Read` 限制 Claude Code 的可用工具集，但 **Bash 本身是万能工具**——Agent 仍可通过 `echo > file`、`python -c`、`env`、`cat /proc/self/environ` 等方式写文件或读取环境变量。§4.6 的 settings deny 规则提供应用层防护，但不能完全阻止绕过。
+
+**必须补充 OS 级隔离**：
+
+| 层 | 措施 | 说明 |
+|---|---|---|
+| 环境变量 | 最小白名单（§4.1） | 不注入 `process.env`，仅注入必要变量 |
+| HOME 隔离 | `HOME=/tmp/cherry-agent/{id}/.home` | 防止加载宿主 ~/.claude/ 配置/hooks/plugins/MCP |
+| 文件系统 | 工作目录只读挂载（Docker `--read-only`） | graph.json 等通过 bind mount readonly 访问 |
+| 用户隔离 | 非 root 用户运行 Agent 进程 | Docker 容器内 `USER cherry-agent` |
+| 网络隔离 | Agent 进程禁止出站（除 Anthropic API 和 cherry-api internal） | Docker network policy 或 iptables |
+| 进程资源 | `ulimit -v 4194304`（4GB 内存上限） | 防止单进程耗尽宿主资源 |
+
+> 参考：happy 项目的 `initializeSandbox()` 和 `wrapCommand()` 实现了类似的沙箱隔离（见 `packages/happy-cli/src/sandbox/manager.ts`）。CherryWiki 在 Docker 部署环境下可通过容器配置实现等效隔离，无需额外沙箱库。
 
 ## 5. 图谱粒度与 Space 隔离
 
@@ -575,13 +647,16 @@ MCP Gateway 仅在需要对接第三方外部工具时保留（Phase 4+）。
 
 | 风险 | 缓解 |
 |---|---|
-| Claude Code 必须用 Anthropic 模型，成本高于 Deepseek | 双层架构确保大部分查询走静态 RAG（便宜路径）；Agent 仅处理复杂问题 |
+| Claude Code 必须用 Anthropic 模型，成本高于 Deepseek | 双层架构确保大部分查询走静态 RAG（便宜路径）；Agent 仅处理复杂问题；`--max-budget-usd 2` 单次成本上限 |
 | Claude Code 进程启动延迟 | 懒加载 + `--resume` 恢复上下文减少重复初始化；前端显示"深度分析中..."状态 |
 | 多用户并发时进程数 | 内网企业场景并发不高；空闲超时 10 分钟自动回收；并发上限 + 排队 |
 | Claude Code CLI 版本更新可能 breaking | 锁定 Claude Code 版本；Docker 镜像固定 |
-| 数据库 SQL 注入风险 | `cherrydb` CLI 内置只读 + 白名单 + 超时 + AST 检查 |
-| Agent 进程挂起 | 1 小时进程级 kill 超时；kill 后 `.claude/` 保留，用户追问时 `--resume` 接续上下文 |
-| Agent 输出不可控 | CLAUDE.md 规则约束 + `--tools Bash,Read` 工具白名单 + 审计日志 |
+| 数据库 SQL 注入风险 | `readonly=True`（主防线）+ sqlparse AST + 分号拒绝 + LIMIT 1000 + statement_timeout |
+| Agent 进程挂起 | 1 小时进程级 kill 超时；kill 后会话状态保留，用户追问时 `--resume` 接续上下文 |
+| Agent 沙箱逃逸（Bash 写文件/读 env） | settings.json deny 规则 + OS 级隔离（只读挂载/非 root/网络隔离，见 §4.7） |
+| 环境变量泄露 | 最小 env 白名单（§4.1），不注入 `process.env`；HOME 隔离防止读取宿主配置 |
+| 宿主配置污染（hooks/plugins/MCP） | 隔离 HOME 目录 + `--settings` 显式加载（§4.1, §4.6） |
+| Agent 输出不可控 | CLAUDE.md 规则约束 + `--tools Bash,Read` + `--permission-mode bypassPermissions` + 审计日志 |
 
 ## 10. 参考
 

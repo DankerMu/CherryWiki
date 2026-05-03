@@ -185,7 +185,16 @@ components:
       properties:
         auto_graphify: { type: boolean }
         graphify_schedule: { type: string, enum: [on_change, daily, manual] }
-        default_retrieval_mode: { type: string, enum: [wiki_only, hybrid_text], default: hybrid_text, description: "Phase 1: wiki_only / hybrid_text. Phase 3 adds: graph_rag / path_first / community_first" }
+        default_retrieval_mode: { type: string, enum: [wiki_only, hybrid_text, graph_rag, path_first, community_first], default: hybrid_text, description: "Phase 1: wiki_only / hybrid_text. Phase 3+: graph_rag / path_first / community_first" }
+        database_config:
+          type: object
+          description: "Phase 3+: Space 内网数据库连接配置。enabled 为 true 时前端显示数据库开关"
+          properties:
+            enabled: { type: boolean, default: false }
+            dsn: { type: string, description: "PostgreSQL 只读连接串（管理员配置，不暴露给前端）" }
+            allowed_tables: { type: array, items: { type: string } }
+            masked_columns: { type: array, items: { type: string } }
+            description: { type: string }
 
     SpaceStats:
       type: object
@@ -420,9 +429,9 @@ components:
         message: { type: string, maxLength: 32000 }
         retrieval_mode:
           type: string
-          enum: [wiki_only, hybrid_text]
+          enum: [wiki_only, hybrid_text, graph_rag, path_first, community_first, debug]
           default: hybrid_text
-          description: "Phase 1: wiki_only / hybrid_text (Vector + BM25). Phase 3 adds: graph_rag / path_first / community_first"
+          description: "Phase 1: wiki_only / hybrid_text. Phase 3+: graph_rag / path_first / community_first / debug（走 Agent 深度路径）"
         include_graph_explanation: { type: boolean, default: false }
         enable_database:
           type: boolean
@@ -475,7 +484,7 @@ components:
         - type: object
           properties:
             query_id: { type: string }
-            retrieval_mode: { type: string, enum: [wiki_only, hybrid_text] }
+            retrieval_mode: { type: string, enum: [wiki_only, hybrid_text, graph_rag, path_first, community_first, debug] }
 
     SSERetrievalCompleted:
       allOf:
@@ -1985,7 +1994,8 @@ paths:
                   request_id, conversation_id, message_id, seq (monotonic sequence for reconnect), timestamp.
                   Events: retrieval.started, retrieval.completed, retrieval.failed,
                   rerank.completed, message.delta, citation.added, graph_path.added,
-                  message.completed, message.error, usage.reported.
+                  message.completed, message.error, usage.reported,
+                  chart.data (Phase 3+), agent.tool_use (Phase 3+).
                   Reconnect via Last-Event-ID: {message_id}:{seq} header.
         '403': { $ref: '#/components/responses/ForbiddenError' }
         '404': { $ref: '#/components/responses/NotFoundError' }

@@ -1345,7 +1345,7 @@
 | `model_id` | string | 是 | 模型 ID |
 | `space_ids` | string[] | 是 | 检索范围（需有 `space:view` 权限） |
 | `message` | string | 是 | 用户消息 |
-| `retrieval_mode` | enum | 否 | `wiki_only` / `hybrid_text` / `graph_rag` / `path_first` / `community_first`（默认 `hybrid_text`） |
+| `retrieval_mode` | enum | 否 | `wiki_only` / `hybrid_text` / `graph_rag` / `path_first` / `community_first` / `debug`（默认 `hybrid_text`） |
 | `include_graph_explanation` | boolean | 否 | 是否返回图谱推理过程（默认 false） |
 | `enable_database` | boolean | 否 | 开启后允许 Agent 查询内网数据库（Phase 3+，默认 false） |
 | `enable_deep_analysis` | boolean | 否 | 开启后强制走 Claude Code Agent 深度路径（Phase 3+，默认 false） |

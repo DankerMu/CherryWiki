@@ -55,6 +55,7 @@ CREATE TABLE spaces (
   permission_version BIGINT NOT NULL DEFAULT 1,
   strict_knowledge_only BOOLEAN NOT NULL DEFAULT true,
   graphify_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+  database_config JSONB NOT NULL DEFAULT '{"enabled":false}'::jsonb,
   default_publish_policy TEXT NOT NULL DEFAULT 'editor_publish',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
