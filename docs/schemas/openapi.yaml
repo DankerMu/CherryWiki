@@ -191,10 +191,11 @@ components:
           description: "Phase 3+: Space 内网数据库连接配置。enabled 为 true 时前端显示数据库开关"
           properties:
             enabled: { type: boolean, default: false }
-            dsn: { type: string, description: "PostgreSQL 只读连接串（管理员配置，不暴露给前端）" }
+            dsn: { type: string, writeOnly: true, description: "PostgreSQL 只读连接串。writeOnly — 仅管理员写入，GET 响应不返回明文（返回 masked 或省略）" }
             allowed_tables: { type: array, items: { type: string } }
             masked_columns: { type: array, items: { type: string } }
             description: { type: string }
+            dsn_masked: { type: string, readOnly: true, description: "GET 响应返回脱敏 DSN（如 postgresql://readonly:***@host/db）" }
 
     SpaceStats:
       type: object

@@ -142,7 +142,7 @@ generating → aborted（用户主动取消）
 ### 3.1 主要职责
 
 1. 会话状态管理。
-2. 查询路由：根据意图和开关判定走静态 RAG 快速路径还是 Claude Code Agent 深度路径（见 Doc 23 §2）。
+2. 查询路由：根据意图和开关判定走静态 RAG 快速路径还是 Claude Code Agent 深度路径（见 Doc 27 §2）。
 3. 静态 RAG 路径：模型调用和流式输出、Prompt 组装和上下文压缩。
 4. Agent 深度路径：spawn Claude Code 子进程，注入 CLAUDE.md 规则和 CLI 工具环境，SSE 流式转发。
 5. 引用和图谱路径回传。
@@ -170,7 +170,7 @@ Content-Type: application/json
 }
 ```
 
-`enable_database` 和 `enable_deep_analysis` 为 Phase 3+ 新增字段，Phase 1 忽略。当任一为 `true` 时，Chat Engine 走 Claude Code Agent 深度路径而非静态 RAG。详见 [Doc 23](../design/23_Agent架构与CLI工具设计.md)。
+`enable_database` 和 `enable_deep_analysis` 为 Phase 3+ 新增字段，Phase 1 忽略。当任一为 `true` 时，Chat Engine 走 Claude Code Agent 深度路径而非静态 RAG。详见 [Doc 27](../design/27_Agent架构与CLI工具设计.md)。
 
 ### 3.3 SSE 事件
 
@@ -246,7 +246,7 @@ Space 配置项：
 }
 ```
 
-`database_config` 控制该 Space 是否允许用户通过 Chat 查询内网数据库（见 Doc 23 §6）。`enabled` 为 `true` 时，前端 Chat 页面显示"数据库"开关。
+`database_config` 控制该 Space 是否允许用户通过 Chat 查询内网数据库（见 Doc 27 §6）。`enabled` 为 `true` 时，前端 Chat 页面显示"数据库"开关。
 
 ### 4.4 模型管理
 

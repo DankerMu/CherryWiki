@@ -1353,7 +1353,7 @@
 | `options.temperature` | float | 否 | 温度（0-2，默认 0.7） |
 | `options.max_tokens` | int | 否 | 最大输出 token（默认 2048） |
 
-当 `enable_database` 或 `enable_deep_analysis` 为 `true` 时，Chat Engine 走 Claude Code Agent 深度路径而非静态 RAG。详见 [Doc 23](23_Agent架构与CLI工具设计.md)。
+当 `enable_database` 或 `enable_deep_analysis` 为 `true` 时，Chat Engine 走 Claude Code Agent 深度路径而非静态 RAG。详见 [Doc 27](27_Agent架构与CLI工具设计.md)。
 
 **SSE 事件协议：**
 

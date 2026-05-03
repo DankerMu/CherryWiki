@@ -246,7 +246,7 @@ ANSWER REQUIREMENTS:
 | CLAUDE.md 安全规则 | 注入"不得执行 rm/curl/wget/chmod 等危险命令"规则 |
 | 工作目录只读 | graph.json 通过 symlink 或 readonly mount 指向共享存储，Agent 不可修改 |
 | 环境变量最小注入 | 仅注入必要的 DSN/TOKEN；数据库关闭时不注入 CHERRY_DB_DSN |
-| cherrydb 内部防护 | 只读连接 + SQL SELECT 白名单双重防护（见 Doc 23 §3.2） |
+| cherrydb 内部防护 | 只读连接 + SQL SELECT 白名单双重防护（见 Doc 27 §3.2） |
 | 审计 | Agent 所有 tool_use 和 SQL 执行通过 stderr 捕获记录到 audit_log |
 
 ## 8. 回答约束
@@ -338,7 +338,7 @@ answer_span → citation → chunk/section → page_id + page_version_id → sou
 
 ## 9. 查询模式与执行路径
 
-> 架构决策详见 [Doc 23 Agent 架构与 CLI 工具设计](23_Agent架构与CLI工具设计.md)。
+> 架构决策详见 [Doc 27 Agent 架构与 CLI 工具设计](27_Agent架构与CLI工具设计.md)。
 
 ### 9.1 双层查询架构
 
@@ -376,7 +376,7 @@ CherryWiki 采用双层查询架构：
 - `cherrydb query "SELECT ..."`：执行只读 SQL
 - `cherrydb chart bar|line|pie "SELECT ..."`：查询 + 生成 ECharts JSON
 
-安全约束内置于 CLI：只读连接、SELECT 白名单、1000 行上限、5s 超时、表 ACL、列脱敏。详见 Doc 23 §3.2。
+安全约束内置于 CLI：只读连接、SELECT 白名单、1000 行上限、5s 超时、表 ACL、列脱敏。详见 Doc 27 §3.2。
 
 ## 10. 质量反馈闭环
 

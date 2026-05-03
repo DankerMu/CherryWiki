@@ -201,5 +201,5 @@ CMD ["python", "-m", "src"]
 | 使用 OpenAI 兼容 API 调 LLM | CherryWiki 已配置 Deepseek Flash，成本低、速度快 |
 | graphify-worker 不使用 Claude Code | graphify-worker 的语义提取使用 Deepseek Flash（低成本），不需要 Claude Code 的 agent 能力 |
 
-> **注意**：本决策仅限 graphify-worker（图谱生成场景）。CherryWiki 的 Chat Agent 深度路径（Phase 3+）使用 Claude Code 作为 agent runtime，运行在 cherry-api 容器中而非 graphify-worker。详见 [Doc 23 Agent 架构与 CLI 工具设计](23_Agent架构与CLI工具设计.md) 及 ADR-010。
+> **注意**：本决策仅限 graphify-worker（图谱生成场景）。CherryWiki 的 Chat Agent 深度路径（Phase 3+）使用 Claude Code 作为 agent runtime，运行在 cherry-api 容器中而非 graphify-worker。详见 [Doc 27 Agent 架构与 CLI 工具设计](27_Agent架构与CLI工具设计.md) 及 ADR-010。
 | 更新 graphify pinned ref | 当前 pinned commit 缺少 `wiki.py` 模块 |

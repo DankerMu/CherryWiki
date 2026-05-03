@@ -578,7 +578,7 @@ Cherry Web + Graphify 自动生成 + 只读 Wiki + Vector/BM25 检索 + Chat 引
 
 完成 Phase 1 用户真正可用的闭环：提问 → 检索 Published Wiki → 模型回答 → 引用可点击。本阶段只实现**静态 RAG 快速路径**（单次 LLM 调用，Deepseek Flash）。Claude Code Agent 深度路径在 Stage 12 实现。
 
-> 双层查询架构设计见 [Doc 23 Agent 架构与 CLI 工具设计](docs/design/23_Agent架构与CLI工具设计.md)。
+> 双层查询架构设计见 [Doc 27 Agent 架构与 CLI 工具设计](docs/design/27_Agent架构与CLI工具设计.md)。
 
 ### 本阶段做什么
 
@@ -808,7 +808,7 @@ Phase 3 的目标是让 graph.json 不只是入库，而是进入检索、解释
 
 ## Stage 12：Claude Code Agent 集成、GraphRAG 深度路径、深度分析
 
-> 本 Stage 实现双层查询架构的**深度路径**。详见 [Doc 23](docs/design/23_Agent架构与CLI工具设计.md)。
+> 本 Stage 实现双层查询架构的**深度路径**。详见 [Doc 27](docs/design/27_Agent架构与CLI工具设计.md)。
 
 ### 做什么
 
@@ -830,7 +830,7 @@ Phase 3 的目标是让 graph.json 不只是入库，而是进入检索、解释
 
 | 文档 | 读取重点 |
 |---|---|
-| `docs/design/23_Agent架构与CLI工具设计.md` | **核心**。双层架构、CLI 工具、Claude Code 集成、CLAUDE.md 规则注入。 |
+| `docs/design/27_Agent架构与CLI工具设计.md` | **核心**。双层架构、CLI 工具、Claude Code 集成、CLAUDE.md 规则注入。 |
 | `docs/design/09_RAG与GraphRAG设计.md` | §9 查询模式、置信度策略、source chain。 |
 | `docs/design/22_Graphify集成架构勘误.md` | graphify CLI vs Python API 的正确理解。 |
 | `docs/requirements/04_模块需求_CherryWeb_Chat_Admin.md` | 深度分析开关、图谱解释 UI、SSE 事件。 |
@@ -854,7 +854,7 @@ Phase 3 的目标是让 graph.json 不只是入库，而是进入检索、解释
 
 ## Stage 15：数据库接入、cherrydb CLI、图表渲染
 
-> 详见 [Doc 23 §3.2 和 §6](docs/design/23_Agent架构与CLI工具设计.md)。
+> 详见 [Doc 27 §3.2 和 §6](docs/design/27_Agent架构与CLI工具设计.md)。
 
 ### 做什么
 
@@ -872,7 +872,7 @@ Phase 3 的目标是让 graph.json 不只是入库，而是进入检索、解释
 
 | 文档 | 读取重点 |
 |---|---|
-| `docs/design/23_Agent架构与CLI工具设计.md` | §3.2 cherrydb 设计、§5 数据库接入、安全约束。 |
+| `docs/design/27_Agent架构与CLI工具设计.md` | §3.2 cherrydb 设计、§6 数据库接入、§4.7 安全约束。 |
 | `docs/requirements/04_模块需求_CherryWeb_Chat_Admin.md` | 数据库开关、Space database_config、chart SSE 事件。 |
 | `docs/engineering/24_威胁建模与安全用例.md` | SQL 注入、数据泄露威胁模型。 |
 
@@ -944,7 +944,7 @@ Phase 4 不要提前做。它应在 Phase 1-3 跑稳后再进入。
 
 ## Stage 14：MCP Gateway（仅第三方外部工具）
 
-> 注意：CherryWiki 内部的图谱检索（graphify CLI）、Wiki 检索（cherrywiki CLI）、数据库查询（cherrydb CLI）均通过 CLI 工具模式实现，不走 MCP。MCP Gateway 仅用于对接第三方外部工具和服务。详见 [Doc 23 §1.3](docs/design/23_Agent架构与CLI工具设计.md)。
+> 注意：CherryWiki 内部的图谱检索（graphify CLI）、Wiki 检索（cherrywiki CLI）、数据库查询（cherrydb CLI）均通过 CLI 工具模式实现，不走 MCP。MCP Gateway 仅用于对接第三方外部工具和服务。详见 [Doc 27 §1.3](docs/design/27_Agent架构与CLI工具设计.md)。
 
 ### 做什么
 
@@ -961,7 +961,7 @@ Phase 4 不要提前做。它应在 Phase 1-3 跑稳后再进入。
 
 | 文档 | 读取重点 |
 |---|---|
-| `docs/design/23_Agent架构与CLI工具设计.md` | CLI 工具 vs MCP 的选型决策。 |
+| `docs/design/27_Agent架构与CLI工具设计.md` | CLI 工具 vs MCP 的选型决策。 |
 | `docs/architecture/08_强耦合设计_六层.md` | Agent 耦合和 MCP 策略。 |
 | `docs/audit/20_Cherry_Studio_代码审计.md` | MCP trace 和 Cherry 侧可复用模块。 |
 | `docs/engineering/13_开发规范.md` | MCP、外部组件、审计要求。 |

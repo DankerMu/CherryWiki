@@ -428,6 +428,9 @@ CREATE TABLE chat_messages (
   conversation_id TEXT NOT NULL REFERENCES chat_conversations(id),
   role TEXT NOT NULL,
   content TEXT NOT NULL,
+  retrieval_mode TEXT NOT NULL DEFAULT 'hybrid_text',
+  enable_database BOOLEAN NOT NULL DEFAULT false,
+  enable_deep_analysis BOOLEAN NOT NULL DEFAULT false,
   citations_json JSONB NOT NULL DEFAULT '[]'::jsonb,
   graph_paths_json JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()

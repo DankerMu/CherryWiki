@@ -16,8 +16,9 @@
 | | 10_数据模型与数据库设计.md | ER、表结构、ACL 信封、版本一致性 |
 | | 11_API规范.md | RESTful API、SSE、Bridge 内部 API |
 | | 21_Graphify_输出Schema契约.md | graph.json/wiki/report 契约与降级 |
+| | 12_UI设计规范_CherryStudio风格对齐.md | UI 设计规范、主题 Token、风格对齐 |
 | | 22_Graphify集成架构勘误.md | graphify Python API vs CLI 的正确理解 |
-| | 23_Agent架构与CLI工具设计.md | 双层查询架构、Claude Code Agent、CLI 工具族、数据库接入 |
+| | 27_Agent架构与CLI工具设计.md | 双层查询架构、Claude Code Agent、CLI 工具族、数据库接入 |
 | **engineering/** | 12_权限安全审计.md | RBAC、Space 隔离、审计日志 |
 | | 13_开发规范.md | 仓库结构、技术栈、编码规范 |
 | | 14_测试验收规范.md | 测试层级、性能指标 |
@@ -35,6 +36,7 @@
 | **schemas/** | schema.sql | PostgreSQL DDL 草案 |
 | | openapi.yaml | OpenAPI 3.1 草案 |
 | **ops/** | docker-compose.skeleton.yml | Docker Compose 骨架 |
+| | nginx.phase2.conf.example | Phase 2 Nginx 配置（含 Docmost 代理） |
 | | env.example | 环境变量模板 |
 | | nginx.conf.example | Nginx 配置 |
 | **templates/** | ADR_TEMPLATE.md | 架构决策记录模板 |

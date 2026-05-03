@@ -1,4 +1,4 @@
-# 23. Agent 架构与 CLI 工具设计
+# 27. Agent 架构与 CLI 工具设计
 
 > 生成时间：2026-05-02 | 基于 graphify 源码验证 + happy 项目架构参考
 
@@ -295,19 +295,21 @@ if (dbEnabled) {
 }
 
 const newSessionId = randomUUID();
-const proc = spawn('claude', [
+const args = [
   '--print',
   '--output-format', 'stream-json',
   '--verbose',
   '--include-partial-messages',           // token 级流式输出（否则只在完整回合后输出）
-  '--model', 'sonnet',
+  // 仅在未配置 AGENT_ANTHROPIC_MODEL 时传 --model（避免 --model 覆盖 ANTHROPIC_MODEL env）
+  ...(process.env.AGENT_ANTHROPIC_MODEL ? [] : ['--model', 'sonnet']),
   '--max-budget-usd', '2',               // 单次调用成本上限
   '--tools', 'Bash,Read',                // 限制可用工具集（注意 Bash 本身需 OS 级沙箱，见 §4.7）
   '--permission-mode', 'bypassPermissions',
   '--session-id', newSessionId,           // 显式设置 session ID（非 --resume）
   '--settings', settingsPath,             // 显式加载 settings，不依赖全局配置
   '-p', userMessage,
-], { cwd: workDir, env: envVars });
+];
+const proc = spawn('claude', args, { cwd: workDir, env: envVars });
 
 // 存储 session_id（也可从 system/init 事件或 result 事件中捕获验证）
 sessionManager.setSessionId(conversationId, newSessionId);
@@ -315,7 +317,7 @@ sessionManager.setSessionId(conversationId, newSessionId);
 // 1h 进程执行超时（防止挂起），超时后 kill，会话状态保留可 --resume 接续
 const killTimer = setTimeout(() => {
   proc.kill('SIGTERM');
-  setTimeout(() => { if (!proc.killed) proc.kill('SIGKILL'); }, 5000);
+  setTimeout(() => { if (proc.exitCode === null) proc.kill('SIGKILL'); }, 5000);
 }, 3600_000);
 proc.on('exit', () => clearTimeout(killTimer));
 
@@ -348,7 +350,7 @@ if (workDir && sessionId) {
   // 同样设置 1h kill 超时
   const killTimer = setTimeout(() => {
     proc.kill('SIGTERM');
-    setTimeout(() => { if (!proc.killed) proc.kill('SIGKILL'); }, 5000);
+    setTimeout(() => { if (proc.exitCode === null) proc.kill('SIGKILL'); }, 5000);
   }, 3600_000);
   proc.on('exit', () => clearTimeout(killTimer));
   // stdout 流式读取，进程完成后正常退出
