@@ -239,7 +239,6 @@ export class IndexerWorker extends AbstractBullMQWorker<IndexerBullMQPayload, In
           eq(wikiPages.tenant_id, payload.tenant_id),
           eq(wikiPages.space_id, payload.space_id),
           eq(wikiPageVersions.status, 'published'),
-          eq(wikiPages.current_version_id, wikiPageVersions.id),
         ),
       )
       .orderBy(asc(wikiPages.page_id));
@@ -425,7 +424,7 @@ export class IndexerWorker extends AbstractBullMQWorker<IndexerBullMQPayload, In
     const chunks = chunkPage(page.page, page.version, sections);
 
     return chunks.map((chunk) => {
-      const previous = previousByPosition.get(chunkKey(page.version.id, chunk.chunk_index));
+      const previous = previousByPosition.get(chunkKey(page.page.id, chunk.chunk_index));
       const previousEmbedding = previous?.embedding?.embedding;
       const reusedEmbedding =
         previous?.chunk.content_hash === chunk.content_hash && Array.isArray(previousEmbedding)
@@ -529,14 +528,14 @@ function buildPreviousChunkMap(previousChunks: PreviousChunkRow[], embeddingMode
       continue;
     }
 
-    previousByPosition.set(chunkKey(row.chunk.page_version_id, row.chunk.chunk_index), row);
+    previousByPosition.set(chunkKey(row.chunk.wiki_page_pk, row.chunk.chunk_index), row);
   }
 
   return previousByPosition;
 }
 
-function chunkKey(pageVersionId: string, chunkIndex: number): string {
-  return `${pageVersionId}:${chunkIndex}`;
+function chunkKey(pageId: string, chunkIndex: number): string {
+  return `${pageId}:${chunkIndex}`;
 }
 
 function copyPreviousChunk(row: PreviousChunkRow, snapshotId: string, embeddingModelId: string): ChunkPlan {
