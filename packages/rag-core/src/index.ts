@@ -2,5 +2,7 @@ export * from './acl-builder.js';
 export * from './chunker.js';
 export * from './injection-scanner.js';
 export * from './prompt-injection-patterns.js';
+export * from './retrieval-engine.js';
+export * from './rrf-fusion.js';
 export * from './source-chain.js';
 export * from './types.js';
