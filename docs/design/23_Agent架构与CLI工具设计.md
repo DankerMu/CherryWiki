@@ -670,14 +670,39 @@ Admin Console → Space 设置 → 数据库连接：
 }
 ```
 
-### 6.2 用户侧
+**DSN 安全存储**：`database_config.dsn` 包含数据库密码，在 PostgreSQL 中使用 `pgcrypto` 加密存储（`pgp_sym_encrypt`），cherry-api 读取时解密。前端 Admin API 返回脱敏 DSN（密码显示为 `***`），仅后端可读取明文用于注入 Agent 进程。
+
+**DSN 不写入 Docker `.env`**：每个 Space 的数据库连接不同，DSN 存储在 `spaces.database_config` JSONB 中，由 cherry-api 在 spawn Agent 时动态读取并注入 `CHERRY_DB_DSN` 环境变量。与 `AGENT_ANTHROPIC_*`（全局配置，Docker .env）不同，`CHERRY_DB_*` 是 per-Space 运行时注入。
+
+### 6.2 数据流
+
+```text
+管理员配置：
+  Admin Console → PATCH /api/spaces/{id} → database_config (DSN 加密存储)
+
+用户使用：
+  前端（数据库开关 ON）→ POST /chat/completions (enable_database=true)
+    → cherry-api 读取 Space database_config（解密 DSN）
+    → spawn Agent 进程，env 注入 CHERRY_DB_DSN / CHERRY_DB_ALLOWED_TABLES / CHERRY_DB_MASKED_COLUMNS
+    → Agent 调用 cherrydb CLI → CLI 通过 CHERRY_DB_DSN 连接目标数据库
+    → SQL 结果返回 Agent → Agent 综合回答 → SSE 转发前端
+
+前端不可见：
+  - DSN 明文不出现在前端 API 响应中
+  - CHERRY_DB_DSN 仅存在于 Agent 子进程 env 中（进程退出后消失）
+  - 即使 Agent 被注入攻击读取 env，也只能获得当前 Space 的只读 DSN
+```
+
+### 6.3 用户侧
 
 1. Chat 输入区显示"数据库"开关（仅当该 Space 配置了 database_config 且 enabled 时可见）
 2. 开关 ON → 请求体增加 `"enable_database": true`
-3. cherry-api 判定走 Claude Code Agent，环境变量注入 DSN 和 ACL
-4. Agent 通过 `cherrydb` CLI 查询数据库
+3. cherry-api 读取该 Space 的 `database_config`，解密 DSN
+4. spawn Agent 时注入 `CHERRY_DB_DSN`、`CHERRY_DB_ALLOWED_TABLES`、`CHERRY_DB_MASKED_COLUMNS`
+5. Agent 通过 `cherrydb` CLI 查询数据库
+6. 数据库开关 OFF 或 Space 未配置 database_config → 不注入任何 `CHERRY_DB_*` 变量，cherrydb 不可用
 
-### 6.3 审计
+### 6.4 审计
 
 每次 `cherrydb` 执行的 SQL 通过 stderr 输出，cherry-api 捕获并写入 `audit_log`：
 
@@ -692,6 +717,8 @@ Admin Console → Space 设置 → 数据库连接：
   "timestamp": "2026-05-02T10:30:00Z"
 }
 ```
+
+审计日志在 Admin Console → 审计日志页面可查，支持按 space_id / user_id / 时间范围过滤。
 
 ## 7. 与现有设计的关系
 
