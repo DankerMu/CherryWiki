@@ -6,6 +6,7 @@ export type ChatMessage = {
 export type ChatCompletionParams = {
   messages: ChatMessage[];
   model: string;
+  stream?: boolean;
   temperature?: number;
   max_tokens?: number;
   systemPrompt?: string;

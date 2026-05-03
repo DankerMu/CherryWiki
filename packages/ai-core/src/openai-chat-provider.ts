@@ -45,8 +45,14 @@ export class OpenAIChatProvider implements ChatProvider {
         });
         let finishReason: string | null = null;
         let usage = emptyUsage();
+        let timeoutCleared = false;
 
         for await (const chunk of stream) {
+          if (!timeoutCleared) {
+            clearTimeout(timeoutId);
+            timeoutCleared = true;
+          }
+
           const choice = chunk.choices[0];
           const delta = choice?.delta.content;
 

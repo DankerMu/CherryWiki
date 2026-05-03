@@ -92,6 +92,35 @@ describe('OpenAIChatProvider', () => {
     expect(getCreateOptions().signal?.aborted).toBe(true);
   });
 
+  it('clears the 60s timeout after the first stream chunk', async () => {
+    vi.useFakeTimers();
+    const stream = createControlledOpenAIStream([
+      createChunk({ delta: 'Hel' }),
+      createChunk({ delta: 'lo', finishReason: 'stop' }),
+    ]);
+    createMock.mockResolvedValueOnce(stream.iterable);
+
+    const provider = createProvider();
+    const chunksPromise = collectChunks(provider.streamCompletion(createParams()));
+
+    await vi.advanceTimersByTimeAsync(0);
+    await stream.releaseNext();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await stream.releaseNext();
+
+    await expect(chunksPromise).resolves.toEqual([
+      { type: 'content', delta: 'Hel' },
+      { type: 'content', delta: 'lo' },
+      {
+        type: 'done',
+        finish_reason: 'stop',
+        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+      },
+    ]);
+    expect(getCreateOptions().signal?.aborted).toBe(false);
+  });
+
   it('retries one 429 response after Retry-After and then streams successfully', async () => {
     vi.useFakeTimers();
     createMock
@@ -168,6 +197,37 @@ function createOpenAIStream(chunks: ChatCompletionChunk[]): AsyncIterable<ChatCo
       for (const chunk of chunks) {
         yield chunk;
       }
+    },
+  };
+}
+
+function createControlledOpenAIStream(chunks: ChatCompletionChunk[]): {
+  iterable: AsyncIterable<ChatCompletionChunk>;
+  releaseNext: () => Promise<void>;
+} {
+  const releases: Array<() => void> = [];
+  const releaseWaiters: Array<() => void> = [];
+
+  return {
+    iterable: {
+      async *[Symbol.asyncIterator]() {
+        for (const chunk of chunks) {
+          await new Promise<void>((resolve) => {
+            releases.push(resolve);
+            releaseWaiters.shift()?.();
+          });
+          yield chunk;
+        }
+      },
+    },
+    async releaseNext() {
+      while (releases.length === 0) {
+        await new Promise<void>((resolve) => {
+          releaseWaiters.push(resolve);
+        });
+      }
+
+      releases.shift()?.();
     },
   };
 }

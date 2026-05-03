@@ -883,8 +883,8 @@ export const answerCitations = pgTable(
     wiki_page_pk: text('wiki_page_pk')
       .notNull()
       .references(() => wikiPages.id),
-    section_id: text('section_id').references(() => wikiSections.id),
-    chunk_id: text('chunk_id').references(() => wikiChunks.id),
+    section_id: text('section_id').references(() => wikiSections.id, { onDelete: 'set null' }),
+    chunk_id: text('chunk_id').references(() => wikiChunks.id, { onDelete: 'set null' }),
     relevance_score: real('relevance_score').notNull(),
     source_chain_json: jsonb('source_chain_json').notNull(),
     display_text: text('display_text').notNull(),
