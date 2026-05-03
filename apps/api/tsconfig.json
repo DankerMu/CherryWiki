@@ -8,5 +8,22 @@
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../../packages/shared"
+    },
+    {
+      "path": "../../packages/auth-core"
+    },
+    {
+      "path": "../../packages/ai-core"
+    },
+    {
+      "path": "../../packages/rag-core"
+    },
+    {
+      "path": "../../packages/job-core"
+    }
+  ]
 }

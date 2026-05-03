@@ -41,6 +41,8 @@ export const ROLE_PERMISSIONS = {
     'wiki:rollback',
     'graphify:run',
     'graphify:view',
+    'chat:use',
+    'model:use',
     'admin',
     'admin:user_manage',
     'admin:model_manage',
@@ -84,6 +86,7 @@ export const SPACE_SCOPED_PERMISSIONS = [
   'wiki:rollback',
   'graphify:run',
   'graphify:view',
+  'chat:use',
 ] as const satisfies readonly PermissionPoint[];
 
 const ROLE_ALIASES = new Map<string, Role>([

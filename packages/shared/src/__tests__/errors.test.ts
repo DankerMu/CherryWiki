@@ -37,6 +37,7 @@ describe('ErrorCode', () => {
     expect(ErrorCode.SECRET_NOT_FOUND).toBe('SECRET_NOT_FOUND');
     expect(ErrorCode.MODEL_AUTH_FAILED).toBe('MODEL_AUTH_FAILED');
     expect(ErrorCode.EMBEDDING_LIMIT_EXCEEDED).toBe('EMBEDDING_LIMIT_EXCEEDED');
+    expect(ErrorCode.NO_CHAT_MODEL_CONFIGURED).toBe('NO_CHAT_MODEL_CONFIGURED');
   });
 
   it('contains upload module error codes', () => {

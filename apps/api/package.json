@@ -16,8 +16,10 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1039.0",
     "@aws-sdk/s3-request-presigner": "^3.1039.0",
+    "@cherrygraph/ai-core": "workspace:*",
     "@cherrygraph/auth-core": "workspace:*",
     "@cherrygraph/job-core": "workspace:*",
+    "@cherrygraph/rag-core": "workspace:*",
     "@cherrygraph/shared": "workspace:*",
     "@cherrygraph/wiki-core": "workspace:*",
     "@fastify/multipart": "^10.0.0",

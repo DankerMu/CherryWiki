@@ -20,14 +20,15 @@ const EXPECTED_AUDIT_EVENTS = [
   'admin.model.create',
   'admin.model.update',
   'admin.model.test',
+  'chat.completion',
 ] as const;
 
 describe('AUDIT_EVENTS', () => {
-  it('defines all 17 mandatory audit events', () => {
+  it('defines all 18 mandatory audit events', () => {
     const values = Object.values(AUDIT_EVENTS);
 
-    expect(values).toHaveLength(17);
-    expect(new Set(values).size).toBe(17);
+    expect(values).toHaveLength(18);
+    expect(new Set(values).size).toBe(18);
   });
 
   it('matches the expected event strings', () => {
