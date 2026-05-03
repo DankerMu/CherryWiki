@@ -2,6 +2,7 @@ import { rrfFuse } from './rrf-fusion.js';
 import type { SourceChainJson } from './types.js';
 
 const DEFAULT_TOP_K = 8;
+const MAX_TOP_K = 50;
 const DEFAULT_SEARCH_TOP_N = 20;
 
 export type RetrievalParams = {
@@ -64,23 +65,17 @@ export async function retrieve(
   const topK = normalizeTopK(params.topK);
   const topN = Math.max(DEFAULT_SEARCH_TOP_N, topK);
 
+  const searchParams = {
+    spaceId: params.spaceId,
+    tenantId: params.tenantId,
+    userGroupIds: params.userGroupIds,
+    snapshotId: params.snapshotId,
+    topN,
+  };
+
   const [vectorResult, bm25Result] = await Promise.allSettled([
-    vectorSearch({
-      queryEmbedding: params.queryEmbedding,
-      spaceId: params.spaceId,
-      tenantId: params.tenantId,
-      userGroupIds: params.userGroupIds,
-      snapshotId: params.snapshotId,
-      topN,
-    }),
-    bm25Search({
-      query: params.query,
-      spaceId: params.spaceId,
-      tenantId: params.tenantId,
-      userGroupIds: params.userGroupIds,
-      snapshotId: params.snapshotId,
-      topN,
-    }),
+    Promise.resolve().then(() => vectorSearch({ ...searchParams, queryEmbedding: params.queryEmbedding })),
+    Promise.resolve().then(() => bm25Search({ ...searchParams, query: params.query })),
   ]);
 
   const vectorResults = vectorResult.status === 'fulfilled' ? vectorResult.value : [];
@@ -94,5 +89,5 @@ function normalizeTopK(topK: number | undefined): number {
     return DEFAULT_TOP_K;
   }
 
-  return Math.floor(topK);
+  return Math.min(Math.floor(topK), MAX_TOP_K);
 }

@@ -50,6 +50,9 @@ function addRankedResults(fusedByChunkId: Map<string, FusedHit>, results: Search
 
     if (existing) {
       existing.score += scoreContribution;
+      if (hit.injectionRisk) {
+        existing.hit = { ...existing.hit, injectionRisk: true };
+      }
       continue;
     }
 
