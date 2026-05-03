@@ -10,10 +10,11 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
   private readonly maxBatchSize: number;
 
   constructor(private readonly config: EmbeddingProviderConfig) {
-    const apiKey = process.env[config.encryptedApiKeyRef];
+    const envVarName = resolveApiKeyRef(config.encryptedApiKeyRef);
+    const apiKey = process.env[envVarName];
 
     if (!apiKey) {
-      throw new Error(`Missing embedding API key: environment variable ${config.encryptedApiKeyRef} is not set`);
+      throw new Error(`Missing embedding API key: environment variable ${envVarName} is not set (ref: ${config.encryptedApiKeyRef})`);
     }
 
     this.client = new OpenAI({
@@ -114,4 +115,12 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function resolveApiKeyRef(ref: string): string {
+  if (ref.startsWith('secret:')) {
+    return ref.slice(7);
+  }
+
+  return ref;
 }
