@@ -3,6 +3,8 @@ import {
   JobRepository,
   JobStateMachine,
   JobStatus,
+  QueueFactory,
+  QUEUE_INDEXING,
   RedisJobLock,
   type JobRow,
 } from '@cherrygraph/job-core';
@@ -219,6 +221,133 @@ describe('InternalJobsService', () => {
       }),
     );
     expect(releaseSpy).toHaveBeenCalledWith(expect.anything(), 'job-1', 'worker-1');
+  });
+
+  it('creates and enqueues an indexing job when graphify completion succeeds', async () => {
+    const db = createDb();
+    const redis = createRedisMock();
+    const graphifyService = {
+      handleRunCompletion: vi.fn(() => Promise.resolve({ status: 'succeeded' })),
+    };
+    const service = new InternalJobsService(
+      db.asDb() as never,
+      redis.asClient() as never,
+      undefined,
+      undefined,
+      graphifyService as never,
+    );
+    const runningJob = createJobRow({
+      id: 'graphify-job-1',
+      tenant_id: 'tenant-1',
+      space_id: 'space-1',
+      type: 'graphify',
+      status: JobStatus.RUNNING,
+      locked_by: 'worker-1',
+      locked_at: new Date('2026-04-30T11:55:00.000Z'),
+      started_at: new Date('2026-04-30T11:55:00.000Z'),
+      payload_json: { run_id: 'run-1' },
+    });
+    const completedJob = createJobRow({
+      ...runningJob,
+      status: JobStatus.SUCCEEDED,
+      locked_by: null,
+      locked_at: null,
+      result_json: { graph_json_uri: 's3://bucket/graph.json' },
+      completed_at: new Date('2026-04-30T12:00:00.000Z'),
+    });
+    const indexingJob = createJobRow({
+      id: 'index-job-1',
+      tenant_id: 'tenant-1',
+      space_id: 'space-1',
+      queue_name: QUEUE_INDEXING,
+      type: 'reindex',
+    });
+    const queue = createQueueMock();
+
+    vi.spyOn(JobRepository, 'findById').mockResolvedValue(runningJob);
+    vi.spyOn(RedisJobLock, 'renew').mockResolvedValue(true);
+    vi.spyOn(JobStateMachine, 'transition').mockResolvedValue(completedJob);
+    vi.spyOn(JobEventRepository, 'create').mockResolvedValue({} as Awaited<ReturnType<typeof JobEventRepository.create>>);
+    vi.spyOn(RedisJobLock, 'release').mockResolvedValue(true);
+    const createJobSpy = vi.spyOn(JobRepository, 'create').mockResolvedValue(indexingJob);
+    const createQueueSpy = vi.spyOn(QueueFactory, 'createQueue').mockReturnValue(queue as never);
+
+    await service.reportComplete('graphify-job-1', {
+      worker_id: 'worker-1',
+      result_json: { graph_json_uri: 's3://bucket/graph.json' },
+    });
+
+    expect(graphifyService.handleRunCompletion).toHaveBeenCalledWith('run-1', {
+      graph_json_uri: 's3://bucket/graph.json',
+    });
+    expect(createJobSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        tenant_id: 'tenant-1',
+        space_id: 'space-1',
+        queue_name: QUEUE_INDEXING,
+        type: 'reindex',
+        payload_json: {
+          tenant_id: 'tenant-1',
+          space_id: 'space-1',
+          graphify_run_id: 'run-1',
+          trigger: 'graphify_completion',
+          scope: 'full',
+        },
+        created_by: 'user-1',
+      }),
+    );
+    expect(createQueueSpy).toHaveBeenCalledWith(QUEUE_INDEXING, expect.anything());
+    expect(queue.add).toHaveBeenCalledWith('reindex', { jobId: 'index-job-1' });
+    expect(queue.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not enqueue indexing when graphify completion handling fails before import finishes', async () => {
+    const db = createDb();
+    const redis = createRedisMock();
+    const graphifyService = {
+      handleRunCompletion: vi.fn(() => Promise.reject(new Error('quarantined output'))),
+    };
+    const service = new InternalJobsService(
+      db.asDb() as never,
+      redis.asClient() as never,
+      undefined,
+      undefined,
+      graphifyService as never,
+    );
+    const runningJob = createJobRow({
+      id: 'graphify-job-1',
+      type: 'graphify',
+      status: JobStatus.RUNNING,
+      locked_by: 'worker-1',
+      locked_at: new Date('2026-04-30T11:55:00.000Z'),
+      started_at: new Date('2026-04-30T11:55:00.000Z'),
+      payload_json: { run_id: 'run-1' },
+    });
+    const completedJob = createJobRow({
+      ...runningJob,
+      status: JobStatus.SUCCEEDED,
+      locked_by: null,
+      locked_at: null,
+      result_json: { graph_json_uri: 's3://bucket/graph.json' },
+      completed_at: new Date('2026-04-30T12:00:00.000Z'),
+    });
+
+    vi.spyOn(JobRepository, 'findById').mockResolvedValue(runningJob);
+    vi.spyOn(RedisJobLock, 'renew').mockResolvedValue(true);
+    vi.spyOn(JobStateMachine, 'transition').mockResolvedValue(completedJob);
+    vi.spyOn(JobEventRepository, 'create').mockResolvedValue({} as Awaited<ReturnType<typeof JobEventRepository.create>>);
+    vi.spyOn(RedisJobLock, 'release').mockResolvedValue(true);
+    const createJobSpy = vi.spyOn(JobRepository, 'create');
+    const createQueueSpy = vi.spyOn(QueueFactory, 'createQueue');
+
+    await service.reportComplete('graphify-job-1', {
+      worker_id: 'worker-1',
+      result_json: { graph_json_uri: 's3://bucket/graph.json' },
+    });
+
+    expect(createJobSpy).not.toHaveBeenCalled();
+    expect(createQueueSpy).not.toHaveBeenCalled();
   });
 
   it('completes upload validation when a validation job succeeds', async () => {
@@ -629,6 +758,8 @@ describe('InternalJobsService', () => {
     vi.spyOn(JobStateMachine, 'transition').mockResolvedValue(failedJob);
     vi.spyOn(JobEventRepository, 'create').mockResolvedValue({} as Awaited<ReturnType<typeof JobEventRepository.create>>);
     vi.spyOn(RedisJobLock, 'release').mockResolvedValue(true);
+    const createJobSpy = vi.spyOn(JobRepository, 'create');
+    const createQueueSpy = vi.spyOn(QueueFactory, 'createQueue');
 
     const result = await service.reportFailure('job-1', {
       worker_id: 'worker-1',
@@ -640,6 +771,8 @@ describe('InternalJobsService', () => {
     expect(graphifyService.handleRunFailure).toHaveBeenCalledWith('run-1', {
       error_json: errorJson,
     });
+    expect(createJobSpy).not.toHaveBeenCalled();
+    expect(createQueueSpy).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -1023,6 +1156,16 @@ function createService(): InternalJobsService {
 
 function createDb<Row = unknown>(rows: Row[] = []): TestDb<Row> {
   return new TestDb(rows);
+}
+
+function createQueueMock(): {
+  add: ReturnType<typeof vi.fn<(name: string, data: { jobId: string }) => Promise<void>>>;
+  close: ReturnType<typeof vi.fn<() => Promise<void>>>;
+} {
+  return {
+    add: vi.fn(() => Promise.resolve()),
+    close: vi.fn(() => Promise.resolve()),
+  };
 }
 
 class TestDb<Row = unknown> {

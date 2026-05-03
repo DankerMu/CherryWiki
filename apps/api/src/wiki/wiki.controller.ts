@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpException, HttpStatus, Param, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, HttpException, HttpStatus, Param, Post, Query, Req } from '@nestjs/common';
 import { Permissions, type AuthenticatedRequestUser } from '@cherrygraph/auth-core';
 import { ErrorCode } from '@cherrygraph/shared';
 
@@ -106,6 +106,28 @@ export class WikiController {
       user.sub,
       buildAuditContext(request),
     );
+  }
+
+  @Post(':pageId/reindex')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @Permissions('wiki:publish')
+  async reindexPage(
+    @Param('spaceId') spaceId: string,
+    @Param('pageId') pageId: string,
+    @Headers('x-idempotency-key') idempotencyKey: string | undefined,
+    @Req() request: RequestWithAuth,
+  ): Promise<{ data: Awaited<ReturnType<WikiService['reindexPage']>> }> {
+    const user = getAuthenticatedUser(request);
+    const data = await this.wikiService.reindexPage(
+      user.tenant_id,
+      spaceId,
+      pageId,
+      user.sub,
+      idempotencyKey,
+      buildAuditContext(request),
+    );
+
+    return { data };
   }
 }
 

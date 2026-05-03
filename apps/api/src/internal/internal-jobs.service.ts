@@ -1,12 +1,15 @@
 import { HttpException, HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import {
+  QueueFactory,
+  QUEUE_INDEXING,
   JobConflictError,
   JobEventRepository,
   JobRepository,
   JobStateMachine,
   JobStatus,
   RedisJobLock,
+  type BullMQConnection,
   jobs,
   type JobRow,
 } from '@cherrygraph/job-core';
@@ -647,7 +650,40 @@ export class InternalJobsService {
     const runId = readString(payload.run_id) ?? job.id;
 
     try {
-      await this.graphifyService.handleRunCompletion(runId, asJsonRecord(job.result_json));
+      const completedRun = await this.graphifyService.handleRunCompletion(runId, asJsonRecord(job.result_json));
+      if (completedRun.status !== 'succeeded') {
+        getApiLogger().warn(
+          { job_id: job.id, run_id: runId, run_status: completedRun.status },
+          'Graphify run completion did not transition to succeeded — skipping indexing trigger',
+        );
+        return;
+      }
+
+      const indexJob = await JobRepository.create(this.db, {
+        tenant_id: job.tenant_id,
+        space_id: job.space_id,
+        queue_name: QUEUE_INDEXING,
+        type: 'reindex',
+        payload_json: {
+          tenant_id: job.tenant_id,
+          space_id: job.space_id,
+          graphify_run_id: readString(payload.run_id),
+          trigger: 'graphify_completion',
+          scope: 'full',
+        },
+        created_by: job.created_by,
+      });
+
+      const redis = this.getRequiredRedis();
+      const queue = QueueFactory.createQueue<{ jobId: string }>(
+        QUEUE_INDEXING,
+        redis as unknown as BullMQConnection,
+      );
+      try {
+        await queue.add('reindex', { jobId: indexJob.id });
+      } finally {
+        await queue.close();
+      }
     } catch (err) {
       getApiLogger().error(
         { err, job_id: job.id, run_id: runId },
