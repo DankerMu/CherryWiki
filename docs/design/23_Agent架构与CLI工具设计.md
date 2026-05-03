@@ -276,7 +276,14 @@ const envVars: Record<string, string> = {
   HOME: agentHome,                        // 隔离 HOME，Claude Code 不会加载宿主配置/hooks/plugins
   LANG: process.env.LANG || 'en_US.UTF-8',
   TMPDIR: join(workDir, 'tmp'),
-  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY!,
+  // Claude Code Agent 模型配置 — 通过 env 注入，支持代理网关/替换模型（见 §4.8）
+  ANTHROPIC_API_KEY: process.env.AGENT_ANTHROPIC_API_KEY!,
+  ...(process.env.AGENT_ANTHROPIC_BASE_URL && {
+    ANTHROPIC_BASE_URL: process.env.AGENT_ANTHROPIC_BASE_URL,
+  }),
+  ...(process.env.AGENT_ANTHROPIC_MODEL && {
+    ANTHROPIC_MODEL: process.env.AGENT_ANTHROPIC_MODEL,
+  }),
   CHERRY_API_INTERNAL_URL: internalApiUrl,
   CHERRY_AGENT_TOKEN: agentToken,
 };
@@ -489,12 +496,19 @@ cherry-api 使用 readline 逐行解析 stdout，每行 `JSON.parse` 后按 `typ
 
 > 注意：不加 `--include-partial-messages` 时，Claude Code 仅在完整 assistant 回合结束后才输出一次 assistant 消息（非 token 级流式）。CherryWiki 必须加此 flag 以实现前端实时打字效果。
 
-### 4.6 settings.json（权限配置）
+### 4.6 settings.json（权限 + 模型配置）
 
-通过 `--settings <path>` 显式加载，不依赖全局 `~/.claude/settings.json`：
+通过 `--settings <path>` 显式加载，不依赖全局 `~/.claude/settings.json`。cherry-api 在首次 spawn 时动态生成，合并权限规则和模型配置（见 §4.8）：
 
 ```json
 {
+  "env": {
+    "ANTHROPIC_API_KEY": "${从 AGENT_ANTHROPIC_API_KEY 读取}",
+    "ANTHROPIC_BASE_URL": "${从 AGENT_ANTHROPIC_BASE_URL 读取，可选}",
+    "ANTHROPIC_MODEL": "${从 AGENT_ANTHROPIC_MODEL 读取，可选}"
+  },
+  "model": "sonnet",
+  "skipDangerousModePermissionPrompt": true,
   "permissions": {
     "allow": [
       "Bash(cherrywiki *)",
@@ -513,6 +527,8 @@ cherry-api 使用 readline 逐行解析 stdout，每行 `JSON.parse` 后按 `typ
 }
 ```
 
+`env` 块中的变量由 Claude Code 在初始化时合并到进程环境，优先级高于 spawn 时传入的 env。`model` 指定槽位名（sonnet），`ANTHROPIC_MODEL` 覆盖实际请求的模型名。
+
 ### 4.7 OS 级沙箱（安全关键）
 
 `--tools Bash,Read` 限制 Claude Code 的可用工具集，但 **Bash 本身是万能工具**——Agent 仍可通过 `echo > file`、`python -c`、`env`、`cat /proc/self/environ` 等方式写文件或读取环境变量。§4.6 的 settings deny 规则提供应用层防护，但不能完全阻止绕过。
@@ -529,6 +545,70 @@ cherry-api 使用 readline 逐行解析 stdout，每行 `JSON.parse` 后按 `typ
 | 进程资源 | `ulimit -v 4194304`（4GB 内存上限） | 防止单进程耗尽宿主资源 |
 
 > 参考：happy 项目的 `initializeSandbox()` 和 `wrapCommand()` 实现了类似的沙箱隔离（见 `packages/happy-cli/src/sandbox/manager.ts`）。CherryWiki 在 Docker 部署环境下可通过容器配置实现等效隔离，无需额外沙箱库。
+
+### 4.8 Agent 模型配置（代理网关 / 替换模型）
+
+Claude Code 支持通过环境变量将底层模型重定向到代理网关或替换模型。这意味着 Agent 深度路径**不必绑定 Anthropic 原生模型和价格**——可以使用 Deepseek 等低成本模型通过 OpenAI 兼容代理网关接入。
+
+**Docker `.env` 中的 Agent 模型配置项**（cherry-api 容器读取后注入 Agent 子进程 env）：
+
+```bash
+# === Agent 模型配置（cherry-api 容器 .env） ===
+
+# API Key — 代理网关或 Anthropic 原生
+AGENT_ANTHROPIC_API_KEY=sk-xxxx
+
+# 代理网关地址（留空则使用 Anthropic 官方 API）
+AGENT_ANTHROPIC_BASE_URL=https://your-proxy-gateway.com
+
+# 替换模型名（所有 Claude 模型槽位映射到此模型）
+AGENT_ANTHROPIC_MODEL=deepseek-v4-flash
+```
+
+cherry-api spawn 子进程时将这些值映射为 Claude Code 识别的环境变量：
+
+| `.env` 变量 | Agent 子进程 env | 说明 |
+|---|---|---|
+| `AGENT_ANTHROPIC_API_KEY` | `ANTHROPIC_API_KEY` | 必填。代理网关或 Anthropic API Key |
+| `AGENT_ANTHROPIC_BASE_URL` | `ANTHROPIC_BASE_URL` | 可选。设置后 Claude Code 请求发往代理网关而非 `api.anthropic.com` |
+| `AGENT_ANTHROPIC_MODEL` | `ANTHROPIC_MODEL` | 可选。覆盖 `--model` 参数指定的模型名，代理网关按此名路由到实际模型 |
+
+> **前缀 `AGENT_`**：避免与 cherry-api 自身的 `MODEL_API_KEY`/`MODEL_API_BASE_URL`（用于静态 RAG 路径的 Deepseek Flash）冲突。cherry-api 容器同时运行两套 LLM 调用：静态 RAG 直接调 Deepseek，Agent 深度路径通过 Claude Code CLI 调用。
+
+**settings.json 模型配置**（写入 Agent 工作目录，通过 `--settings` 加载）：
+
+```json
+{
+  "env": {
+    "ANTHROPIC_API_KEY": "sk-xxxx",
+    "ANTHROPIC_BASE_URL": "https://your-proxy-gateway.com",
+    "ANTHROPIC_MODEL": "deepseek-v4-flash"
+  },
+  "model": "sonnet",
+  "skipDangerousModePermissionPrompt": true,
+  "permissions": {
+    "allow": [
+      "Bash(cherrywiki *)", "Bash(cherrydb *)", "Bash(graphify *)", "Read(*)"
+    ],
+    "deny": [
+      "Bash(rm *)", "Bash(curl *)", "Bash(wget *)", "Bash(chmod *)",
+      "Bash(python *)", "Bash(node *)", "Bash(sh *)", "Bash(bash -c *)",
+      "Bash(echo * > *)", "Bash(cat * > *)", "Bash(tee *)",
+      "Write", "Edit", "WebFetch"
+    ]
+  }
+}
+```
+
+> `settings.json` 中的 `env` 块会被 Claude Code 在初始化时合并到进程环境变量中。`model` 字段指定 Claude Code 的模型槽位（sonnet/opus/haiku），但实际请求的模型名由 `ANTHROPIC_MODEL` env 覆盖。`skipDangerousModePermissionPrompt: true` 避免 bypassPermissions 模式下的交互式确认提示。
+
+**典型部署场景**：
+
+| 场景 | AGENT_ANTHROPIC_BASE_URL | AGENT_ANTHROPIC_MODEL | 成本 |
+|---|---|---|---|
+| Anthropic 原生 | 不设 | 不设（使用 Claude Sonnet） | 高 |
+| 代理网关 + Deepseek | `https://proxy.example.com` | `deepseek-v4-flash` | 低（约 1/10） |
+| 代理网关 + Claude | `https://proxy.example.com` | `claude-sonnet-4-6` | 中（有缓存/折扣） |
 
 ## 5. 图谱粒度与 Space 隔离
 
@@ -647,7 +727,7 @@ MCP Gateway 仅在需要对接第三方外部工具时保留（Phase 4+）。
 
 | 风险 | 缓解 |
 |---|---|
-| Claude Code 必须用 Anthropic 模型，成本高于 Deepseek | 双层架构确保大部分查询走静态 RAG（便宜路径）；Agent 仅处理复杂问题；`--max-budget-usd 2` 单次成本上限 |
+| Claude Code 模型成本 | 双层架构确保大部分查询走静态 RAG；支持代理网关 + Deepseek 等替换模型（§4.8），不必绑定 Anthropic 原生价格；`--max-budget-usd 2` 单次成本上限 |
 | Claude Code 进程启动延迟 | 懒加载 + `--resume` 恢复上下文减少重复初始化；前端显示"深度分析中..."状态 |
 | 多用户并发时进程数 | 内网企业场景并发不高；空闲超时 10 分钟自动回收；并发上限 + 排队 |
 | Claude Code CLI 版本更新可能 breaking | 锁定 Claude Code 版本；Docker 镜像固定 |
