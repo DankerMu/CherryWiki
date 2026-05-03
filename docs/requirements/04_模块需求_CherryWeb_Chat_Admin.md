@@ -28,7 +28,9 @@ Cherry Web 是用户进入平台的主入口，负责 AI 聊天、Agent、GraphR
 - 支持选择模型。
 - 支持选择知识范围：一个或多个有权限 Space。
 - 支持开启/关闭 GraphRAG 解释。
-- 支持附件上传，但附件不会直接作为临时上下文，而是进入上传归档和 Graphify 流程；如需临时分析，应单独标记为“临时会话附件”。
+- 支持”数据库”开关：开启后允许 Agent 查询内网数据库、生成图表。仅当当前 Space 配置了数据库连接且 `database_config.enabled = true` 时可见。选择多个 Space 时，如果部分 Space 配置了数据库，数据库开关仅对配置了 `database_config` 的 Space 生效，未配置数据库的 Space 不受影响。
+- 支持”深度分析”开关：开启后强制走 Claude Code Agent 多轮推理，适用于复杂关系、架构推理类问题。
+- 支持附件上传，但附件不会直接作为临时上下文，而是进入上传归档和 Graphify 流程；如需临时分析，应单独标记为”临时会话附件”。
 
 #### 输出区
 
@@ -140,12 +142,12 @@ generating → aborted（用户主动取消）
 ### 3.1 主要职责
 
 1. 会话状态管理。
-2. 模型调用和流式输出。
-3. GraphRAG 检索编排。
-4. Prompt 组装和上下文压缩。
-5. 工具调用和 MCP Gateway 对接。
-6. 引用和图谱路径回传。
-7. 审计日志。
+2. 查询路由：根据意图和开关判定走静态 RAG 快速路径还是 Claude Code Agent 深度路径（见 Doc 23 §2）。
+3. 静态 RAG 路径：模型调用和流式输出、Prompt 组装和上下文压缩。
+4. Agent 深度路径：spawn Claude Code 子进程，注入 CLAUDE.md 规则和 CLI 工具环境，SSE 流式转发。
+5. 引用和图谱路径回传。
+6. 图表数据转发（Agent 路径下 `cherrydb chart` 输出的 ECharts JSON）。
+7. 审计日志（含 Agent 路径下的所有 SQL 执行记录）。
 
 ### 3.2 请求协议
 
@@ -162,9 +164,13 @@ Content-Type: application/json
   "message": "我们的单点登录流程是什么？",
   "retrieval_mode": "hybrid_text",
   "include_graph_explanation": false,
+  "enable_database": false,
+  "enable_deep_analysis": false,
   "stream": true
 }
 ```
+
+`enable_database` 和 `enable_deep_analysis` 为 Phase 3+ 新增字段，Phase 1 忽略。当任一为 `true` 时，Chat Engine 走 Claude Code Agent 深度路径而非静态 RAG。详见 [Doc 23](../design/23_Agent架构与CLI工具设计.md)。
 
 ### 3.3 SSE 事件
 
@@ -182,8 +188,12 @@ Content-Type: application/json
 | `message.completed` | 完成 | 回答完成 | → `completed` |
 | `message.error` | 错误 | 不可恢复错误 | → `failed` |
 | `usage.reported` | 完成 | Token 用量 | — |
+| `chart.data` | 生成 | 图表数据（ECharts JSON） | — |
+| `agent.tool_use` | 生成 | Agent 正在调用工具（仅深度路径） | — |
 
 前端根据 SSE 事件驱动状态迁移，用户点击"停止生成"发送 abort 信号后状态置为 `aborted`。
+
+`chart.data` 事件携带 ECharts 配置 JSON，前端使用 ECharts 组件渲染。`agent.tool_use` 事件用于深度分析模式下展示 Agent 正在执行的操作（如"正在查询数据库..."），增强用户感知。
 
 ## 4. Admin Console
 
@@ -211,6 +221,7 @@ Content-Type: application/json
 - 一个 Graphify corpus。
 - 一组向量/图谱/全文索引范围。
 - 一组 ACL。
+- 可选：一个内网数据库连接。
 
 Space 配置项：
 
@@ -224,9 +235,18 @@ Space 配置项：
   "auto_run_graphify": true,
   "upload_enabled": true,
   "manual_edit_enabled": true,
-  "publish_policy": "editor_publish"
+  "publish_policy": "editor_publish",
+  "database_config": {
+    "enabled": false,
+    "dsn": "",
+    "allowed_tables": [],
+    "masked_columns": [],
+    "description": ""
+  }
 }
 ```
+
+`database_config` 控制该 Space 是否允许用户通过 Chat 查询内网数据库（见 Doc 23 §6）。`enabled` 为 `true` 时，前端 Chat 页面显示"数据库"开关。
 
 ### 4.4 模型管理
 
@@ -301,7 +321,7 @@ Admin API        只处理管理配置。
 
 1. 用户登录后可以发起流式聊天。
 2. 用户可以选择自己有权限的 Space。
-3. Chat Engine 调用 wiki_only / hybrid_text 检索（即 Vector + BM25）。
+3. Chat Engine 调用 wiki_only / hybrid_text 检索（即 Vector + BM25，静态 RAG 快速路径）。
 4. 回答带 Wiki 引用。
 5. 管理员可以创建用户、Group、Space。
 6. 管理员可以查看 Graphify 任务和索引状态。
@@ -309,4 +329,15 @@ Admin API        只处理管理配置。
 
 ### Phase 3 验收（本阶段不做）
 
-- Chat Engine 调用 graph_rag / path_first / community_first 检索。
+- Claude Code Agent 深度路径可用，支持多轮 tool-use 循环。
+- `graphify query/path/explain` CLI 可通过 Agent 调用，图谱关系可解释。
+- "深度分析"开关有效，复杂问题走 Agent 路径。
+- Agent 路径回答包含引用来源标注。
+
+### Phase 3+ 数据库验收（本阶段不做）
+
+- 管理员可为 Space 配置数据库连接（DSN + 表白名单 + 列脱敏）。
+- "数据库"开关仅在配置了数据库的 Space 中可见。
+- 用户开启开关后，Agent 可通过 `cherrydb` CLI 查询数据库。
+- `cherrydb chart` 输出的 ECharts JSON 可被前端渲染为图表。
+- 所有 SQL 执行记录写入审计日志。

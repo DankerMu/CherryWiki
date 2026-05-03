@@ -424,6 +424,14 @@ components:
           default: hybrid_text
           description: "Phase 1: wiki_only / hybrid_text (Vector + BM25). Phase 3 adds: graph_rag / path_first / community_first"
         include_graph_explanation: { type: boolean, default: false }
+        enable_database:
+          type: boolean
+          default: false
+          description: "Phase 3+: 开启后允许 Agent 查询内网数据库。仅当 Space 配置了 database_config 时有效"
+        enable_deep_analysis:
+          type: boolean
+          default: false
+          description: "Phase 3+: 开启后强制走 Claude Code Agent 深度路径"
         stream: { type: boolean, default: true }
         options:
           type: object
@@ -540,6 +548,26 @@ components:
             message: { type: string }
             retryable: { type: boolean }
             retry_after_ms: { type: integer }
+
+    SSEChartData:
+      allOf:
+        - { $ref: '#/components/schemas/SSEEventBase' }
+        - type: object
+          description: "Phase 3+: Agent 通过 cherrydb chart 输出的 ECharts 图表数据"
+          required: [chart_type, echarts_option]
+          properties:
+            chart_type: { type: string, enum: [bar, line, pie] }
+            echarts_option: { type: object, description: "完整 ECharts 配置 JSON" }
+
+    SSEAgentToolUse:
+      allOf:
+        - { $ref: '#/components/schemas/SSEEventBase' }
+        - type: object
+          description: "Phase 3+: Agent 正在调用工具（仅深度路径）"
+          required: [tool_name]
+          properties:
+            tool_name: { type: string, description: "如 cherrydb query / graphify query / cherrywiki search" }
+            tool_input: { type: string, description: "工具参数摘要" }
 
     SSEUsageReported:
       allOf:

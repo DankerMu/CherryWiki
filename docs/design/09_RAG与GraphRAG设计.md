@@ -229,13 +229,25 @@ ANSWER REQUIREMENTS:
 
 上传资料和网页抓取可能包含针对 LLM 的恶意指令。防护策略：
 
+**快速路径（静态 RAG）：**
+
 | 层面 | 措施 |
 |---|---|
 | Prompt 结构 | Context 以 `(data, not instructions)` 标注，与 system/developer prompt 明确隔离 |
-| Tool call gating | Agent 工具调用必须经 policy 层审批，不允许 context 中的文本触发 tool use |
 | 内容标记 | ingestion-worker 对上传/网页内容扫描 injection pattern（如 `ignore previous`、`system prompt`、`<|im_start|>`），命中的 chunk 标记 `injection_risk: true` |
-| 降权策略 | 包含 `injection_risk` chunk 的回答自动禁用 tool call，降低 Agent 权限 |
+| 降权策略 | 包含 `injection_risk` chunk 的回答自动降低 rerank 权重（x0.3） |
 | 审计 | retrieval_traces 记录是否包含高风险 chunk，便于事后分析 |
+
+**深度路径（Claude Code Agent）：**
+
+| 层面 | 措施 |
+|---|---|
+| 可用工具限制 | Claude Code 使用 `--tools Bash,Read` 限制可用工具集，禁止 Write/Edit 等修改类工具 |
+| CLAUDE.md 安全规则 | 注入"不得执行 rm/curl/wget/chmod 等危险命令"规则 |
+| 工作目录只读 | graph.json 通过 symlink 或 readonly mount 指向共享存储，Agent 不可修改 |
+| 环境变量最小注入 | 仅注入必要的 DSN/TOKEN；数据库关闭时不注入 CHERRY_DB_DSN |
+| cherrydb 内部防护 | 只读连接 + SQL SELECT 白名单双重防护（见 Doc 23 §3.2） |
+| 审计 | Agent 所有 tool_use 和 SQL 执行通过 stderr 捕获记录到 audit_log |
 
 ## 8. 回答约束
 
@@ -324,16 +336,47 @@ answer_span → citation → chunk/section → page_id + page_version_id → sou
 - 查询时零额外查询：chunk 检索结果已包含 source_chain
 - 存储开销：每 chunk 约增加 200-500 bytes（可接受，相比 embedding 向量 12KB 微不足道）
 
-## 9. GraphRAG 模式
+## 9. 查询模式与执行路径
 
-| 模式 | Phase | 使用场景 | 检索策略 |
+> 架构决策详见 [Doc 23 Agent 架构与 CLI 工具设计](23_Agent架构与CLI工具设计.md)。
+
+### 9.1 双层查询架构
+
+CherryWiki 采用双层查询架构：
+
+- **快速路径（静态 RAG）**：Phase 1 默认，单次 LLM 调用，成本低、延迟低。适用于大部分简单问题。
+- **深度路径（Claude Code Agent）**：Phase 3+ 引入，复用 Claude Code CLI 作为 agent runtime，通过 CLI 工具（`graphify query/path/explain`、`cherrywiki search`、`cherrydb query/chart`）多轮检索和推理。适用于复杂图谱推理、数据库查询、深度分析。
+
+### 9.2 检索模式
+
+| 模式 | Phase | 执行路径 | 检索策略 |
 |---|---|---|---|
-| `wiki_only` | **Phase 1** | 纯文本事实 | Vector + BM25。 |
-| `hybrid_text` | **Phase 1**（默认） | 混合文本检索 | Vector + BM25，ACL 过滤。 |
-| `graph_rag` | Phase 3 | 图谱增强 | Vector + BM25 + graph nodes/edges。 |
-| `path_first` | Phase 3 | 关系解释 | 先找路径，再补 Wiki chunks。 |
-| `community_first` | Phase 3 | 总览/架构 | 先社区摘要和 god nodes，再找 chunks。 |
-| `debug` | Phase 3 | 管理员调试 | 返回检索 debug（Retrieval trace UI）。 |
+| `wiki_only` | **Phase 1** | 快速路径 | Vector + BM25。 |
+| `hybrid_text` | **Phase 1**（默认） | 快速路径 | Vector + BM25，ACL 过滤。 |
+| `graph_rag` | Phase 3 | 深度路径 | Claude Code Agent + `graphify query` + `cherrywiki search`，多轮 tool-use。 |
+| `path_first` | Phase 3 | 深度路径 | Claude Code Agent + `graphify path`，先找路径再补 Wiki。 |
+| `community_first` | Phase 3 | 深度路径 | Claude Code Agent + `graphify query` + 社区摘要，先总览再细化。 |
+| `debug` | Phase 3 | 深度路径 | Claude Code Agent，返回完整检索 trace。 |
+
+> 注意：`database` 不是 `retrieval_mode` 的枚举值。数据库查询能力由请求体中的 `enable_database` 开关控制，与 retrieval_mode 正交。开启 `enable_database` 后 Agent 可在任何深度路径模式中调用 `cherrydb` CLI。
+
+### 9.3 Phase 3 图谱检索实现变更
+
+原设计将 `graph_rag`/`path_first`/`community_first` 实现为静态 pipeline（预计算图 context → context pack → 单次 LLM 调用）。
+
+经 graphify 源码验证（见 Doc 22），graphify 的检索设计依赖 AI agent 的多轮查询纠错能力（`graphify query` → 看结果 → 换策略 → `graphify path` → 综合回答）。静态 pipeline 无法复现这种迭代推理质量。
+
+**变更**：Phase 3 的 `graph_rag`/`path_first`/`community_first` 模式走 Claude Code Agent 深度路径，通过 `graphify` CLI 工具进行多轮图遍历。§4（混合检索）中的 token budget、rerank、context packing 设计仍适用于快速路径（Phase 1），深度路径由 Claude Code 自主管理 context。
+
+### 9.4 数据库检索模式
+
+用户开启"数据库"开关后，Agent 可通过 `cherrydb` CLI 查询内网数据库：
+
+- `cherrydb tables`：列出可查表
+- `cherrydb query "SELECT ..."`：执行只读 SQL
+- `cherrydb chart bar|line|pie "SELECT ..."`：查询 + 生成 ECharts JSON
+
+安全约束内置于 CLI：只读连接、SELECT 白名单、1000 行上限、5s 超时、表 ACL、列脱敏。详见 Doc 23 §3.2。
 
 ## 10. 质量反馈闭环
 
@@ -358,11 +401,18 @@ feedback → issue → assigned editor → wiki edit/proposal → graphify updat
 
 ### Phase 3 验收（本阶段不做）
 
-- 查询能返回至少一条图谱路径或相关节点（graph_paths / related nodes）。
+- Claude Code Agent 深度路径可用，复杂问题自动走 Agent。
+- Agent 可通过 `graphify query/path/explain` CLI 进行多轮图遍历，回答包含图谱路径。
 - 回答中能区分 EXTRACTED/INFERRED。
+- "深度分析"开关有效，开启后强制走 Agent 路径。
 - 管理员能查看检索 debug（Retrieval trace UI）。
 - 用户能点击引用打开 Docmost 页面（依赖 Phase 2 Docmost 集成）。
-- GraphRAG 完整闭环。
+
+### Phase 3+ 数据库验收（本阶段不做）
+
+- "数据库"开关有效，Agent 可通过 `cherrydb` 查询内网数据库。
+- `cherrydb chart` 生成的 ECharts JSON 可被前端渲染为图表。
+- 所有 SQL 执行记录写入审计日志。
 
 ## 12. 关系置信度模型增强
 
