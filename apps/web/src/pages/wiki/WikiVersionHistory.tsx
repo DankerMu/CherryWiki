@@ -9,6 +9,7 @@ import {
   formatLabel,
   getErrorMessage,
 } from '../../components/adminUi.js';
+import SpaceNav from '../../components/SpaceNav.js';
 import { ApiError, type ApiMeta } from '../../lib/api.js';
 import { useAuth } from '../../lib/auth.js';
 import { wikiApi, type WikiPage, type WikiPageVersion } from '../../lib/wikiApi.js';
@@ -109,9 +110,12 @@ export default function WikiVersionHistory({ spaceId, pageId }: WikiVersionHisto
         title="Version History"
         {...(page !== null ? { description: page.title } : {})}
         actions={
-          <Link className="button button-secondary" to={`/spaces/${encodeURIComponent(spaceId)}/wiki/${encodeURIComponent(pageId)}`}>
-            Back to Page
-          </Link>
+          <>
+            <SpaceNav spaceId={spaceId} />
+            <Link className="button button-secondary" to={`/spaces/${encodeURIComponent(spaceId)}/wiki/${encodeURIComponent(pageId)}`}>
+              Back to Page
+            </Link>
+          </>
         }
       />
 

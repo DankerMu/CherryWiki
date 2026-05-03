@@ -8,6 +8,7 @@ import {
   formatDate,
   getErrorMessage,
 } from '../../components/adminUi.js';
+import SpaceNav from '../../components/SpaceNav.js';
 import { type ApiMeta } from '../../lib/api.js';
 import { wikiApi, type WikiPage } from '../../lib/wikiApi.js';
 import { WIKI_PAGE_SIZE, WikiStatusBadge, getFirstItemIndex, getLastItemIndex } from './wikiUi.js';
@@ -92,7 +93,11 @@ export default function WikiPageList({ spaceId }: WikiPageListProps) {
 
   return (
     <main className="admin-content wiki-page">
-      <PageHeader title="Wiki" description="Read canonical pages generated for this knowledge space." />
+      <PageHeader
+        title="Wiki"
+        description="Read canonical pages generated for this knowledge space."
+        actions={<SpaceNav spaceId={spaceId} />}
+      />
 
       <ErrorBanner error={error} />
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate, useParams } from 'react-router';
+import SpaceNav from '../../components/SpaceNav';
 import { ErrorBanner, LoadingState, PageHeader, getErrorMessage } from '../../components/adminUi';
 import { useUploadPolling } from '../../hooks/useUploadPolling';
 import { type ApiMeta, api } from '../../lib/api';
@@ -166,15 +167,18 @@ export default function UploadCenter() {
         title="Upload Center"
         description="Upload files and URLs, then track processing status for this space."
         actions={
-          <button
-            className="button button-secondary"
-            type="button"
-            onClick={() => {
-              void loadUploads();
-            }}
-          >
-            Refresh
-          </button>
+          <>
+            <SpaceNav spaceId={spaceId} />
+            <button
+              className="button button-secondary"
+              type="button"
+              onClick={() => {
+                void loadUploads();
+              }}
+            >
+              Refresh
+            </button>
+          </>
         }
       />
 

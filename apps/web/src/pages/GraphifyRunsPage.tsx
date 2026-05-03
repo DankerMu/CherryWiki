@@ -9,6 +9,7 @@ import {
   formatLabel,
   getErrorMessage,
 } from '../components/adminUi.js';
+import SpaceNav from '../components/SpaceNav.js';
 import { type ApiMeta } from '../lib/api.js';
 import {
   GRAPHIFY_TRIGGER_TYPES,
@@ -177,6 +178,7 @@ export default function GraphifyRunsPage() {
         description="Create and track Graphify output imports for this space."
         actions={
           <>
+            <SpaceNav spaceId={spaceId} />
             <button
               className="button button-secondary"
               type="button"
