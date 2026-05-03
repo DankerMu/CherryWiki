@@ -304,7 +304,7 @@
     "config": {
       "auto_graphify": true,
       "graphify_schedule": "on_change",
-      "default_retrieval_mode": "graph_rag"
+      "default_retrieval_mode": "hybrid_text"
     },
     "stats": {
       "page_count": 42,
@@ -1327,8 +1327,10 @@
   "model_id": "gpt-4.1",
   "space_ids": ["space_rd"],
   "message": "SSO 和权限校验是什么关系？",
-  "retrieval_mode": "graph_rag",
+  "retrieval_mode": "hybrid_text",
   "include_graph_explanation": true,
+  "enable_database": false,
+  "enable_deep_analysis": false,
   "stream": true,
   "options": {
     "temperature": 0.7,
@@ -1343,11 +1345,15 @@
 | `model_id` | string | 是 | 模型 ID |
 | `space_ids` | string[] | 是 | 检索范围（需有 `space:view` 权限） |
 | `message` | string | 是 | 用户消息 |
-| `retrieval_mode` | enum | 否 | `wiki_only` / `graph_rag` / `path_first` / `community_first`（默认 `graph_rag`） |
+| `retrieval_mode` | enum | 否 | `wiki_only` / `hybrid_text` / `graph_rag` / `path_first` / `community_first` / `debug`（默认 `hybrid_text`） |
 | `include_graph_explanation` | boolean | 否 | 是否返回图谱推理过程（默认 false） |
+| `enable_database` | boolean | 否 | 开启后允许 Agent 查询内网数据库（Phase 3+，默认 false） |
+| `enable_deep_analysis` | boolean | 否 | 开启后强制走 Claude Code Agent 深度路径（Phase 3+，默认 false） |
 | `stream` | boolean | 否 | 是否使用 SSE 流式（默认 true） |
 | `options.temperature` | float | 否 | 温度（0-2，默认 0.7） |
 | `options.max_tokens` | int | 否 | 最大输出 token（默认 2048） |
+
+当 `enable_database` 或 `enable_deep_analysis` 为 `true` 时，Chat Engine 走 Claude Code Agent 深度路径而非静态 RAG。详见 [Doc 27](27_Agent架构与CLI工具设计.md)。
 
 **SSE 事件协议：**
 
@@ -1387,6 +1393,8 @@
 | `graph_path.added` | 生成 | 新增图谱路径 |
 | `message.completed` | 完成 | 生成完毕 |
 | `message.error` | 错误 | 流式过程中发生不可恢复错误 |
+| `chart.data` | 生成 | 图表数据（ECharts JSON，仅深度路径 `cherrydb chart` 输出） |
+| `agent.tool_use` | 生成 | Agent 正在调用工具（仅深度路径，展示执行过程如"正在查询数据库..."） |
 | `usage.reported` | 完成 | Token 用量和计费信息 |
 
 **完整事件流示例（stream=true）：**
@@ -1443,6 +1451,8 @@ data: {"request_id":"req_001","conversation_id":"conv_001","message_id":"msg_001
 | `graph_path.added` | `path_id`, `nodes`, `relations` |
 | `message.completed` | `finish_reason` (`stop` / `max_tokens` / `content_filter`) |
 | `message.error` | `error_code`, `message`, `retryable`, `retry_after_ms` |
+| `chart.data` | `chart_type` (`bar`/`line`/`pie`), `echarts_option` (完整 ECharts 配置 JSON) |
+| `agent.tool_use` | `tool_name` (如 `cherrydb query`/`graphify query`), `tool_input` (工具参数摘要) |
 | `usage.reported` | `tokens_used`, `latency_ms` |
 
 **非流式响应（stream=false）：**

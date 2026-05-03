@@ -30,14 +30,15 @@ Stage 3   上传 / 归档 / 解析 / URL Fetcher
 Stage 4   Canonical Wiki Repo / wiki-core / 只读 Wiki
 Stage 5   Graphify Worker / Output 导入 / Wiki Normalization
 Stage 6   Indexer / Vector / BM25 / Source Chain
-Stage 7   Chat Engine / SSE / Citation UI
+Stage 7   Chat Engine / SSE / Citation UI（静态 RAG 快速路径）
 Stage 8   Phase 1 测试、部署、上线收口
 Stage 9   Docmost Fork Bridge
 Stage 10  Docmost 双向同步与人工编辑
 Stage 11  Graph Index 与 Graph API
-Stage 12  GraphRAG 检索、Path UI、Retrieval Trace
+Stage 12  Claude Code Agent 集成 / GraphRAG 深度路径 / 深度分析
 Stage 13  知识治理与反馈闭环
-Stage 14  MCP Gateway 与高级 Agent
+Stage 14  MCP Gateway（仅第三方工具，CLI 工具不走 MCP）
+Stage 15  数据库接入 / cherrydb CLI / 图表渲染
 ```
 
 ---
@@ -571,26 +572,29 @@ Cherry Web + Graphify 自动生成 + 只读 Wiki + Vector/BM25 检索 + Chat 引
 
 ---
 
-## Stage 7：Chat Engine、SSE、Citation UI
+## Stage 7：Chat Engine、SSE、Citation UI（静态 RAG 快速路径）
 
 ### 目标
 
-完成 Phase 1 用户真正可用的闭环：提问 → 检索 Published Wiki → 模型回答 → 引用可点击。
+完成 Phase 1 用户真正可用的闭环：提问 → 检索 Published Wiki → 模型回答 → 引用可点击。本阶段只实现**静态 RAG 快速路径**（单次 LLM 调用，Deepseek Flash）。Claude Code Agent 深度路径在 Stage 12 实现。
+
+> 双层查询架构设计见 [Doc 27 Agent 架构与 CLI 工具设计](docs/design/27_Agent架构与CLI工具设计.md)。
 
 ### 本阶段做什么
 
 ```text
 - Chat conversation / message
 - SSE streaming
-- retrieval_mode = wiki_only / hybrid_text
+- retrieval_mode = wiki_only / hybrid_text（快速路径）
 - context packing
 - answer_source = knowledge_base / no_hit / model_knowledge / mixed
 - citations
 - answer_citations
 - 引用版本提示
-- Chat UI
+- Chat UI（含数据库/深度分析开关 UI 占位，Phase 3 启用）
 - 无知识命中策略
 - no_retrieval_hit 审计
+- cherrywiki CLI 工具（search/page，包装内部检索接口，为 Stage 12 Agent 路径做准备）
 ```
 
 ### 必读文档
@@ -802,38 +806,99 @@ Phase 3 的目标是让 graph.json 不只是入库，而是进入检索、解释
 
 ---
 
-## Stage 12：GraphRAG 检索、Path UI、Retrieval Trace
+## Stage 12：Claude Code Agent 集成、GraphRAG 深度路径、深度分析
+
+> 本 Stage 实现双层查询架构的**深度路径**。详见 [Doc 27](docs/design/27_Agent架构与CLI工具设计.md)。
 
 ### 做什么
 
 ```text
-- graph_rag / path_first / community_first
-- graph context packing
-- INFERRED / AMBIGUOUS 策略
+- Claude Code Agent 集成（spawn 子进程 + CLAUDE.md 注入 + SSE 转发）
+- 查询路由：意图判断 → 快速路径 / 深度路径分发
+- graphify query/path/explain CLI 集成（图谱检索）
+- cherrywiki search CLI（已在 Stage 7 完成，此处集成进 Agent 工作目录）
+- graph_rag / path_first / community_first 模式（通过 Agent + graphify CLI 实现）
+- "深度分析"开关 UI 启用
+- INFERRED / AMBIGUOUS 标注策略
 - graph path explanation
 - retrieval_traces
-- conflict detection
-- source chain 展开
+- agent.tool_use SSE 事件（展示 Agent 执行过程）
+- Agent 会话隔离（per-session 工作目录）
 ```
 
 ### 必读文档
 
 | 文档 | 读取重点 |
 |---|---|
-| `docs/design/09_RAG与GraphRAG设计.md` | 混合检索、token budget、置信度策略、source chain。 |
-| `docs/requirements/04_模块需求_CherryWeb_Chat_Admin.md` | 图谱解释 UI、引用展示。 |
+| `docs/design/27_Agent架构与CLI工具设计.md` | **核心**。双层架构、CLI 工具、Claude Code 集成、CLAUDE.md 规则注入。 |
+| `docs/design/09_RAG与GraphRAG设计.md` | §9 查询模式、置信度策略、source chain。 |
+| `docs/design/22_Graphify集成架构勘误.md` | graphify CLI vs Python API 的正确理解。 |
+| `docs/requirements/04_模块需求_CherryWeb_Chat_Admin.md` | 深度分析开关、图谱解释 UI、SSE 事件。 |
 | `docs/architecture/08_强耦合设计_六层.md` | 检索耦合、UI 耦合、权限耦合。 |
-| `docs/project/26_需求追踪矩阵.md` | Phase 3 需求闭合。 |
 
 ### 交付物
 
 ```text
-- graph_rag retrieval mode
-- path_first retrieval mode
-- community_first retrieval mode
+- Claude Code Agent spawn + SSE 转发模块
+- CLAUDE.md 模板生成（per-session，注入 Space 级规则）
+- Agent 工作目录管理（创建/清理）
+- 查询路由模块（意图判断 + 开关检测 → 路径分发）
+- graph_rag / path_first / community_first 模式（Agent 路径实现）
+- 深度分析开关 UI
 - graph path UI
 - retrieval trace UI
-- source chain 展开视图
+- agent.tool_use SSE 事件前端展示
+```
+
+---
+
+## Stage 15：数据库接入、cherrydb CLI、图表渲染
+
+> 详见 [Doc 27 §3.2 和 §6](docs/design/27_Agent架构与CLI工具设计.md)。
+
+### 做什么
+
+```text
+- cherrydb CLI 工具开发（tables/describe/query/chart）
+- 安全层：只读连接、SELECT 白名单、行数上限、超时、表 ACL、列脱敏
+- Admin Console：Space 数据库连接配置 UI
+- "数据库"开关 UI 启用（仅配置了数据库的 Space 可见）
+- chart.data SSE 事件
+- 前端 ECharts 组件渲染 Agent 返回的图表
+- 数据库 SQL 审计日志
+```
+
+### 必读文档
+
+| 文档 | 读取重点 |
+|---|---|
+| `docs/design/27_Agent架构与CLI工具设计.md` | §3.2 cherrydb 设计、§6 数据库接入、§4.7 安全约束。 |
+| `docs/requirements/04_模块需求_CherryWeb_Chat_Admin.md` | 数据库开关、Space database_config、chart SSE 事件。 |
+| `docs/engineering/24_威胁建模与安全用例.md` | SQL 注入、数据泄露威胁模型。 |
+
+### 交付物
+
+```text
+- cherrydb CLI（Python，~200 行）
+- Admin Console 数据库配置页面
+- 数据库开关 UI
+- ECharts 前端渲染组件
+- chart.data SSE 事件处理
+- audit_log 数据库查询记录
+```
+
+### 验收
+
+```text
+- cherrydb tables 列出白名单内的表
+- cherrydb query 执行只读 SQL 返回结果
+- cherrydb query 对 INSERT/UPDATE/DELETE 报错拒绝
+- cherrydb query 超时 5s 自动中断
+- cherrydb chart 输出合法 ECharts JSON
+- 数据库开关仅在配置了 database_config 的 Space 可见
+- 前端 ECharts 组件正确渲染图表
+- 所有 SQL 执行记录在审计日志中可查
+- 脱敏列返回 ***
 ```
 
 ---
@@ -877,19 +942,17 @@ Phase 4 不要提前做。它应在 Phase 1-3 跑稳后再进入。
 
 ---
 
-## Stage 14：MCP Gateway 与高级 Agent
+## Stage 14：MCP Gateway（仅第三方外部工具）
+
+> 注意：CherryWiki 内部的图谱检索（graphify CLI）、Wiki 检索（cherrywiki CLI）、数据库查询（cherrydb CLI）均通过 CLI 工具模式实现，不走 MCP。MCP Gateway 仅用于对接第三方外部工具和服务。详见 [Doc 27 §1.3](docs/design/27_Agent架构与CLI工具设计.md)。
 
 ### 做什么
 
 ```text
-- MCP Gateway
+- MCP Gateway（第三方工具聚合）
 - api_tokens
 - tool policy
-- search_wiki
-- get_wiki_page
-- query_graph
-- shortest_path
-- create_graphify_job
+- 第三方 MCP server 注册与管理
 - 调用审计
 - rate limit
 ```
@@ -898,19 +961,18 @@ Phase 4 不要提前做。它应在 Phase 1-3 跑稳后再进入。
 
 | 文档 | 读取重点 |
 |---|---|
+| `docs/design/27_Agent架构与CLI工具设计.md` | CLI 工具 vs MCP 的选型决策。 |
 | `docs/architecture/08_强耦合设计_六层.md` | Agent 耦合和 MCP 策略。 |
 | `docs/audit/20_Cherry_Studio_代码审计.md` | MCP trace 和 Cherry 侧可复用模块。 |
 | `docs/engineering/13_开发规范.md` | MCP、外部组件、审计要求。 |
-| `docs/project/26_需求追踪矩阵.md` | Phase 4 MCP 需求。 |
 
 ### 交付物
 
 ```text
-- apps/mcp-gateway
+- apps/mcp-gateway（仅第三方工具）
 - api_token 认证
-- 工具权限策略
+- 第三方工具权限策略
 - 工具调用审计
-- Graphify MCP 兼容
 ```
 
 ---
@@ -933,9 +995,10 @@ Phase 4 不要提前做。它应在 Phase 1-3 跑稳后再进入。
 | Stage 9 | Phase 2 | Docmost Fork Bridge | Phase 1 稳定后 |
 | Stage 10 | Phase 2 | 双向同步/人工编辑 | 依赖 Stage 9 |
 | Stage 11 | Phase 3 | Graph API/Graph Index | Phase 2 后或部分提前 Spike |
-| Stage 12 | Phase 3 | GraphRAG/Path UI/Trace | 依赖 Stage 11 |
+| Stage 12 | Phase 3 | Claude Code Agent / GraphRAG 深度路径 / 深度分析 | 依赖 Stage 11 |
 | Stage 13 | Phase 4 | 知识治理 | Phase 3 后 |
-| Stage 14 | Phase 4 | MCP Gateway/Agent | Phase 3 后 |
+| Stage 14 | Phase 4 | MCP Gateway（仅第三方工具） | Phase 3 后 |
+| Stage 15 | Phase 3b | 数据库接入 / cherrydb CLI / 图表渲染 | 依赖 Stage 12，Phase 3 核心（Stage 12）上线后启动 |
 
 ---
 
@@ -960,7 +1023,8 @@ Phase 4 不要提前做。它应在 Phase 1-3 跑稳后再进入。
 - [ ] I-11 Graph Index / Graph API
 - [ ] I-12 GraphRAG / Path UI / Trace
 - [ ] I-13 知识治理
-- [ ] I-14 MCP Gateway
+- [ ] I-14 MCP Gateway（仅第三方工具）
+- [ ] I-15 数据库接入 / cherrydb CLI / 图表渲染
 ```
 
 ---

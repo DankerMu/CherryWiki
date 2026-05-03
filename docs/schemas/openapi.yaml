@@ -185,7 +185,17 @@ components:
       properties:
         auto_graphify: { type: boolean }
         graphify_schedule: { type: string, enum: [on_change, daily, manual] }
-        default_retrieval_mode: { type: string, enum: [wiki_only, hybrid_text], default: hybrid_text, description: "Phase 1: wiki_only / hybrid_text. Phase 3 adds: graph_rag / path_first / community_first" }
+        default_retrieval_mode: { type: string, enum: [wiki_only, hybrid_text, graph_rag, path_first, community_first], default: hybrid_text, description: "Phase 1: wiki_only / hybrid_text. Phase 3+: graph_rag / path_first / community_first" }
+        database_config:
+          type: object
+          description: "Phase 3+: Space 内网数据库连接配置。enabled 为 true 时前端显示数据库开关"
+          properties:
+            enabled: { type: boolean, default: false }
+            dsn: { type: string, writeOnly: true, description: "PostgreSQL 只读连接串。writeOnly — 仅管理员写入，GET 响应不返回明文（返回 masked 或省略）" }
+            allowed_tables: { type: array, items: { type: string } }
+            masked_columns: { type: array, items: { type: string } }
+            description: { type: string }
+            dsn_masked: { type: string, readOnly: true, description: "GET 响应返回脱敏 DSN（如 postgresql://readonly:***@host/db）" }
 
     SpaceStats:
       type: object
@@ -420,10 +430,18 @@ components:
         message: { type: string, maxLength: 32000 }
         retrieval_mode:
           type: string
-          enum: [wiki_only, hybrid_text]
+          enum: [wiki_only, hybrid_text, graph_rag, path_first, community_first, debug]
           default: hybrid_text
-          description: "Phase 1: wiki_only / hybrid_text (Vector + BM25). Phase 3 adds: graph_rag / path_first / community_first"
+          description: "Phase 1: wiki_only / hybrid_text. Phase 3+: graph_rag / path_first / community_first / debug（走 Agent 深度路径）"
         include_graph_explanation: { type: boolean, default: false }
+        enable_database:
+          type: boolean
+          default: false
+          description: "Phase 3+: 开启后允许 Agent 查询内网数据库。仅当 Space 配置了 database_config 时有效"
+        enable_deep_analysis:
+          type: boolean
+          default: false
+          description: "Phase 3+: 开启后强制走 Claude Code Agent 深度路径"
         stream: { type: boolean, default: true }
         options:
           type: object
@@ -467,7 +485,7 @@ components:
         - type: object
           properties:
             query_id: { type: string }
-            retrieval_mode: { type: string, enum: [wiki_only, hybrid_text] }
+            retrieval_mode: { type: string, enum: [wiki_only, hybrid_text, graph_rag, path_first, community_first, debug] }
 
     SSERetrievalCompleted:
       allOf:
@@ -540,6 +558,26 @@ components:
             message: { type: string }
             retryable: { type: boolean }
             retry_after_ms: { type: integer }
+
+    SSEChartData:
+      allOf:
+        - { $ref: '#/components/schemas/SSEEventBase' }
+        - type: object
+          description: "Phase 3+: Agent 通过 cherrydb chart 输出的 ECharts 图表数据"
+          required: [chart_type, echarts_option]
+          properties:
+            chart_type: { type: string, enum: [bar, line, pie] }
+            echarts_option: { type: object, description: "完整 ECharts 配置 JSON" }
+
+    SSEAgentToolUse:
+      allOf:
+        - { $ref: '#/components/schemas/SSEEventBase' }
+        - type: object
+          description: "Phase 3+: Agent 正在调用工具（仅深度路径）"
+          required: [tool_name]
+          properties:
+            tool_name: { type: string, description: "如 cherrydb query / graphify query / cherrywiki search" }
+            tool_input: { type: string, description: "工具参数摘要" }
 
     SSEUsageReported:
       allOf:
@@ -1957,7 +1995,8 @@ paths:
                   request_id, conversation_id, message_id, seq (monotonic sequence for reconnect), timestamp.
                   Events: retrieval.started, retrieval.completed, retrieval.failed,
                   rerank.completed, message.delta, citation.added, graph_path.added,
-                  message.completed, message.error, usage.reported.
+                  message.completed, message.error, usage.reported,
+                  chart.data (Phase 3+), agent.tool_use (Phase 3+).
                   Reconnect via Last-Event-ID: {message_id}:{seq} header.
         '403': { $ref: '#/components/responses/ForbiddenError' }
         '404': { $ref: '#/components/responses/NotFoundError' }
