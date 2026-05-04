@@ -1,6 +1,16 @@
 import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { ROLES, normalizeRole } from '@cherrygraph/auth-core';
-import { ErrorCode, group_members, space_permissions, spaces, tenants } from '@cherrygraph/shared';
+import {
+  ErrorCode,
+  graphEdges,
+  graphNodes,
+  group_members,
+  source_documents,
+  space_permissions,
+  spaces,
+  tenants,
+  wikiPages,
+} from '@cherrygraph/shared';
 import { and, asc, count, desc, eq, ilike, inArray, ne, or, type SQL } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { randomUUID } from 'node:crypto';
@@ -124,8 +134,11 @@ export class SpaceService {
       .offset((page - 1) * perPage);
     const [countRow] = await this.db.select({ total: count() }).from(spaces).where(where);
 
+    const spaceIds = rows.map((r) => r.id);
+    const statsMap = spaceIds.length > 0 ? await this.batchSpaceStats(spaceIds) : new Map();
+
     return paginatedResponse(
-      rows.map(toSpaceListItem),
+      rows.map((r) => toSpaceListItem(r, statsMap.get(r.id))),
       buildPaginationMeta(page, perPage, normalizeCount(countRow?.total)),
     );
   }
@@ -310,7 +323,45 @@ export class SpaceService {
       }
     }
 
-    return toSpaceStats(space);
+    const statsMap = await this.batchSpaceStats([spaceId]);
+    return toSpaceStats(space, statsMap.get(spaceId));
+  }
+
+  private async batchSpaceStats(
+    spaceIds: string[],
+  ): Promise<Map<string, { pages: number; sources: number; nodes: number; edges: number }>> {
+    const [pageCounts, sourceCounts, nodeCounts, edgeCounts] = await Promise.all([
+      this.db
+        .select({ space_id: wikiPages.space_id, total: count() })
+        .from(wikiPages)
+        .where(inArray(wikiPages.space_id, spaceIds))
+        .groupBy(wikiPages.space_id),
+      this.db
+        .select({ space_id: source_documents.space_id, total: count() })
+        .from(source_documents)
+        .where(inArray(source_documents.space_id, spaceIds))
+        .groupBy(source_documents.space_id),
+      this.db
+        .select({ space_id: graphNodes.space_id, total: count() })
+        .from(graphNodes)
+        .where(inArray(graphNodes.space_id, spaceIds))
+        .groupBy(graphNodes.space_id),
+      this.db
+        .select({ space_id: graphEdges.space_id, total: count() })
+        .from(graphEdges)
+        .where(inArray(graphEdges.space_id, spaceIds))
+        .groupBy(graphEdges.space_id),
+    ]);
+
+    const map = new Map<string, { pages: number; sources: number; nodes: number; edges: number }>();
+    for (const id of spaceIds) {
+      map.set(id, { pages: 0, sources: 0, nodes: 0, edges: 0 });
+    }
+    for (const r of pageCounts) map.get(r.space_id)!.pages = r.total;
+    for (const r of sourceCounts) map.get(r.space_id)!.sources = r.total;
+    for (const r of nodeCounts) map.get(r.space_id)!.nodes = r.total;
+    for (const r of edgeCounts) map.get(r.space_id)!.edges = r.total;
+    return map;
   }
 
   private async buildListFilters(
@@ -506,7 +557,9 @@ function resolveContextUserId(context: SpaceContext): string {
   throwApiError(ErrorCode.UNAUTHENTICATED, 'Unauthenticated', HttpStatus.UNAUTHORIZED);
 }
 
-function toSpaceListItem(row: SpaceRow): SpaceListItem {
+type SpaceCounts = { pages: number; sources: number; nodes: number; edges: number };
+
+function toSpaceListItem(row: SpaceRow, counts?: SpaceCounts): SpaceListItem {
   return {
     id: row.id,
     name: row.name,
@@ -514,9 +567,9 @@ function toSpaceListItem(row: SpaceRow): SpaceListItem {
     status: row.status,
     description: row.description,
     stats: {
-      page_count: 0,
-      source_count: 0,
-      node_count: 0,
+      page_count: counts?.pages ?? 0,
+      source_count: counts?.sources ?? 0,
+      node_count: counts?.nodes ?? 0,
     },
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -537,13 +590,13 @@ function toSpaceDetail(row: SpaceRow): SpaceDetail {
   };
 }
 
-function toSpaceStats(row: SpaceRow): SpaceStatsResponse {
+function toSpaceStats(row: SpaceRow, counts?: SpaceCounts): SpaceStatsResponse {
   return {
     space_id: row.id,
-    page_count: 0,
-    source_count: 0,
-    node_count: 0,
-    edge_count: 0,
+    page_count: counts?.pages ?? 0,
+    source_count: counts?.sources ?? 0,
+    node_count: counts?.nodes ?? 0,
+    edge_count: counts?.edges ?? 0,
     index_consistency: row.index_consistency_status,
   };
 }
