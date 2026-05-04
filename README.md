@@ -11,7 +11,7 @@
 docker compose up -d
 
 # 首次启动会自动执行：pnpm install → build → DB migration → seed
-# 默认管理员：admin@cherrywiki.local / ChangeMe123!
+# 默认管理员：admin@cherrywiki.local / Admin123!@#
 
 # 2. 访问
 open http://localhost        # 通过 nginx
@@ -165,13 +165,24 @@ CherryWiki/
 |---|---|---|
 | 0 | 工程基线、仓库脚手架 | ✅ 完成 |
 | 1 | Auth / RBAC / Space / Admin | ✅ 完成 |
-| 2 | Job 系统 / 对象存储 / 任务中心 | 待开始 |
-| 3 | 上传 / 归档 / 解析 / URL Fetcher | 待开始 |
-| 4 | Canonical Wiki / wiki-core / 只读 Wiki | 待开始 |
-| 5 | Graphify Worker / 输出导入 | 待开始 |
-| 6 | Indexer / Vector / BM25 | 待开始 |
-| 7 | Chat Engine / SSE / Citation UI | 待开始 |
-| 8 | Phase 1 测试、部署、上线收口 | 待开始 |
+| 2 | Job 系统 / 对象存储 / 任务中心 | ✅ 完成 |
+| 3 | 上传 / 归档 / 解析 / URL Fetcher | ✅ 完成 |
+| 4 | Canonical Wiki / wiki-core / 只读 Wiki | ✅ 完成 |
+| 5 | Graphify Worker / 输出导入 | ✅ 完成 |
+| 6 | Indexer / Vector / BM25 | ✅ 完成 |
+| 7 | Chat Engine / SSE / Citation UI | ✅ 完成 |
+| 8 | Phase 1 测试、部署、上线收口 | 🔄 进行中 |
+
+## 开发环境凭据
+
+| 服务 | 凭据 |
+|---|---|
+| Admin 登录 | `admin@cherrywiki.local` / `Admin123!@#` |
+| Editor 登录 | `editor@test.local` / `Admin123!@#` |
+| Viewer 登录 | `viewer@test.local` / `Admin123!@#` |
+| PostgreSQL | `cherrygraph` / `cherrygraph_dev` (port 15432) |
+| MinIO Console | `minioadmin` / `minioadmin` (port 9001) |
+| Redis | 无密码 (port 6379) |
 
 ## 常用命令
 

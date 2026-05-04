@@ -148,3 +148,76 @@ jobs:
 
       - name: Validate Docker Compose
         run: docker compose config --quiet
+
+  e2e:
+    name: E2E — Phase 1 Launch Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [node-ci, python-ci]
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: cherry
+          POSTGRES_PASSWORD: cherry
+          POSTGRES_DB: cherrywiki_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cherry"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://cherry:cherry@localhost:5432/cherrywiki_test
+      REDIS_URL: redis://localhost:6379
+      MINIO_ENDPOINT: http://localhost:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:latest server /data
+          until curl -sf http://localhost:9000/minio/health/live; do sleep 1; done
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Run database migrations
+        run: pnpm db:migrate
+
+      - name: E2E integration tests
+        run: pnpm exec vitest run tests/integration/ --config vitest.config.ts
+        env:
+          E2E: "true"
