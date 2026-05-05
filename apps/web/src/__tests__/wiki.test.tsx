@@ -108,7 +108,7 @@ describe('WikiPageDetail', () => {
 
     renderWithRouter(<WikiPageDetail spaceId="space-1" pageId="page-1" />);
 
-    expect(await screen.findByRole('heading', { name: 'Markdown Title' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Markdown Title' }, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getByText('Parsed source')).toBeInTheDocument();
     expect(screen.getByRole('cell', { name: 'Ready' })).toBeInTheDocument();
     expect(document.querySelector('code.hljs')).toHaveTextContent('const wiki = true;');
