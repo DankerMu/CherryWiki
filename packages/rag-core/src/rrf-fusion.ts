@@ -1,4 +1,5 @@
 import type { RetrievalResult, SearchHit } from './retrieval-engine.js';
+import type { GraphCandidate } from './types.js';
 
 const DEFAULT_RRF_K = 60;
 const DEFAULT_TOP_K = 8;
@@ -8,6 +9,10 @@ type FusedHit = {
   hit: SearchHit;
   score: number;
 };
+
+export type FusedRetrievalResult =
+  | { type: 'wiki_chunk'; hit: SearchHit; score: number }
+  | { type: 'graph'; candidate: GraphCandidate; score: number };
 
 export function rrfFuse(
   vectorResults: SearchHit[],
@@ -28,6 +33,45 @@ export function rrfFuse(
   }));
 
   if (fusedResults.length === 0 || fusedResults.every((result) => result.injectionRisk)) {
+    return [];
+  }
+
+  return fusedResults.sort((left, right) => right.score - left.score).slice(0, topK);
+}
+
+export function rrfFuseThreeSource(
+  vectorResults: SearchHit[],
+  bm25Results: SearchHit[],
+  graphCandidates: GraphCandidate[],
+  options: { k?: number; topK?: number; injectionPenalty?: number } = {},
+): FusedRetrievalResult[] {
+  const k = normalizeNonNegativeNumber(options.k, DEFAULT_RRF_K);
+  const topK = normalizePositiveInteger(options.topK, DEFAULT_TOP_K);
+  const injectionPenalty = normalizeNonNegativeNumber(options.injectionPenalty, DEFAULT_INJECTION_PENALTY);
+  const fusedByChunkId = new Map<string, FusedHit>();
+
+  addRankedResults(fusedByChunkId, vectorResults, k);
+  addRankedResults(fusedByChunkId, bm25Results, k);
+
+  const wikiResults: Array<Extract<FusedRetrievalResult, { type: 'wiki_chunk' }>> = Array.from(
+    fusedByChunkId.values(),
+  ).map(({ hit, score }) => ({
+    type: 'wiki_chunk',
+    hit,
+    score: hit.injectionRisk ? score * injectionPenalty : score,
+  }));
+  const graphResults = rankGraphCandidates(graphCandidates, k);
+  const fusedResults = [...wikiResults, ...graphResults];
+
+  if (fusedResults.length === 0) {
+    return [];
+  }
+
+  if (
+    graphResults.length === 0 &&
+    wikiResults.length > 0 &&
+    wikiResults.every((result) => result.hit.injectionRisk)
+  ) {
     return [];
   }
 
@@ -61,6 +105,35 @@ function addRankedResults(fusedByChunkId: Map<string, FusedHit>, results: Search
       score: scoreContribution,
     });
   }
+}
+
+function rankGraphCandidates(graphCandidates: GraphCandidate[], k: number): FusedRetrievalResult[] {
+  const seenCandidateIds = new Set<string>();
+  const fusedResults: FusedRetrievalResult[] = [];
+
+  for (const [index, candidate] of graphCandidates.entries()) {
+    const candidateKey = `${candidate.type}:${candidate.id}`;
+    if (seenCandidateIds.has(candidateKey)) {
+      continue;
+    }
+
+    seenCandidateIds.add(candidateKey);
+    const rank = index + 1;
+    fusedResults.push({
+      type: 'graph',
+      candidate,
+      score: (1 / (k + rank)) * graphConfidenceFactor(candidate),
+    });
+  }
+
+  return fusedResults;
+}
+
+function graphConfidenceFactor(candidate: GraphCandidate): number {
+  const confidence = Math.max(0, candidate.effective_confidence_score);
+  const evidenceCount = Math.max(0, candidate.evidence_count);
+
+  return confidence * Math.log(1 + evidenceCount);
 }
 
 function normalizePositiveInteger(value: number | undefined, fallback: number): number {

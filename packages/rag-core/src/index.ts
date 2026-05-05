@@ -1,5 +1,7 @@
 export * from './acl-builder.js';
 export * from './chunker.js';
+export * from './context-packer.js';
+export * from './graph-retrieval.js';
 export * from './injection-scanner.js';
 export * from './prompt-injection-patterns.js';
 export * from './retrieval-engine.js';
