@@ -61,7 +61,7 @@ describe('chat RAG flow integration', () => {
     );
 
     const citationsEvent = events.find((event) => event.type === 'citations');
-    expect(events.map((event) => event.type)).toEqual(['session', 'content', 'content', 'citations', 'usage']);
+    expect(events.map((event) => event.type)).toEqual(['session', 'content', 'content', 'citations', 'usage', 'message.completed']);
     expect(citationsEvent).toMatchObject({
       type: 'citations',
       citations: [

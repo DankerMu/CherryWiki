@@ -44,6 +44,7 @@ describe('chat degradation integration', () => {
       { type: 'content', delta: NO_HIT_MESSAGE },
       { type: 'citations', citations: [] },
       { type: 'usage', usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } },
+      { type: 'message.completed' },
     ]);
     expect(chatFactory).not.toHaveBeenCalled();
     expect(findInsert(db, chatMessages)?.value).toMatchObject({ role: 'user' });
@@ -75,7 +76,7 @@ describe('chat degradation integration', () => {
       }),
     );
 
-    expect(events.map((event) => event.type)).toEqual(['session', 'content', 'citations', 'usage']);
+    expect(events.map((event) => event.type)).toEqual(['session', 'content', 'citations', 'usage', 'message.completed']);
     expect(chatFactory).toHaveBeenCalledTimes(1);
     expect(chatProvider.lastParams?.systemPrompt).toContain('No relevant Wiki sources found');
     expect(db.inserts.at(-1)?.value).toMatchObject({
