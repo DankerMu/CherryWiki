@@ -43,6 +43,10 @@ describe('SessionManager', () => {
     const manager = createManager();
     const workDir = await createWorkDir('close');
     const processRef = createMockProcess();
+    processRef.kill = vi.fn(() => {
+      setTimeout(() => processRef.close(0, 'SIGTERM'), 10);
+      return true;
+    });
     manager.setSession(createSessionRecord('conversation-close', workDir, Date.now(), processRef));
 
     await manager.close('conversation-close');

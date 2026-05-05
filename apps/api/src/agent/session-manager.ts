@@ -123,13 +123,30 @@ export class SessionManager implements OnModuleDestroy {
   }
 
   private startCleanupTimer(): NodeJS.Timeout {
-    return setInterval(() => {
+    const timer = setInterval(() => {
       void this.sweepIdleSessions();
     }, this.cleanupIntervalMs);
+    timer.unref();
+    return timer;
   }
 
   private async cleanupSessionDirectory(session: AgentSessionRecord): Promise<void> {
-    session.processRef?.kill('SIGTERM');
+    if (session.processRef !== undefined && session.processRef.exitCode === null) {
+      session.processRef.kill('SIGTERM');
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          if (session.processRef !== undefined && session.processRef.exitCode === null) {
+            session.processRef.kill('SIGKILL');
+          }
+          resolve();
+        }, 5_000);
+        timer.unref();
+        session.processRef!.once('close', () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+    }
     await rm(session.workDir, { recursive: true, force: true });
   }
 }

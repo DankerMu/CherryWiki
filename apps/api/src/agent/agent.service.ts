@@ -1,8 +1,8 @@
-import { Inject, Injectable, type OnModuleDestroy } from '@nestjs/common';
+import { HttpException, HttpStatus, Inject, Injectable, type OnModuleDestroy } from '@nestjs/common';
 import { modelUsageLogs } from '@cherrygraph/shared';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Readable } from 'node:stream';
 
@@ -24,6 +24,7 @@ import { StreamParser } from './stream-parser.js';
 const DEFAULT_MAX_CONCURRENT_AGENTS = 20;
 const DEFAULT_PROCESS_TIMEOUT_MS = 60 * 60_000;
 const HARD_KILL_GRACE_MS = 5_000;
+const MAX_QUEUE_SIZE = 50;
 const DEFAULT_MAX_BUDGET_USD = 2;
 const DEFAULT_COMMAND = 'claude';
 const DEFAULT_INTERNAL_API_URL = 'http://127.0.0.1:3000';
@@ -78,12 +79,34 @@ export class AgentService implements OnModuleDestroy {
     this.sessionManager.touch(conversationId);
 
     let yielded = false;
+    let usefulContentReceived = false;
+    let resumeFailureEvent: Extract<AgentEvent, { type: 'message.error' }> | undefined;
     try {
       for await (const event of this.runClaudeProcess(mergedSession, followUpMessage, { resume: true })) {
+        if (event.type === 'message.delta') {
+          usefulContentReceived = true;
+        }
+
+        if (event.type === 'message.error' && !usefulContentReceived && isResumeSessionError(event)) {
+          resumeFailureEvent = event;
+          continue;
+        }
+
         yielded = true;
         yield event;
       }
+
+      if (resumeFailureEvent !== undefined && !usefulContentReceived) {
+        await rm(join(mergedSession.agentHome, '.claude'), { recursive: true, force: true });
+        yield* this.spawnNew(conversationId, mergedSession.spaceId, followUpMessage, mergedSession.options);
+      }
     } catch (err) {
+      if (resumeFailureEvent !== undefined && !usefulContentReceived) {
+        await rm(join(mergedSession.agentHome, '.claude'), { recursive: true, force: true });
+        yield* this.spawnNew(conversationId, mergedSession.spaceId, followUpMessage, mergedSession.options);
+        return;
+      }
+
       if (yielded || !(err instanceof AgentProcessError)) {
         yield toAgentErrorEvent(err);
         return;
@@ -134,8 +157,11 @@ export class AgentService implements OnModuleDestroy {
     const tmpDir = join(workDir, 'tmp');
     const settingsPath = join(workDir, 'settings.json');
 
-    await mkdir(agentHome, { recursive: true });
-    await mkdir(tmpDir, { recursive: true });
+    await mkdir(workDir, { recursive: true, mode: 0o700 });
+    await chmod(workDir, 0o700);
+    await mkdir(agentHome, { recursive: true, mode: 0o700 });
+    await mkdir(tmpDir, { recursive: true, mode: 0o700 });
+    await Promise.all([chmod(agentHome, 0o700), chmod(tmpDir, 0o700)]);
     const claudeMdInput = {
       spaceId,
       ...(options.allowedSpaces !== undefined ? { allowedSpaces: options.allowedSpaces } : {}),
@@ -143,12 +169,9 @@ export class AgentService implements OnModuleDestroy {
       ...(options.enableDatabase !== undefined ? { enableDatabase: options.enableDatabase } : {}),
       ...(options.databaseConfig !== undefined ? { databaseConfig: options.databaseConfig } : {}),
     };
-    const settingsInput = {
-      ...(options.model !== undefined ? { model: options.model } : {}),
-    };
 
     await writeFile(join(workDir, 'CLAUDE.md'), this.claudeMdGenerator.generate(claudeMdInput), 'utf8');
-    await writeFile(settingsPath, `${JSON.stringify(this.settingsGenerator.generate(settingsInput), null, 2)}\n`, 'utf8');
+    await writeFile(settingsPath, `${JSON.stringify(this.settingsGenerator.generate(), null, 2)}\n`, 'utf8');
 
     const session: AgentSessionRecord = {
       conversationId,
@@ -183,7 +206,11 @@ export class AgentService implements OnModuleDestroy {
     });
 
     this.sessionManager.setProcessRef(session.conversationId, proc);
-    const exitPromise = waitForProcessExit(proc);
+    let processClosed = false;
+    const exitPromise = waitForProcessExit(proc).then((exit) => {
+      processClosed = true;
+      return exit;
+    });
     const usageWrites: Array<Promise<void>> = [];
     const auditContext = {
       tenantId: session.options.tenantId ?? '',
@@ -253,6 +280,10 @@ export class AgentService implements OnModuleDestroy {
         clearTimeout(hardKillTimer);
       }
 
+      if (!processClosed && proc.exitCode === null) {
+        await terminateProcess(proc);
+      }
+
       this.sessionManager.clearProcessRef(session.conversationId);
       this.releaseSlot();
       await Promise.all(usageWrites);
@@ -264,6 +295,10 @@ export class AgentService implements OnModuleDestroy {
     if (this.activeAgents < maxConcurrentAgents) {
       this.activeAgents += 1;
       return;
+    }
+
+    if (this.queue.length >= MAX_QUEUE_SIZE) {
+      throw new HttpException('Agent queue full, try again later', HttpStatus.SERVICE_UNAVAILABLE);
     }
 
     await new Promise<void>((resolve) => {
@@ -286,14 +321,16 @@ export class AgentService implements OnModuleDestroy {
     session: AgentSessionRecord,
     event: Extract<AgentEvent, { type: 'message.completed' }>,
   ): Promise<void> {
-    if (session.options.tenantId === undefined || session.options.modelConfigId === undefined) {
+    if (session.options.tenantId === undefined) {
       return;
     }
+
+    const modelConfigId = session.options.agentModelConfigId ?? session.options.modelConfigId ?? 'agent-default';
 
     await this.db.insert(modelUsageLogs).values({
       id: randomUUID(),
       tenant_id: session.options.tenantId,
-      model_config_id: session.options.modelConfigId,
+      model_config_id: modelConfigId,
       request_type: 'agent_deep',
       input_tokens: event.usage?.input_tokens ?? 0,
       output_tokens: event.usage?.output_tokens ?? 0,
@@ -403,17 +440,78 @@ function buildAgentEnv(session: AgentSessionRecord): NodeJS.ProcessEnv {
 
 function waitForProcessExit(proc: ChildProcess): Promise<{ code: number | null; signal: NodeJS.Signals | null; error?: Error }> {
   return new Promise((resolve) => {
-    proc.once('error', (error) => {
+    let settled = false;
+    const onError = (error: Error): void => {
+      if (settled) return;
+      settled = true;
+      proc.off('close', onClose);
       resolve({ code: null, signal: null, error });
-    });
-    proc.once('close', (code, signal) => {
+    };
+    const onClose = (code: number | null, signal: NodeJS.Signals | null): void => {
+      if (settled) return;
+      settled = true;
+      proc.off('error', onError);
       resolve({ code, signal });
-    });
+    };
+    proc.once('error', onError);
+    proc.once('close', onClose);
+  });
+}
+
+async function terminateProcess(proc: ChildProcess): Promise<void> {
+  if (proc.exitCode !== null) {
+    return;
+  }
+
+  const exitedAfterTerm = waitForProcessCloseOrTimeout(proc, HARD_KILL_GRACE_MS);
+  proc.kill('SIGTERM');
+
+  if ((await exitedAfterTerm) || proc.exitCode !== null) {
+    return;
+  }
+
+  const exitedAfterKill = waitForProcessCloseOrTimeout(proc, HARD_KILL_GRACE_MS);
+  proc.kill('SIGKILL');
+  await exitedAfterKill;
+}
+
+function waitForProcessCloseOrTimeout(proc: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (proc.exitCode !== null) {
+    return Promise.resolve(true);
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (closed: boolean): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timer);
+      proc.off('close', onClose);
+      proc.off('exit', onExit);
+      proc.off('error', onError);
+      resolve(closed);
+    };
+    const onClose = (): void => finish(true);
+    const onExit = (): void => finish(true);
+    const onError = (): void => finish(true);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+
+    proc.once('close', onClose);
+    proc.once('exit', onExit);
+    proc.once('error', onError);
   });
 }
 
 function isReadable(value: unknown): value is Readable {
   return value !== null && value !== undefined && typeof (value as Readable).pipe === 'function';
+}
+
+function isResumeSessionError(event: Extract<AgentEvent, { type: 'message.error' }>): boolean {
+  const text = `${event.code ?? ''} ${event.message}`.toLowerCase();
+  return text.includes('resume') || text.includes('session_id') || text.includes('session not found');
 }
 
 function toAgentErrorEvent(err: unknown): Extract<AgentEvent, { type: 'message.error' }> {

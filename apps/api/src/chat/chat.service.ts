@@ -32,7 +32,7 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { randomUUID } from 'node:crypto';
 
 import { AgentService, isDatabaseToggleVisible, normalizeDatabaseConfig } from '../agent/agent.service.js';
-import type { AgentEvent, AgentSpawnOptions } from '../agent/dto/agent.dto.js';
+import type { AgentSpawnOptions } from '../agent/dto/agent.dto.js';
 import { AUDIT_EVENTS } from '../audit/audit-events.js';
 import { AuditService } from '../audit/audit.service.js';
 import {
@@ -275,6 +275,7 @@ export class ChatService {
   ): Promise<{ deleted: true }> {
     const session = await this.requireSession(tenantId, sessionId, userId, spaceId);
     await this.db.delete(chatSessions).where(eq(chatSessions.id, session.id));
+    await this.agentService?.close(session.id).catch(() => undefined);
 
     return { deleted: true };
   }
@@ -422,7 +423,6 @@ export class ChatService {
       userId: prepared.userId,
       allowedSpaces: [{ id: prepared.space.id, name: prepared.space.name }],
       enableDatabase,
-      modelConfigId: prepared.chatModel.id,
     };
 
     if (enableDatabase) {

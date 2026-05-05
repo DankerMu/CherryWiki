@@ -29,7 +29,7 @@ afterEach(() => {
 
 describe('SettingsGenerator tool allowlist', () => {
   it('allows only Bash and Read tools while denying mutation and network tools', () => {
-    const settings = new SettingsGenerator().generate({ anthropicApiKey: 'agent-key', anthropicModel: 'agent-model' });
+    const settings = new SettingsGenerator().generate();
 
     expect(settings.tools).toEqual(['Bash', 'Read']);
     expect(settings.permissions.allow).toEqual(
@@ -38,20 +38,17 @@ describe('SettingsGenerator tool allowlist', () => {
     expect(settings.permissions.deny).toEqual(
       expect.arrayContaining(['Write', 'Edit', 'MultiEdit', 'WebFetch', 'WebSearch', 'Bash(rm *)', 'Bash(curl *)']),
     );
-    expect(settings.env).toEqual({
-      ANTHROPIC_API_KEY: 'agent-key',
-      ANTHROPIC_MODEL: 'agent-model',
-    });
+    expect(settings).not.toHaveProperty('env');
+    expect(settings).not.toHaveProperty('model');
   });
 
   it('does not copy unrelated server environment variables into settings.json', () => {
     process.env.DATABASE_URL = 'postgres://server-secret';
     process.env.JWT_SECRET = 'jwt-secret';
 
-    const settings = new SettingsGenerator().generate({});
+    const settings = new SettingsGenerator().generate();
 
-    expect(settings.env).not.toHaveProperty('DATABASE_URL');
-    expect(settings.env).not.toHaveProperty('JWT_SECRET');
+    expect(settings).not.toHaveProperty('env');
     expect(settings.permissions.deny).toContain('Task');
   });
 });

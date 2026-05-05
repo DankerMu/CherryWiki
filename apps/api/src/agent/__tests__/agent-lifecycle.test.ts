@@ -44,7 +44,7 @@ describe('AgentService lifecycle', () => {
         apiInternalUrl: 'http://cherry-api.internal',
         agentToken: 'agent-token',
         model: 'claude-sonnet-test',
-        modelConfigId: 'agent-model-config',
+        agentModelConfigId: 'agent-model-config',
       }),
     );
     await waitForSpawn();
@@ -86,7 +86,10 @@ describe('AgentService lifecycle', () => {
     expect(session?.sessionId).toBe('claude-session-1');
     expect(await readFile(join(session?.workDir ?? '', 'CLAUDE.md'), 'utf8')).toContain('Knowledge');
     const settings = JSON.parse(await readFile(join(session?.workDir ?? '', 'settings.json'), 'utf8')) as Record<string, unknown>;
-    expect(settings).toMatchObject({ model: 'claude-sonnet-test', tools: ['Bash', 'Read'] });
+    expect(settings).toMatchObject({ tools: ['Bash', 'Read'] });
+    expect(settings).not.toHaveProperty('env');
+    expect(settings).not.toHaveProperty('model');
+    expect((await stat(session?.workDir ?? '')).mode & 0o777).toBe(0o700);
 
     const call = spawnMock.mock.calls[0];
     expect(call?.[0]).toBe('claude');
@@ -179,6 +182,48 @@ describe('AgentService lifecycle', () => {
     await expect(stat(join(session?.agentHome ?? '', '.claude'))).rejects.toThrow();
   });
 
+  it('resume falls back to a fresh spawn when Claude reports a resume session error before content', async () => {
+    const first = createMockProcess();
+    const failedResume = createMockProcess();
+    const fresh = createMockProcess();
+    spawnMock
+      .mockReturnValueOnce(first as never)
+      .mockReturnValueOnce(failedResume as never)
+      .mockReturnValueOnce(fresh as never);
+    const { service } = createService();
+    const conversationId = uniqueConversationId('conversation-life-resume-error');
+
+    const initialPromise = collectAsync(service.spawnNew(conversationId, 'space-1', 'first'));
+    await waitForSpawn(1);
+    writeJsonLine(first, { type: 'system', subtype: 'init', session_id: 'broken-session' });
+    writeJsonLine(first, { type: 'result', subtype: 'success', session_id: 'broken-session' });
+    first.close(0);
+    await initialPromise;
+
+    const session = service.getSession(conversationId);
+    await mkdir(join(session?.agentHome ?? '', '.claude'), { recursive: true });
+
+    const resumePromise = collectAsync(service.resume(conversationId, 'recover'));
+    await waitForSpawn(2);
+    writeJsonLine(failedResume, {
+      type: 'result',
+      subtype: 'error_during_execution',
+      error: 'Could not resume session broken-session',
+    });
+    failedResume.close(0);
+    await waitForSpawn(3);
+    writeJsonLine(fresh, { type: 'system', subtype: 'init', session_id: 'fresh-session' });
+    writeJsonLine(fresh, { type: 'result', subtype: 'success', session_id: 'fresh-session' });
+    fresh.close(0);
+
+    const events = await resumePromise;
+
+    expect(events.map((event) => event.type)).toEqual(['message.completed']);
+    expect(spawnMock.mock.calls[1]?.[1]).toEqual(expect.arrayContaining(['--resume', 'broken-session']));
+    expect(spawnMock.mock.calls[2]?.[1]).toEqual(expect.arrayContaining(['--session-id', expect.any(String)]));
+    await expect(stat(join(session?.agentHome ?? '', '.claude'))).rejects.toThrow();
+  });
+
   it('cleanup deletes the work directory', async () => {
     const proc = createMockProcess();
     spawnMock.mockReturnValue(proc as never);
@@ -216,6 +261,33 @@ describe('AgentService lifecycle', () => {
 
     proc.close(0);
     await nextPromise;
+  });
+
+  it('terminates the child process when the stream consumer disconnects', async () => {
+    const proc = createMockProcess();
+    spawnMock.mockReturnValue(proc as never);
+    const { service } = createService();
+    const conversationId = uniqueConversationId('conversation-life-disconnect');
+
+    const iterator = service.spawnNew(conversationId, 'space-1', 'long task');
+    const firstEventPromise = iterator.next();
+    await waitForSpawn();
+    writeJsonLine(proc, {
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: 'partial' }] },
+    });
+    await expect(firstEventPromise).resolves.toMatchObject({
+      done: false,
+      value: { type: 'message.delta', delta: 'partial' },
+    });
+
+    const returnPromise = iterator.return(undefined);
+    await vi.waitFor(() => expect(proc.kill).toHaveBeenCalledWith('SIGTERM'));
+    proc.close(null, 'SIGTERM');
+    await returnPromise;
+
+    expect(service.getActiveAgentCount()).toBe(0);
+    expect(service.getSession(conversationId)?.processRef).toBeUndefined();
   });
 
   it('queues agents FIFO when the concurrency limit is reached', async () => {

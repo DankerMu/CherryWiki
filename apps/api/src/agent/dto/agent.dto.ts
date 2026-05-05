@@ -54,6 +54,7 @@ export type AgentSpawnOptions = {
   graphBasePath?: string;
   command?: string;
   model?: string;
+  agentModelConfigId?: string;
   modelConfigId?: string;
   maxBudgetUsd?: number;
   timeoutMs?: number;
