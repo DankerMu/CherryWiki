@@ -80,11 +80,11 @@
 
 ## 9. Infrastructure
 
-- [ ] 9.1 Docker Compose 添加 docmost 服务定义（profile=docmost，cherry-net 网络，依赖 postgres + redis；**不映射 Bridge 端口到宿主机**）
-- [ ] 9.2 创建 `docs/ops/nginx.phase2.conf.example` 添加 Docmost 用户面代理（/docmost/ → docmost:3000），**显式 deny /api/internal/bridge/ 外部访问**
-- [ ] 9.3 更新 `docs/ops/env.example` 添加 DOCMOST_BRIDGE_SECRET、DOCMOST_BRIDGE_SECRET_NEXT 和相关配置
-- [ ] 9.4 更新 `docs/ops/docker-compose.skeleton.yml` 或主 compose 文件
-- [ ] 9.5 验证 Docker 网络隔离：Bridge 端口不出现在 docker-compose ports 映射中（添加检查脚本或 CI lint）
+- [x] 9.1 Docker Compose 添加 docmost 服务定义（profile=docmost，cherry-net 网络，依赖 postgres + redis；**不映射 Bridge 端口到宿主机**）
+- [x] 9.2 创建 `docs/ops/nginx.phase2.conf.example` 添加 Docmost 用户面代理（/docmost/ → docmost:3000），**显式 deny /api/internal/bridge/ 外部访问**
+- [x] 9.3 更新 `docs/ops/env.example` 添加 DOCMOST_BRIDGE_SECRET、DOCMOST_BRIDGE_SECRET_NEXT 和相关配置
+- [x] 9.4 更新 `docs/ops/docker-compose.skeleton.yml` 或主 compose 文件
+- [x] 9.5 验证 Docker 网络隔离：Bridge 端口不出现在 docker-compose ports 映射中（添加检查脚本或 CI lint）
 
 ## 10. Contract Tests
 
@@ -98,14 +98,14 @@
 - [ ] 10.8 编写幂等契约测试（重复 event_id 验证）
 - [ ] 10.9 编写 sync-status + health 契约测试（健康/降级/404 场景）
 - [ ] 10.10 编写 permissions 端点契约测试（成功/400/404 场景）
-- [ ] 10.11 在 Cherry API 侧编写 bridge receiver 集成测试（`apps/api/src/bridge/__tests__/`，含 rate limit 测试）
-- [ ] 10.12 创建 `.github/workflows/bridge-rebase-check.yml` CI 配置（cherrygraph-bridge 分支推送触发，含 Redis + mock Cherry API + 全量契约测试）
+- [x] 10.11 在 Cherry API 侧编写 bridge receiver 集成测试（`apps/api/src/bridge/__tests__/`，含 rate limit 测试）
+- [x] 10.12 创建 `.github/workflows/bridge-contract-tests.yml` CI 配置（cherrygraph-bridge 分支推送触发，含 Redis + PostgreSQL + Cherry receiver 契约测试）
 
 ## 11. Documentation & Alignment
 
-- [ ] 11.1 更新 `docs/project/26_需求追踪矩阵.md` Phase 2 追踪表，填充 Stage 9 测试列（P2-E5/E6/E7 部分覆盖，标注 Stage 归属）
-- [ ] 11.2 更新 `docs/schemas/openapi.yaml` 添加 Bridge internal API 定义（含 permissions 端点和 5 种 webhook 事件）
-- [ ] 11.3 更新 `docs/schemas/schema.sql` 添加 bridge_events / webhook_deliveries / page_block_metadata DDL
-- [ ] 11.4 验证 Stage 9 开工门禁：需求/API/Schema/测试四列无空
-- [ ] 11.5 创建 rebase 手动验收 checklist（Doc 22 §7.3：Docmost 前端 CRUD、附件上传、Cherry Chat 端到端同步、权限变更可见性）
-- [ ] 11.6 创建 Stage 9 回滚方案文档（Doc 22 §8 五步流程：回退 submodule → Docmost 只读 → 暂停回写 → 用旧索引 → reconcile）
+- [x] 11.1 更新 `docs/project/26_需求追踪矩阵.md` Phase 2 追踪表，填充 Stage 9 测试列（P2-E5/E6/E7 部分覆盖，标注 Stage 归属）
+- [x] 11.2 更新 `docs/schemas/openapi-bridge.yaml` 添加 Bridge internal API 定义（5 种 webhook 事件）
+- [x] 11.3 更新 `docs/schemas/schema.sql` 添加 bridge_events / webhook_deliveries / page_block_metadata DDL
+- [x] 11.4 验证 Stage 9 开工门禁：需求/API/Schema/测试四列无空
+- [x] 11.5 创建 rebase 手动验收 checklist（Doc 22 §7.3：Docmost 前端 CRUD、附件上传、Cherry Chat 端到端同步、权限变更可见性）
+- [x] 11.6 创建 Stage 9 回滚方案文档（Doc 22 §8 五步流程：回退 submodule → Docmost 只读 → 暂停回写 → 用旧索引 → reconcile）

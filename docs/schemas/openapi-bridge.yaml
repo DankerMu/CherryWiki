@@ -1,0 +1,366 @@
+openapi: 3.1.0
+info:
+  title: CherryWiki Bridge Internal API
+  version: 0.1.0
+  description: |
+    Internal Docmost-to-Cherry Bridge receiver contract.
+
+    These endpoints are only for Docker-network service-to-service traffic.
+    Public reverse proxies must deny external access to internal Bridge paths.
+
+    HMAC signature payload:
+    `X-Bridge-Timestamp + "\n" + X-Bridge-Nonce + "\n" + HTTP_METHOD + "\n" + REQUEST_PATH + "\n" + sha256(raw_body)`.
+    `X-Bridge-Signature` is `sha256=<hex hmac>` using DOCMOST_BRIDGE_SECRET.
+    During rotation, Cherry also accepts DOCMOST_BRIDGE_SECRET_NEXT.
+servers:
+  - url: /api
+    description: Cherry API global prefix
+security:
+  - bridgeBearer: []
+    bridgeHmac: []
+paths:
+  /internal/docmost/events/page-saved:
+    post:
+      operationId: receiveDocmostPageSaved
+      tags: [Bridge Receiver]
+      summary: Receive a Docmost page saved event
+      parameters:
+        - $ref: '#/components/parameters/BridgeTimestamp'
+        - $ref: '#/components/parameters/BridgeNonce'
+        - $ref: '#/components/parameters/BridgeSignature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PageSavedEvent'
+      responses:
+        '200':
+          $ref: '#/components/responses/BridgeAccepted'
+        '401':
+          $ref: '#/components/responses/BridgeUnauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /internal/docmost/events/page-deleted:
+    post:
+      operationId: receiveDocmostPageDeleted
+      tags: [Bridge Receiver]
+      summary: Receive a Docmost page deleted event
+      parameters:
+        - $ref: '#/components/parameters/BridgeTimestamp'
+        - $ref: '#/components/parameters/BridgeNonce'
+        - $ref: '#/components/parameters/BridgeSignature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PageDeletedEvent'
+      responses:
+        '200':
+          $ref: '#/components/responses/BridgeAccepted'
+        '401':
+          $ref: '#/components/responses/BridgeUnauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /internal/docmost/events/attachment-created:
+    post:
+      operationId: receiveDocmostAttachmentCreated
+      tags: [Bridge Receiver]
+      summary: Receive a Docmost attachment created event
+      parameters:
+        - $ref: '#/components/parameters/BridgeTimestamp'
+        - $ref: '#/components/parameters/BridgeNonce'
+        - $ref: '#/components/parameters/BridgeSignature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttachmentCreatedEvent'
+      responses:
+        '200':
+          $ref: '#/components/responses/BridgeAccepted'
+        '401':
+          $ref: '#/components/responses/BridgeUnauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /internal/docmost/events/attachment-deleted:
+    post:
+      operationId: receiveDocmostAttachmentDeleted
+      tags: [Bridge Receiver]
+      summary: Receive a Docmost attachment deleted event
+      parameters:
+        - $ref: '#/components/parameters/BridgeTimestamp'
+        - $ref: '#/components/parameters/BridgeNonce'
+        - $ref: '#/components/parameters/BridgeSignature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttachmentDeletedEvent'
+      responses:
+        '200':
+          $ref: '#/components/responses/BridgeAccepted'
+        '401':
+          $ref: '#/components/responses/BridgeUnauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /internal/docmost/events/space-updated:
+    post:
+      operationId: receiveDocmostSpaceUpdated
+      tags: [Bridge Receiver]
+      summary: Receive a Docmost space updated event
+      parameters:
+        - $ref: '#/components/parameters/BridgeTimestamp'
+        - $ref: '#/components/parameters/BridgeNonce'
+        - $ref: '#/components/parameters/BridgeSignature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SpaceUpdatedEvent'
+      responses:
+        '200':
+          $ref: '#/components/responses/BridgeAccepted'
+        '401':
+          $ref: '#/components/responses/BridgeUnauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+components:
+  securitySchemes:
+    bridgeBearer:
+      type: http
+      scheme: bearer
+      description: Bearer token must equal DOCMOST_BRIDGE_SECRET or DOCMOST_BRIDGE_SECRET_NEXT during rotation.
+    bridgeHmac:
+      type: apiKey
+      in: header
+      name: X-Bridge-Signature
+      description: HMAC-SHA256 signature over timestamp, nonce, method, path, and raw body hash.
+
+  parameters:
+    BridgeTimestamp:
+      name: X-Bridge-Timestamp
+      in: header
+      required: true
+      schema:
+        type: string
+        pattern: '^[0-9]+$'
+      description: Unix epoch seconds. Requests outside the 5 minute freshness window are rejected.
+    BridgeNonce:
+      name: X-Bridge-Nonce
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+      description: Unique nonce stored in Redis with a replay-prevention TTL.
+    BridgeSignature:
+      name: X-Bridge-Signature
+      in: header
+      required: true
+      schema:
+        type: string
+        pattern: '^sha256=[a-f0-9]{64}$'
+      description: Lowercase hex HMAC digest prefixed with `sha256=`.
+
+  responses:
+    BridgeAccepted:
+      description: Event accepted. Duplicate event_id values return 200 with deduplicated=true.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/WrappedBridgeAcceptedResponse'
+    BridgeUnauthorized:
+      description: Missing bearer, invalid HMAC, expired timestamp, or nonce replay.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            invalidSignature:
+              value:
+                error:
+                  code: BRIDGE_HMAC_INVALID
+                  message: Invalid Bridge HMAC signature
+                meta:
+                  request_id: req-123
+    ValidationError:
+      description: Payload schema validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimited:
+      description: Bridge receiver rate limit exceeded.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    WrappedBridgeAcceptedResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: '#/components/schemas/BridgeAcceptedResponse'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    BridgeAcceptedResponse:
+      type: object
+      required: [accepted, event_id, deduplicated]
+      properties:
+        accepted:
+          type: boolean
+          const: true
+        event_id:
+          type: string
+        deduplicated:
+          type: boolean
+
+    BridgeWebhookBase:
+      type: object
+      required: [event_id, event_type, timestamp, space_id]
+      properties:
+        event_id:
+          type: string
+          maxLength: 64
+        event_type:
+          type: string
+          enum: [page.saved, page.deleted, attachment.created, attachment.deleted, space.updated]
+        timestamp:
+          type: integer
+          description: Event creation Unix epoch seconds.
+        space_id:
+          type: string
+          maxLength: 64
+      additionalProperties: true
+
+    PageSavedEvent:
+      allOf:
+        - $ref: '#/components/schemas/BridgeWebhookBase'
+        - type: object
+          required: [page_id]
+          properties:
+            event_type:
+              const: page.saved
+            page_id:
+              type: string
+              maxLength: 64
+            content_hash:
+              type: string
+              pattern: '^[a-f0-9]{64}$'
+            title:
+              type: string
+
+    PageDeletedEvent:
+      allOf:
+        - $ref: '#/components/schemas/BridgeWebhookBase'
+        - type: object
+          required: [page_id]
+          properties:
+            event_type:
+              const: page.deleted
+            page_id:
+              type: string
+              maxLength: 64
+
+    AttachmentCreatedEvent:
+      allOf:
+        - $ref: '#/components/schemas/BridgeWebhookBase'
+        - type: object
+          required: [page_id, attachment_id, filename]
+          properties:
+            event_type:
+              const: attachment.created
+            page_id:
+              type: string
+              maxLength: 64
+            attachment_id:
+              type: string
+              maxLength: 64
+            filename:
+              type: string
+            download_url:
+              type: string
+              format: uri-reference
+
+    AttachmentDeletedEvent:
+      allOf:
+        - $ref: '#/components/schemas/BridgeWebhookBase'
+        - type: object
+          required: [page_id, attachment_id]
+          properties:
+            event_type:
+              const: attachment.deleted
+            page_id:
+              type: string
+              maxLength: 64
+            attachment_id:
+              type: string
+              maxLength: 64
+
+    SpaceUpdatedEvent:
+      allOf:
+        - $ref: '#/components/schemas/BridgeWebhookBase'
+        - type: object
+          required: [change_type]
+          properties:
+            event_type:
+              const: space.updated
+            change_type:
+              type: string
+              enum: [metadata, permissions, settings, members]
+
+    ErrorResponse:
+      type: object
+      required: [error, meta]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - BRIDGE_AUTH_MISSING
+                - BRIDGE_HMAC_INVALID
+                - BRIDGE_TIMESTAMP_EXPIRED
+                - BRIDGE_NONCE_REUSED
+                - RATE_LIMITED
+                - VALIDATION_ERROR
+            message:
+              type: string
+            details:
+              type: array
+              items: {}
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    Meta:
+      type: object
+      required: [request_id]
+      properties:
+        request_id:
+          type: string
