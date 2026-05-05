@@ -8,6 +8,8 @@ import {
   chatMessages,
   chatSessions,
   embeddings,
+  modelUsageLogs,
+  retrievalTraces,
   webhookDeliveries,
   wikiChunks,
 } from './core.js';
@@ -85,6 +87,13 @@ const metadataObjectSchema = z.record(z.unknown());
 // Accept unstructured JSON object records here; feature-specific schemas own deeper shape validation.
 const unstructuredJsonRecordSchema = z.record(z.unknown());
 
+export const spaceDatabaseConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    dsn: z.string().max(4096).optional(),
+  })
+  .passthrough();
+
 export const sourceDocumentMetadataSchema = z
   .object({
     source_url: z.string().url().max(2048).optional(),
@@ -133,6 +142,7 @@ export const insertSpaceSchema = z.object({
   status: spaceStatusSchema.default('active'),
   strict_knowledge_only: z.boolean().default(true),
   graphify_config: unstructuredJsonRecordSchema.default({}),
+  database_config: spaceDatabaseConfigSchema.default({ enabled: false }),
   default_publish_policy: shortTextSchema.default('editor_publish'),
 });
 
@@ -144,6 +154,7 @@ export const updateSpaceSchema = z
     status: spaceStatusSchema.optional(),
     strict_knowledge_only: z.boolean().optional(),
     graphify_config: unstructuredJsonRecordSchema.optional(),
+    database_config: spaceDatabaseConfigSchema.optional(),
     default_publish_policy: shortTextSchema.optional(),
   })
   .partial();
@@ -355,6 +366,12 @@ export const pageBlockMetadataSchema = z.object({
 });
 
 const jsonObjectSchemaV4 = z4.record(z4.string(), z4.unknown());
+export const sourceChainJsonSchema = z4
+  .object({
+    graph_edge_ids: z4.array(z4.string()).optional(),
+    graph_path_nodes: z4.array(jsonObjectSchemaV4).optional(),
+  })
+  .catchall(z4.unknown());
 
 export const insertWikiChunkSchema = createInsertSchema(wikiChunks, {
   index_status: chunkIndexStatusSchema,
@@ -392,11 +409,29 @@ export const selectChatMessageSchema = createSelectSchema(chatMessages, {
 });
 export const chatMessageSchema = insertChatMessageSchema;
 
+export const insertRetrievalTraceSchema = createInsertSchema(retrievalTraces, {
+  space_ids: z4.array(z4.string()).min(1),
+  candidates_json: z4.array(z4.unknown()),
+  acl_filtered_json: z4.array(z4.unknown()),
+  final_context_json: z4.array(z4.unknown()),
+});
+export const selectRetrievalTraceSchema = createSelectSchema(retrievalTraces, {
+  space_ids: z4.array(z4.string()),
+  candidates_json: z4.array(z4.unknown()),
+  acl_filtered_json: z4.array(z4.unknown()),
+  final_context_json: z4.array(z4.unknown()),
+});
+export const retrievalTraceSchema = insertRetrievalTraceSchema;
+
+export const insertModelUsageLogSchema = createInsertSchema(modelUsageLogs);
+export const selectModelUsageLogSchema = createSelectSchema(modelUsageLogs);
+export const modelUsageLogSchema = insertModelUsageLogSchema;
+
 export const insertAnswerCitationSchema = createInsertSchema(answerCitations, {
-  source_chain_json: jsonObjectSchemaV4,
+  source_chain_json: sourceChainJsonSchema,
 });
 export const selectAnswerCitationSchema = createSelectSchema(answerCitations, {
-  source_chain_json: jsonObjectSchemaV4,
+  source_chain_json: sourceChainJsonSchema,
 });
 export const answerCitationSchema = insertAnswerCitationSchema;
 
@@ -441,6 +476,7 @@ export type InsertUserInput = z.infer<typeof insertUserSchema>;
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 export type InsertSpaceInput = z.infer<typeof insertSpaceSchema>;
 export type UpdateSpaceInput = z.infer<typeof updateSpaceSchema>;
+export type SpaceDatabaseConfig = z.infer<typeof spaceDatabaseConfigSchema>;
 export type InsertModelConfigInput = z.infer<typeof insertModelConfigSchema>;
 export type UpdateModelConfigInput = z.infer<typeof updateModelConfigSchema>;
 export type InsertGroupInput = z.infer<typeof insertGroupSchema>;
@@ -483,7 +519,12 @@ export type SelectEmbeddingInput = z4.infer<typeof selectEmbeddingSchema>;
 export type ChatMessageRole = z4.infer<typeof chatMessageRoleSchema>;
 export type InsertChatSessionInput = z4.infer<typeof insertChatSessionSchema>;
 export type InsertChatMessageInput = z4.infer<typeof insertChatMessageSchema>;
+export type InsertRetrievalTraceInput = z4.infer<typeof insertRetrievalTraceSchema>;
+export type SelectRetrievalTraceInput = z4.infer<typeof selectRetrievalTraceSchema>;
+export type InsertModelUsageLogInput = z4.infer<typeof insertModelUsageLogSchema>;
+export type SelectModelUsageLogInput = z4.infer<typeof selectModelUsageLogSchema>;
 export type InsertAnswerCitationInput = z4.infer<typeof insertAnswerCitationSchema>;
+export type SourceChainJson = z4.infer<typeof sourceChainJsonSchema>;
 export type BridgeEventStatus = z.infer<typeof bridgeEventStatusSchema>;
 export type BridgeEventType = z.infer<typeof bridgeEventTypeSchema>;
 export type BridgeWebhookPayload = z.infer<typeof bridgeWebhookPayloadSchema>;

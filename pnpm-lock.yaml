@@ -65,6 +65,9 @@ importers:
       '@cherrygraph/auth-core':
         specifier: workspace:*
         version: link:../../packages/auth-core
+      '@cherrygraph/graph-core':
+        specifier: workspace:*
+        version: link:../../packages/graph-core
       '@cherrygraph/job-core':
         specifier: workspace:*
         version: link:../../packages/job-core
@@ -137,6 +140,9 @@ importers:
       yauzl:
         specifier: ^3.3.0
         version: 3.3.0
+      zod:
+        specifier: ^3.25.0
+        version: 3.25.76
     devDependencies:
       '@nestjs/cli':
         specifier: ^11.0.21
@@ -320,7 +326,11 @@ importers:
         specifier: ^4.1.5
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@20.19.39)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.0(@noble/hashes@1.8.0))(vite@8.0.10(@types/node@20.19.39)(esbuild@0.27.7)(terser@5.46.2)(tsx@4.21.0))
 
-  packages/graph-core: {}
+  packages/graph-core:
+    dependencies:
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.20.0)
 
   packages/job-core:
     dependencies:

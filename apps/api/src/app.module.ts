@@ -12,6 +12,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { BridgeModule } from './bridge/bridge.module.js';
 import { ChatModule } from './chat/chat.module.js';
 import { DrizzleModule } from './database/drizzle.module.js';
+import { GraphModule } from './graph/graph.module.js';
 import { GraphifyModule } from './graphify/graphify.module.js';
 import { GroupModule } from './groups/group.module.js';
 import { HealthModule } from './health/health.module.js';
@@ -39,6 +40,7 @@ import { WikiModule } from './wiki/wiki.module.js';
     ModelConfigModule,
     StorageModule,
     UploadsModule,
+    GraphModule,
     GraphifyModule,
     WikiModule,
     BridgeModule,

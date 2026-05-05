@@ -87,6 +87,10 @@ export class RbacGuard implements CanActivate {
     const rolePermissions = new Set<string>(ROLE_PERMISSIONS[role]);
 
     if (spaceId === undefined && requiredPermissions.some(isSpaceScopedPermission)) {
+      if (canDeferSpaceReadToResourceAcl(requiredPermissions, rolePermissions)) {
+        return true;
+      }
+
       if (
         role !== ROLES.ADMIN ||
         !requiredPermissions.every((permission) => isSpaceScopedPermission(permission) || rolePermissions.has(permission))
@@ -142,7 +146,21 @@ function hasPermission(input: HasPermissionInput): boolean {
 }
 
 function permissionSetSatisfies(grantedPermissions: readonly string[], requiredPermission: string): boolean {
+  if (
+    (requiredPermission === 'space:read' || requiredPermission === 'space:view') &&
+    grantedPermissions.some((permission) => ['space:read', 'space:view', 'space:edit', 'space:admin'].includes(permission))
+  ) {
+    return true;
+  }
+
   return grantedPermissions.includes(requiredPermission) || grantedPermissions.includes('space:admin');
+}
+
+function canDeferSpaceReadToResourceAcl(
+  requiredPermissions: readonly string[],
+  rolePermissions: ReadonlySet<string>,
+): boolean {
+  return requiredPermissions.every((permission) => permission === 'space:read' && rolePermissions.has(permission));
 }
 
 async function getRequestPermissions(

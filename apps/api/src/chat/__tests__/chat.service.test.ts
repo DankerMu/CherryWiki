@@ -595,6 +595,7 @@ function createSpaceRow(overrides: Partial<SpaceRow> = {}): SpaceRow {
     permission_version: 1,
     strict_knowledge_only: true,
     graphify_config: {},
+    database_config: { enabled: false },
     default_publish_policy: 'editor_publish',
     created_at: new Date('2026-05-01T00:00:00.000Z'),
     updated_at: new Date('2026-05-01T00:00:00.000Z'),
