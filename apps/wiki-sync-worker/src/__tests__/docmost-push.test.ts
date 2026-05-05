@@ -55,7 +55,7 @@ describe('docmost-push processor', () => {
     expect(bridgeClient.importPage).toHaveBeenCalledWith(
       'docmost-page-1',
       expect.stringContaining('## Overview\nNew'),
-      expect.objectContaining({ overwritePolicy: 'update', expectedHash: expect.stringMatching(/^sha256:/) }),
+      expect.objectContaining({ overwritePolicy: 'update', expectedHash: expect.stringMatching(/^[a-f0-9]{64}$/) }),
     );
   });
 
@@ -85,7 +85,7 @@ describe('docmost-push processor', () => {
       2,
       'docmost-page-1',
       expect.stringContaining('## Overview\nHuman edit during race'),
-      expect.objectContaining({ overwritePolicy: 'update', expectedHash: expect.stringMatching(/^sha256:/) }),
+      expect.objectContaining({ overwritePolicy: 'update', expectedHash: expect.stringMatching(/^[a-f0-9]{64}$/) }),
     );
   });
 

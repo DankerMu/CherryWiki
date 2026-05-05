@@ -411,7 +411,7 @@ async function updateRunStatus(
 }
 
 function contentHash(markdown: string): string {
-  return `sha256:${createHash('sha256').update(markdown).digest('hex')}`;
+  return createHash('sha256').update(markdown).digest('hex');
 }
 
 function contentSemanticHash(markdown: string): string {

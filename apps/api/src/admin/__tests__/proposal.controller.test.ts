@@ -50,18 +50,17 @@ describe('ProposalController', () => {
     });
   });
 
-  it('accepts a pending proposal and clears sync status when no pending proposals remain', async () => {
+  it('accepts a pending proposal without clearing sync status (content replacement deferred)', async () => {
     const db = new ScriptedProposalDb();
     db.queueSelect([createProposal()]);
     db.queueUpdateReturning(createProposal({ status: 'accepted', resolved_at: new Date('2026-05-05T13:00:00.000Z') }));
-    db.queueSelect([]);
     const { controller } = createController(db);
 
     const result = await controller.resolveProposal('proposal-1', { action: 'accept' });
 
     expect(result.status).toBe('accepted');
     expect(db.proposalUpdates[0]).toMatchObject({ status: 'accepted' });
-    expect(db.pageUpdates[0]).toMatchObject({ sync_status: 'synced' });
+    expect(db.pageUpdates).toHaveLength(0);
   });
 
   it('rejects a pending proposal and clears sync status when no pending proposals remain', async () => {

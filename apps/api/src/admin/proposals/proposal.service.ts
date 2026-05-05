@@ -104,9 +104,9 @@ export class ProposalService {
         { proposal_id: id, wiki_page_pk: updated.wiki_page_pk },
         'proposal accepted, content replacement deferred',
       );
+    } else {
+      await this.markPageSyncedWhenNoPending(updated);
     }
-
-    await this.markPageSyncedWhenNoPending(updated);
     return toProposalDetail(updated);
   }
 
