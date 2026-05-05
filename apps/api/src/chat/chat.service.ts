@@ -874,9 +874,7 @@ export class ChatService {
           tenantId: prepared.tenantId,
           actorUserId: prepared.userId,
           userId: prepared.userId,
-          spacePermissions: {
-            [prepared.space.id]: ['space:view'],
-          },
+          userGroupIds: prepared.userGroupIds,
         },
       );
 

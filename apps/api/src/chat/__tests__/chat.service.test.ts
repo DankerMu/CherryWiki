@@ -18,6 +18,7 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { AuditEntry, AuditService } from '../../audit/audit.service.js';
+import type { GraphService } from '../../graph/graph.service.js';
 import {
   TEST_GROUP_ID,
   TEST_SPACE_ID,
@@ -267,6 +268,62 @@ describe('ChatService streamCompletion', () => {
     );
   });
 
+  it('passes real user groups to graph hint retrieval without fabricating space permissions', async () => {
+    const chatProvider = new ScriptedChatProvider([
+      { type: 'content', delta: 'Use the graph hint.' },
+      { type: 'done', finish_reason: 'stop', usage: { prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 } },
+    ]);
+    const searchNodes = vi.fn(() =>
+      Promise.resolve({
+        nodes: [
+          {
+            id: 'node-1',
+            node_key: 'auth',
+            stable_key: 'auth',
+            label: 'Auth',
+            node_type: 'concept',
+            description: 'Authentication subsystem',
+            space_id: TEST_SPACE_ID,
+            community_id: null,
+            score: 0.9,
+          },
+        ],
+        total: 1,
+      }),
+    );
+    const graphService = { searchNodes } as unknown as GraphService;
+    const { service, db } = createServiceContext({ chatProvider, graphService });
+    queuePreparedCompletion(db, { space: createSpaceRow({ strict_knowledge_only: false }) });
+    db.queueSelect([]);
+    db.queueInsert([createMessageRow({ id: 'assistant-answer', role: 'assistant' })]);
+
+    await collectEvents(
+      await service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: TEST_SPACE_ID,
+        userId: TEST_USER_ID,
+        userGroupIds: [TEST_GROUP_ID],
+        message: 'What does the graph know?',
+      }),
+    );
+
+    expect(searchNodes).toHaveBeenCalledWith(
+      {
+        q: 'What does the graph know?',
+        space_id: TEST_SPACE_ID,
+        top_k: 5,
+      },
+      expect.objectContaining({
+        tenantId: TEST_TENANT_ID,
+        actorUserId: TEST_USER_ID,
+        userId: TEST_USER_ID,
+        userGroupIds: [TEST_GROUP_ID],
+      }),
+    );
+    const graphSearchCall = searchNodes.mock.calls[0] as unknown[] | undefined;
+    expect(graphSearchCall?.[1]).not.toHaveProperty('spacePermissions');
+  });
+
   it('throws 422 when no enabled chat model is configured', async () => {
     const { service, db } = createServiceContext();
     db.queueSelect([createSpaceRow()]);
@@ -385,6 +442,7 @@ class ScriptedEmbeddingProvider implements EmbeddingProvider {
 type ServiceContextOptions = {
   chatProvider?: ScriptedChatProvider;
   embeddingProvider?: ScriptedEmbeddingProvider;
+  graphService?: GraphService;
 };
 
 function createServiceContext(options: ServiceContextOptions = {}): {
@@ -407,6 +465,8 @@ function createServiceContext(options: ServiceContextOptions = {}): {
     audit as unknown as AuditService,
     chatFactory,
     embeddingFactory,
+    undefined,
+    options.graphService,
   );
 
   return { service, db, audit, chatFactory, embeddingFactory };

@@ -21,6 +21,11 @@ const ENCRYPTED_DSN_PREFIX = 'pgp:';
 const MAX_DSN_LENGTH = 4096;
 const MAX_IDENTIFIER_LENGTH = 200;
 const MAX_LIST_LENGTH = 500;
+const TRUSTED_ENCRYPTED_DSN = Symbol('trustedEncryptedDsn');
+
+type StorageSpaceDatabaseConfig = SpaceDatabaseConfig & {
+  [TRUSTED_ENCRYPTED_DSN]?: boolean;
+};
 
 export function normalizeSpaceDatabaseConfig(value: unknown): SpaceDatabaseConfig {
   if (!isRecord(value)) {
@@ -85,6 +90,15 @@ export function mergeSpaceDatabaseConfig(existingValue: unknown, patchValue: unk
     next.dsn = existing.dsn;
   }
 
+  if (
+    existing.dsn !== undefined &&
+    next.dsn === existing.dsn &&
+    isEncryptedDsn(existing.dsn) &&
+    (patch.dsn === undefined || patch.dsn === '***')
+  ) {
+    (next as StorageSpaceDatabaseConfig)[TRUSTED_ENCRYPTED_DSN] = true;
+  }
+
   if ('allowed_tables' in patchRecord) {
     next.allowed_tables = patch.allowed_tables ?? [];
   } else if (existing.allowed_tables !== undefined) {
@@ -95,6 +109,10 @@ export function mergeSpaceDatabaseConfig(existingValue: unknown, patchValue: unk
     next.masked_columns = patch.masked_columns ?? [];
   } else if (existing.masked_columns !== undefined) {
     next.masked_columns = existing.masked_columns;
+  }
+
+  if (next.enabled && next.dsn === undefined) {
+    throwValidationError('database_config.dsn is required when database_config.enabled is true');
   }
 
   return next;
@@ -114,7 +132,11 @@ export function databaseConfigStorageValue(config: SpaceDatabaseConfig): SQL {
   const entries: SQL[] = [sql`'enabled', ${config.enabled}`];
 
   if (config.dsn !== undefined) {
-    entries.push(sql`'dsn', ${isEncryptedDsn(config.dsn) ? sql`${config.dsn}` : encryptedDsnExpression(config.dsn)}`);
+    entries.push(
+      sql`'dsn', ${
+        isTrustedEncryptedDsn(config) ? sql`${config.dsn}` : encryptedDsnExpression(config.dsn)
+      }`,
+    );
   }
 
   if (config.allowed_tables !== undefined) {
@@ -168,6 +190,14 @@ function getEncryptionKey(): string {
 
 function isEncryptedDsn(value: string): boolean {
   return value.startsWith(ENCRYPTED_DSN_PREFIX);
+}
+
+function isTrustedEncryptedDsn(config: SpaceDatabaseConfig): boolean {
+  return (
+    config.dsn !== undefined &&
+    isEncryptedDsn(config.dsn) &&
+    (config as StorageSpaceDatabaseConfig)[TRUSTED_ENCRYPTED_DSN] === true
+  );
 }
 
 function normalizeOptionalStringListField(

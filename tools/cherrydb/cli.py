@@ -3,7 +3,6 @@ from __future__ import annotations
 import csv
 import json
 import os
-import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -16,7 +15,7 @@ import psycopg2
 from tabulate import tabulate
 
 from .chart import build_echarts_option
-from .validator import SQLValidationError, sql_without_literals, validate_sql
+from .validator import SQLValidationError, normalize_table_name, table_is_allowed, validate_sql, validate_table_acl
 
 
 class CherryDBError(RuntimeError):
@@ -55,8 +54,7 @@ def _masked_columns() -> set[str]:
 
 
 def _normalize_table_name(name: str) -> str:
-    parts = [part.strip().strip('"') for part in name.strip().split(".") if part.strip()]
-    return ".".join(parts).lower()
+    return normalize_table_name(name)
 
 
 def _split_table_name(name: str) -> tuple[str | None, str]:
@@ -66,74 +64,8 @@ def _split_table_name(name: str) -> tuple[str | None, str]:
     return parts[-2], parts[-1]
 
 
-def _extract_cte_names(cleaned_sql: str) -> set[str]:
-    if not re.match(r"^\s*WITH(?:\s+RECURSIVE)?\b", cleaned_sql, re.IGNORECASE):
-        return set()
-
-    names: set[str] = set()
-    index = re.match(r"^\s*WITH(?:\s+RECURSIVE)?\b", cleaned_sql, re.IGNORECASE).end()  # type: ignore[union-attr]
-    length = len(cleaned_sql)
-    depth = 0
-
-    while index < length:
-        if depth == 0:
-            match = re.match(r"\s*(\"[^\"]+\"|[A-Za-z_][A-Za-z0-9_]*)\s*(?:\([^)]*\)\s*)?AS\s*\(",
-                             cleaned_sql[index:], re.IGNORECASE)
-            if not match:
-                break
-            names.add(_normalize_table_name(match.group(1)))
-            index += match.end()
-            depth = 1
-            continue
-
-        char = cleaned_sql[index]
-        if char == "(":
-            depth += 1
-        elif char == ")":
-            depth -= 1
-            if depth == 0:
-                index += 1
-                while index < length and cleaned_sql[index].isspace():
-                    index += 1
-                if index < length and cleaned_sql[index] == ",":
-                    index += 1
-                    continue
-                break
-        index += 1
-
-    return names
-
-
-def _extract_table_references(sql: str) -> set[str]:
-    cleaned = sql_without_literals(sql)
-    cte_names = _extract_cte_names(cleaned)
-    references: set[str] = set()
-    pattern = re.compile(
-        r"\b(?:FROM|JOIN)\s+((?:\"[^\"]+\"|[A-Za-z_][A-Za-z0-9_]*)(?:\s*\.\s*(?:\"[^\"]+\"|[A-Za-z_][A-Za-z0-9_]*))?)",
-        re.IGNORECASE,
-    )
-
-    for match in pattern.finditer(cleaned):
-        raw = re.sub(r"\s+", "", match.group(1))
-        if raw.startswith("("):
-            continue
-        normalized = _normalize_table_name(raw)
-        if normalized and normalized not in cte_names:
-            references.add(normalized)
-
-    return references
-
-
 def _validate_table_acl(sql: str) -> None:
-    allowed = {_normalize_table_name(table) for table in _allowed_tables()}
-    if not allowed:
-        return
-
-    allowed_short = {table.rsplit(".", 1)[-1] for table in allowed}
-    for table in _extract_table_references(sql):
-        short = table.rsplit(".", 1)[-1]
-        if table not in allowed and short not in allowed_short:
-            raise CherryDBError(f"table '{table}' not allowed")
+    validate_table_acl(sql, _allowed_tables())
 
 
 def _connect():
@@ -260,7 +192,7 @@ def tables_command() -> None:
 def describe_command(table: str) -> None:
     allowed = {_normalize_table_name(item) for item in _allowed_tables()}
     normalized = _normalize_table_name(table)
-    if normalized not in allowed and normalized.rsplit(".", 1)[-1] not in {item.rsplit(".", 1)[-1] for item in allowed}:
+    if allowed and not table_is_allowed(normalized, allowed):
         _fail(f"table '{table}' not allowed")
 
     schema, table_name = _split_table_name(table)

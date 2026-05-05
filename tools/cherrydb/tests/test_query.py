@@ -54,3 +54,23 @@ def test_query_rejects_cte_write_sql(cherrydb_env, fake_db) -> None:
     assert result.exit_code == 1
     assert "CTE write operations rejected" in result.stderr
     assert fake_db.connections == []
+
+
+def test_query_rejects_denied_table_in_comma_join(cherrydb_env, fake_db) -> None:
+    fake_db()
+
+    result = CliRunner().invoke(main, ["query", "SELECT * FROM orders, secrets"])
+
+    assert result.exit_code == 1
+    assert "table 'secrets' not allowed" in result.stderr
+    assert fake_db.connections == []
+
+
+def test_query_rejects_non_public_schema_qualified_table(cherrydb_env, fake_db) -> None:
+    fake_db()
+
+    result = CliRunner().invoke(main, ["query", "SELECT * FROM private.orders"])
+
+    assert result.exit_code == 1
+    assert "table 'private.orders' not allowed" in result.stderr
+    assert fake_db.connections == []

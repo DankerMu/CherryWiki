@@ -67,6 +67,85 @@ describe('space database config', () => {
     });
   });
 
+  it('rejects enabling database_config without an existing or submitted DSN', async () => {
+    const { service, db } = createContext();
+    db.queueSelect([createSpaceRow({ database_config: { enabled: false } })]);
+
+    const err = await getRejectedHttpException(
+      service.updateSpace(
+        TEST_SPACE_ID,
+        {
+          database_config: {
+            enabled: true,
+            allowed_tables: ['orders'],
+          },
+        },
+        createAdminContext(),
+      ),
+    );
+
+    expect(err.getStatus()).toBe(422);
+    expect(getHttpExceptionCode(err)).toBe('VALIDATION_ERROR');
+    expect(db.updates).toHaveLength(0);
+  });
+
+  it('encrypts user-submitted DSNs even when they start with the encrypted prefix', async () => {
+    process.env.DB_ENCRYPTION_KEY = 'test-key';
+    const { service, db } = createContext();
+    db.queueSelect([createSpaceRow()]);
+    db.queueUpdate([createSpaceRow({ database_config: { enabled: true, dsn: 'pgp:encrypted-value' } })]);
+
+    await service.updateSpace(
+      TEST_SPACE_ID,
+      {
+        database_config: {
+          enabled: true,
+          dsn: 'pgp:not-actually-encrypted',
+        },
+      },
+      createAdminContext(),
+    );
+
+    const updateValue = requireRecord(db.updates[0]?.value);
+    expect(collectSqlText(updateValue.database_config)).toContain('pgp_sym_encrypt');
+  });
+
+  it('preserves an existing encrypted DSN without requiring a new encryption key', async () => {
+    const { service, db } = createContext();
+    db.queueSelect([
+      createSpaceRow({
+        database_config: {
+          enabled: true,
+          dsn: 'pgp:encrypted-value',
+          allowed_tables: ['orders'],
+        },
+      }),
+    ]);
+    db.queueUpdate([
+      createSpaceRow({
+        database_config: {
+          enabled: true,
+          dsn: 'pgp:encrypted-value',
+          allowed_tables: ['orders', 'invoices'],
+        },
+      }),
+    ]);
+
+    await service.updateSpace(
+      TEST_SPACE_ID,
+      {
+        database_config: {
+          enabled: true,
+          allowed_tables: ['orders', 'invoices'],
+        },
+      },
+      createAdminContext(),
+    );
+
+    const updateValue = requireRecord(db.updates[0]?.value);
+    expect(collectSqlText(updateValue.database_config)).not.toContain('pgp_sym_encrypt');
+  });
+
   it('masks database_config.dsn in space GET responses while preserving enabled visibility', async () => {
     const { service, db } = createContext();
     db.queueSelect([
@@ -140,4 +219,20 @@ function createAdminContext(): SpaceContext {
     userId: TEST_USER_ID,
     actorRole: 'admin',
   };
+}
+
+function collectSqlText(value: unknown): string {
+  if (typeof value !== 'object' || value === null) {
+    return '';
+  }
+
+  const record = value as { queryChunks?: unknown[]; value?: unknown[] };
+  const ownText = Array.isArray(record.value)
+    ? record.value.filter((item): item is string => typeof item === 'string').join('')
+    : '';
+  const nestedText = Array.isArray(record.queryChunks)
+    ? record.queryChunks.map((chunk) => collectSqlText(chunk)).join('')
+    : '';
+
+  return `${ownText}${nestedText}`;
 }
