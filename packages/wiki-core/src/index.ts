@@ -11,4 +11,13 @@ export * from './normalization/safe-filename.js';
 export * from './normalization/identify-page-type.js';
 export * from './normalization/sanitize-markdown.js';
 export * from './normalization/block-markers.js';
+export {
+  matchBlocksFallback,
+  mergeBlocks,
+  normalizeBlockContent,
+  normalizeBlockHash,
+  type BlockMatchResult,
+  type BlockMetadataInfo as BlockMergeMetadataInfo,
+  type MergeResult,
+} from './normalization/block-merge.js';
 export * from './normalization/import-graphify-wiki.js';

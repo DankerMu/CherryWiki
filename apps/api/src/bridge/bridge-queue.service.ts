@@ -99,7 +99,7 @@ export class BridgeQueueService implements OnModuleDestroy {
     }
 
     const queueName = resolveBridgeQueueName(eventType);
-    await this.getQueue(queueName).add(eventType, jobData, { jobId: jobData.eventId });
+    await this.getQueue(queueName).add(eventType, jobData, bridgeQueueJobOptions(eventType, jobData));
   }
 
   async enqueueDocmostPushJob(jobData: DocmostPushJobData): Promise<void> {
@@ -155,4 +155,13 @@ export function resolveBridgeQueueName(eventType: BridgeEventType): BridgeQueueN
   }
 
   return BRIDGE_ATTACHMENT_SYNC_QUEUE;
+}
+
+export function bridgeQueueJobOptions(eventType: BridgeEventType, jobData: BridgeQueueJobData): JobsOptions {
+  const options = { jobId: jobData.eventId } as JobsOptions & { group?: { id: string } };
+  if ((eventType === 'page.saved' || eventType === 'page.deleted') && jobData.pageId !== undefined) {
+    options.group = { id: jobData.pageId };
+  }
+
+  return options;
 }

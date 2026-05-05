@@ -44,7 +44,7 @@ describe('wiki-sync-worker startup reconciliation', () => {
         spaceId: 'space-1',
         pageId: 'page-1',
       },
-      { jobId: 'docmost-1' },
+      { jobId: 'docmost-1', group: { id: 'page-1' } },
     );
     expect(queues.permissionSync.add).toHaveBeenCalledWith(
       'space.updated',

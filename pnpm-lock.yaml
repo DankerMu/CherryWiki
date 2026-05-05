@@ -257,6 +257,9 @@ importers:
       '@cherrygraph/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@cherrygraph/wiki-core':
+        specifier: workspace:*
+        version: link:../../packages/wiki-core
       bullmq:
         specifier: ^5.76.3
         version: 5.76.3
@@ -266,6 +269,13 @@ importers:
       ioredis:
         specifier: ^5.10.1
         version: 5.10.1
+      pg:
+        specifier: ^8.20.0
+        version: 8.20.0
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.20.0
+        version: 8.20.0
 
   packages/ai-core:
     dependencies:

@@ -56,6 +56,7 @@ describe('BridgeQueueService', () => {
 
     expect(queueByName(BRIDGE_PAGE_SYNC_QUEUE).add).toHaveBeenCalledWith('page.saved', jobData, {
       jobId: 'event-1',
+      group: { id: 'page-1' },
     });
   });
 
@@ -92,6 +93,7 @@ describe('BridgeQueueService', () => {
 
     expect(queueByName(BRIDGE_PAGE_SYNC_QUEUE).add).toHaveBeenCalledWith('page.deleted', jobData, {
       jobId: 'docmost-event-42',
+      group: { id: 'page-1' },
     });
   });
 
