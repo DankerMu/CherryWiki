@@ -44,6 +44,8 @@ export class ScriptedDb {
   readonly limitCalls: number[] = [];
   readonly offsetCalls: number[] = [];
   readonly selectResults: unknown[][] = [];
+  readonly executeResults: unknown[] = [];
+  readonly executedQueries: unknown[] = [];
   readonly insertResults: unknown[][] = [];
   readonly updateResults: unknown[][] = [];
   readonly insertErrors: Error[] = [];
@@ -55,6 +57,10 @@ export class ScriptedDb {
 
   queueSelect(result: unknown[]): void {
     this.selectResults.push(result);
+  }
+
+  queueExecute(result: unknown): void {
+    this.executeResults.push(result);
   }
 
   queueInsert(result: unknown[]): void {
@@ -106,6 +112,11 @@ export class ScriptedDb {
   delete(table?: unknown): ScriptedMutationBuilder {
     this.deletes.push({ table });
     return new ScriptedMutationBuilder([]);
+  }
+
+  execute(query: unknown): Promise<unknown> {
+    this.executedQueries.push(query);
+    return Promise.resolve(this.executeResults.shift() ?? { rows: [] });
   }
 }
 
@@ -262,6 +273,7 @@ export function createSpaceRow(overrides: Partial<SpaceRow> = {}): SpaceRow {
     permission_version: 1,
     strict_knowledge_only: true,
     graphify_config: {},
+    database_config: { enabled: false },
     default_publish_policy: 'editor_publish',
     created_at: new Date('2026-04-03T00:00:00.000Z'),
     updated_at: new Date('2026-04-03T00:00:00.000Z'),

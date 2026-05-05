@@ -117,6 +117,7 @@ export const spaces = pgTable(
     permission_version: bigint('permission_version', { mode: 'number' }).notNull().default(1),
     strict_knowledge_only: boolean('strict_knowledge_only').notNull().default(true),
     graphify_config: jsonb('graphify_config').notNull().default(sql`'{}'::jsonb`),
+    database_config: jsonb('database_config').notNull().default(sql`'{"enabled":false}'::jsonb`),
     default_publish_policy: text('default_publish_policy').notNull().default('editor_publish'),
     created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -872,6 +873,47 @@ export const chatMessages = pgTable(
     created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index('idx_chat_messages_session_created').on(table.session_id, table.created_at)],
+);
+
+export const retrievalTraces = pgTable('retrieval_traces', {
+  id: text('id').primaryKey(),
+  tenant_id: text('tenant_id')
+    .notNull()
+    .references(() => tenants.id),
+  user_id: text('user_id').references(() => users.id),
+  conversation_id: text('conversation_id').references(() => chatSessions.id),
+  space_ids: text('space_ids').array().notNull(),
+  query: text('query').notNull(),
+  retrieval_mode: text('retrieval_mode').notNull(),
+  candidates_json: jsonb('candidates_json').notNull().default(sql`'[]'::jsonb`),
+  acl_filtered_json: jsonb('acl_filtered_json').notNull().default(sql`'[]'::jsonb`),
+  final_context_json: jsonb('final_context_json').notNull().default(sql`'[]'::jsonb`),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const modelUsageLogs = pgTable(
+  'model_usage_logs',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    user_id: text('user_id').references(() => users.id),
+    model_config_id: text('model_config_id')
+      .notNull()
+      .references(() => model_configs.id),
+    request_type: text('request_type').notNull(),
+    input_tokens: integer('input_tokens').notNull().default(0),
+    output_tokens: integer('output_tokens').notNull().default(0),
+    latency_ms: integer('latency_ms'),
+    space_id: text('space_id').references(() => spaces.id),
+    conversation_id: text('conversation_id').references(() => chatSessions.id),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_model_usage_logs_user').on(table.tenant_id, table.user_id, table.created_at),
+    index('idx_model_usage_logs_model').on(table.model_config_id, table.created_at),
+  ],
 );
 
 export const answerCitations = pgTable(

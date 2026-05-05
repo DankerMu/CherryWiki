@@ -107,6 +107,7 @@ const REFRESH_TOKEN_EXPIRES_IN_MS = 7 * 24 * 60 * 60 * 1_000;
 const LOGIN_LOCKOUT_THRESHOLD = 5;
 const LOGIN_LOCKOUT_TTL_SECONDS = 15 * 60;
 const SPACE_PERMISSION_RANK = new Map<string, number>([
+  ['space:read', 1],
   ['space:view', 1],
   ['chat:use', 1],
   ['model:use', 1],

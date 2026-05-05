@@ -1,4 +1,5 @@
 export const PERMISSION_POINTS = [
+  'space:read',
   'space:view',
   'space:edit',
   'space:admin',
@@ -32,6 +33,7 @@ export type Role = (typeof ROLES)[keyof typeof ROLES];
 export const ROLE_PERMISSIONS = {
   [ROLES.OWNER]: PERMISSION_POINTS,
   [ROLES.ADMIN]: [
+    'space:read',
     'space:view',
     'space:edit',
     'space:admin',
@@ -49,6 +51,7 @@ export const ROLE_PERMISSIONS = {
     'admin:audit_view',
   ],
   [ROLES.SPACE_ADMIN]: [
+    'space:read',
     'space:view',
     'space:edit',
     'space:admin',
@@ -62,6 +65,7 @@ export const ROLE_PERMISSIONS = {
     'model:use',
   ],
   [ROLES.EDITOR]: [
+    'space:read',
     'space:view',
     'space:edit',
     'upload:create',
@@ -72,11 +76,12 @@ export const ROLE_PERMISSIONS = {
     'chat:use',
     'model:use',
   ],
-  [ROLES.VIEWER]: ['space:view', 'upload:read', 'chat:use', 'model:use'],
-  [ROLES.AUDITOR]: ['space:view', 'admin:audit_view'],
+  [ROLES.VIEWER]: ['space:read', 'space:view', 'upload:read', 'chat:use', 'model:use'],
+  [ROLES.AUDITOR]: ['space:read', 'space:view', 'admin:audit_view'],
 } as const satisfies Record<Role, readonly PermissionPoint[]>;
 
 export const SPACE_SCOPED_PERMISSIONS = [
+  'space:read',
   'space:view',
   'space:edit',
   'space:admin',
