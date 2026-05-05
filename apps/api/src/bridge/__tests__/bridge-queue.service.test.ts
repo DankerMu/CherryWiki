@@ -97,6 +97,18 @@ describe('BridgeQueueService', () => {
     });
   });
 
+  it('enqueues direct permission sync jobs with tenant-space deduplication', async () => {
+    const service = createService();
+
+    await service.enqueuePermissionSyncJob({ tenantId: 'tenant-1', spaceId: 'space-1' });
+
+    expect(queueByName(BRIDGE_PERMISSION_SYNC_QUEUE).add).toHaveBeenCalledWith(
+      'permission.sync',
+      { tenantId: 'tenant-1', spaceId: 'space-1' },
+      { jobId: 'tenant-1:space-1' },
+    );
+  });
+
   it('skips enqueue when Redis is not configured', async () => {
     delete process.env.REDIS_URL;
     const warn = vi.spyOn(getApiLogger(), 'warn').mockImplementation(() => undefined);

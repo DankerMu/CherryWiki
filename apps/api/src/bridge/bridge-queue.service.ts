@@ -32,6 +32,11 @@ export type DocmostPushJobData = {
   tenantId: string;
 };
 
+export type PermissionSyncJobData = {
+  spaceId: string;
+  tenantId: string;
+};
+
 const DEFAULT_JOB_OPTIONS: JobsOptions = {
   attempts: 3,
   backoff: {
@@ -48,7 +53,7 @@ export class BridgeQueueService implements OnModuleDestroy {
   private readonly ownsConnection: boolean;
   private readonly disabled: boolean;
   private readonly queues: Partial<
-    Record<BridgeQueueName, Queue<BridgeQueueJobData | DocmostPushJobData>>
+    Record<BridgeQueueName, Queue<BridgeQueueJobData | DocmostPushJobData | PermissionSyncJobData>>
   >;
 
   constructor(@Optional() @Inject(REDIS_CLIENT) redis?: OptionalRedisClient) {
@@ -116,6 +121,20 @@ export class BridgeQueueService implements OnModuleDestroy {
     });
   }
 
+  async enqueuePermissionSyncJob(jobData: PermissionSyncJobData): Promise<void> {
+    if (this.disabled) {
+      getApiLogger().warn(
+        { redis_configured: false },
+        'BullMQ dispatch disabled — no Redis configured',
+      );
+      return;
+    }
+
+    await this.getQueue(BRIDGE_PERMISSION_SYNC_QUEUE).add('permission.sync', jobData, {
+      jobId: `${jobData.tenantId}:${jobData.spaceId}`,
+    });
+  }
+
   async onModuleDestroy(): Promise<void> {
     if (this.disabled) {
       return;
@@ -135,7 +154,9 @@ export class BridgeQueueService implements OnModuleDestroy {
     }
   }
 
-  private getQueue(queueName: BridgeQueueName): Queue<BridgeQueueJobData | DocmostPushJobData> {
+  private getQueue(
+    queueName: BridgeQueueName,
+  ): Queue<BridgeQueueJobData | DocmostPushJobData | PermissionSyncJobData> {
     const queue = this.queues[queueName];
     if (queue === undefined) {
       throw new Error(`Bridge queue is not initialized: ${queueName}`);

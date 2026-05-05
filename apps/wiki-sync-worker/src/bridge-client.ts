@@ -1,4 +1,5 @@
 import type { DocmostPushBridgeClient } from './processors/docmost-push.processor.js';
+import type { PermissionSyncBridgeClient } from './processors/permission-sync.processor.js';
 
 export class BridgeClientHttpError extends Error {
   constructor(
@@ -10,7 +11,10 @@ export class BridgeClientHttpError extends Error {
   }
 }
 
-export function createBridgeClient(baseUrl: string, secret: string): DocmostPushBridgeClient {
+export function createBridgeClient(
+  baseUrl: string,
+  secret: string,
+): DocmostPushBridgeClient & PermissionSyncBridgeClient {
   const normalizedBaseUrl = baseUrl.replace(/\/+$/, '');
   const headers = secret.length > 0 ? { Authorization: `Bearer ${secret}` } : {};
 
@@ -70,6 +74,45 @@ export function createBridgeClient(baseUrl: string, secret: string): DocmostPush
 
       return { markdown };
     },
+
+    async pushPermissions(docmostSpaceId, members) {
+      const response = await fetch(
+        `${normalizedBaseUrl}/api/internal/bridge/spaces/${encodeURIComponent(docmostSpaceId)}/permissions`,
+        {
+          method: 'PUT',
+          headers: {
+            ...headers,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ members }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new BridgeClientHttpError(
+          `Bridge permissions push failed for space ${docmostSpaceId}: HTTP ${response.status}`,
+          response.status,
+        );
+      }
+    },
+
+    async getPermissions(docmostSpaceId) {
+      const response = await fetch(
+        `${normalizedBaseUrl}/api/internal/bridge/spaces/${encodeURIComponent(docmostSpaceId)}/permissions`,
+        { headers },
+      );
+
+      if (!response.ok) {
+        throw new BridgeClientHttpError(
+          `Bridge permissions fetch failed for space ${docmostSpaceId}: HTTP ${response.status}`,
+          response.status,
+        );
+      }
+
+      const payload = await response.json();
+      const rawMembers = Array.isArray(payload) ? payload : readArray(readRecord(payload).members);
+      return rawMembers.flatMap(readPermissionMember);
+    },
   };
 }
 
@@ -81,4 +124,25 @@ function readRecord(value: unknown): Record<string, unknown> {
 
 function readString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function readArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function readPermissionMember(value: unknown): Array<{ userId: string; email: string; role: 'admin' | 'writer' | 'reader' }> {
+  const record = readRecord(value);
+  const userId = readString(record.userId) ?? readString(record.user_id);
+  const email = readString(record.email);
+  const role = readPermissionRole(record.role);
+
+  if (userId === undefined || email === undefined || role === undefined) {
+    return [];
+  }
+
+  return [{ userId, email, role }];
+}
+
+function readPermissionRole(value: unknown): 'admin' | 'writer' | 'reader' | undefined {
+  return value === 'admin' || value === 'writer' || value === 'reader' ? value : undefined;
 }

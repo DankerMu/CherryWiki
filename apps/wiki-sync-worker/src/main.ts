@@ -10,6 +10,7 @@ import type { Pool as PgPool } from 'pg';
 import { createBridgeClient } from './bridge-client.js';
 import { closeHealthServer, startHealthServer } from './health.js';
 import { reconcileOnStartup, type ReconciliationDb } from './reconciliation.js';
+import { reconcilePermissions } from './reconciliation/permission-reconcile.js';
 import {
   createDocmostPushProcessor,
   type DocmostPushDeps,
@@ -19,6 +20,10 @@ import {
   createPageSyncProcessor,
   type PageSyncDeps,
 } from './processors/page-sync.processor.js';
+import {
+  createPermissionSyncProcessor,
+  type PermissionSyncDeps,
+} from './processors/permission-sync.processor.js';
 
 const WORKER_NAME = 'wiki-sync-worker';
 const PAGE_SYNC_QUEUE = 'bridge-page-sync';
@@ -59,6 +64,7 @@ type BridgeWorkerQueues = {
 
 type BridgeWorkers = {
   pageSync: BullWorker;
+  permissionSync: BullWorker;
   docmostPush: BullWorker;
 };
 
@@ -82,18 +88,27 @@ export async function bootstrap(): Promise<void> {
   await reconcileOnStartup(db as unknown as ReconciliationDb, queues);
 
   const bridgeBaseUrl = process.env.DOCMOST_BRIDGE_BASE_URL ?? process.env.DOCMOST_BASE_URL ?? 'http://localhost:3000';
-  const bridgeSecret = process.env.DOCMOST_BRIDGE_TOKEN ?? '';
+  const bridgeSecret = process.env.DOCMOST_BRIDGE_SECRET ?? process.env.DOCMOST_BRIDGE_TOKEN ?? '';
+  const bridgeClient = createBridgeClient(bridgeBaseUrl, bridgeSecret);
   const workers = createWorkers(connection, {
     pageSync: {
       db,
-      bridgeClient: createHttpBridgeClient(bridgeBaseUrl, process.env.DOCMOST_BRIDGE_TOKEN),
+      bridgeClient: createHttpBridgeClient(
+        bridgeBaseUrl,
+        process.env.DOCMOST_BRIDGE_SECRET ?? process.env.DOCMOST_BRIDGE_TOKEN,
+      ),
       wikiRepoPath: process.env.WIKI_REPO_PATH ?? process.cwd(),
     },
     docmostPush: {
       db,
-      bridgeClient: createBridgeClient(bridgeBaseUrl, bridgeSecret),
+      bridgeClient,
+    },
+    permissionSync: {
+      db,
+      bridgeClient,
     },
   });
+  const permissionReconcileTimer = startPermissionReconcileTimer(db, bridgeClient);
 
   const healthServer = await startHealthServer(
     {
@@ -105,7 +120,7 @@ export async function bootstrap(): Promise<void> {
     healthPort,
   );
 
-  const shutdown = createShutdownHandler(queues, workers, connection, pool, healthServer);
+  const shutdown = createShutdownHandler(queues, workers, connection, pool, healthServer, permissionReconcileTimer);
   process.once('SIGTERM', shutdown);
   process.once('SIGINT', shutdown);
   console.log(`${WORKER_NAME}: started`, { healthPort });
@@ -122,7 +137,7 @@ function createQueues(connection: IORedis): BridgeWorkerQueues {
 
 function createWorkers(
   connection: IORedis,
-  deps: { pageSync: PageSyncDeps; docmostPush: DocmostPushDeps },
+  deps: { pageSync: PageSyncDeps; permissionSync: PermissionSyncDeps; docmostPush: DocmostPushDeps },
 ): BridgeWorkers {
   const pageSync = new Worker(PAGE_SYNC_QUEUE, createPageSyncProcessor(deps.pageSync), {
     connection,
@@ -136,6 +151,14 @@ function createWorkers(
     connection,
     concurrency: 1,
   });
+  const permissionSync = new Worker(
+    PERMISSION_SYNC_QUEUE,
+    createPermissionSyncProcessor(deps.permissionSync),
+    {
+      connection,
+      concurrency: 1,
+    },
+  );
 
   pageSync.on('error', (error) => {
     console.error(`${WORKER_NAME}: page-sync worker error`, error);
@@ -143,8 +166,22 @@ function createWorkers(
   docmostPush.on('error', (error) => {
     console.error(`${WORKER_NAME}: docmost-push worker error`, error);
   });
+  permissionSync.on('error', (error) => {
+    console.error(`${WORKER_NAME}: permission-sync worker error`, error);
+  });
 
-  return { pageSync, docmostPush };
+  return { pageSync, permissionSync, docmostPush };
+}
+
+function startPermissionReconcileTimer(
+  db: PermissionSyncDeps['db'],
+  bridgeClient: PermissionSyncDeps['bridgeClient'],
+): ReturnType<typeof setInterval> {
+  return setInterval(() => {
+    void reconcilePermissions(db, bridgeClient).catch((error: unknown) => {
+      console.error(`${WORKER_NAME}: permission reconcile failed`, error);
+    });
+  }, 60 * 60 * 1000);
 }
 
 function parseHealthPort(value: string | undefined): number {
@@ -166,6 +203,7 @@ function createShutdownHandler(
   connection: IORedis,
   pool: PgPool,
   healthServer: Server,
+  permissionReconcileTimer: ReturnType<typeof setInterval>,
 ): () => void {
   let shuttingDown = false;
 
@@ -175,7 +213,7 @@ function createShutdownHandler(
     }
 
     shuttingDown = true;
-    void shutdown(queues, workers, connection, pool, healthServer);
+    void shutdown(queues, workers, connection, pool, healthServer, permissionReconcileTimer);
   };
 }
 
@@ -185,13 +223,15 @@ async function shutdown(
   connection: IORedis,
   pool: PgPool,
   healthServer: Server,
+  permissionReconcileTimer: ReturnType<typeof setInterval>,
 ): Promise<void> {
   let shutdownFailed = false;
   const queueList = [queues.pageSync, queues.permissionSync, queues.attachmentSync, queues.docmostPush];
-  const workerList = [workers.pageSync, workers.docmostPush];
+  const workerList = [workers.pageSync, workers.permissionSync, workers.docmostPush];
 
   try {
     console.log(`${WORKER_NAME}: shutting down`);
+    clearInterval(permissionReconcileTimer);
     const results = await Promise.allSettled([
       ...workerList.map((worker) => worker.close()),
       ...queueList.map((queue) => queue.close()),
