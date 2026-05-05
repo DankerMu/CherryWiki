@@ -7,6 +7,7 @@ import {
   type BlockMetadataInfo,
   matchBlocksFallback,
   mergeBlocks,
+  normalizeBlockContent,
   normalizeBlockHash,
 } from '../normalization/block-merge.js';
 
@@ -55,14 +56,23 @@ describe('block merge', () => {
       ]);
     });
 
-    it('falls back to fuzzy content-hash matching when the heading changed', () => {
-      const content = '## Renamed\nOriginal content';
-      const hash = normalizeBlockHash(content);
+    it('falls back to fuzzy content matching when the heading changed', () => {
+      const previousContent = [
+        '## Original Title',
+        'This section describes the page sync worker and its retry behavior.',
+        'Bridge events are exported, merged into wiki markdown, and written as a new version.',
+      ].join('\n');
+      const content = [
+        '## Renamed Title',
+        'This section describes the page sync worker and its retry behavior.',
+        'Bridge events are exported, merged into wiki markdown, and written as a new version.',
+      ].join('\n');
       const sidecar = [
-        {
-          ...metadata({ blockId: 'original-title', content: '## Original Title\nOriginal content' }),
-          contentHash: `${hash.slice(0, -1)}${hash.endsWith('a') ? 'b' : 'a'}`,
-        },
+        metadata({
+          blockId: 'original-title',
+          content: previousContent,
+          normalizedContent: previousContent,
+        }),
       ];
 
       const [result] = matchBlocksFallback(content, sidecar);
@@ -185,6 +195,7 @@ function metadata(overrides: {
   blockId: string;
   owner?: 'graphify' | 'human';
   content: string;
+  normalizedContent?: string;
   graphifyRunId?: string;
   lastEditor?: string;
   editable?: boolean;
@@ -193,6 +204,7 @@ function metadata(overrides: {
     blockId: overrides.blockId,
     owner: overrides.owner ?? 'human',
     contentHash: normalizeBlockHash(overrides.content),
+    normalizedContent: normalizeBlockContent(overrides.normalizedContent ?? overrides.content),
     ...(overrides.graphifyRunId !== undefined ? { graphifyRunId: overrides.graphifyRunId } : {}),
     ...(overrides.lastEditor !== undefined ? { lastEditor: overrides.lastEditor } : {}),
     editable: overrides.editable ?? true,

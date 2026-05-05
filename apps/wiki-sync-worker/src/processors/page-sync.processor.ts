@@ -11,10 +11,12 @@ import {
   wikiPages,
 } from '@cherrygraph/shared';
 import {
+  extractH2Blocks,
   extractMarkedBlocks,
   generateFrontmatter,
   matchBlocksFallback,
   mergeBlocks,
+  normalizeBlockContent,
   parseBlockMarkers,
   parseFrontmatter,
   type BlockMatchResult,
@@ -23,6 +25,7 @@ import {
 } from '@cherrygraph/wiki-core';
 
 export type DrizzleDatabase = NodePgDatabase;
+type DatabaseClient = Pick<DrizzleDatabase, 'select' | 'insert' | 'update'>;
 
 export interface BridgeClient {
   exportPage(pageId: string): Promise<{
@@ -55,6 +58,7 @@ export type PageSyncJobData = {
 type WikiPageRow = typeof wikiPages.$inferSelect;
 type WikiPageVersionRow = typeof wikiPageVersions.$inferSelect;
 type PageBlockMetadataRow = typeof pageBlockMetadata.$inferSelect;
+type BridgeEventRow = typeof bridgeEvents.$inferSelect;
 
 type PageContext = {
   page: WikiPageRow;
@@ -74,11 +78,27 @@ type FrontmatterRepairResult = {
   repaired: boolean;
 };
 
+type MarkedBlockRange = {
+  blockId: string;
+  start: number;
+  end: number;
+  content: string;
+};
+
+type PositionedBlockMatchResult = BlockMatchResult & {
+  start: number;
+};
+
 export function createPageSyncProcessor(deps: PageSyncDeps): (job: Job<PageSyncJobData>) => Promise<void> {
   return async (job) => {
     const data = job.data;
 
     try {
+      const bridgeEventStatus = await loadBridgeEventStatus(deps.db, data.bridgeEventId);
+      if (bridgeEventStatus === 'processed' || bridgeEventStatus === 'failed') {
+        return;
+      }
+
       if (await coalesceStalePageEvents(deps.db, data)) {
         return;
       }
@@ -195,7 +215,8 @@ async function processPageSaved(deps: PageSyncDeps, data: PageSyncJobData): Prom
   }
 
   const currentVersion = await loadCurrentVersion(deps.db, page.page);
-  const sidecar = currentVersion === undefined ? [] : await loadPageBlockMetadata(deps.db, currentVersion.id);
+  const rawSidecar = currentVersion === undefined ? [] : await loadPageBlockMetadata(deps.db, currentVersion.id);
+  const sidecar = enrichSidecarWithNormalizedContent(rawSidecar, currentVersion);
   const repaired = repairFrontmatter(exported.markdown, page.page, currentVersion);
   if (repaired.repaired) {
     console.warn('page-sync: repaired missing frontmatter fields', {
@@ -211,34 +232,36 @@ async function processPageSaved(deps: PageSyncDeps, data: PageSyncJobData): Prom
   const versionNo = (currentVersion?.version_no ?? 0) + 1;
   const commit = await commitToWikiRepo(deps, page, contentMarkdown, user);
 
-  await deps.db.insert(wikiPageVersions).values({
-    id: versionId,
-    tenant_id: page.page.tenant_id,
-    space_id: page.page.space_id,
-    wiki_page_pk: page.page.id,
-    page_id: page.page.page_id,
-    version_no: versionNo,
-    content_markdown: contentMarkdown,
-    frontmatter_json: repaired.frontmatter as unknown as Record<string, unknown>,
-    source: 'docmost',
-    graphify_run_id: currentVersion?.graphify_run_id ?? null,
-    commit_hash: commit.commitHash,
-    status: page.page.status,
-    created_by: user.userId ?? null,
+  await deps.db.transaction(async (tx) => {
+    await tx.insert(wikiPageVersions).values({
+      id: versionId,
+      tenant_id: page.page.tenant_id,
+      space_id: page.page.space_id,
+      wiki_page_pk: page.page.id,
+      page_id: page.page.page_id,
+      version_no: versionNo,
+      content_markdown: contentMarkdown,
+      frontmatter_json: repaired.frontmatter as unknown as Record<string, unknown>,
+      source: 'docmost',
+      graphify_run_id: currentVersion?.graphify_run_id ?? null,
+      commit_hash: commit.commitHash,
+      status: page.page.status,
+      created_by: user.userId ?? null,
+    });
+
+    await writePageBlockMetadata(tx, page.page, versionId, mergeResult.newMetadata);
+    await tx
+      .update(wikiPages)
+      .set({
+        current_version_id: versionId,
+        sync_status: 'synced',
+        updated_at: new Date(),
+      })
+      .where(eq(wikiPages.id, page.page.id));
+    await markBridgeEventProcessed(tx, data.bridgeEventId);
   });
 
-  await writePageBlockMetadata(deps.db, page.page, versionId, mergeResult.newMetadata);
-  await deps.db
-    .update(wikiPages)
-    .set({
-      current_version_id: versionId,
-      sync_status: 'synced',
-      updated_at: new Date(),
-    })
-    .where(eq(wikiPages.id, page.page.id));
-
   console.log(`reindex triggered for page ${page.page.page_id}`);
-  await markBridgeEventProcessed(deps.db, data.bridgeEventId);
 }
 
 async function processPageDeleted(deps: PageSyncDeps, data: PageSyncJobData): Promise<void> {
@@ -268,33 +291,152 @@ function matchExportedBlocks(markdown: string, sidecar: BlockMergeMetadataInfo[]
   }
 
   const contentByBlockId = extractMarkedBlocks(markdown);
+  const markedRanges = extractMarkedBlockRanges(markdown);
   const metadataByBlockId = new Map(sidecar.map((metadata) => [metadata.blockId, metadata]));
-  const results: BlockMatchResult[] = [];
+  const results: PositionedBlockMatchResult[] = [];
+  const usedBlockIds = new Set<string>();
 
-  for (const marker of markers) {
-    const content = contentByBlockId.get(marker.blockId);
-    if (content === undefined) {
+  for (const markedRange of markedRanges) {
+    const content = contentByBlockId.get(markedRange.blockId) ?? markedRange.content.trim();
+
+    const matchedMetadata = metadataByBlockId.get(markedRange.blockId);
+    usedBlockIds.add(markedRange.blockId);
+    if (matchedMetadata === undefined) {
+      results.push({
+        blockId: markedRange.blockId,
+        content,
+        matchType: 'new',
+        start: markedRange.start,
+      });
       continue;
     }
 
-    const matchedMetadata = metadataByBlockId.get(marker.blockId);
-    results.push(
-      matchedMetadata === undefined
-        ? {
-            blockId: marker.blockId,
-            content,
-            matchType: 'new',
-          }
-        : {
-            blockId: marker.blockId,
-            content,
-            matchedMetadata,
-            matchType: 'marker',
-          },
-    );
+    results.push({
+      blockId: markedRange.blockId,
+      content,
+      matchedMetadata,
+      matchType: 'marker',
+      start: markedRange.start,
+    });
   }
 
-  return results;
+  for (const block of extractUnmarkedH2Blocks(markdown, markedRanges)) {
+    const blockId = reserveBlockId(block.blockId, usedBlockIds);
+    results.push({
+      blockId,
+      content: block.content,
+      matchType: 'new',
+      start: block.start,
+    });
+  }
+
+  return results
+    .sort((left, right) => left.start - right.start)
+    .map(({ start: _start, ...result }) => result);
+}
+
+function extractMarkedBlockRanges(markdown: string): MarkedBlockRange[] {
+  const ranges: MarkedBlockRange[] = [];
+  const pattern =
+    /<!--\s*(?:(?:graphify):(?:managed|human)|(?:human):curated):start\s+id="([^"]+)"(?:\s+run="[^"]*")?\s*-->([\s\S]*?)<!--\s*(?:(?:graphify):(?:managed|human)|(?:human):curated):end\s*-->/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(markdown)) !== null) {
+    const blockId = match[1];
+    const content = match[2];
+    if (blockId === undefined || content === undefined) {
+      continue;
+    }
+
+    ranges.push({
+      blockId,
+      start: match.index,
+      end: match.index + match[0].length,
+      content,
+    });
+  }
+
+  return ranges;
+}
+
+function extractUnmarkedH2Blocks(
+  markdown: string,
+  markedRanges: MarkedBlockRange[],
+): Array<{ blockId: string; start: number; end: number; content: string }> {
+  const sortedRanges = [...markedRanges].sort((left, right) => left.start - right.start);
+  const blocks: Array<{ blockId: string; start: number; end: number; content: string }> = [];
+
+  for (const block of extractH2Blocks(markdown)) {
+    if (isOffsetInRanges(block.start, sortedRanges)) {
+      continue;
+    }
+
+    const contentRanges = subtractMarkedRanges({ start: block.start, end: block.end }, sortedRanges);
+    const content = contentRanges.map((range) => markdown.slice(range.start, range.end)).join('').trimEnd();
+    if (content.length === 0) {
+      continue;
+    }
+
+    blocks.push({
+      blockId: block.blockId,
+      start: block.start,
+      end: contentRanges.at(-1)?.end ?? block.end,
+      content,
+    });
+  }
+
+  return blocks;
+}
+
+function isOffsetInRanges(offset: number, ranges: MarkedBlockRange[]): boolean {
+  return ranges.some((range) => range.start <= offset && offset < range.end);
+}
+
+function subtractMarkedRanges(
+  range: { start: number; end: number },
+  markedRanges: MarkedBlockRange[],
+): Array<{ start: number; end: number }> {
+  const ranges: Array<{ start: number; end: number }> = [];
+  let cursor = range.start;
+
+  for (const markedRange of markedRanges) {
+    if (markedRange.end <= cursor) {
+      continue;
+    }
+    if (markedRange.start >= range.end) {
+      break;
+    }
+
+    if (markedRange.start > cursor) {
+      ranges.push({ start: cursor, end: Math.min(markedRange.start, range.end) });
+    }
+    cursor = Math.max(cursor, markedRange.end);
+    if (cursor >= range.end) {
+      break;
+    }
+  }
+
+  if (cursor < range.end) {
+    ranges.push({ start: cursor, end: range.end });
+  }
+
+  return ranges;
+}
+
+function reserveBlockId(blockId: string, usedBlockIds: Set<string>): string {
+  if (!usedBlockIds.has(blockId)) {
+    usedBlockIds.add(blockId);
+    return blockId;
+  }
+
+  let suffix = 2;
+  let candidate = `${blockId}-${suffix}`;
+  while (usedBlockIds.has(candidate)) {
+    suffix += 1;
+    candidate = `${blockId}-${suffix}`;
+  }
+  usedBlockIds.add(candidate);
+  return candidate;
 }
 
 function repairFrontmatter(
@@ -340,7 +482,20 @@ function repairFrontmatter(
   };
 }
 
-async function coalesceStalePageEvents(db: DrizzleDatabase, data: PageSyncJobData): Promise<boolean> {
+async function loadBridgeEventStatus(
+  db: DatabaseClient,
+  bridgeEventId: string,
+): Promise<BridgeEventRow['status'] | undefined> {
+  const [event] = await db
+    .select({ status: bridgeEvents.status })
+    .from(bridgeEvents)
+    .where(eq(bridgeEvents.id, bridgeEventId))
+    .limit(1);
+
+  return event?.status;
+}
+
+async function coalesceStalePageEvents(db: DatabaseClient, data: PageSyncJobData): Promise<boolean> {
   if (data.pageId === undefined) {
     return false;
   }
@@ -375,7 +530,7 @@ async function coalesceStalePageEvents(db: DrizzleDatabase, data: PageSyncJobDat
 }
 
 async function findPageByDocmostPageId(
-  db: DrizzleDatabase,
+  db: DatabaseClient,
   docmostPageId: string,
 ): Promise<PageContext | undefined> {
   const [row] = await db
@@ -396,7 +551,7 @@ async function findPageByDocmostPageId(
 }
 
 async function loadCurrentVersion(
-  db: DrizzleDatabase,
+  db: DatabaseClient,
   page: WikiPageRow,
 ): Promise<WikiPageVersionRow | undefined> {
   if (page.current_version_id !== null) {
@@ -418,7 +573,7 @@ async function loadCurrentVersion(
 }
 
 async function loadPageBlockMetadata(
-  db: DrizzleDatabase,
+  db: DatabaseClient,
   pageVersionId: string,
 ): Promise<BlockMergeMetadataInfo[]> {
   const rows = await db
@@ -429,8 +584,43 @@ async function loadPageBlockMetadata(
   return rows.map(toBlockMetadataInfo);
 }
 
+function enrichSidecarWithNormalizedContent(
+  sidecar: BlockMergeMetadataInfo[],
+  currentVersion: WikiPageVersionRow | undefined,
+): BlockMergeMetadataInfo[] {
+  if (currentVersion === undefined || sidecar.length === 0) {
+    return sidecar;
+  }
+
+  const body = parseFrontmatter(currentVersion.content_markdown).content;
+  const contentByBlockId = extractExistingBlockContent(body);
+
+  return sidecar.map((metadata) => {
+    const content = contentByBlockId.get(metadata.blockId);
+    if (content === undefined) {
+      return metadata;
+    }
+
+    return {
+      ...metadata,
+      normalizedContent: normalizeBlockContent(content),
+    };
+  });
+}
+
+function extractExistingBlockContent(markdown: string): Map<string, string> {
+  const contentByBlockId = new Map(extractMarkedBlocks(markdown));
+  for (const block of extractH2Blocks(markdown)) {
+    if (!contentByBlockId.has(block.blockId)) {
+      contentByBlockId.set(block.blockId, block.content);
+    }
+  }
+
+  return contentByBlockId;
+}
+
 async function writePageBlockMetadata(
-  db: DrizzleDatabase,
+  db: DatabaseClient,
   page: WikiPageRow,
   versionId: string,
   metadata: BlockMergeMetadataInfo[],
@@ -474,11 +664,11 @@ async function checkSpaceEditPermission(
   return deps.permissionChecker?.(args) ?? true;
 }
 
-async function markBridgeEventProcessing(db: DrizzleDatabase, bridgeEventId: string): Promise<void> {
+async function markBridgeEventProcessing(db: DatabaseClient, bridgeEventId: string): Promise<void> {
   await db.update(bridgeEvents).set({ status: 'processing' }).where(eq(bridgeEvents.id, bridgeEventId));
 }
 
-async function markBridgeEventProcessed(db: DrizzleDatabase, bridgeEventId: string): Promise<void> {
+async function markBridgeEventProcessed(db: DatabaseClient, bridgeEventId: string): Promise<void> {
   await db
     .update(bridgeEvents)
     .set({ status: 'processed', processed_at: new Date() })
@@ -486,17 +676,17 @@ async function markBridgeEventProcessed(db: DrizzleDatabase, bridgeEventId: stri
 }
 
 async function markBridgeEventFailed(
-  db: DrizzleDatabase,
+  db: DatabaseClient,
   bridgeEventId: string,
   errorJson: Record<string, unknown>,
 ): Promise<void> {
   await db
     .update(bridgeEvents)
-    .set({ status: 'failed', error_json: errorJson })
+    .set({ status: 'failed', error_json: errorJson, processed_at: new Date() })
     .where(eq(bridgeEvents.id, bridgeEventId));
 }
 
-async function markPageSyncPending(db: DrizzleDatabase, docmostPageId: string | undefined): Promise<void> {
+async function markPageSyncPending(db: DatabaseClient, docmostPageId: string | undefined): Promise<void> {
   if (docmostPageId === undefined) {
     return;
   }
@@ -507,7 +697,7 @@ async function markPageSyncPending(db: DrizzleDatabase, docmostPageId: string | 
     .where(eq(wikiPages.docmost_page_id, docmostPageId));
 }
 
-async function markPageSyncPendingByPagePk(db: DrizzleDatabase, pagePk: string): Promise<void> {
+async function markPageSyncPendingByPagePk(db: DatabaseClient, pagePk: string): Promise<void> {
   await db
     .update(wikiPages)
     .set({ sync_status: 'sync_pending', updated_at: new Date() })

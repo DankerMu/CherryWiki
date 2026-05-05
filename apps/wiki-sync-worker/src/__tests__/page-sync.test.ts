@@ -64,6 +64,41 @@ describe('page-sync processor', () => {
     });
   });
 
+  it('preserves new unmarked H2 section when markers are present', async () => {
+    const db = new PageSyncTestDb();
+    db.metadataRows = [
+      createMetadataRow({ block_id: 'overview', owner: 'graphify', content: '## Overview\nOriginal', editable: false }),
+      createMetadataRow({ block_id: 'details', owner: 'human', content: '## Details\nHuman notes' }),
+    ];
+    const markdown = frontmatter(
+      [
+        '<!-- graphify:managed:start id="overview" run="gf-1" -->',
+        '## Overview',
+        'Original',
+        '<!-- graphify:managed:end -->',
+        '',
+        '## New Unmarked Section',
+        'This content was added outside markers.',
+        '',
+        '<!-- graphify:human:start id="details" run="gf-1" -->',
+        '## Details',
+        'Human notes',
+        '<!-- graphify:human:end -->',
+      ].join('\n'),
+    );
+
+    await runProcessor(db, bridgeClientWithMarkdown(markdown));
+
+    expect(db.insertedBlockMetadata).toHaveLength(3);
+    expect(blockById(db, 'new-unmarked-section')).toMatchObject({
+      owner: 'human',
+      last_editor: 'user-1',
+      editable: true,
+      content_hash: normalizeBlockHash('## New Unmarked Section\nThis content was added outside markers.'),
+    });
+    expect(db.insertedVersions[0]?.content_markdown).toContain('## New Unmarked Section');
+  });
+
   it('handles graphify-to-human, human-to-human, and new block ownership transitions', async () => {
     const db = new PageSyncTestDb();
     db.metadataRows = [
@@ -120,6 +155,18 @@ describe('page-sync processor', () => {
     expect(db.insertedVersions).toHaveLength(1);
     expect(bridgeClient.exportPage).toHaveBeenCalledTimes(1);
     expect(db.bridgeEventRows.find((event) => event.id === 'older-event')?.status).toBe('processed');
+  });
+
+  it('skips already-processed bridge event', async () => {
+    const db = new PageSyncTestDb();
+    db.bridgeEventRows = [createBridgeEvent({ status: 'processed', processed_at: new Date('2026-05-05T12:01:00.000Z') })];
+    const bridgeClient = bridgeClientWithMarkdown(frontmatter('## Overview\nSkipped'));
+
+    await runProcessor(db, bridgeClient);
+
+    expect(bridgeClient.exportPage).not.toHaveBeenCalled();
+    expect(db.insertedVersions).toHaveLength(0);
+    expect(db.bridgeEventUpdates).toHaveLength(0);
   });
 
   it('marks permission denied events failed without creating a version', async () => {
@@ -188,12 +235,18 @@ class PageSyncTestDb {
   insertedBlockMetadata: Array<typeof pageBlockMetadata.$inferInsert> = [];
   bridgeEventUpdates: Array<Partial<typeof bridgeEvents.$inferInsert>> = [];
   pageUpdates: Array<Partial<typeof wikiPages.$inferInsert>> = [];
+  activeBridgeEventId = 'bridge-event-1';
 
-  select(): unknown {
+  select(selection?: unknown): unknown {
     return {
       from: (table: unknown) => {
         const resolveRows = (): unknown[] => {
           if (table === bridgeEvents) {
+            if (isRecord(selection) && 'status' in selection) {
+              const event = this.bridgeEventRows.find((row) => row.id === this.activeBridgeEventId);
+              return event === undefined ? [] : [{ status: event.status }];
+            }
+
             return this.bridgeEventRows
               .filter((event) => event.status === 'received')
               .sort((left, right) => right.received_at.getTime() - left.received_at.getTime());
@@ -214,6 +267,10 @@ class PageSyncTestDb {
         return new SelectBuilder(resolveRows);
       },
     };
+  }
+
+  transaction<T>(callback: (tx: PageSyncTestDb) => Promise<T>): Promise<T> {
+    return callback(this);
   }
 
   update(table: unknown): unknown {
@@ -264,9 +321,7 @@ class PageSyncTestDb {
     }
 
     this.bridgeEventRows = this.bridgeEventRows.map((event) =>
-      event.id === 'bridge-event-1' || event.id === 'older-event' || event.id === 'latest-event'
-        ? { ...event, ...values }
-        : event,
+      event.id === this.activeBridgeEventId ? { ...event, ...values } : event,
     ) as BridgeEventRow[];
   }
 }
@@ -304,6 +359,15 @@ async function runProcessor(
   overrides: Partial<PageSyncJobData> = {},
   permissionAllowed = true,
 ): Promise<void> {
+  const data = {
+    bridgeEventId: 'bridge-event-1',
+    eventId: 'docmost-event-1',
+    eventType: 'page.saved',
+    pageId: 'docmost-page-1',
+    ...overrides,
+  };
+  db.activeBridgeEventId = data.bridgeEventId;
+
   const processor = createPageSyncProcessor({
     db: db.asDb(),
     bridgeClient,
@@ -312,13 +376,7 @@ async function runProcessor(
   });
 
   await processor({
-    data: {
-      bridgeEventId: 'bridge-event-1',
-      eventId: 'docmost-event-1',
-      eventType: 'page.saved',
-      pageId: 'docmost-page-1',
-      ...overrides,
-    },
+    data,
   } as Job<PageSyncJobData>);
 }
 
@@ -464,4 +522,8 @@ function readLatestBridgeEventId(value: unknown): string | undefined {
   return value !== null && typeof value === 'object' && 'latestBridgeEventId' in value
     ? String((value as { latestBridgeEventId: unknown }).latestBridgeEventId)
     : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }

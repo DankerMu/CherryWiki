@@ -14,6 +14,7 @@ export * from './normalization/block-markers.js';
 export {
   matchBlocksFallback,
   mergeBlocks,
+  normalizeBlockContent,
   normalizeBlockHash,
   type BlockMatchResult,
   type BlockMetadataInfo as BlockMergeMetadataInfo,

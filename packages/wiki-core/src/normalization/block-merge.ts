@@ -6,6 +6,7 @@ export interface BlockMetadataInfo {
   blockId: string;
   owner: 'graphify' | 'human';
   contentHash: string;
+  normalizedContent?: string;
   graphifyRunId?: string;
   lastEditor?: string;
   editable: boolean;
@@ -29,18 +30,20 @@ export interface MergeResult {
 }
 
 const markerLinePattern = /^\s*<!--\s*graphify:(?:managed|human):[^>]*-->\s*$/;
-const fuzzyHashThreshold = 0.8;
+const fuzzyContentThreshold = 0.8;
 
-export function normalizeBlockHash(content: string): string {
-  const normalized = content
+export function normalizeBlockContent(content: string): string {
+  return content
     .replace(/\r\n?/g, '\n')
     .split('\n')
     .filter((line) => !markerLinePattern.test(line))
     .map((line) => line.trimEnd())
     .join('\n')
     .trimEnd();
+}
 
-  return createHash('sha256').update(normalized).digest('hex');
+export function normalizeBlockHash(content: string): string {
+  return createHash('sha256').update(normalizeBlockContent(content)).digest('hex');
 }
 
 export function matchBlocksFallback(
@@ -66,14 +69,14 @@ export function matchBlocksFallback(
       };
     }
 
-    const contentHash = normalizeBlockHash(block.content);
-    const hashMatch = findBestHashMatch(contentHash, sidecar, matchedSidecarIds);
-    if (hashMatch !== undefined) {
-      matchedSidecarIds.add(hashMatch.blockId);
+    const normalizedContent = normalizeBlockContent(block.content);
+    const contentMatch = findBestContentMatch(normalizedContent, sidecar, matchedSidecarIds);
+    if (contentMatch !== undefined) {
+      matchedSidecarIds.add(contentMatch.blockId);
       return {
-        blockId: hashMatch.blockId,
+        blockId: contentMatch.blockId,
         content: block.content,
-        matchedMetadata: hashMatch,
+        matchedMetadata: contentMatch,
         matchType: 'hash',
       };
     }
@@ -145,20 +148,24 @@ function readH2Heading(content: string): string | undefined {
   return match?.[1]?.trim().replace(/\s+#*$/, '');
 }
 
-function findBestHashMatch(
-  contentHash: string,
+function findBestContentMatch(
+  normalizedContent: string,
   sidecar: BlockMetadataInfo[],
   matchedSidecarIds: Set<string>,
 ): BlockMetadataInfo | undefined {
   let bestMatch: BlockMetadataInfo | undefined;
-  let bestScore = fuzzyHashThreshold;
+  let bestScore = fuzzyContentThreshold;
 
   for (const metadata of sidecar) {
     if (matchedSidecarIds.has(metadata.blockId)) {
       continue;
     }
 
-    const score = characterOverlap(contentHash, metadata.contentHash);
+    if (metadata.normalizedContent === undefined) {
+      continue;
+    }
+
+    const score = characterJaccardSimilarity(normalizedContent, metadata.normalizedContent);
     if (score > bestScore) {
       bestScore = score;
       bestMatch = metadata;
@@ -168,7 +175,7 @@ function findBestHashMatch(
   return bestMatch;
 }
 
-function characterOverlap(left: string, right: string): number {
+function characterJaccardSimilarity(left: string, right: string): number {
   if (left.length === 0 && right.length === 0) {
     return 1;
   }
@@ -190,5 +197,5 @@ function characterOverlap(left: string, right: string): number {
     }
   }
 
-  return overlap / Math.max(left.length, right.length);
+  return overlap / (left.length + right.length - overlap);
 }
