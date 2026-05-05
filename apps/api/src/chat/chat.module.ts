@@ -4,11 +4,12 @@ import { OpenAIChatProvider, OpenAIEmbeddingProvider } from '@cherrygraph/ai-cor
 import { AgentModule } from '../agent/agent.module.js';
 import { AuditModule } from '../audit/audit.module.js';
 import { DrizzleModule } from '../database/drizzle.module.js';
+import { GraphModule } from '../graph/graph.module.js';
 import { CHAT_PROVIDER_FACTORY, EMBEDDING_PROVIDER_FACTORY, ChatService } from './chat.service.js';
 import { ChatController } from './chat.controller.js';
 
 @Module({
-  imports: [DrizzleModule, AuditModule, AgentModule],
+  imports: [DrizzleModule, AuditModule, AgentModule, GraphModule],
   controllers: [ChatController],
   providers: [
     ChatService,

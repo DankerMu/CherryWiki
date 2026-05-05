@@ -94,6 +94,7 @@ function buildGraphContext(request: RequestWithAuth, user: RequestUserWithPermis
     actorUserId: user.sub,
     actorRole: user.role,
     userId: user.sub,
+    userGroupIds: user.group_ids,
     ...(actorPermissions !== undefined ? { actorPermissions } : {}),
     ...(spacePermissions !== undefined ? { spacePermissions } : {}),
   };

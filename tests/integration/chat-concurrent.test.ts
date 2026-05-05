@@ -81,6 +81,7 @@ describe('chat concurrent load integration', () => {
         'content',
         'citations',
         'usage',
+        'message.completed',
         '[DONE]',
       ]);
     }

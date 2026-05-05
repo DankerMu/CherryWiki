@@ -44,10 +44,12 @@ describe('chat degradation integration', () => {
       { type: 'content', delta: NO_HIT_MESSAGE },
       { type: 'citations', citations: [] },
       { type: 'usage', usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } },
+      { type: 'message.completed' },
     ]);
     expect(chatFactory).not.toHaveBeenCalled();
     expect(findInsert(db, chatMessages)?.value).toMatchObject({ role: 'user' });
-    expect(db.inserts.at(-1)?.value).toMatchObject({
+    const assistantInsert = db.inserts.filter((i) => i.table === chatMessages).at(-1);
+    expect(assistantInsert?.value).toMatchObject({
       role: 'assistant',
       content: NO_HIT_MESSAGE,
       metadata_json: { source: 'no_hit' },
@@ -75,10 +77,11 @@ describe('chat degradation integration', () => {
       }),
     );
 
-    expect(events.map((event) => event.type)).toEqual(['session', 'content', 'citations', 'usage']);
+    expect(events.map((event) => event.type)).toEqual(['session', 'content', 'citations', 'usage', 'message.completed']);
     expect(chatFactory).toHaveBeenCalledTimes(1);
     expect(chatProvider.lastParams?.systemPrompt).toContain('No relevant Wiki sources found');
-    expect(db.inserts.at(-1)?.value).toMatchObject({
+    const assistantInsert = db.inserts.filter((i) => i.table === chatMessages).at(-1);
+    expect(assistantInsert?.value).toMatchObject({
       role: 'assistant',
       metadata_json: { source: 'model_knowledge' },
     });

@@ -1,0 +1,5 @@
+-e ./tools/cherrydb
+psycopg2-binary
+sqlparse
+click
+tabulate

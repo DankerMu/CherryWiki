@@ -38,6 +38,7 @@ export type GraphContext = {
   actorUserId?: string;
   actorRole?: string;
   userId?: string;
+  userGroupIds?: string[];
   actorPermissions?: string[];
   spacePermissions?: Record<string, string[]>;
 };
@@ -193,7 +194,7 @@ export class GraphService {
     }
 
     const userId = resolveContextUserId(context);
-    return this.getAccessibleSpaceIds(tenantId, userId);
+    return this.getAccessibleSpaceIds(tenantId, userId, context.userGroupIds);
   }
 
   private async assertSpaceReadable(
@@ -220,7 +221,7 @@ export class GraphService {
     }
 
     const userId = resolveContextUserId(context);
-    const allowed = await this.hasSpaceReadPermission(tenantId, userId, spaceId);
+    const allowed = await this.hasSpaceReadPermission(tenantId, userId, spaceId, context.userGroupIds);
     if (!allowed) {
       throwApiError(ErrorCode.SPACE_NOT_FOUND, 'Space not found', HttpStatus.NOT_FOUND);
     }
@@ -254,7 +255,16 @@ export class GraphService {
     return activeRunIds;
   }
 
-  private async getAccessibleSpaceIds(tenantId: string, userId: string): Promise<string[]> {
+  private async getAccessibleSpaceIds(
+    tenantId: string,
+    userId: string,
+    userGroupIds?: string[],
+  ): Promise<string[]> {
+    const groupScopedSpaceIds = await this.getAccessibleSpaceIdsForGroups(tenantId, userGroupIds);
+    if (groupScopedSpaceIds !== undefined) {
+      return groupScopedSpaceIds;
+    }
+
     const rows = await this.db
       .select({ space_id: space_permissions.space_id })
       .from(group_members)
@@ -280,7 +290,13 @@ export class GraphService {
     tenantId: string,
     userId: string,
     spaceId: string,
+    userGroupIds?: string[],
   ): Promise<boolean> {
+    const groupScopedAllowed = await this.hasSpaceReadPermissionForGroups(tenantId, spaceId, userGroupIds);
+    if (groupScopedAllowed !== undefined) {
+      return groupScopedAllowed;
+    }
+
     const rows = await this.db
       .select({ space_id: space_permissions.space_id })
       .from(group_members)
@@ -296,6 +312,63 @@ export class GraphService {
           eq(group_members.tenant_id, tenantId),
           eq(group_members.user_id, userId),
           eq(space_permissions.space_id, spaceId),
+          inArray(space_permissions.permission, [...READ_SATISFYING_PERMISSIONS]),
+        ),
+      )
+      .limit(1);
+
+    return rows.length > 0;
+  }
+
+  private async getAccessibleSpaceIdsForGroups(
+    tenantId: string,
+    userGroupIds: string[] | undefined,
+  ): Promise<string[] | undefined> {
+    if (userGroupIds === undefined) {
+      return undefined;
+    }
+
+    const groupIds = uniqueNonEmpty(userGroupIds);
+    if (groupIds.length === 0) {
+      return [];
+    }
+
+    const rows = await this.db
+      .select({ space_id: space_permissions.space_id })
+      .from(space_permissions)
+      .where(
+        and(
+          eq(space_permissions.tenant_id, tenantId),
+          inArray(space_permissions.group_id, groupIds),
+          inArray(space_permissions.permission, [...READ_SATISFYING_PERMISSIONS]),
+        ),
+      );
+
+    return [...new Set(rows.map((row) => row.space_id))];
+  }
+
+  private async hasSpaceReadPermissionForGroups(
+    tenantId: string,
+    spaceId: string,
+    userGroupIds: string[] | undefined,
+  ): Promise<boolean | undefined> {
+    if (userGroupIds === undefined) {
+      return undefined;
+    }
+
+    const groupIds = uniqueNonEmpty(userGroupIds);
+    if (groupIds.length === 0) {
+      return false;
+    }
+
+    const rows = await this.db
+      .select({ space_id: space_permissions.space_id })
+      .from(space_permissions)
+      .where(
+        and(
+          eq(space_permissions.tenant_id, tenantId),
+          eq(space_permissions.space_id, spaceId),
+          inArray(space_permissions.group_id, groupIds),
           inArray(space_permissions.permission, [...READ_SATISFYING_PERMISSIONS]),
         ),
       )

@@ -91,6 +91,8 @@ export const spaceDatabaseConfigSchema = z
   .object({
     enabled: z.boolean().default(false),
     dsn: z.string().max(4096).optional(),
+    allowed_tables: z.array(z.string().trim().min(1).max(200)).max(500).optional(),
+    masked_columns: z.array(z.string().trim().min(1).max(200)).max(500).optional(),
   })
   .passthrough();
 
@@ -411,15 +413,15 @@ export const chatMessageSchema = insertChatMessageSchema;
 
 export const insertRetrievalTraceSchema = createInsertSchema(retrievalTraces, {
   space_ids: z4.array(z4.string()).min(1),
-  candidates_json: z4.array(z4.unknown()),
-  acl_filtered_json: z4.array(z4.unknown()),
-  final_context_json: z4.array(z4.unknown()),
+  candidates_json: z4.unknown(),
+  acl_filtered_json: z4.unknown(),
+  final_context_json: z4.unknown(),
 });
 export const selectRetrievalTraceSchema = createSelectSchema(retrievalTraces, {
   space_ids: z4.array(z4.string()),
-  candidates_json: z4.array(z4.unknown()),
-  acl_filtered_json: z4.array(z4.unknown()),
-  final_context_json: z4.array(z4.unknown()),
+  candidates_json: z4.unknown(),
+  acl_filtered_json: z4.unknown(),
+  final_context_json: z4.unknown(),
 });
 export const retrievalTraceSchema = insertRetrievalTraceSchema;
 
