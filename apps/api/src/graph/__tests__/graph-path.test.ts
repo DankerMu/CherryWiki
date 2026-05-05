@@ -7,6 +7,7 @@ import {
   TEST_TENANT_ID,
   TEST_USER_ID,
   ScriptedDb,
+  createSpaceRow,
 } from '../../users/__tests__/user-group-service-test-utils.js';
 import type { DrizzleDatabase } from '../../database/drizzle.module.js';
 import { GraphController } from '../graph.controller.js';
@@ -15,6 +16,7 @@ import { GraphService } from '../graph.service.js';
 describe('GraphController path', () => {
   it('returns a direct path between two nodes', async () => {
     const { controller, db } = createGraphContext();
+    db.queueSelect([createActiveSpaceRow()]);
     db.queueExecute([
       {
         nodes_json: [
@@ -40,12 +42,13 @@ describe('GraphController path', () => {
 
     expect(result.paths).toHaveLength(1);
     expect(result.paths[0]?.nodes.map((node) => node.id)).toEqual(['node-a', 'node-b']);
-    expect(result.paths[0]?.edges[0]).toMatchObject({ id: 'edge-ab', relation_type: 'relates_to' });
+    expect(result.paths[0]?.edges[0]).toMatchObject({ id: 'edge-ab', relationship: 'relates_to' });
     expect(result.paths[0]?.total_confidence).toBeCloseTo(0.95 * Math.log(3));
   });
 
   it('returns a multi-hop path and no-path results without throwing', async () => {
     const { controller, db } = createGraphContext();
+    db.queueSelect([createActiveSpaceRow()]);
     db.queueExecute([
       {
         nodes_json: [
@@ -59,6 +62,7 @@ describe('GraphController path', () => {
         ],
       },
     ]);
+    db.queueSelect([createActiveSpaceRow()]);
     db.queueExecute([]);
 
     const multiHop = await controller.findPath(
@@ -76,6 +80,7 @@ describe('GraphController path', () => {
 
   it('returns neighbors with hop distance from the center node', async () => {
     const { controller, db } = createGraphContext();
+    db.queueSelect([createActiveSpaceRow()]);
     db.queueExecute([
       {
         nodes_json: [
@@ -161,4 +166,8 @@ function createEdge(overrides: Record<string, unknown> = {}): Record<string, unk
     space_id: TEST_SPACE_ID,
     ...overrides,
   };
+}
+
+function createActiveSpaceRow() {
+  return createSpaceRow({ active_graphify_run_id: 'run-1' });
 }

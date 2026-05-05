@@ -7,6 +7,7 @@ import {
   spaces,
 } from '@cherrygraph/shared';
 import {
+  type ActiveGraphifyRunIds,
   GraphQueryService,
   type GraphPath,
   type GraphQueryEdge,
@@ -19,10 +20,13 @@ import type { DrizzleDatabase } from '../database/drizzle.module.js';
 import type {
   GraphCommunitiesQueryDto,
   GraphCommunitiesResponseDto,
+  GraphEdgeResponseDto,
   GraphNeighborsQueryDto,
   GraphNeighborsResponseDto,
+  GraphNodeResponseDto,
   GraphNodeSearchQueryDto,
   GraphPathListResponseDto,
+  GraphPathResponseDto,
   GraphPathRequestDto,
   GraphSearchResponseDto,
 } from './graph.dto.js';
@@ -57,9 +61,14 @@ export class GraphService {
       return { nodes: [], total: 0 };
     }
 
-    const nodes = await this.queryService.searchNodes(input.q, spaceIds, input.top_k);
+    const activeRunIds = await this.resolveActiveGraphifyRunIds(spaceIds, context);
+    if (activeRunIds.size === 0) {
+      return { nodes: [], total: 0 };
+    }
+
+    const nodes = await this.queryService.searchNodes(input.q, spaceIds, activeRunIds, input.top_k);
     return {
-      nodes,
+      nodes: nodes.map(toGraphNodeResponse),
       total: nodes.length,
     };
   }
@@ -73,14 +82,20 @@ export class GraphService {
       return { paths: [] };
     }
 
+    const activeRunIds = await this.resolveActiveGraphifyRunIds(spaceIds, context);
+    if (activeRunIds.size === 0) {
+      return { paths: [] };
+    }
+
     const paths = await this.queryService.findPath(
       input.source_node_id,
       input.target_node_id,
       input.max_hops,
       spaceIds,
+      activeRunIds,
     );
 
-    return { paths };
+    return { paths: paths.map(toGraphPathResponse) };
   }
 
   async getNeighbors(
@@ -93,11 +108,16 @@ export class GraphService {
       return { center_node: null, neighbors: [] };
     }
 
-    const result = await this.queryService.getNeighbors(nodeId, input.hops, spaceIds);
+    const activeRunIds = await this.resolveActiveGraphifyRunIds(spaceIds, context);
+    if (activeRunIds.size === 0) {
+      return { center_node: null, neighbors: [] };
+    }
+
+    const result = await this.queryService.getNeighbors(nodeId, input.hops, spaceIds, activeRunIds);
     const centerNode = result.nodes.find((node) => node.id === nodeId) ?? null;
 
     return {
-      center_node: centerNode,
+      center_node: centerNode === null ? null : toGraphNodeResponse(centerNode),
       neighbors: buildNeighborItems(nodeId, result.nodes, result.edges),
     };
   }
@@ -111,24 +131,38 @@ export class GraphService {
       return { communities: [] };
     }
 
-    const communities = await this.queryService.getCommunities(spaceIds);
+    const activeRunIds = await this.resolveActiveGraphifyRunIds(spaceIds, context);
+    if (activeRunIds.size === 0) {
+      return { communities: [] };
+    }
+
+    const communities = await this.queryService.getCommunities(spaceIds, activeRunIds);
     return { communities };
   }
 
   async getCommunityNodes(
     communityId: string,
     context: GraphContext = {},
-  ): Promise<GraphQueryNode[]> {
+  ): Promise<GraphNodeResponseDto[]> {
     const spaceIds = await this.resolveReadableSpaceIds(undefined, context);
     if (spaceIds.length === 0) {
       return [];
     }
 
-    return this.queryService.getCommunityNodes(communityId, spaceIds);
+    const activeRunIds = await this.resolveActiveGraphifyRunIds(spaceIds, context);
+    if (activeRunIds.size === 0) {
+      return [];
+    }
+
+    const nodes = await this.queryService.getCommunityNodes(communityId, spaceIds, activeRunIds);
+    return nodes.map(toGraphNodeResponse);
   }
 
-  async getEvidenceRefs(edgeId: string): ReturnType<GraphQueryService['getEvidenceRefs']> {
-    return this.queryService.getEvidenceRefs(edgeId);
+  async getEvidenceRefs(
+    edgeId: string,
+    context: GraphContext = {},
+  ): ReturnType<GraphQueryService['getEvidenceRefs']> {
+    return this.queryService.getEvidenceRefs(edgeId, await this.resolveReadableSpaceIds(undefined, context));
   }
 
   filterPathsByACL(paths: GraphPath[], allowedSpaceIds: string[]): GraphPath[] {
@@ -188,10 +222,36 @@ export class GraphService {
     const userId = resolveContextUserId(context);
     const allowed = await this.hasSpaceReadPermission(tenantId, userId, spaceId);
     if (!allowed) {
-      throwApiError(ErrorCode.PERMISSION_DENIED, 'Permission denied', HttpStatus.FORBIDDEN);
+      throwApiError(ErrorCode.SPACE_NOT_FOUND, 'Space not found', HttpStatus.NOT_FOUND);
     }
 
     return space;
+  }
+
+  private async resolveActiveGraphifyRunIds(
+    spaceIds: string[],
+    context: GraphContext,
+  ): Promise<ActiveGraphifyRunIds> {
+    const scopedSpaceIds = uniqueNonEmpty(spaceIds);
+    if (scopedSpaceIds.length === 0) {
+      return new Map();
+    }
+
+    const tenantId = resolveTenantId(context);
+    const rows = await this.db
+      .select({ id: spaces.id, active_graphify_run_id: spaces.active_graphify_run_id })
+      .from(spaces)
+      .where(and(eq(spaces.tenant_id, tenantId), inArray(spaces.id, scopedSpaceIds)));
+
+    const activeRunIds: ActiveGraphifyRunIds = new Map();
+    for (const row of rows) {
+      const runId = row.active_graphify_run_id?.trim();
+      if (runId !== undefined && runId.length > 0) {
+        activeRunIds.set(row.id, runId);
+      }
+    }
+
+    return activeRunIds;
   }
 
   private async getAccessibleSpaceIds(tenantId: string, userId: string): Promise<string[]> {
@@ -277,11 +337,50 @@ function buildNeighborItems(
   return nodes
     .filter((node) => node.id !== centerNodeId && distances.has(node.id))
     .map((node) => ({
-      node,
-      edge: incomingEdge.get(node.id) ?? null,
+      node: toGraphNodeResponse(node),
+      edge: toNullableGraphEdgeResponse(incomingEdge.get(node.id) ?? null),
       hop: distances.get(node.id) ?? 0,
     }))
     .sort((left, right) => left.hop - right.hop || left.node.label.localeCompare(right.node.label));
+}
+
+function toGraphPathResponse(path: GraphPath): GraphPathResponseDto {
+  return {
+    nodes: path.nodes.map(toGraphNodeResponse),
+    edges: path.edges.map(toGraphEdgeResponse),
+    total_confidence: path.total_confidence,
+  };
+}
+
+function toGraphNodeResponse(node: GraphQueryNode): GraphNodeResponseDto {
+  return {
+    id: node.id,
+    node_key: node.node_key,
+    stable_key: node.stable_key,
+    label: node.label,
+    node_type: node.node_type,
+    description: node.description ?? null,
+    space_id: node.space_id,
+    community_id: node.community_id,
+    score: node.score,
+  };
+}
+
+function toNullableGraphEdgeResponse(edge: GraphQueryEdge | null): GraphEdgeResponseDto | null {
+  return edge === null ? null : toGraphEdgeResponse(edge);
+}
+
+function toGraphEdgeResponse(edge: GraphQueryEdge): GraphEdgeResponseDto {
+  return {
+    id: edge.id,
+    source_node_id: edge.source_node_id,
+    target_node_id: edge.target_node_id,
+    relationship: edge.relation_type,
+    confidence_label: edge.confidence_label,
+    effective_confidence_score: edge.effective_confidence_score,
+    evidence_count: edge.evidence_count,
+    space_id: edge.space_id,
+  };
 }
 
 function nextNodeForEdge(edge: GraphQueryEdge, nodeId: string): string | undefined {
@@ -304,6 +403,10 @@ function readableSpaceIdsFromContext(context: GraphContext): string[] | undefine
   return Object.entries(context.spacePermissions)
     .filter(([, permissions]) => permissionSetSatisfies(permissions, READ_SATISFYING_PERMISSIONS))
     .map(([spaceId]) => spaceId);
+}
+
+function uniqueNonEmpty(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))];
 }
 
 function permissionSetSatisfies(

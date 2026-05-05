@@ -22,6 +22,7 @@ export type {
   ValidGraphOutput,
 } from './types.js';
 export type {
+  ActiveGraphifyRunIds,
   GraphCommunitySummary,
   GraphEvidenceRef,
   GraphPath,

@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 
 import { PERMISSIONS_METADATA_KEY } from '@cherrygraph/auth-core';
+import { ErrorCode } from '@cherrygraph/shared';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -9,6 +10,7 @@ import {
   TEST_USER_ID,
   ScriptedDb,
   createSpaceRow,
+  getRejectedHttpException,
 } from '../../users/__tests__/user-group-service-test-utils.js';
 import type { DrizzleDatabase } from '../../database/drizzle.module.js';
 import { GraphController } from '../graph.controller.js';
@@ -25,6 +27,7 @@ describe('GraphController search', () => {
   it('searches nodes with trigram score and requested space ACL', async () => {
     const { controller, db } = createGraphContext();
     db.queueSelect([createSpaceRow()]);
+    db.queueSelect([createActiveSpaceRow()]);
     db.queueExecute([
       {
         id: 'node-1',
@@ -57,6 +60,22 @@ describe('GraphController search', () => {
     expect(db.executedQueries).toHaveLength(1);
   });
 
+  it('returns space not found for an explicit unreadable space', async () => {
+    const { controller, db } = createGraphContext();
+    db.queueSelect([createSpaceRow()]);
+    db.queueSelect([]);
+
+    const error = await getRejectedHttpException(
+      controller.searchNodes({ q: 'SSO', space_id: TEST_SPACE_ID }, createRequest({})),
+    );
+
+    expect(error.getStatus()).toBe(404);
+    expect(error.getResponse()).toEqual({
+      code: ErrorCode.SPACE_NOT_FOUND,
+      message: 'Space not found',
+    });
+  });
+
   it('returns an empty result when the user has no readable spaces', async () => {
     const { controller, db } = createGraphContext();
 
@@ -68,6 +87,7 @@ describe('GraphController search', () => {
 
   it('lists communities within readable spaces', async () => {
     const { controller, db } = createGraphContext();
+    db.queueSelect([createActiveSpaceRow()]);
     db.queueExecute([
       {
         id: 'community-1',
@@ -115,6 +135,10 @@ function createRequest(spacePermissions: Record<string, string[]> = { [TEST_SPAC
       space_permissions: spacePermissions,
     },
   };
+}
+
+function createActiveSpaceRow() {
+  return createSpaceRow({ active_graphify_run_id: 'run-1' });
 }
 
 type RequestShape = {

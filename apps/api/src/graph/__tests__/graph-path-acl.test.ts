@@ -7,6 +7,7 @@ import {
   TEST_TENANT_ID,
   TEST_USER_ID,
   ScriptedDb,
+  createSpaceRow,
 } from '../../users/__tests__/user-group-service-test-utils.js';
 import type { DrizzleDatabase } from '../../database/drizzle.module.js';
 import { GraphController } from '../graph.controller.js';
@@ -15,6 +16,7 @@ import { GraphService } from '../graph.service.js';
 describe('GraphController path ACL', () => {
   it('excludes paths containing an unauthorized node space', async () => {
     const { controller, db } = createGraphContext();
+    db.queueSelect([createActiveSpaceRow()]);
     db.queueExecute([
       {
         nodes_json: [
@@ -35,6 +37,7 @@ describe('GraphController path ACL', () => {
 
   it('excludes paths containing an unauthorized edge space while keeping allowed paths', async () => {
     const { controller, db } = createGraphContext();
+    db.queueSelect([createActiveSpaceRow()]);
     db.queueExecute([
       {
         nodes_json: [createNode({ id: 'node-a' }), createNode({ id: 'node-b' })],
@@ -117,4 +120,8 @@ function createEdge(overrides: Record<string, unknown> = {}): Record<string, unk
     space_id: TEST_SPACE_ID,
     ...overrides,
   };
+}
+
+function createActiveSpaceRow() {
+  return createSpaceRow({ active_graphify_run_id: 'run-1' });
 }

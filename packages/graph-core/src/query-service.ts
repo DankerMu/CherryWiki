@@ -9,6 +9,7 @@ export interface GraphQueryNode {
   stable_key: string;
   label: string;
   node_type: string | null;
+  description: string | null;
   space_id: string;
   community_id: string | null;
   score: number;
@@ -48,8 +49,13 @@ export interface GraphCommunitySummary {
   node_count: number;
 }
 
+export type ActiveGraphifyRunIds = Map<string, string>;
+
 type QueryResult<T> = T[] | { rows?: T[] };
-type RawNodeRow = Omit<GraphQueryNode, 'score'> & { score?: number | string | null };
+type RawNodeRow = Omit<GraphQueryNode, 'description' | 'score'> & {
+  description?: string | null;
+  score?: number | string | null;
+};
 type RawEdgeRow = Omit<GraphQueryEdge, 'effective_confidence_score' | 'evidence_count'> & {
   effective_confidence_score?: number | string | null;
   evidence_count?: number | string | null;
@@ -71,14 +77,23 @@ type RawEvidenceRefRow = Omit<GraphEvidenceRef, 'confidence_contribution'> & {
 
 const DEFAULT_TOP_K = 20;
 const MAX_PATH_RESULTS = 50;
+const MAX_PATH_INTERMEDIATE_ROWS = 500;
+const MAX_NEIGHBOR_RESULTS = 200;
+const MAX_COMMUNITY_RESULTS = 100;
+const MAX_COMMUNITY_NODE_RESULTS = 100;
 
 export class GraphQueryService {
   constructor(private readonly db: NodePgDatabase) {}
 
-  async searchNodes(query: string, spaceIds: string[], topK = DEFAULT_TOP_K): Promise<GraphQueryNode[]> {
-    const allowedSpaceIds = uniqueNonEmpty(spaceIds);
+  async searchNodes(
+    query: string,
+    spaceIds: string[],
+    activeRunIds: ActiveGraphifyRunIds,
+    topK = DEFAULT_TOP_K,
+  ): Promise<GraphQueryNode[]> {
+    const activeScope = activeGraphScope(spaceIds, activeRunIds);
     const trimmedQuery = query.trim();
-    if (trimmedQuery.length === 0 || allowedSpaceIds.length === 0) {
+    if (trimmedQuery.length === 0 || activeScope.spaceIds.length === 0) {
       return [];
     }
 
@@ -91,6 +106,7 @@ export class GraphQueryService {
         stable_key,
         label,
         type as node_type,
+        null::text as description,
         space_id,
         community_id,
         greatest(
@@ -98,7 +114,8 @@ export class GraphQueryService {
           case when norm_label = ${normalizedQuery} then 1.0 else 0.0 end
         ) as score
       from graph_nodes
-      where space_id = any(${allowedSpaceIds}::text[])
+      where space_id = any(${activeScope.spaceIds}::text[])
+        and graphify_run_id = any(${activeScope.runIds}::text[])
         and (
           label % ${trimmedQuery}
           or norm_label = ${normalizedQuery}
@@ -116,10 +133,11 @@ export class GraphQueryService {
     targetNodeId: string,
     maxHops: number,
     spaceIds: string[],
+    activeRunIds: ActiveGraphifyRunIds,
   ): Promise<GraphPath[]> {
-    const allowedSpaceIds = uniqueNonEmpty(spaceIds);
+    const activeScope = activeGraphScope(spaceIds, activeRunIds);
     const depthLimit = normalizePositiveInt(maxHops, 1);
-    if (sourceNodeId.trim().length === 0 || targetNodeId.trim().length === 0 || allowedSpaceIds.length === 0) {
+    if (sourceNodeId.trim().length === 0 || targetNodeId.trim().length === 0 || activeScope.spaceIds.length === 0) {
       return [];
     }
 
@@ -129,10 +147,12 @@ export class GraphQueryService {
           n.id as current_node_id,
           array[n.id]::text[] as node_ids,
           array[]::text[] as edge_ids,
-          0 as depth
+          0 as depth,
+          1::double precision as total_confidence
         from graph_nodes n
         where n.id = ${sourceNodeId}
-          and n.space_id = any(${allowedSpaceIds}::text[])
+          and n.space_id = any(${activeScope.spaceIds}::text[])
+          and n.graphify_run_id = any(${activeScope.runIds}::text[])
 
         union all
 
@@ -140,7 +160,10 @@ export class GraphQueryService {
           next_node.id as current_node_id,
           paths.node_ids || next_node.id,
           paths.edge_ids || e.id,
-          paths.depth + 1
+          paths.depth + 1,
+          paths.total_confidence
+            * coalesce(e.effective_confidence_score, 0)
+            * ln((1 + greatest(e.evidence_count, 0))::double precision) as total_confidence
         from paths
         join graph_edges e
           on e.source_node_id = paths.current_node_id
@@ -151,16 +174,29 @@ export class GraphQueryService {
             else e.source_node_id
           end
         where paths.depth < ${depthLimit}
-          and e.space_id = any(${allowedSpaceIds}::text[])
-          and next_node.space_id = any(${allowedSpaceIds}::text[])
+          and e.space_id = any(${activeScope.spaceIds}::text[])
+          and e.graphify_run_id = any(${activeScope.runIds}::text[])
+          and next_node.space_id = any(${activeScope.spaceIds}::text[])
+          and next_node.graphify_run_id = any(${activeScope.runIds}::text[])
           and not next_node.id = any(paths.node_ids)
       ),
-      distinct_paths as (
-        select distinct on (node_ids, edge_ids) node_ids, edge_ids, depth
+      candidate_paths as (
+        select node_ids, edge_ids, depth, total_confidence
         from paths
         where current_node_id = ${targetNodeId}
           and depth > 0
-        order by node_ids, edge_ids, depth asc
+        order by depth asc, total_confidence desc
+        limit ${MAX_PATH_INTERMEDIATE_ROWS}
+      ),
+      distinct_paths as (
+        select distinct on (node_ids, edge_ids) node_ids, edge_ids, depth, total_confidence
+        from candidate_paths
+        order by node_ids, edge_ids, depth asc, total_confidence desc
+      ),
+      limited_paths as (
+        select node_ids, edge_ids, depth, total_confidence
+        from distinct_paths
+        order by depth asc, total_confidence desc
         limit ${MAX_PATH_RESULTS}
       )
       select
@@ -171,11 +207,12 @@ export class GraphQueryService {
             'stable_key', n.stable_key,
             'label', n.label,
             'node_type', n.type,
+            'description', null,
             'space_id', n.space_id,
             'community_id', n.community_id,
             'score', 1
           ) order by node_ord.ordinality), '[]'::jsonb)
-          from unnest(distinct_paths.node_ids) with ordinality as node_ord(id, ordinality)
+          from unnest(limited_paths.node_ids) with ordinality as node_ord(id, ordinality)
           join graph_nodes n on n.id = node_ord.id
         ) as nodes_json,
         (
@@ -189,16 +226,17 @@ export class GraphQueryService {
             'evidence_count', e.evidence_count,
             'space_id', e.space_id
           ) order by edge_ord.ordinality), '[]'::jsonb)
-          from unnest(distinct_paths.edge_ids) with ordinality as edge_ord(id, ordinality)
+          from unnest(limited_paths.edge_ids) with ordinality as edge_ord(id, ordinality)
           join graph_edges e on e.id = edge_ord.id
         ) as edges_json
-      from distinct_paths
-      order by depth asc
+      from limited_paths
+      order by depth asc, total_confidence desc
     `);
 
     const paths = rowsFromResult<RawPathRow>(result).map(toGraphPath);
-    return this.filterPathsByACL(paths, allowedSpaceIds).sort(
-      (left, right) => right.total_confidence - left.total_confidence,
+    return this.filterPathsByACL(paths, activeScope.spaceIds).sort(
+      (left, right) =>
+        left.edges.length - right.edges.length || right.total_confidence - left.total_confidence,
     );
   }
 
@@ -206,10 +244,11 @@ export class GraphQueryService {
     nodeId: string,
     hops: number,
     spaceIds: string[],
+    activeRunIds: ActiveGraphifyRunIds,
   ): Promise<{ nodes: GraphQueryNode[]; edges: GraphQueryEdge[] }> {
-    const allowedSpaceIds = uniqueNonEmpty(spaceIds);
+    const activeScope = activeGraphScope(spaceIds, activeRunIds);
     const depthLimit = normalizePositiveInt(hops, 1);
-    if (nodeId.trim().length === 0 || allowedSpaceIds.length === 0) {
+    if (nodeId.trim().length === 0 || activeScope.spaceIds.length === 0) {
       return { nodes: [], edges: [] };
     }
 
@@ -222,7 +261,8 @@ export class GraphQueryService {
           0 as depth
         from graph_nodes n
         where n.id = ${nodeId}
-          and n.space_id = any(${allowedSpaceIds}::text[])
+          and n.space_id = any(${activeScope.spaceIds}::text[])
+          and n.graphify_run_id = any(${activeScope.runIds}::text[])
 
         union all
 
@@ -241,15 +281,27 @@ export class GraphQueryService {
             else e.source_node_id
           end
         where expansion.depth < ${depthLimit}
-          and e.space_id = any(${allowedSpaceIds}::text[])
-          and next_node.space_id = any(${allowedSpaceIds}::text[])
+          and e.space_id = any(${activeScope.spaceIds}::text[])
+          and e.graphify_run_id = any(${activeScope.runIds}::text[])
+          and next_node.space_id = any(${activeScope.spaceIds}::text[])
+          and next_node.graphify_run_id = any(${activeScope.runIds}::text[])
           and not next_node.id = any(expansion.node_ids)
       ),
       node_ids as (
-        select distinct unnest(node_ids) as id from expansion
+        select id
+        from (
+          select distinct unnest(node_ids) as id from expansion
+        ) distinct_nodes
+        order by case when id = ${nodeId} then 0 else 1 end, id asc
+        limit ${MAX_NEIGHBOR_RESULTS}
       ),
       edge_ids as (
-        select distinct unnest(edge_ids) as id from expansion
+        select id
+        from (
+          select distinct unnest(edge_ids) as id from expansion
+        ) distinct_edges
+        order by id asc
+        limit ${MAX_NEIGHBOR_RESULTS}
       )
       select
         (
@@ -259,6 +311,7 @@ export class GraphQueryService {
             'stable_key', n.stable_key,
             'label', n.label,
             'node_type', n.type,
+            'description', null,
             'space_id', n.space_id,
             'community_id', n.community_id,
             'score', 1
@@ -288,22 +341,27 @@ export class GraphQueryService {
     }
 
     return {
-      nodes: parseNodeArray(row.nodes_json).filter((node) => allowedSpaceIds.includes(node.space_id)),
-      edges: parseEdgeArray(row.edges_json).filter((edge) => allowedSpaceIds.includes(edge.space_id)),
+      nodes: parseNodeArray(row.nodes_json).filter((node) => activeScope.spaceIds.includes(node.space_id)),
+      edges: parseEdgeArray(row.edges_json).filter((edge) => activeScope.spaceIds.includes(edge.space_id)),
     };
   }
 
-  async getCommunities(spaceIds: string[]): Promise<GraphCommunitySummary[]> {
-    const allowedSpaceIds = uniqueNonEmpty(spaceIds);
-    if (allowedSpaceIds.length === 0) {
+  async getCommunities(
+    spaceIds: string[],
+    activeRunIds: ActiveGraphifyRunIds,
+  ): Promise<GraphCommunitySummary[]> {
+    const activeScope = activeGraphScope(spaceIds, activeRunIds);
+    if (activeScope.spaceIds.length === 0) {
       return [];
     }
 
     const result = await this.db.execute<RawCommunityRow>(sql`
       select id, community_key, label, summary, node_count
       from graph_communities
-      where space_id = any(${allowedSpaceIds}::text[])
+      where space_id = any(${activeScope.spaceIds}::text[])
+        and graphify_run_id = any(${activeScope.runIds}::text[])
       order by node_count desc, label asc nulls last, community_key asc
+      limit ${MAX_COMMUNITY_RESULTS}
     `);
 
     return rowsFromResult<RawCommunityRow>(result).map((row) => ({
@@ -315,9 +373,13 @@ export class GraphQueryService {
     }));
   }
 
-  async getCommunityNodes(communityId: string, spaceIds: string[]): Promise<GraphQueryNode[]> {
-    const allowedSpaceIds = uniqueNonEmpty(spaceIds);
-    if (communityId.trim().length === 0 || allowedSpaceIds.length === 0) {
+  async getCommunityNodes(
+    communityId: string,
+    spaceIds: string[],
+    activeRunIds: ActiveGraphifyRunIds,
+  ): Promise<GraphQueryNode[]> {
+    const activeScope = activeGraphScope(spaceIds, activeRunIds);
+    if (communityId.trim().length === 0 || activeScope.spaceIds.length === 0) {
       return [];
     }
 
@@ -328,20 +390,24 @@ export class GraphQueryService {
         stable_key,
         label,
         type as node_type,
+        null::text as description,
         space_id,
         community_id,
         1 as score
       from graph_nodes
       where community_id = ${communityId}
-        and space_id = any(${allowedSpaceIds}::text[])
+        and space_id = any(${activeScope.spaceIds}::text[])
+        and graphify_run_id = any(${activeScope.runIds}::text[])
       order by label asc
+      limit ${MAX_COMMUNITY_NODE_RESULTS}
     `);
 
     return rowsFromResult<RawNodeRow>(result).map(toGraphQueryNode);
   }
 
-  async getEvidenceRefs(edgeId: string): Promise<GraphEvidenceRef[]> {
-    if (edgeId.trim().length === 0) {
+  async getEvidenceRefs(edgeId: string, spaceIds: string[]): Promise<GraphEvidenceRef[]> {
+    const allowedSpaceIds = uniqueNonEmpty(spaceIds);
+    if (edgeId.trim().length === 0 || allowedSpaceIds.length === 0) {
       return [];
     }
 
@@ -354,9 +420,11 @@ export class GraphQueryService {
         refs.quote_text,
         refs.confidence_contribution
       from graph_evidence_refs refs
+      join graph_edges edge_acl on edge_acl.id = refs.edge_id
       left join wiki_pages pages on pages.id = refs.page_id
       left join source_documents source_docs on source_docs.id = refs.source_document_id
       where refs.edge_id = ${edgeId}
+        and edge_acl.space_id = any(${allowedSpaceIds}::text[])
       order by refs.created_at asc, refs.id asc
     `);
 
@@ -412,6 +480,7 @@ function toGraphQueryNode(row: RawNodeRow): GraphQueryNode {
     stable_key: row.stable_key,
     label: row.label,
     node_type: row.node_type,
+    description: row.description ?? null,
     space_id: row.space_id,
     community_id: row.community_id,
     score: normalizeNumber(row.score, 0),
@@ -457,6 +526,23 @@ function rowsFromResult<T>(result: QueryResult<T>): T[] {
 
 function uniqueNonEmpty(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))];
+}
+
+function activeGraphScope(
+  spaceIds: string[],
+  activeRunIds: ActiveGraphifyRunIds,
+): { spaceIds: string[]; runIds: string[] } {
+  const entries = uniqueNonEmpty(spaceIds)
+    .map((spaceId) => {
+      const runId = activeRunIds.get(spaceId)?.trim() ?? '';
+      return { spaceId, runId };
+    })
+    .filter((entry) => entry.runId.length > 0);
+
+  return {
+    spaceIds: entries.map((entry) => entry.spaceId),
+    runIds: [...new Set(entries.map((entry) => entry.runId))],
+  };
 }
 
 function normalizePositiveInt(value: number, fallback: number): number {

@@ -33,6 +33,7 @@ export const graphNodeResponseSchema = z.object({
   stable_key: z.string(),
   label: z.string(),
   node_type: z.string().nullable(),
+  description: z.string().nullable().optional(),
   space_id: z.string(),
   community_id: z.string().nullable(),
   score: z.number(),
@@ -42,7 +43,7 @@ export const graphEdgeResponseSchema = z.object({
   id: z.string(),
   source_node_id: z.string(),
   target_node_id: z.string(),
-  relation_type: z.string(),
+  relationship: z.string(),
   confidence_label: z.string(),
   effective_confidence_score: z.number().nullable(),
   evidence_count: z.number(),
@@ -91,6 +92,9 @@ export type GraphNodeSearchQueryDto = z.infer<typeof graphNodeSearchQuerySchema>
 export type GraphPathRequestDto = z.infer<typeof graphPathRequestSchema>;
 export type GraphNeighborsQueryDto = z.infer<typeof graphNeighborsQuerySchema>;
 export type GraphCommunitiesQueryDto = z.infer<typeof graphCommunitiesQuerySchema>;
+export type GraphNodeResponseDto = z.infer<typeof graphNodeResponseSchema>;
+export type GraphEdgeResponseDto = z.infer<typeof graphEdgeResponseSchema>;
+export type GraphPathResponseDto = z.infer<typeof graphPathResponseSchema>;
 export type GraphSearchResponseDto = z.infer<typeof graphSearchResponseSchema>;
 export type GraphPathListResponseDto = z.infer<typeof graphPathListResponseSchema>;
 export type GraphNeighborsResponseDto = z.infer<typeof graphNeighborsResponseSchema>;

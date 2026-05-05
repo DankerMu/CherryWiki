@@ -24,7 +24,7 @@ describe('GraphQueryService', () => {
     ]);
     const service = new GraphQueryService(db);
 
-    const result = await service.searchNodes('SSO', ['space-1'], 10);
+    const result = await service.searchNodes('SSO', ['space-1'], activeRunIds(), 10);
 
     expect(result).toEqual([
       expect.objectContaining({
@@ -40,18 +40,26 @@ describe('GraphQueryService', () => {
     const exact = createDb([
       createNode({ id: 'node-exact', label: 'Token Service', score: 1 }),
     ]);
-    await expect(new GraphQueryService(exact.db).searchNodes('token service', ['space-1'])).resolves.toEqual([
+    await expect(new GraphQueryService(exact.db).searchNodes('token service', ['space-1'], activeRunIds())).resolves.toEqual([
       expect.objectContaining({ id: 'node-exact', score: 1 }),
     ]);
 
     const empty = createDb([]);
-    await expect(new GraphQueryService(empty.db).searchNodes('missing', ['space-1'])).resolves.toEqual([]);
+    await expect(new GraphQueryService(empty.db).searchNodes('missing', ['space-1'], activeRunIds())).resolves.toEqual([]);
   });
 
   it('short-circuits node search when the ACL space set is empty', async () => {
     const { db, execute } = createDb([createNode()]);
 
-    await expect(new GraphQueryService(db).searchNodes('SSO', [])).resolves.toEqual([]);
+    await expect(new GraphQueryService(db).searchNodes('SSO', [], activeRunIds())).resolves.toEqual([]);
+
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('short-circuits node search when no allowed spaces have an active graphify run', async () => {
+    const { db, execute } = createDb([createNode()]);
+
+    await expect(new GraphQueryService(db).searchNodes('SSO', ['space-1'], new Map())).resolves.toEqual([]);
 
     expect(execute).not.toHaveBeenCalled();
   });
@@ -65,7 +73,7 @@ describe('GraphQueryService', () => {
       },
     ]);
 
-    const [path] = await new GraphQueryService(db).findPath('node-a', 'node-b', 1, ['space-1']);
+    const [path] = await new GraphQueryService(db).findPath('node-a', 'node-b', 1, ['space-1'], activeRunIds());
 
     expect(path?.nodes.map((node) => node.id)).toEqual(['node-a', 'node-b']);
     expect(path?.edges).toEqual([edge]);
@@ -87,7 +95,7 @@ describe('GraphQueryService', () => {
       },
     ]);
 
-    await expect(new GraphQueryService(multiHop.db).findPath('node-a', 'node-c', 2, ['space-1'])).resolves.toEqual([
+    await expect(new GraphQueryService(multiHop.db).findPath('node-a', 'node-c', 2, ['space-1'], activeRunIds())).resolves.toEqual([
       expect.objectContaining({
         nodes: [
           expect.objectContaining({ id: 'node-a' }),
@@ -101,8 +109,8 @@ describe('GraphQueryService', () => {
       }) as GraphPath,
     ]);
 
-    await expect(new GraphQueryService(createDb([]).db).findPath('node-a', 'node-c', 2, ['space-1'])).resolves.toEqual([]);
-    await expect(new GraphQueryService(createDb([]).db).findPath('node-a', 'node-c', 2, [])).resolves.toEqual([]);
+    await expect(new GraphQueryService(createDb([]).db).findPath('node-a', 'node-c', 2, ['space-1'], activeRunIds())).resolves.toEqual([]);
+    await expect(new GraphQueryService(createDb([]).db).findPath('node-a', 'node-c', 2, [], activeRunIds())).resolves.toEqual([]);
   });
 
   it('filters paths when any node or edge falls outside the allowed spaces', () => {
@@ -132,7 +140,7 @@ describe('GraphQueryService', () => {
       },
     ]);
 
-    const result = await new GraphQueryService(db).getNeighbors('node-a', 2, ['space-1']);
+    const result = await new GraphQueryService(db).getNeighbors('node-a', 2, ['space-1'], activeRunIds());
 
     expect(result.nodes.map((node) => node.id)).toEqual(['node-a', 'node-b']);
     expect(result.edges.map((edge) => edge.id)).toEqual(['edge-ab']);
@@ -146,10 +154,10 @@ describe('GraphQueryService', () => {
       ]).db,
     );
 
-    await expect(service.getCommunities(['space-1'])).resolves.toEqual([
+    await expect(service.getCommunities(['space-1'], activeRunIds())).resolves.toEqual([
       { id: 'community-1', community_key: 'auth', label: 'Auth', summary: 'Authentication', node_count: 3 },
     ]);
-    await expect(service.getCommunityNodes('community-1', ['space-1'])).resolves.toEqual([
+    await expect(service.getCommunityNodes('community-1', ['space-1'], activeRunIds())).resolves.toEqual([
       expect.objectContaining({ community_id: 'community-1' }),
     ]);
   });
@@ -166,7 +174,7 @@ describe('GraphQueryService', () => {
       },
     ]);
 
-    await expect(new GraphQueryService(db).getEvidenceRefs('edge-1')).resolves.toEqual([
+    await expect(new GraphQueryService(db).getEvidenceRefs('edge-1', ['space-1'])).resolves.toEqual([
       {
         id: 'evidence-1',
         page_id: 'page-1',
@@ -178,24 +186,37 @@ describe('GraphQueryService', () => {
     ]);
   });
 
-  it('orders paths by effective confidence and evidence count score', async () => {
+  it('returns no evidence refs when the edge is outside the allowed spaces', async () => {
+    const { db } = createDb([]);
+
+    await expect(new GraphQueryService(db).getEvidenceRefs('edge-1', ['space-denied'])).resolves.toEqual([]);
+  });
+
+  it('orders paths by shortest depth before effective confidence score', async () => {
     const lowConfidenceEdge = createEdge({ id: 'edge-low', effective_confidence_score: 0.5, evidence_count: 1 });
-    const highConfidenceEdge = createEdge({ id: 'edge-high', effective_confidence_score: 0.9, evidence_count: 4 });
+    const highConfidenceEdgeA = createEdge({ id: 'edge-high-a', effective_confidence_score: 0.9, evidence_count: 4 });
+    const highConfidenceEdgeB = createEdge({
+      id: 'edge-high-b',
+      source_node_id: 'node-mid',
+      target_node_id: 'node-target',
+      effective_confidence_score: 0.9,
+      evidence_count: 4,
+    });
     const { db } = createDb([
       {
-        nodes_json: [createNode({ id: 'node-a' }), createNode({ id: 'node-low' })],
-        edges_json: [lowConfidenceEdge],
+        nodes_json: [createNode({ id: 'node-a' }), createNode({ id: 'node-mid' }), createNode({ id: 'node-target' })],
+        edges_json: [highConfidenceEdgeA, highConfidenceEdgeB],
       },
       {
-        nodes_json: [createNode({ id: 'node-a' }), createNode({ id: 'node-high' })],
-        edges_json: [highConfidenceEdge],
+        nodes_json: [createNode({ id: 'node-a' }), createNode({ id: 'node-target' })],
+        edges_json: [lowConfidenceEdge],
       },
     ]);
 
-    const result = await new GraphQueryService(db).findPath('node-a', 'node-target', 2, ['space-1']);
+    const result = await new GraphQueryService(db).findPath('node-a', 'node-target', 2, ['space-1'], activeRunIds());
 
-    expect(result[0]?.edges[0]?.id).toBe('edge-high');
-    expect(result[0]?.total_confidence).toBeGreaterThan(result[1]?.total_confidence ?? 0);
+    expect(result[0]?.edges.map((edge) => edge.id)).toEqual(['edge-low']);
+    expect(result[1]?.total_confidence).toBeGreaterThan(result[0]?.total_confidence ?? 0);
   });
 });
 
@@ -226,11 +247,16 @@ function createNode(overrides: Partial<GraphQueryNode> = {}): GraphQueryNode {
     stable_key: 'space-1:concept:sso',
     label: 'SSO',
     node_type: 'concept',
+    description: null,
     space_id: 'space-1',
     community_id: null,
     score: 1,
     ...overrides,
   };
+}
+
+function activeRunIds(entries: Record<string, string> = { 'space-1': 'run-1' }): Map<string, string> {
+  return new Map(Object.entries(entries));
 }
 
 function createEdge(overrides: Partial<GraphQueryEdge> = {}): GraphQueryEdge {
