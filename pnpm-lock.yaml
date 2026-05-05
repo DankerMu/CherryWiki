@@ -352,6 +352,9 @@ importers:
       '@cherrygraph/ai-core':
         specifier: workspace:*
         version: link:../ai-core
+      '@cherrygraph/graph-core':
+        specifier: workspace:*
+        version: link:../graph-core
       '@cherrygraph/shared':
         specifier: workspace:*
         version: link:../shared

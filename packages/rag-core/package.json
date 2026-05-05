@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@cherrygraph/ai-core": "workspace:*",
+    "@cherrygraph/graph-core": "workspace:*",
     "@cherrygraph/shared": "workspace:*"
   }
 }
