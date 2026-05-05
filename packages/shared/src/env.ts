@@ -43,6 +43,7 @@ export const envSchema = z.object({
   // Docmost (Phase 2 — optional in Phase 1)
   DOCMOST_BASE_URL: z.string().optional(),
   DOCMOST_BRIDGE_SECRET: z.string().optional(),
+  DOCMOST_BRIDGE_SECRET_NEXT: z.string().optional(),
 
   // Postgres password (used by docker-compose, not app code directly)
   POSTGRES_PASSWORD: z.string().optional(),

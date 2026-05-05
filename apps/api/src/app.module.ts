@@ -8,6 +8,7 @@ import { AdminHealthModule } from './admin/admin-health.module.js';
 import { AdminIndexModule } from './admin/admin-index.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { BridgeModule } from './bridge/bridge.module.js';
 import { ChatModule } from './chat/chat.module.js';
 import { DrizzleModule } from './database/drizzle.module.js';
 import { GraphifyModule } from './graphify/graphify.module.js';
@@ -39,6 +40,7 @@ import { WikiModule } from './wiki/wiki.module.js';
     UploadsModule,
     GraphifyModule,
     WikiModule,
+    BridgeModule,
     ChatModule,
     HealthModule,
     AdminHealthModule,
