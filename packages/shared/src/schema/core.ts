@@ -14,6 +14,7 @@ import {
   text,
   timestamp,
   unique,
+  varchar,
 } from 'drizzle-orm/pg-core';
 import type { PgTableExtraConfigValue } from 'drizzle-orm/pg-core';
 
@@ -893,5 +894,49 @@ export const answerCitations = pgTable(
   (table) => [
     index('idx_answer_citations_message').on(table.message_id),
     index('idx_answer_citations_page').on(table.wiki_page_pk),
+  ],
+);
+
+export const bridgeEvents = pgTable(
+  'bridge_events',
+  {
+    id: text('id').primaryKey(),
+    event_id: varchar('event_id', { length: 64 }).notNull(),
+    event_type: varchar('event_type', { length: 50 }).notNull(),
+    source: varchar('source', { length: 20 }).notNull().default('docmost'),
+    space_id: varchar('space_id', { length: 64 }),
+    page_id: varchar('page_id', { length: 64 }),
+    payload: jsonb('payload').notNull(),
+    status: varchar('status', { length: 20 }).notNull().default('received'),
+    error_json: jsonb('error_json'),
+    nonce: varchar('nonce', { length: 64 }),
+    received_at: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+    processed_at: timestamp('processed_at', { withTimezone: true }),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('bridge_events_event_id_unique').on(table.event_id),
+    index('idx_bridge_events_space_type_received').on(table.space_id, table.event_type, table.received_at.desc()),
+    index('idx_bridge_events_pending').on(table.status).where(sql`${table.status} IN ('received', 'processing')`),
+  ],
+);
+
+export const webhookDeliveries = pgTable(
+  'webhook_deliveries',
+  {
+    id: text('id').primaryKey(),
+    bridge_event_id: text('bridge_event_id')
+      .notNull()
+      .references(() => bridgeEvents.id, { onDelete: 'cascade' }),
+    direction: varchar('direction', { length: 10 }).notNull(),
+    attempt: integer('attempt').notNull().default(1),
+    status_code: integer('status_code'),
+    response_time_ms: integer('response_time_ms'),
+    error: text('error'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_webhook_deliveries_event_attempt').on(table.bridge_event_id, table.attempt),
+    index('idx_webhook_deliveries_direction_created').on(table.direction, table.created_at.desc()),
   ],
 );

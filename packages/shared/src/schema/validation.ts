@@ -2,7 +2,15 @@ import { createInsertSchema, createSelectSchema } from 'drizzle-zod';
 import { z } from 'zod';
 import { z as z4 } from 'zod/v4';
 
-import { answerCitations, chatMessages, chatSessions, embeddings, wikiChunks } from './core.js';
+import {
+  answerCitations,
+  bridgeEvents,
+  chatMessages,
+  chatSessions,
+  embeddings,
+  webhookDeliveries,
+  wikiChunks,
+} from './core.js';
 
 export const userRoleSchema = z.enum(['owner', 'admin', 'space_admin', 'editor', 'viewer', 'auditor']);
 export const userStatusSchema = z.enum(['active', 'disabled']);
@@ -31,7 +39,7 @@ export const graphifyRunModeSchema = z.enum(['full', 'update', 'incremental']);
 export const graphifyRunStatusSchema = z.enum(['pending', 'running', 'succeeded', 'failed', 'cancelled']);
 export const graphifyTriggerTypeSchema = z.enum(['manual', 'scheduled', 'auto']);
 export const confidenceLabelSchema = z.enum(['EXTRACTED', 'INFERRED', 'AMBIGUOUS']);
-export const blockOwnerSchema = z.enum(['graphify', 'human']);
+export const blockOwnerSchema = z.enum(['graphify', 'human', 'locked']);
 export const proposalTypeSchema = z.enum(['conflict', 'deprecation', 'new_page']);
 export const proposalStatusSchema = z.enum(['pending', 'accepted', 'rejected']);
 export const indexSnapshotStatusSchema = z.enum(['building', 'ready', 'activated', 'superseded']);
@@ -380,6 +388,43 @@ export const selectAnswerCitationSchema = createSelectSchema(answerCitations, {
 });
 export const answerCitationSchema = insertAnswerCitationSchema;
 
+export const bridgeEventStatusSchema = z.enum(['received', 'processing', 'processed', 'failed']);
+export const bridgeEventTypeSchema = z.enum([
+  'page.saved',
+  'page.deleted',
+  'attachment.created',
+  'attachment.deleted',
+  'space.updated',
+]);
+export const bridgeWebhookPayloadSchema = z
+  .object({
+    event_id: nonEmptyString.max(64),
+    event_type: bridgeEventTypeSchema,
+    timestamp: z.number().int(),
+    space_id: z.string().max(64).optional(),
+    page_id: z.string().max(64).optional(),
+  })
+  .passthrough();
+
+const bridgeEventStatusSchemaV4 = z4.enum(['received', 'processing', 'processed', 'failed']);
+const bridgeEventTypeSchemaV4 = z4.enum([
+  'page.saved',
+  'page.deleted',
+  'attachment.created',
+  'attachment.deleted',
+  'space.updated',
+]);
+
+export const insertBridgeEventSchema = createInsertSchema(bridgeEvents, {
+  event_type: bridgeEventTypeSchemaV4,
+  status: bridgeEventStatusSchemaV4,
+  payload: jsonObjectSchemaV4,
+  error_json: jsonObjectSchemaV4,
+});
+export const insertWebhookDeliverySchema = createInsertSchema(webhookDeliveries);
+export const bridgeEventSchema = insertBridgeEventSchema;
+export const webhookDeliverySchema = insertWebhookDeliverySchema;
+
 export type InsertUserInput = z.infer<typeof insertUserSchema>;
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 export type InsertSpaceInput = z.infer<typeof insertSpaceSchema>;
@@ -426,3 +471,10 @@ export type ChatMessageRole = z4.infer<typeof chatMessageRoleSchema>;
 export type InsertChatSessionInput = z4.infer<typeof insertChatSessionSchema>;
 export type InsertChatMessageInput = z4.infer<typeof insertChatMessageSchema>;
 export type InsertAnswerCitationInput = z4.infer<typeof insertAnswerCitationSchema>;
+export type BridgeEventStatus = z.infer<typeof bridgeEventStatusSchema>;
+export type BridgeEventType = z.infer<typeof bridgeEventTypeSchema>;
+export type BridgeWebhookPayload = z.infer<typeof bridgeWebhookPayloadSchema>;
+export type InsertBridgeEventInput = z4.infer<typeof insertBridgeEventSchema>;
+export type InsertWebhookDeliveryInput = z4.infer<typeof insertWebhookDeliverySchema>;
+export type BridgeEventInput = z4.infer<typeof bridgeEventSchema>;
+export type WebhookDeliveryInput = z4.infer<typeof webhookDeliverySchema>;

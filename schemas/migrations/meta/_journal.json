@@ -71,6 +71,13 @@
       "when": 1777817742566,
       "tag": "0009_nebulous_nebula",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1777945428228,
+      "tag": "0010_glamorous_typhoid_mary",
+      "breakpoints": true
     }
   ]
 }
