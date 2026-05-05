@@ -70,7 +70,8 @@ export class SessionManager implements OnModuleDestroy {
       return;
     }
 
-    const { processRef: _processRef, ...rest } = session;
+    const { processRef: _, ...rest } = session;
+    void _;
     this.sessions.set(conversationId, { ...rest, lastActivityAt: Date.now() });
   }
 

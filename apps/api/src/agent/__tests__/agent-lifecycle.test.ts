@@ -18,7 +18,7 @@ import { ClaudeMdGenerator } from '../claude-md-generator.js';
 import { SessionManager } from '../session-manager.js';
 import { SettingsGenerator } from '../settings-generator.js';
 import { StreamParser } from '../stream-parser.js';
-import { AgentTestDb, collectAsync, createMockProcess, writeJsonLine, type MockAgentProcess } from './agent-test-utils.js';
+import { AgentTestDb, collectAsync, createMockProcess, writeJsonLine } from './agent-test-utils.js';
 
 const spawnMock = vi.mocked(spawn);
 const managers: SessionManager[] = [];
@@ -68,7 +68,9 @@ describe('AgentService lifecycle', () => {
     expect(events.map((event) => event.type)).toEqual(['message.delta', 'message.completed']);
     expect(events[1]).toMatchObject({
       type: 'message.completed',
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       latency_ms: expect.any(Number),
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       first_sse_latency_ms: expect.any(Number),
     });
     expect(timing?.spawn_at).toBeInstanceOf(Date);
@@ -113,6 +115,7 @@ describe('AgentService lifecycle', () => {
     );
     expect(call?.[2]).toMatchObject({
       cwd: session?.workDir,
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       env: expect.objectContaining({
         HOME: session?.agentHome,
         CHERRY_API_INTERNAL_URL: 'http://cherry-api.internal',

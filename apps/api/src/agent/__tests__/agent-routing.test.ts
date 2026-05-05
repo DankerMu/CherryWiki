@@ -2,8 +2,6 @@ import 'reflect-metadata';
 
 import { spawn } from 'node:child_process';
 import { chatMessages, model_configs, chatSessions, spaces } from '@cherrygraph/shared';
-import type { ChatProviderConfig, EmbeddingProviderConfig } from '@cherrygraph/ai-core';
-import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('node:child_process', () => ({
@@ -12,7 +10,7 @@ vi.mock('node:child_process', () => ({
 
 import type { AgentService } from '../agent.service.js';
 import type { AuditService } from '../../audit/audit.service.js';
-import { ChatService, type ChatStreamEvent } from '../../chat/chat.service.js';
+import { ChatService } from '../../chat/chat.service.js';
 import {
   ScriptedDb,
   TEST_SPACE_ID,
@@ -49,7 +47,7 @@ describe('Agent routing', () => {
       }),
     );
 
-    expect(agent.spawnNew).toHaveBeenCalledWith(
+    expect(agent.spawnNew).toHaveBeenCalledWith( // eslint-disable-line @typescript-eslint/unbound-method
       'session-1',
       TEST_SPACE_ID,
       'run a deep analysis',
@@ -91,14 +89,14 @@ function createService(agentService: AgentService): {
 } {
   const db = new ScriptedDb();
   const audit = { push: vi.fn() } as unknown as AuditService;
-  const chatFactory = vi.fn((_config: ChatProviderConfig) => {
+  const chatFactory = vi.fn(() => {
     throw new Error('static chat provider should not be used');
   });
-  const embeddingFactory = vi.fn((_config: EmbeddingProviderConfig) => {
+  const embeddingFactory = vi.fn(() => {
     throw new Error('embedding provider should not be used');
   });
   const service = new ChatService(
-    db.asDrizzle() as unknown as NodePgDatabase,
+    db.asDrizzle(),
     audit,
     chatFactory,
     embeddingFactory,
@@ -128,6 +126,7 @@ function createAgentServiceMock(events: ChatAgentEvent[]): AgentService {
 
 type ChatAgentEvent = Parameters<AgentService['spawnNew']>[3] extends never ? never : Awaited<ReturnType<AgentService['spawnNew']>> extends AsyncGenerator<infer T> ? T : never;
 
+// eslint-disable-next-line @typescript-eslint/require-await
 async function* toAsyncIterable<T>(items: T[]): AsyncGenerator<T> {
   for (const item of items) {
     yield item;

@@ -177,7 +177,7 @@ function extractChartEnvelopes(value: unknown): Record<string, unknown>[] {
 
 function flattenToolResultContent(value: unknown): unknown[] {
   if (Array.isArray(value)) {
-    return value.flatMap((item) => {
+    return (value as unknown[]).flatMap((item: unknown) => {
       if (isRecord(item) && 'text' in item) {
         return [item.text];
       }
@@ -222,9 +222,9 @@ function normalizeErrorMessage(event: Record<string, unknown>): string {
   return 'Agent execution failed';
 }
 
-function parseJsonLine(line: string): unknown | undefined {
+function parseJsonLine(line: string): Record<string, unknown> | undefined {
   try {
-    return JSON.parse(line) as unknown;
+    return JSON.parse(line) as Record<string, unknown>;
   } catch {
     return undefined;
   }

@@ -44,8 +44,11 @@ describe('AuditCapture', () => {
         action: 'database_query',
         resource_type: 'sql',
         space_id: 'space-1',
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         metadata_json: expect.objectContaining({
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
           sql: expect.any(String),
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
           row_count: expect.any(Number),
           conversation_id: 'conversation-1',
         }),
