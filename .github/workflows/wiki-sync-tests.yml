@@ -1,0 +1,28 @@
+name: Wiki Sync Tests
+
+on:
+  pull_request:
+    paths:
+      - 'apps/wiki-sync-worker/**'
+      - 'packages/wiki-core/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wiki-sync-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @cherrygraph/shared run build
+      - run: pnpm --filter @cherrygraph/wiki-core run build
+      - run: pnpm --filter @cherrygraph/wiki-sync-worker run build
+      - run: npx vitest run --config vitest.config.ts apps/wiki-sync-worker/src/__tests__/ packages/wiki-core/src/__tests__/block-merge.test.ts
