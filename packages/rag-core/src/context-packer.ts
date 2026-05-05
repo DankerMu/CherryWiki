@@ -29,6 +29,7 @@ type EntityPair = {
 };
 
 const CONTEXT_SEPARATOR = '\n\n';
+const SEPARATOR_TOKENS = 2;
 const CONFLICT_ANNOTATION_PREFIX = '图谱中存在关系';
 const NEGATION_KEYWORDS = [
   'not',
@@ -70,16 +71,14 @@ export function packContext(
   const wikiPack = packItems(wikiItems, config.wiki_context_budget, remainingTotalBudget);
   remainingTotalBudget -= wikiPack.tokens;
 
-  const conflictAnnotationsByCandidate = detectGraphChunkConflicts(
-    fusedResults
-      .filter((result): result is Extract<FusedRetrievalResult, { type: 'graph' }> => result.type === 'graph')
-      .map((result) => result.candidate),
-    wikiPack.included.map((item) => item.value.hit.content),
-  );
-
-  const graphItems = makeGraphItems(fusedResults, conflictAnnotationsByCandidate, tokenCounter);
+  const graphItems = makeGraphItems(fusedResults, tokenCounter);
   const graphPack = packItems(graphItems, config.graph_context_budget, remainingTotalBudget);
   remainingTotalBudget -= graphPack.tokens;
+
+  const conflictAnnotationsByCandidate = detectGraphChunkConflicts(
+    graphPack.included.map((item) => item.value.candidate),
+    wikiPack.included.map((item) => item.value.hit.content),
+  );
 
   const communityItems = makeCommunityItems(fusedResults, tokenCounter);
   const communityPack = packItems(communityItems, config.community_summary_budget, remainingTotalBudget);
@@ -88,7 +87,7 @@ export function packContext(
 
   return {
     wiki_context: joinContext(wikiPack.included),
-    graph_context: joinContext(graphPack.included),
+    graph_context: joinGraphContext(graphPack.included, conflictAnnotationsByCandidate),
     community_context: joinContext(communityPack.included),
     total_tokens: wikiPack.tokens + graphPack.tokens + communityPack.tokens,
     truncated_items: wikiPack.truncated + graphPack.truncated + communityPack.truncated,
@@ -108,7 +107,6 @@ function makeWikiItems(
 
 function makeGraphItems(
   fusedResults: FusedRetrievalResult[],
-  conflictAnnotationsByCandidate: Map<string, string>,
   tokenCounter: (text: string) => number,
 ): Array<ContextItem<Extract<FusedRetrievalResult, { type: 'graph' }>>> {
   return fusedResults
@@ -116,11 +114,7 @@ function makeGraphItems(
       (result): result is Extract<FusedRetrievalResult, { type: 'graph' }> =>
         result.type === 'graph' && result.candidate.type !== 'community',
     )
-    .map((result) => {
-      const annotation = conflictAnnotationsByCandidate.get(candidateKey(result.candidate));
-      const text = annotation === undefined ? result.candidate.content : `${result.candidate.content}\n${annotation}`;
-      return makeContextItem(result, text, result.score, tokenCounter);
-    })
+    .map((result) => makeContextItem(result, result.candidate.content, result.score, tokenCounter))
     .sort(compareContextItems);
 }
 
@@ -161,12 +155,13 @@ function packItems<T>(
   let usedTokens = 0;
 
   for (const item of items) {
-    if (usedTokens + item.tokens > budget) {
+    const itemTokenCost = item.tokens + (included.length > 0 ? SEPARATOR_TOKENS : 0);
+    if (usedTokens + itemTokenCost > budget) {
       continue;
     }
 
     included.push(item);
-    usedTokens += item.tokens;
+    usedTokens += itemTokenCost;
   }
 
   return {
@@ -286,6 +281,18 @@ function candidateKey(candidate: GraphCandidate): string {
 
 function joinContext<T>(items: Array<ContextItem<T>>): string {
   return items.map((item) => item.text).join(CONTEXT_SEPARATOR);
+}
+
+function joinGraphContext(
+  items: Array<ContextItem<Extract<FusedRetrievalResult, { type: 'graph' }>>>,
+  conflictAnnotationsByCandidate: Map<string, string>,
+): string {
+  return items
+    .map((item) => {
+      const annotation = conflictAnnotationsByCandidate.get(candidateKey(item.value.candidate));
+      return annotation === undefined ? item.text : `${item.text}\n${annotation}`;
+    })
+    .join(CONTEXT_SEPARATOR);
 }
 
 function compareContextItems<T>(left: ContextItem<T>, right: ContextItem<T>): number {

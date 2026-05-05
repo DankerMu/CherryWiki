@@ -21,13 +21,26 @@ export type GraphRetrievalParams = {
   ambiguousEdgePolicy?: AmbiguousEdgePolicy;
 };
 
+const MAX_NODE_TOP_K = 50;
+const MAX_PATH_TOP_K = 10;
+const MAX_HOPS = 6;
+
 export async function retrieveGraphCandidates(
   params: GraphRetrievalParams,
   graphQueryService: GraphQueryService,
 ): Promise<GraphCandidate[]> {
-  const nodeTopK = normalizePositiveInteger(params.nodeTopK, DEFAULT_RETRIEVAL_CONFIG.graph_node_top_k);
-  const pathTopK = normalizePositiveInteger(params.pathTopK, DEFAULT_RETRIEVAL_CONFIG.graph_path_top_k);
-  const maxHops = normalizePositiveInteger(params.maxHops, DEFAULT_RETRIEVAL_CONFIG.max_path_hops);
+  const nodeTopK = Math.min(
+    normalizePositiveInteger(params.nodeTopK, DEFAULT_RETRIEVAL_CONFIG.graph_node_top_k),
+    MAX_NODE_TOP_K,
+  );
+  const pathTopK = Math.min(
+    normalizePositiveInteger(params.pathTopK, DEFAULT_RETRIEVAL_CONFIG.graph_path_top_k),
+    MAX_PATH_TOP_K,
+  );
+  const maxHops = Math.min(
+    normalizePositiveInteger(params.maxHops, DEFAULT_RETRIEVAL_CONFIG.max_path_hops),
+    MAX_HOPS,
+  );
   const ambiguousEdgePolicy = params.ambiguousEdgePolicy ?? DEFAULT_RETRIEVAL_CONFIG.ambiguous_edge_policy;
 
   const nodes = await graphQueryService.searchNodes(
@@ -69,15 +82,14 @@ function toNodeCandidate(node: GraphQueryNode): GraphCandidate {
 }
 
 function toPathCandidate(path: GraphPath, ambiguousEdgePolicy: AmbiguousEdgePolicy): GraphCandidate {
-  const effectiveConfidenceScore = aggregatePathConfidence(path.edges);
+  const effectiveConfidenceScore = normalizeNonNegativeNumber(path.total_confidence, 0);
   const evidenceCount = aggregatePathEvidenceCount(path.edges);
-  const fallbackScore = effectiveConfidenceScore * Math.log(1 + evidenceCount);
 
   return {
     type: 'graph_path',
     id: makePathId(path),
     content: formatPathContent(path, ambiguousEdgePolicy),
-    score: normalizeNonNegativeNumber(path.total_confidence, fallbackScore),
+    score: effectiveConfidenceScore,
     confidence_label: confidenceLabelForPath(path.edges, ambiguousEdgePolicy),
     effective_confidence_score: effectiveConfidenceScore,
     evidence_count: evidenceCount,
@@ -183,14 +195,6 @@ function normalizeConfidenceLabel(label: string): GraphCandidate['confidence_lab
   }
 
   return 'INFERRED';
-}
-
-function aggregatePathConfidence(edges: GraphQueryEdge[]): number {
-  if (edges.length === 0) {
-    return 1;
-  }
-
-  return Math.min(...edges.map((edge) => edge.effective_confidence_score ?? 0));
 }
 
 function aggregatePathEvidenceCount(edges: GraphQueryEdge[]): number {

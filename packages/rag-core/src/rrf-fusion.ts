@@ -53,25 +53,22 @@ export function rrfFuseThreeSource(
   addRankedResults(fusedByChunkId, vectorResults, k);
   addRankedResults(fusedByChunkId, bm25Results, k);
 
-  const wikiResults: Array<Extract<FusedRetrievalResult, { type: 'wiki_chunk' }>> = Array.from(
+  let wikiResults: Array<Extract<FusedRetrievalResult, { type: 'wiki_chunk' }>> = Array.from(
     fusedByChunkId.values(),
   ).map(({ hit, score }) => ({
     type: 'wiki_chunk',
     hit,
     score: hit.injectionRisk ? score * injectionPenalty : score,
   }));
+
+  if (wikiResults.length > 0 && wikiResults.every((result) => result.hit.injectionRisk)) {
+    wikiResults = [];
+  }
+
   const graphResults = rankGraphCandidates(graphCandidates, k);
   const fusedResults = [...wikiResults, ...graphResults];
 
   if (fusedResults.length === 0) {
-    return [];
-  }
-
-  if (
-    graphResults.length === 0 &&
-    wikiResults.length > 0 &&
-    wikiResults.every((result) => result.hit.injectionRisk)
-  ) {
     return [];
   }
 
