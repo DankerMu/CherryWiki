@@ -65,7 +65,9 @@ describe('GraphifyRunsPage', () => {
     renderWithRouter(<GraphifyRunsPage />, '/spaces/space-1/graphify');
 
     expect(await screen.findByRole('heading', { name: 'Graphify Runs' })).toBeInTheDocument();
-    expect(getStatusBadge('Pending')).toHaveClass('status-neutral');
+    await waitFor(() => {
+      expect(getStatusBadge('Pending')).toHaveClass('status-neutral');
+    });
     expect(getStatusBadge('Running')).toHaveClass('status-info');
     expect(getStatusBadge('Succeeded')).toHaveClass('status-healthy');
     expect(getStatusBadge('Failed')).toHaveClass('status-unhealthy');
