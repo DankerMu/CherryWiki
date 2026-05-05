@@ -513,36 +513,31 @@ CREATE TABLE audit_logs (
 -- bridge_events: Cherry API 接收 Docmost webhook 的幂等记录（依赖 Docmost 集成）
 CREATE TABLE bridge_events (
   id TEXT PRIMARY KEY,
-  tenant_id TEXT NOT NULL REFERENCES tenants(id),
-  event_id TEXT NOT NULL,
-  source TEXT NOT NULL DEFAULT 'docmost',
-  event_type TEXT NOT NULL,
-  payload_json JSONB NOT NULL,
-  signature_valid BOOLEAN NOT NULL DEFAULT false,
-  deduplicated BOOLEAN NOT NULL DEFAULT false,
-  status TEXT NOT NULL DEFAULT 'received',
+  event_id VARCHAR(64) NOT NULL,
+  event_type VARCHAR(50) NOT NULL,
+  source VARCHAR(20) NOT NULL DEFAULT 'docmost',
+  space_id VARCHAR(64),
+  page_id VARCHAR(64),
+  payload JSONB NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'received',
   error_json JSONB,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  nonce VARCHAR(64),
+  received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   processed_at TIMESTAMPTZ,
-  UNIQUE (tenant_id, event_id)
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT bridge_events_event_id_unique UNIQUE (event_id)
 );
 
--- webhook_deliveries: Cherry API 向外部发送 webhook 的投递记录
+-- webhook_deliveries: Bridge webhook 投递记录（inbound/outbound）
 CREATE TABLE webhook_deliveries (
   id TEXT PRIMARY KEY,
-  tenant_id TEXT NOT NULL REFERENCES tenants(id),
-  target_url TEXT NOT NULL,
-  event_type TEXT NOT NULL,
-  payload_json JSONB NOT NULL,
-  attempt_count INT NOT NULL DEFAULT 0,
-  max_attempts INT NOT NULL DEFAULT 5,
-  status TEXT NOT NULL DEFAULT 'pending',
-  response_status INT,
-  response_body TEXT,
-  error_message TEXT,
-  next_retry_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  delivered_at TIMESTAMPTZ
+  bridge_event_id TEXT NOT NULL REFERENCES bridge_events(id) ON DELETE CASCADE,
+  direction VARCHAR(10) NOT NULL,
+  attempt INT NOT NULL DEFAULT 1,
+  status_code INT,
+  response_time_ms INT,
+  error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- ===== Phase 3: Graph Evidence References (normalized) =====
@@ -667,10 +662,11 @@ CREATE INDEX idx_model_configs_tenant_type ON model_configs(tenant_id, model_typ
 CREATE INDEX idx_embeddings_model ON embeddings(model_config_id);
 CREATE INDEX idx_audit_logs_tenant_time ON audit_logs(tenant_id, created_at DESC);
 
--- P1 indexes
-CREATE INDEX idx_bridge_events_lookup ON bridge_events(tenant_id, event_id);
-CREATE INDEX idx_bridge_events_status ON bridge_events(status, created_at);
-CREATE INDEX idx_webhook_deliveries_status ON webhook_deliveries(status, next_retry_at) WHERE status IN ('pending', 'retrying');
+-- P2 Bridge indexes
+CREATE INDEX idx_bridge_events_space_type_received ON bridge_events(space_id, event_type, received_at DESC);
+CREATE INDEX idx_bridge_events_pending ON bridge_events(status) WHERE status IN ('received', 'processing');
+CREATE INDEX idx_webhook_deliveries_event_attempt ON webhook_deliveries(bridge_event_id, attempt);
+CREATE INDEX idx_webhook_deliveries_direction_created ON webhook_deliveries(direction, created_at DESC);
 CREATE INDEX idx_graph_evidence_refs_edge ON graph_evidence_refs(edge_id);
 CREATE INDEX idx_graph_evidence_refs_page ON graph_evidence_refs(page_id, page_version_id);
 CREATE INDEX idx_graph_evidence_refs_source_doc ON graph_evidence_refs(source_document_id);

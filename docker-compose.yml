@@ -84,6 +84,7 @@ services:
       DEFAULT_EMBEDDING_MODEL: ${DEFAULT_EMBEDDING_MODEL:-text-embedding-3-large}
       DOCMOST_BASE_URL: ${DOCMOST_BASE_URL:-http://localhost:3000}
       DOCMOST_BRIDGE_SECRET: ${DOCMOST_BRIDGE_SECRET:-dev-docmost-bridge-secret}
+      DOCMOST_BRIDGE_SECRET_NEXT: ${DOCMOST_BRIDGE_SECRET_NEXT:-}
       GRAPHIFY_PINNED_REF: ${GRAPHIFY_PINNED_REF:-58271fb5af4c0c123ddbad9c689ee1e220360be8}
     ports:
       - "127.0.0.1:8081:8080"
@@ -360,20 +361,19 @@ services:
         condition: service_healthy
 
   docmost:
-    profiles: ["phase2"]
-    build:
-      context: ./external/docmost
-      dockerfile: Dockerfile
+    profiles: ["docmost", "phase2"]
+    image: ${DOCMOST_IMAGE:-docmost/docmost:0.80.1}
     restart: unless-stopped
     environment:
       APP_URL: ${DOCMOST_BASE_URL:-http://localhost:3000}
       APP_SECRET: ${DOCMOST_APP_SECRET:-dev-docmost-app-secret-minimum-32-chars}
-      DATABASE_URL: postgresql://docmost:${DOCMOST_DB_PASSWORD:-docmost_dev}@docmost-db:5432/docmost
-      REDIS_URL: redis://docmost-redis:6379
+      DATABASE_URL: ${DOCMOST_DATABASE_URL:-postgresql://cherrygraph:${POSTGRES_PASSWORD:-cherrygraph_dev}@postgres:5432/cherrygraph}
+      REDIS_URL: ${DOCMOST_REDIS_URL:-redis://redis:6379}
+      CHERRY_API_INTERNAL_URL: ${CHERRY_API_INTERNAL_URL:-http://cherry-api:8080}
       DOCMOST_BRIDGE_SECRET: ${DOCMOST_BRIDGE_SECRET:-dev-docmost-bridge-secret}
-      DOCMOST_FORK_BUILD: ${DOCMOST_FORK_BUILD:-true}
-    ports:
-      - "3000:3000"
+      DOCMOST_BRIDGE_SECRET_NEXT: ${DOCMOST_BRIDGE_SECRET_NEXT:-}
+    expose:
+      - "3000"
     volumes:
       - docmost_storage:/app/data/storage
     healthcheck:
@@ -383,41 +383,10 @@ services:
       retries: 3
       start_period: 30s
     depends_on:
-      docmost-db:
+      postgres:
         condition: service_healthy
-      docmost-redis:
+      redis:
         condition: service_healthy
-
-  docmost-db:
-    profiles: ["phase2"]
-    image: postgres:18
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: docmost
-      POSTGRES_USER: docmost
-      POSTGRES_PASSWORD: ${DOCMOST_DB_PASSWORD:-docmost_dev}
-    volumes:
-      - docmost_db_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U docmost -d docmost"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
-  docmost-redis:
-    profiles: ["phase2"]
-    image: redis:8-alpine
-    restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
-    volumes:
-      - docmost_redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 5s
 
   wiki-sync-worker:
     profiles: ["phase2"]
@@ -462,11 +431,10 @@ volumes:
   indexer_node_modules:
   indexer_pnpm_store:
   docmost_storage:
-  docmost_db_data:
-  docmost_redis_data:
   wiki_repo:
 
 networks:
   default:
+    name: cherry-net
   url_fetch_private:
     internal: true

@@ -33,6 +33,16 @@ http {
     }
 
     # --- Cherry API ---
+    location ^~ /api/internal/bridge/ {
+      deny all;
+      return 403;
+    }
+
+    location ^~ /api/internal/docmost/events/ {
+      deny all;
+      return 403;
+    }
+
     location /api/ {
       proxy_pass http://cherry-api:8080;
       proxy_http_version 1.1;
@@ -57,6 +67,11 @@ http {
     }
 
     # --- Phase 2: Docmost 协作编辑 ---
+    location ^~ /docmost/api/internal/bridge/ {
+      deny all;
+      return 403;
+    }
+
     location /docmost/ {
       proxy_pass http://docmost:3000/;
       proxy_http_version 1.1;
