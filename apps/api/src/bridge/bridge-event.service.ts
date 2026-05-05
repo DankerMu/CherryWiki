@@ -1,10 +1,11 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { bridgeEvents, type BridgeEventType, type BridgeWebhookPayload, webhookDeliveries } from '@cherrygraph/shared';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import type { DrizzleDatabase } from '../database/drizzle.module.js';
+import { BridgeQueueService } from './bridge-queue.service.js';
 
 export type ReceiveBridgeEventMetadata = {
   nonce?: string | undefined;
@@ -37,7 +38,10 @@ type BridgeEventRow = {
 
 @Injectable()
 export class BridgeEventService {
-  constructor(@Inject(DRIZZLE) private readonly db: DrizzleDatabase) {}
+  constructor(
+    @Inject(DRIZZLE) private readonly db: DrizzleDatabase,
+    @Optional() private readonly bridgeQueueService?: BridgeQueueService,
+  ) {}
 
   async receiveEvent(
     payload: BridgeWebhookPayload,
@@ -72,6 +76,8 @@ export class BridgeEventService {
       if (event === undefined) {
         throw new Error('Failed to persist bridge event');
       }
+
+      await this.bridgeQueueService?.enqueueBridgeJob(event.event_type as BridgeEventType, toBridgeQueueJobData(event));
 
       return toReceiveResult(event, false);
     } catch (err) {
@@ -126,6 +132,22 @@ function toReceiveResult(event: BridgeEventRow, deduplicated: boolean): ReceiveB
     bridge_event_id: event.id,
     ...(event.space_id !== null ? { space_id: event.space_id } : {}),
     ...(event.page_id !== null ? { page_id: event.page_id } : {}),
+  };
+}
+
+function toBridgeQueueJobData(event: BridgeEventRow): {
+  bridgeEventId: string;
+  eventId: string;
+  eventType: BridgeEventType;
+  spaceId?: string;
+  pageId?: string;
+} {
+  return {
+    bridgeEventId: event.id,
+    eventId: event.event_id,
+    eventType: event.event_type as BridgeEventType,
+    ...(event.space_id !== null ? { spaceId: event.space_id } : {}),
+    ...(event.page_id !== null ? { pageId: event.page_id } : {}),
   };
 }
 

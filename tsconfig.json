@@ -25,6 +25,9 @@
     },
     {
       "path": "./apps/indexer-worker"
+    },
+    {
+      "path": "./apps/wiki-sync-worker"
     }
   ]
 }
