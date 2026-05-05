@@ -12,6 +12,7 @@ import { graphifyRuns } from '@cherrygraph/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { BridgeQueueService } from '../../bridge/bridge-queue.service.js';
+import { getApiLogger } from '../../common/logger/logger.module.js';
 import { InternalJobsService } from '../internal-jobs.service.js';
 
 describe('Graphify completion docmost push dispatch', () => {
@@ -29,7 +30,7 @@ describe('Graphify completion docmost push dispatch', () => {
     });
   });
 
-  it('transitions the run from succeeded to docmost_syncing before enqueue', async () => {
+  it('transitions the run from succeeded to docmost_syncing after enqueue', async () => {
     const context = await runGraphifyCompletion();
 
     expect(context.db.updates).toEqual([
@@ -40,7 +41,30 @@ describe('Graphify completion docmost push dispatch', () => {
         },
       },
     ]);
+    expect(context.db.operations).toEqual(['enqueue', 'update:docmost_syncing']);
     expect(context.bridgeQueue.enqueueDocmostPushJob).toHaveBeenCalledTimes(1);
+  });
+
+  it('sets docmost_sync_failed when enqueue fails', async () => {
+    const error = new Error('redis unavailable');
+    const errorSpy = vi.spyOn(getApiLogger(), 'error').mockImplementation(() => undefined);
+    const context = await runGraphifyCompletion({
+      enqueueDocmostPushJob: () => Promise.reject(error),
+    });
+
+    expect(context.db.updates).toEqual([
+      {
+        table: graphifyRuns,
+        values: {
+          status: 'docmost_sync_failed',
+        },
+      },
+    ]);
+    expect(context.db.operations).toEqual(['enqueue', 'update:docmost_sync_failed']);
+    expect(errorSpy).toHaveBeenCalledWith(
+      { err: error, job_id: 'graphify-job-1', run_id: 'run-1' },
+      'Failed to enqueue Docmost sync job after Graphify completion',
+    );
   });
 });
 
@@ -49,14 +73,21 @@ type RunContext = {
   bridgeQueue: BridgeQueueService;
 };
 
-async function runGraphifyCompletion(): Promise<RunContext> {
+type RunOptions = {
+  enqueueDocmostPushJob?: () => Promise<void>;
+};
+
+async function runGraphifyCompletion(options: RunOptions = {}): Promise<RunContext> {
   const db = new GraphifyDocmostDb();
   const redis = createRedisMock();
   const graphifyService = {
     handleRunCompletion: vi.fn(() => Promise.resolve({ status: 'succeeded', space_id: 'space-1' })),
   };
   const bridgeQueue = {
-    enqueueDocmostPushJob: vi.fn(() => Promise.resolve()),
+    enqueueDocmostPushJob: vi.fn(() => {
+      db.operations.push('enqueue');
+      return options.enqueueDocmostPushJob?.() ?? Promise.resolve();
+    }),
   } as unknown as BridgeQueueService;
   const service = new InternalJobsService(
     db.asDb() as never,
@@ -116,6 +147,7 @@ async function runGraphifyCompletion(): Promise<RunContext> {
 
 class GraphifyDocmostDb {
   readonly updates: Array<{ table: unknown; values: Record<string, unknown> }> = [];
+  readonly operations: string[] = [];
 
   async transaction<T>(callback: (tx: unknown) => Promise<T>): Promise<T> {
     return callback(this);
@@ -130,6 +162,7 @@ class GraphifyDocmostDb {
       set: (values) => ({
         where: () => {
           this.updates.push({ table, values });
+          this.operations.push(`update:${String(values.status)}`);
           return Promise.resolve();
         },
       }),

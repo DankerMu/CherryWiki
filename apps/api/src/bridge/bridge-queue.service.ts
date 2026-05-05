@@ -4,6 +4,7 @@ import { Redis, type Redis as IORedis } from 'ioredis';
 
 import type { BridgeEventType } from '@cherrygraph/shared';
 
+import { getApiLogger } from '../common/logger/logger.module.js';
 import { REDIS_CLIENT, type OptionalRedisClient } from '../common/redis/redis.module.js';
 
 export const BRIDGE_PAGE_SYNC_QUEUE = 'bridge:page-sync';
@@ -37,51 +38,92 @@ const DEFAULT_JOB_OPTIONS: JobsOptions = {
     type: 'exponential',
     delay: 5_000,
   },
+  removeOnComplete: { count: 1000, age: 86_400 },
+  removeOnFail: { count: 5000, age: 604_800 },
 };
 
 @Injectable()
 export class BridgeQueueService implements OnModuleDestroy {
-  private readonly connection: IORedis;
+  private readonly connection?: IORedis;
   private readonly ownsConnection: boolean;
-  private readonly queues: Record<BridgeQueueName, Queue<BridgeQueueJobData | DocmostPushJobData>>;
+  private readonly disabled: boolean;
+  private readonly queues: Partial<
+    Record<BridgeQueueName, Queue<BridgeQueueJobData | DocmostPushJobData>>
+  >;
 
   constructor(@Optional() @Inject(REDIS_CLIENT) redis?: OptionalRedisClient) {
-    this.connection = redis ?? new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379', {
-      lazyConnect: true,
-      maxRetriesPerRequest: null,
-    });
-    this.ownsConnection = redis === undefined;
+    const redisUrl = process.env.REDIS_URL;
+    if (redis == null && (redisUrl === undefined || redisUrl.length === 0)) {
+      this.disabled = true;
+      this.ownsConnection = false;
+      this.queues = {};
+      return;
+    }
+
+    this.disabled = false;
+    const connection =
+      redis ??
+      new Redis(redisUrl as string, {
+        lazyConnect: true,
+        maxRetriesPerRequest: null,
+      });
+    this.connection = connection;
+    this.ownsConnection = redis == null;
     this.queues = {
       [BRIDGE_PAGE_SYNC_QUEUE]: new Queue(BRIDGE_PAGE_SYNC_QUEUE, {
-        connection: this.connection,
+        connection,
         defaultJobOptions: DEFAULT_JOB_OPTIONS,
       }),
       [BRIDGE_PERMISSION_SYNC_QUEUE]: new Queue(BRIDGE_PERMISSION_SYNC_QUEUE, {
-        connection: this.connection,
+        connection,
         defaultJobOptions: DEFAULT_JOB_OPTIONS,
       }),
       [BRIDGE_ATTACHMENT_SYNC_QUEUE]: new Queue(BRIDGE_ATTACHMENT_SYNC_QUEUE, {
-        connection: this.connection,
+        connection,
         defaultJobOptions: DEFAULT_JOB_OPTIONS,
       }),
       [BRIDGE_DOCMOST_PUSH_QUEUE]: new Queue(BRIDGE_DOCMOST_PUSH_QUEUE, {
-        connection: this.connection,
+        connection,
         defaultJobOptions: DEFAULT_JOB_OPTIONS,
       }),
     };
   }
 
   async enqueueBridgeJob(eventType: BridgeEventType, jobData: BridgeQueueJobData): Promise<void> {
+    if (this.disabled) {
+      getApiLogger().warn(
+        { redis_configured: false },
+        'BullMQ dispatch disabled — no Redis configured',
+      );
+      return;
+    }
+
     const queueName = resolveBridgeQueueName(eventType);
-    await this.queues[queueName].add(eventType, jobData, { jobId: jobData.eventId });
+    await this.getQueue(queueName).add(eventType, jobData, { jobId: jobData.eventId });
   }
 
   async enqueueDocmostPushJob(jobData: DocmostPushJobData): Promise<void> {
-    await this.queues[BRIDGE_DOCMOST_PUSH_QUEUE].add('docmost.push', jobData, { jobId: jobData.runId });
+    if (this.disabled) {
+      getApiLogger().warn(
+        { redis_configured: false },
+        'BullMQ dispatch disabled — no Redis configured',
+      );
+      return;
+    }
+
+    await this.getQueue(BRIDGE_DOCMOST_PUSH_QUEUE).add('docmost.push', jobData, {
+      jobId: jobData.runId,
+    });
   }
 
   async onModuleDestroy(): Promise<void> {
-    const results = await Promise.allSettled(Object.values(this.queues).map((queue) => queue.close()));
+    if (this.disabled) {
+      return;
+    }
+
+    const results = await Promise.allSettled(
+      Object.values(this.queues).map((queue) => queue.close()),
+    );
     for (const result of results) {
       if (result.status === 'rejected') {
         throw result.reason;
@@ -89,8 +131,17 @@ export class BridgeQueueService implements OnModuleDestroy {
     }
 
     if (this.ownsConnection) {
-      this.connection.disconnect();
+      this.connection?.disconnect();
     }
+  }
+
+  private getQueue(queueName: BridgeQueueName): Queue<BridgeQueueJobData | DocmostPushJobData> {
+    const queue = this.queues[queueName];
+    if (queue === undefined) {
+      throw new Error(`Bridge queue is not initialized: ${queueName}`);
+    }
+
+    return queue;
   }
 }
 

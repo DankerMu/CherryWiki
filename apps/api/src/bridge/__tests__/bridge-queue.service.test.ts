@@ -1,6 +1,7 @@
 import type { BridgeEventType } from '@cherrygraph/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { getApiLogger } from '../../common/logger/logger.module.js';
 import {
   BRIDGE_ATTACHMENT_SYNC_QUEUE,
   BRIDGE_PAGE_SYNC_QUEUE,
@@ -38,9 +39,13 @@ vi.mock('bullmq', () => ({
 }));
 
 describe('BridgeQueueService', () => {
+  const originalRedisUrl = process.env.REDIS_URL;
+
   afterEach(() => {
     queueMockState.state.instances.length = 0;
     queueMockState.Queue.mockClear();
+    restoreRedisUrl(originalRedisUrl);
+    vi.restoreAllMocks();
   });
 
   it('routes page.saved events to bridge:page-sync', async () => {
@@ -89,6 +94,21 @@ describe('BridgeQueueService', () => {
       jobId: 'docmost-event-42',
     });
   });
+
+  it('skips enqueue when Redis is not configured', async () => {
+    delete process.env.REDIS_URL;
+    const warn = vi.spyOn(getApiLogger(), 'warn').mockImplementation(() => undefined);
+    const service = new BridgeQueueService();
+    const jobData = createJobData('page.saved');
+
+    await service.enqueueBridgeJob('page.saved', jobData);
+
+    expect(queueMockState.Queue).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      { redis_configured: false },
+      'BullMQ dispatch disabled — no Redis configured',
+    );
+  });
 });
 
 function createService(): BridgeQueueService {
@@ -116,4 +136,13 @@ function queueByName(name: string): QueueMock {
   }
 
   return queue;
+}
+
+function restoreRedisUrl(value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env.REDIS_URL;
+    return;
+  }
+
+  process.env.REDIS_URL = value;
 }

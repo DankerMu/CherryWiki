@@ -11,6 +11,7 @@ describe('wiki-sync-worker health server', () => {
       {
         'page-sync': { getWaitingCount: vi.fn(() => Promise.resolve(2)) },
         'permission-sync': { getWaitingCount: vi.fn(() => Promise.resolve(1)) },
+        'attachment-sync': { getWaitingCount: vi.fn(() => Promise.resolve(4)) },
         'docmost-push': { getWaitingCount: vi.fn(() => Promise.resolve(3)) },
       },
       0,
@@ -29,6 +30,7 @@ describe('wiki-sync-worker health server', () => {
         queues: {
           'page-sync': 2,
           'permission-sync': 1,
+          'attachment-sync': 4,
           'docmost-push': 3,
         },
       });

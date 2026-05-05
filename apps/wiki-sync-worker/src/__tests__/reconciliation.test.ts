@@ -71,12 +71,33 @@ class TestReconciliationDb {
 
   select(): {
     from: () => {
-      where: () => Promise<BridgeEventRow[]>;
+      where: () => {
+        orderBy: () => {
+          limit: (limit: number) => {
+            offset: (offset: number) => Promise<BridgeEventRow[]>;
+          };
+        };
+      };
     };
   } {
     return {
       from: () => ({
-        where: () => Promise.resolve(this.rows),
+        where: () => ({
+          orderBy: () => ({
+            limit: (limit) => ({
+              offset: (offset) =>
+                Promise.resolve(
+                  this.rows
+                    .filter(
+                      (row) =>
+                        row.status === 'received' ||
+                        row.received_at < new Date('2026-05-05T11:55:00.000Z'),
+                    )
+                    .slice(offset, offset + limit),
+                ),
+            }),
+          }),
+        }),
       }),
     };
   }

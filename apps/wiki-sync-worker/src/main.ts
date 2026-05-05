@@ -1,4 +1,4 @@
-import { Queue, Worker, type JobsOptions, type Queue as BullQueue, type Worker as BullWorker } from 'bullmq';
+import { Queue, type JobsOptions, type Queue as BullQueue } from 'bullmq';
 import { Redis } from 'ioredis';
 import type { Redis as IORedis } from 'ioredis';
 import type { Server } from 'node:http';
@@ -18,6 +18,8 @@ const DEFAULT_JOB_OPTIONS: JobsOptions = {
     type: 'exponential',
     delay: 5_000,
   },
+  removeOnComplete: { count: 1000, age: 86_400 },
+  removeOnFail: { count: 5000, age: 604_800 },
 };
 
 type BridgeWorkerQueues = {
@@ -32,23 +34,20 @@ export async function bootstrap(): Promise<void> {
   const healthPort = parseHealthPort(process.env.WORKER_HEALTH_PORT);
   const connection = new Redis(redisUrl, { maxRetriesPerRequest: null });
   const queues = createQueues(connection);
-  const workers = createWorkers(connection);
+
+  await reconcileQueuesOnStartup(queues);
+
   const healthServer = await startHealthServer(
     {
       'page-sync': queues.pageSync,
       'permission-sync': queues.permissionSync,
+      'attachment-sync': queues.attachmentSync,
       'docmost-push': queues.docmostPush,
     },
     healthPort,
   );
 
-  for (const worker of workers) {
-    worker.on('error', (error) => {
-      console.error(`${WORKER_NAME}: worker error`, error);
-    });
-  }
-
-  const shutdown = createShutdownHandler(workers, queues, connection, healthServer);
+  const shutdown = createShutdownHandler(queues, connection, healthServer);
   process.once('SIGTERM', shutdown);
   process.once('SIGINT', shutdown);
   console.log(`${WORKER_NAME}: started`, { healthPort });
@@ -65,15 +64,9 @@ function createQueues(connection: IORedis): BridgeWorkerQueues {
   };
 }
 
-function createWorkers(connection: IORedis): BullWorker[] {
-  const processor = async (): Promise<void> => {};
-
-  return [
-    new Worker(PAGE_SYNC_QUEUE, processor, { connection, concurrency: 3 }),
-    new Worker(PERMISSION_SYNC_QUEUE, processor, { connection }),
-    new Worker(ATTACHMENT_SYNC_QUEUE, processor, { connection }),
-    new Worker(DOCMOST_PUSH_QUEUE, processor, { connection }),
-  ];
+async function reconcileQueuesOnStartup(_queues: BridgeWorkerQueues): Promise<void> {
+  // TODO(Issue #129): create the worker DB connection and call reconcileOnStartup(db, queues).
+  console.warn('DB not connected — startup reconciliation skipped (will be wired in Issue #129)');
 }
 
 function parseHealthPort(value: string | undefined): number {
@@ -90,7 +83,6 @@ function parseHealthPort(value: string | undefined): number {
 }
 
 function createShutdownHandler(
-  workers: BullWorker[],
   queues: BridgeWorkerQueues,
   connection: IORedis,
   healthServer: Server,
@@ -103,12 +95,11 @@ function createShutdownHandler(
     }
 
     shuttingDown = true;
-    void shutdown(workers, queues, connection, healthServer);
+    void shutdown(queues, connection, healthServer);
   };
 }
 
 async function shutdown(
-  workers: BullWorker[],
   queues: BridgeWorkerQueues,
   connection: IORedis,
   healthServer: Server,
@@ -119,7 +110,6 @@ async function shutdown(
   try {
     console.log(`${WORKER_NAME}: shutting down`);
     const results = await Promise.allSettled([
-      ...workers.map((worker) => worker.close()),
       ...queueList.map((queue) => queue.close()),
       connection.quit(),
     ]);
