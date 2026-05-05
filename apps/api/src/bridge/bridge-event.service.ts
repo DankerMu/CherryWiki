@@ -1,10 +1,12 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { bridgeEvents, type BridgeEventType, type BridgeWebhookPayload, webhookDeliveries } from '@cherrygraph/shared';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
+import { getApiLogger } from '../common/logger/logger.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import type { DrizzleDatabase } from '../database/drizzle.module.js';
+import { BridgeQueueService } from './bridge-queue.service.js';
 
 export type ReceiveBridgeEventMetadata = {
   nonce?: string | undefined;
@@ -33,11 +35,15 @@ type BridgeEventRow = {
   event_type: string;
   space_id: string | null;
   page_id: string | null;
+  status: string;
 };
 
 @Injectable()
 export class BridgeEventService {
-  constructor(@Inject(DRIZZLE) private readonly db: DrizzleDatabase) {}
+  constructor(
+    @Inject(DRIZZLE) private readonly db: DrizzleDatabase,
+    @Optional() private readonly bridgeQueueService?: BridgeQueueService,
+  ) {}
 
   async receiveEvent(
     payload: BridgeWebhookPayload,
@@ -67,10 +73,20 @@ export class BridgeEventService {
           event_type: bridgeEvents.event_type,
           space_id: bridgeEvents.space_id,
           page_id: bridgeEvents.page_id,
+          status: bridgeEvents.status,
         });
 
       if (event === undefined) {
         throw new Error('Failed to persist bridge event');
+      }
+
+      try {
+        await this.bridgeQueueService?.enqueueBridgeJob(event.event_type as BridgeEventType, toBridgeQueueJobData(event));
+      } catch (enqueueError) {
+        getApiLogger().error(
+          { err: enqueueError, event_id: event.event_id, bridge_event_id: event.id },
+          'Failed to enqueue bridge event after persist — reconciliation will recover',
+        );
       }
 
       return toReceiveResult(event, false);
@@ -82,6 +98,20 @@ export class BridgeEventService {
       const event = await this.findEventByEventId(payload.event_id);
       if (event === undefined) {
         throw err;
+      }
+
+      if (event.status !== 'processed') {
+        try {
+          await this.bridgeQueueService?.enqueueBridgeJob(
+            event.event_type as BridgeEventType,
+            toBridgeQueueJobData(event),
+          );
+        } catch (enqueueError) {
+          getApiLogger().error(
+            { err: enqueueError, event_id: event.event_id, bridge_event_id: event.id },
+            'Failed to re-enqueue deduplicated bridge event',
+          );
+        }
       }
 
       return toReceiveResult(event, true);
@@ -108,6 +138,7 @@ export class BridgeEventService {
         event_type: bridgeEvents.event_type,
         space_id: bridgeEvents.space_id,
         page_id: bridgeEvents.page_id,
+        status: bridgeEvents.status,
       })
       .from(bridgeEvents)
       .where(eq(bridgeEvents.event_id, eventId))
@@ -126,6 +157,22 @@ function toReceiveResult(event: BridgeEventRow, deduplicated: boolean): ReceiveB
     bridge_event_id: event.id,
     ...(event.space_id !== null ? { space_id: event.space_id } : {}),
     ...(event.page_id !== null ? { page_id: event.page_id } : {}),
+  };
+}
+
+function toBridgeQueueJobData(event: BridgeEventRow): {
+  bridgeEventId: string;
+  eventId: string;
+  eventType: BridgeEventType;
+  spaceId?: string;
+  pageId?: string;
+} {
+  return {
+    bridgeEventId: event.id,
+    eventId: event.event_id,
+    eventType: event.event_type as BridgeEventType,
+    ...(event.space_id !== null ? { spaceId: event.space_id } : {}),
+    ...(event.page_id !== null ? { pageId: event.page_id } : {}),
   };
 }
 

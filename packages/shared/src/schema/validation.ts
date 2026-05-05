@@ -36,7 +36,16 @@ export const sourceDocumentStatusSchema = z.enum([
 ]);
 export const sourceDocumentProcessingStrategySchema = z.enum(['immediate', 'stash', 'archive_only']);
 export const graphifyRunModeSchema = z.enum(['full', 'update', 'incremental']);
-export const graphifyRunStatusSchema = z.enum(['pending', 'running', 'succeeded', 'failed', 'cancelled']);
+export const graphifyRunStatusSchema = z.enum([
+  'pending',
+  'running',
+  'succeeded',
+  'failed',
+  'cancelled',
+  'docmost_syncing',
+  'docmost_synced',
+  'docmost_sync_failed',
+]);
 export const graphifyTriggerTypeSchema = z.enum(['manual', 'scheduled', 'auto']);
 export const confidenceLabelSchema = z.enum(['EXTRACTED', 'INFERRED', 'AMBIGUOUS']);
 export const blockOwnerSchema = z.enum(['graphify', 'human', 'locked']);
@@ -44,6 +53,7 @@ export const proposalTypeSchema = z.enum(['conflict', 'deprecation', 'new_page']
 export const proposalStatusSchema = z.enum(['pending', 'accepted', 'rejected']);
 export const indexSnapshotStatusSchema = z.enum(['building', 'ready', 'activated', 'superseded']);
 export const chunkIndexStatusSchema = z4.enum(['pending', 'indexed']);
+export const syncStatusSchema = z.enum(['synced', 'sync_pending', 'conflict_required']);
 
 const nonEmptyString = z.string().trim().min(1);
 const idSchema = nonEmptyString.max(200);
@@ -262,6 +272,8 @@ export const insertWikiPageSchema = z.object({
   title: nonEmptyString.max(500),
   slug: nonEmptyString.max(500),
   status: wikiPageStatusSchema.default('draft'),
+  sync_status: syncStatusSchema.default('synced'),
+  docmost_page_id: nonEmptyString.max(200).nullable().optional(),
   created_by: optionalIdSchema.nullable().optional(),
 });
 
@@ -445,6 +457,7 @@ export type InsertSourceDocumentInput = z.infer<typeof insertSourceDocumentSchem
 export type UpdateSourceDocumentInput = z.infer<typeof updateSourceDocumentSchema>;
 export type WikiPageStatus = z.infer<typeof wikiPageStatusSchema>;
 export type WikiVersionSource = z.infer<typeof wikiVersionSourceSchema>;
+export type SyncStatus = z.infer<typeof syncStatusSchema>;
 export type InsertWikiPageInput = z.infer<typeof insertWikiPageSchema>;
 export type InsertWikiPageVersionInput = z.infer<typeof insertWikiPageVersionSchema>;
 export type PublishRequestInput = z.infer<typeof publishRequestSchema>;

@@ -177,7 +177,7 @@ describe('importGraphifyWiki', () => {
     expect(result.proposalsCreated[0]).toMatchObject({
       pageId: authPage.pageId,
       blockId: 'key-components',
-      proposalType: 'graphify_suggestion',
+      proposalType: 'conflict',
     });
     expect(result.proposalsCreated[0]?.diffJson.graphifyContent).toContain('JWT tokens serve');
   });

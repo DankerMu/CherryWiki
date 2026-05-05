@@ -70,7 +70,7 @@ export interface WikiPageImport {
 export interface ProposalInfo {
   pageId: string;
   blockId: string;
-  proposalType: 'graphify_suggestion';
+  proposalType: 'conflict';
   diffJson: { humanContent: string; graphifyContent: string };
 }
 
@@ -276,7 +276,7 @@ function buildContentWithBlockOwnership(args: {
         proposalsCreated.push({
           pageId: args.pageId,
           blockId: block.blockId,
-          proposalType: 'graphify_suggestion',
+          proposalType: 'conflict',
           diffJson: {
             humanContent: preservedContent,
             graphifyContent: block.content,

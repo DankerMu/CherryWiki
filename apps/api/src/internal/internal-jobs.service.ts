@@ -13,11 +13,12 @@ import {
   jobs,
   type JobRow,
 } from '@cherrygraph/job-core';
-import { ErrorCode } from '@cherrygraph/shared';
+import { ErrorCode, graphifyRuns } from '@cherrygraph/shared';
 import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 import { AuditService } from '../audit/audit.service.js';
+import { BridgeQueueService } from '../bridge/bridge-queue.service.js';
 import { getApiLogger } from '../common/logger/logger.module.js';
 import { REDIS_CLIENT, type OptionalRedisClient } from '../common/redis/redis.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
@@ -58,6 +59,7 @@ export class InternalJobsService {
     @Optional() private readonly uploadsService?: UploadsService,
     @Optional() private readonly auditService?: AuditService,
     @Optional() private readonly graphifyService?: GraphifyService,
+    @Optional() private readonly bridgeQueueService?: BridgeQueueService,
   ) {}
 
   async pollPendingJobs(type: string, limit: number): Promise<JobDto[]> {
@@ -683,6 +685,39 @@ export class InternalJobsService {
         await queue.add('reindex', { jobId: indexJob.id });
       } finally {
         await queue.close();
+      }
+
+      if (this.bridgeQueueService !== undefined) {
+        try {
+          await this.bridgeQueueService.enqueueDocmostPushJob({
+            runId,
+            spaceId: completedRun.space_id,
+            tenantId: job.tenant_id,
+          });
+        } catch (err) {
+          getApiLogger().error(
+            { err, job_id: job.id, run_id: runId },
+            'Failed to enqueue Docmost sync job after Graphify completion',
+          );
+
+          await this.db
+            .update(graphifyRuns)
+            .set({ status: 'docmost_sync_failed' })
+            .where(and(eq(graphifyRuns.id, runId), eq(graphifyRuns.status, 'succeeded')));
+          return;
+        }
+
+        try {
+          await this.db
+            .update(graphifyRuns)
+            .set({ status: 'docmost_syncing' })
+            .where(and(eq(graphifyRuns.id, runId), eq(graphifyRuns.status, 'succeeded')));
+        } catch (statusErr) {
+          getApiLogger().error(
+            { err: statusErr, job_id: job.id, run_id: runId },
+            'Failed to update run status to docmost_syncing after enqueue — push job is queued but status is stale',
+          );
+        }
       }
     } catch (err) {
       getApiLogger().error(

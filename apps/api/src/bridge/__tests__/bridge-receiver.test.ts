@@ -6,6 +6,7 @@ import {
   ErrorCode,
   bridgeEvents,
   webhookDeliveries,
+  type BridgeEventStatus,
   type BridgeEventType,
   type BridgeWebhookPayload,
 } from '@cherrygraph/shared';
@@ -309,6 +310,7 @@ type StoredBridgeEvent = {
   event_type: string;
   space_id: string | null;
   page_id: string | null;
+  status: BridgeEventStatus;
 };
 
 class InMemoryBridgeDatabase {
@@ -337,6 +339,7 @@ class InMemoryBridgeDatabase {
               event_type: requireString(value.event_type, 'event_type'),
               space_id: nullableString(value.space_id),
               page_id: nullableString(value.page_id),
+              status: requireBridgeEventStatus(value.status),
             };
             this.eventsByEventId.set(event.event_id, event);
 
@@ -391,6 +394,14 @@ function requireString(value: unknown, fieldName: string): string {
 
 function nullableString(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
+}
+
+function requireBridgeEventStatus(value: unknown): BridgeEventStatus {
+  if (value === 'received' || value === 'processing' || value === 'processed' || value === 'failed') {
+    return value;
+  }
+
+  throw new Error('Expected bridge event status');
 }
 
 class InMemoryBridgeRedis {
