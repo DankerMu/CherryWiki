@@ -7,10 +7,10 @@ import { fileURLToPath } from 'node:url';
 import { closeHealthServer, startHealthServer } from './health.js';
 
 const WORKER_NAME = 'wiki-sync-worker';
-const PAGE_SYNC_QUEUE = 'bridge:page-sync';
-const PERMISSION_SYNC_QUEUE = 'bridge:permission-sync';
-const ATTACHMENT_SYNC_QUEUE = 'bridge:attachment-sync';
-const DOCMOST_PUSH_QUEUE = 'bridge:docmost-push';
+const PAGE_SYNC_QUEUE = 'bridge-page-sync';
+const PERMISSION_SYNC_QUEUE = 'bridge-permission-sync';
+const ATTACHMENT_SYNC_QUEUE = 'bridge-attachment-sync';
+const DOCMOST_PUSH_QUEUE = 'bridge-docmost-push';
 
 const DEFAULT_JOB_OPTIONS: JobsOptions = {
   attempts: 3,

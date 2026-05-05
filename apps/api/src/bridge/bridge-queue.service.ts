@@ -7,10 +7,10 @@ import type { BridgeEventType } from '@cherrygraph/shared';
 import { getApiLogger } from '../common/logger/logger.module.js';
 import { REDIS_CLIENT, type OptionalRedisClient } from '../common/redis/redis.module.js';
 
-export const BRIDGE_PAGE_SYNC_QUEUE = 'bridge:page-sync';
-export const BRIDGE_PERMISSION_SYNC_QUEUE = 'bridge:permission-sync';
-export const BRIDGE_ATTACHMENT_SYNC_QUEUE = 'bridge:attachment-sync';
-export const BRIDGE_DOCMOST_PUSH_QUEUE = 'bridge:docmost-push';
+export const BRIDGE_PAGE_SYNC_QUEUE = 'bridge-page-sync';
+export const BRIDGE_PERMISSION_SYNC_QUEUE = 'bridge-permission-sync';
+export const BRIDGE_ATTACHMENT_SYNC_QUEUE = 'bridge-attachment-sync';
+export const BRIDGE_DOCMOST_PUSH_QUEUE = 'bridge-docmost-push';
 
 export type BridgeQueueName =
   | typeof BRIDGE_PAGE_SYNC_QUEUE

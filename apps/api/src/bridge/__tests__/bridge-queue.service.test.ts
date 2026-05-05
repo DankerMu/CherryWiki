@@ -48,7 +48,7 @@ describe('BridgeQueueService', () => {
     vi.restoreAllMocks();
   });
 
-  it('routes page.saved events to bridge:page-sync', async () => {
+  it('routes page.saved events to bridge-page-sync', async () => {
     const service = createService();
     const jobData = createJobData('page.saved');
 
@@ -59,7 +59,7 @@ describe('BridgeQueueService', () => {
     });
   });
 
-  it('routes space.updated events to bridge:permission-sync', async () => {
+  it('routes space.updated events to bridge-permission-sync', async () => {
     const service = createService();
     const jobData = createJobData('space.updated');
 
@@ -71,7 +71,7 @@ describe('BridgeQueueService', () => {
   });
 
   it.each(['attachment.created', 'attachment.deleted'] as const)(
-    'routes %s events to bridge:attachment-sync',
+    'routes %s events to bridge-attachment-sync',
     async (eventType) => {
       const service = createService();
       const jobData = createJobData(eventType);
