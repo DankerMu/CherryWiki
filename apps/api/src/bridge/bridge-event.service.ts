@@ -3,6 +3,7 @@ import { bridgeEvents, type BridgeEventType, type BridgeWebhookPayload, webhookD
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
+import { getApiLogger } from '../common/logger/logger.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import type { DrizzleDatabase } from '../database/drizzle.module.js';
 import { BridgeQueueService } from './bridge-queue.service.js';
@@ -34,6 +35,7 @@ type BridgeEventRow = {
   event_type: string;
   space_id: string | null;
   page_id: string | null;
+  status: string;
 };
 
 @Injectable()
@@ -71,13 +73,21 @@ export class BridgeEventService {
           event_type: bridgeEvents.event_type,
           space_id: bridgeEvents.space_id,
           page_id: bridgeEvents.page_id,
+          status: bridgeEvents.status,
         });
 
       if (event === undefined) {
         throw new Error('Failed to persist bridge event');
       }
 
-      await this.bridgeQueueService?.enqueueBridgeJob(event.event_type as BridgeEventType, toBridgeQueueJobData(event));
+      try {
+        await this.bridgeQueueService?.enqueueBridgeJob(event.event_type as BridgeEventType, toBridgeQueueJobData(event));
+      } catch (enqueueError) {
+        getApiLogger().error(
+          { err: enqueueError, event_id: event.event_id, bridge_event_id: event.id },
+          'Failed to enqueue bridge event after persist — reconciliation will recover',
+        );
+      }
 
       return toReceiveResult(event, false);
     } catch (err) {
@@ -88,6 +98,20 @@ export class BridgeEventService {
       const event = await this.findEventByEventId(payload.event_id);
       if (event === undefined) {
         throw err;
+      }
+
+      if (event.status !== 'processed') {
+        try {
+          await this.bridgeQueueService?.enqueueBridgeJob(
+            event.event_type as BridgeEventType,
+            toBridgeQueueJobData(event),
+          );
+        } catch (enqueueError) {
+          getApiLogger().error(
+            { err: enqueueError, event_id: event.event_id, bridge_event_id: event.id },
+            'Failed to re-enqueue deduplicated bridge event',
+          );
+        }
       }
 
       return toReceiveResult(event, true);
@@ -114,6 +138,7 @@ export class BridgeEventService {
         event_type: bridgeEvents.event_type,
         space_id: bridgeEvents.space_id,
         page_id: bridgeEvents.page_id,
+        status: bridgeEvents.status,
       })
       .from(bridgeEvents)
       .where(eq(bridgeEvents.event_id, eventId))

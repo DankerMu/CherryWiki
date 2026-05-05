@@ -273,7 +273,7 @@ export const insertWikiPageSchema = z.object({
   slug: nonEmptyString.max(500),
   status: wikiPageStatusSchema.default('draft'),
   sync_status: syncStatusSchema.default('synced'),
-  docmost_page_id: z.string().max(200).nullable().optional(),
+  docmost_page_id: nonEmptyString.max(200).nullable().optional(),
   created_by: optionalIdSchema.nullable().optional(),
 });
 

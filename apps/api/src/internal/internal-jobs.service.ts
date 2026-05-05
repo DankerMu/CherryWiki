@@ -688,15 +688,36 @@ export class InternalJobsService {
       }
 
       if (this.bridgeQueueService !== undefined) {
-        await this.db
-          .update(graphifyRuns)
-          .set({ status: 'docmost_syncing' })
-          .where(and(eq(graphifyRuns.id, runId), eq(graphifyRuns.status, 'succeeded')));
-        await this.bridgeQueueService.enqueueDocmostPushJob({
-          runId,
-          spaceId: completedRun.space_id,
-          tenantId: job.tenant_id,
-        });
+        try {
+          await this.bridgeQueueService.enqueueDocmostPushJob({
+            runId,
+            spaceId: completedRun.space_id,
+            tenantId: job.tenant_id,
+          });
+        } catch (err) {
+          getApiLogger().error(
+            { err, job_id: job.id, run_id: runId },
+            'Failed to enqueue Docmost sync job after Graphify completion',
+          );
+
+          await this.db
+            .update(graphifyRuns)
+            .set({ status: 'docmost_sync_failed' })
+            .where(and(eq(graphifyRuns.id, runId), eq(graphifyRuns.status, 'succeeded')));
+          return;
+        }
+
+        try {
+          await this.db
+            .update(graphifyRuns)
+            .set({ status: 'docmost_syncing' })
+            .where(and(eq(graphifyRuns.id, runId), eq(graphifyRuns.status, 'succeeded')));
+        } catch (statusErr) {
+          getApiLogger().error(
+            { err: statusErr, job_id: job.id, run_id: runId },
+            'Failed to update run status to docmost_syncing after enqueue — push job is queued but status is stale',
+          );
+        }
       }
     } catch (err) {
       getApiLogger().error(
