@@ -43,7 +43,10 @@ export class ChatController {
       userId: user.sub,
       userGroupIds: user.group_ids,
       message: dto.message,
+      enableDeepAnalysis: dto.enable_deep_analysis === true,
+      enableDatabase: dto.enable_database === true,
       auditContext: buildAuditContext(request),
+      ...(dto.retrieval_mode !== undefined ? { retrievalMode: dto.retrieval_mode } : {}),
       ...(dto.session_id !== undefined ? { sessionId: dto.session_id } : {}),
     });
 
@@ -142,6 +145,21 @@ function writeSseEvent(reply: SseReply, event: ChatStreamEvent): void {
 
   if (event.type === 'usage') {
     reply.raw.write(`event: usage\ndata: ${JSON.stringify(event.usage)}\n\n`);
+    return;
+  }
+
+  if (event.type === 'agent.tool_use') {
+    reply.raw.write(`event: agent.tool_use\ndata: ${JSON.stringify({ id: event.id, name: event.name, input: event.input })}\n\n`);
+    return;
+  }
+
+  if (event.type === 'chart.data') {
+    reply.raw.write(`event: chart.data\ndata: ${JSON.stringify(event.data)}\n\n`);
+    return;
+  }
+
+  if (event.type === 'message.completed') {
+    reply.raw.write(`event: message.completed\ndata: ${JSON.stringify({})}\n\n`);
     return;
   }
 
