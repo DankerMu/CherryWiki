@@ -17,6 +17,8 @@ import { vi } from 'vitest';
 import type { AuditEntry, AuditService } from '../../apps/api/src/audit/audit.service.js';
 import { ChatController } from '../../apps/api/src/chat/chat.controller.js';
 import { ChatService, type ChatStreamEvent } from '../../apps/api/src/chat/chat.service.js';
+import type { AgentService } from '../../apps/api/src/agent/agent.service.js';
+import type { GraphService } from '../../apps/api/src/graph/graph.service.js';
 import {
   TEST_GROUP_ID,
   TEST_SPACE_ID,
@@ -192,6 +194,8 @@ class ScriptedMutationBuilder implements PromiseLike<unknown[]> {
 type ServiceContextOptions = {
   chatProvider?: ScriptedChatProvider;
   embeddingProvider?: ScriptedEmbeddingProvider;
+  agentService?: AgentService;
+  graphService?: GraphService;
 };
 
 export function createServiceContext(options: ServiceContextOptions = {}): {
@@ -217,6 +221,8 @@ export function createServiceContext(options: ServiceContextOptions = {}): {
     audit as unknown as AuditService,
     chatFactory,
     embeddingFactory,
+    options.agentService,
+    options.graphService,
   );
   const controller = new ChatController(service);
 
@@ -319,6 +325,7 @@ export function createSpaceRow(overrides: Partial<SpaceRow> = {}): SpaceRow {
     permission_version: 1,
     strict_knowledge_only: true,
     graphify_config: {},
+    database_config: { enabled: false },
     default_publish_policy: 'editor_publish',
     created_at: new Date('2026-05-01T00:00:00.000Z'),
     updated_at: new Date('2026-05-01T00:00:00.000Z'),
