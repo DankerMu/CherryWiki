@@ -19,11 +19,15 @@ function sanitizeOption(raw: Record<string, unknown>): Record<string, unknown> {
   }
   if (Array.isArray(safe.series)) {
     safe.series = (safe.series as Array<Record<string, unknown>>).map((s) => {
-      const { tooltip: _t, label: _l, formatter: _f, rich: _r, ...rest } = s;
-      if (typeof rest.type === 'string' && !ALLOWED_SERIES_TYPES.has(rest.type)) {
-        rest.type = 'bar';
+      const cleaned = { ...s };
+      delete cleaned.tooltip;
+      delete cleaned.label;
+      delete cleaned.formatter;
+      delete cleaned.rich;
+      if (typeof cleaned.type === 'string' && !ALLOWED_SERIES_TYPES.has(cleaned.type)) {
+        cleaned.type = 'bar';
       }
-      return rest;
+      return cleaned;
     });
   }
   safe.tooltip = { show: true, confine: true };
