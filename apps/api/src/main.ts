@@ -53,6 +53,7 @@ export async function bootstrap(): Promise<void> {
     new FastifyAdapter({ logger: false, bodyLimit: UPLOAD_MAX_BYTES }),
     {
       bufferLogs: true,
+      rawBody: true,
     },
   );
   configureApp(app);

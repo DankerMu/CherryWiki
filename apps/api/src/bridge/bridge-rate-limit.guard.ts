@@ -2,7 +2,6 @@ import { CanActivate, ExecutionContext, HttpException, HttpStatus, Inject, Injec
 import { ErrorCode } from '@cherrygraph/shared';
 import { randomUUID } from 'node:crypto';
 
-import { AuditService } from '../audit/audit.service.js';
 import { getApiLogger } from '../common/logger/logger.module.js';
 import { REDIS_CLIENT } from '../common/redis/redis.module.js';
 
@@ -69,7 +68,6 @@ return {1, count + 1}
 export class BridgeRateLimitGuard implements CanActivate {
   constructor(
     @Optional() @Inject(REDIS_CLIENT) private readonly redis?: BridgeRateLimitRedisStore,
-    @Optional() private readonly auditService?: AuditService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -124,20 +122,15 @@ export class BridgeRateLimitGuard implements CanActivate {
   }
 
   private auditRateLimited(request: RequestLike, check: BridgeRateLimitCheck): void {
-    this.auditService?.push({
-      tenant_id: '',
+    getApiLogger().warn({
       action: 'bridge.rate_limited',
-      resource_type: 'bridge',
+      dimension: check.dimension,
+      identifier: check.identifier,
       ip: getIpAddress(request),
-      metadata_json: {
-        dimension: check.dimension,
-        identifier: check.identifier,
-        source_ip: getIpAddress(request),
-        space_id: getSpaceId(request.body),
-        limit: check.limit,
-        window_sec: check.windowSec,
-      },
-    });
+      space_id: getSpaceId(request.body),
+      limit: check.limit,
+      window_sec: check.windowSec,
+    }, 'bridge audit: bridge.rate_limited');
   }
 }
 

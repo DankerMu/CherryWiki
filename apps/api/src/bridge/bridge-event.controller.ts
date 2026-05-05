@@ -3,7 +3,7 @@ import { Public } from '@cherrygraph/auth-core';
 import { bridgeWebhookPayloadSchema, ErrorCode, type BridgeEventType, type BridgeWebhookPayload } from '@cherrygraph/shared';
 import type { IncomingHttpHeaders } from 'node:http';
 
-import { AuditService } from '../audit/audit.service.js';
+import { getApiLogger } from '../common/logger/logger.module.js';
 import { BridgeAuthGuard } from './bridge-auth.guard.js';
 import { BridgeEventService } from './bridge-event.service.js';
 import { BridgeRateLimitGuard } from './bridge-rate-limit.guard.js';
@@ -30,12 +30,11 @@ type RequestLike = {
 };
 
 @Public()
-@UseGuards(BridgeRateLimitGuard, BridgeAuthGuard)
+@UseGuards(BridgeAuthGuard, BridgeRateLimitGuard)
 @Controller('internal/docmost/events')
 export class BridgeEventController {
   constructor(
     private readonly bridgeEventService: BridgeEventService,
-    private readonly auditService: AuditService,
   ) {}
 
   @HttpCode(HttpStatus.OK)
@@ -76,7 +75,7 @@ export class BridgeEventController {
     const startedAt = Date.now();
     const payload = parseBridgePayload(body, expectedEventType);
     const result = await this.bridgeEventService.receiveEvent(payload, {
-      nonce: getHeaderValue(request, 'x-bridge-nonce') ?? payload.nonce,
+      nonce: getHeaderValue(request, 'x-bridge-nonce'),
       receivedAt: new Date(startedAt),
     });
 
@@ -85,24 +84,15 @@ export class BridgeEventController {
       responseTimeMs: Date.now() - startedAt,
     });
 
-    const userAgent = getHeaderValue(request, 'user-agent');
-
-    this.auditService.push({
-      tenant_id: '',
+    getApiLogger().info({
       action: 'bridge.event_received',
-      resource_type: 'bridge_event',
-      resource_id: result.bridge_event_id,
+      event_id: result.event_id,
+      event_type: result.event_type,
+      deduplicated: result.deduplicated,
       ip: getIpAddress(request),
-      ...(payload.space_id !== undefined ? { space_id: payload.space_id } : {}),
-      ...(userAgent !== undefined ? { user_agent: userAgent } : {}),
-      metadata_json: {
-        event_id: result.event_id,
-        event_type: result.event_type,
-        deduplicated: result.deduplicated,
-        ...(payload.page_id !== undefined ? { page_id: payload.page_id } : {}),
-        ...(payload.space_id !== undefined ? { space_id: payload.space_id } : {}),
-      },
-    });
+      space_id: payload.space_id,
+      page_id: payload.page_id,
+    }, 'bridge audit: bridge.event_received');
 
     return {
       accepted: true,

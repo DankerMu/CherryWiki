@@ -3,7 +3,6 @@ import { ErrorCode } from '@cherrygraph/shared';
 import * as crypto from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
 
-import { AuditService } from '../audit/audit.service.js';
 import { getApiLogger } from '../common/logger/logger.module.js';
 import { REDIS_CLIENT } from '../common/redis/redis.module.js';
 
@@ -39,7 +38,6 @@ type RequestLike = {
 export class BridgeAuthGuard implements CanActivate {
   constructor(
     @Optional() @Inject(REDIS_CLIENT) private readonly redis?: BridgeNonceRedisStore,
-    @Optional() private readonly auditService?: AuditService,
   ) {
     if (getBridgeSecrets().length === 0) {
       getApiLogger().warn(
@@ -101,17 +99,7 @@ export class BridgeAuthGuard implements CanActivate {
   private audit(action: string, request: RequestLike, metadata: Record<string, unknown>): void {
     const userAgent = getHeaderValue(request, 'user-agent');
 
-    this.auditService?.push({
-      tenant_id: '',
-      action,
-      resource_type: 'bridge',
-      ip: getIpAddress(request),
-      ...(userAgent !== undefined ? { user_agent: userAgent } : {}),
-      metadata_json: {
-        source_ip: getIpAddress(request),
-        ...metadata,
-      },
-    });
+    getApiLogger().warn({ action, ip: getIpAddress(request), user_agent: userAgent, ...metadata }, `bridge audit: ${action}`);
   }
 }
 

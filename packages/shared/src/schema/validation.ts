@@ -401,7 +401,6 @@ export const bridgeWebhookPayloadSchema = z
     event_id: nonEmptyString.max(64),
     event_type: bridgeEventTypeSchema,
     timestamp: z.number().int(),
-    nonce: nonEmptyString.max(64),
     space_id: z.string().max(64).optional(),
     page_id: z.string().max(64).optional(),
   })

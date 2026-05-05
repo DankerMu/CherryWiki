@@ -7,8 +7,8 @@ import { DRIZZLE } from '../database/drizzle.constants.js';
 import type { DrizzleDatabase } from '../database/drizzle.module.js';
 
 export type ReceiveBridgeEventMetadata = {
-  nonce?: string;
-  receivedAt?: Date;
+  nonce?: string | undefined;
+  receivedAt?: Date | undefined;
 };
 
 export type ReceiveBridgeEventResult = {
@@ -57,7 +57,7 @@ export class BridgeEventService {
           page_id: payload.page_id ?? null,
           payload,
           status: 'received',
-          nonce: metadata.nonce ?? payload.nonce,
+          nonce: metadata.nonce ?? null,
           received_at: now,
           created_at: now,
         })
