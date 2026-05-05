@@ -7,8 +7,13 @@ import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import type { Pool as PgPool } from 'pg';
 
+import { createBridgeClient } from './bridge-client.js';
 import { closeHealthServer, startHealthServer } from './health.js';
 import { reconcileOnStartup, type ReconciliationDb } from './reconciliation.js';
+import {
+  createDocmostPushProcessor,
+  type DocmostPushDeps,
+} from './processors/docmost-push.processor.js';
 import {
   createHttpBridgeClient,
   createPageSyncProcessor,
@@ -54,6 +59,7 @@ type BridgeWorkerQueues = {
 
 type BridgeWorkers = {
   pageSync: BullWorker;
+  docmostPush: BullWorker;
 };
 
 export async function bootstrap(): Promise<void> {
@@ -75,13 +81,18 @@ export async function bootstrap(): Promise<void> {
 
   await reconcileOnStartup(db as unknown as ReconciliationDb, queues);
 
+  const bridgeBaseUrl = process.env.DOCMOST_BRIDGE_BASE_URL ?? process.env.DOCMOST_BASE_URL ?? 'http://localhost:3000';
+  const bridgeSecret = process.env.DOCMOST_BRIDGE_TOKEN ?? '';
   const workers = createWorkers(connection, {
-    db,
-    bridgeClient: createHttpBridgeClient(
-      process.env.DOCMOST_BRIDGE_BASE_URL ?? process.env.DOCMOST_BASE_URL ?? 'http://localhost:3000',
-      process.env.DOCMOST_BRIDGE_TOKEN,
-    ),
-    wikiRepoPath: process.env.WIKI_REPO_PATH ?? process.cwd(),
+    pageSync: {
+      db,
+      bridgeClient: createHttpBridgeClient(bridgeBaseUrl, process.env.DOCMOST_BRIDGE_TOKEN),
+      wikiRepoPath: process.env.WIKI_REPO_PATH ?? process.cwd(),
+    },
+    docmostPush: {
+      db,
+      bridgeClient: createBridgeClient(bridgeBaseUrl, bridgeSecret),
+    },
   });
 
   const healthServer = await startHealthServer(
@@ -109,8 +120,11 @@ function createQueues(connection: IORedis): BridgeWorkerQueues {
   };
 }
 
-function createWorkers(connection: IORedis, pageSyncDeps: PageSyncDeps): BridgeWorkers {
-  const pageSync = new Worker(PAGE_SYNC_QUEUE, createPageSyncProcessor(pageSyncDeps), {
+function createWorkers(
+  connection: IORedis,
+  deps: { pageSync: PageSyncDeps; docmostPush: DocmostPushDeps },
+): BridgeWorkers {
+  const pageSync = new Worker(PAGE_SYNC_QUEUE, createPageSyncProcessor(deps.pageSync), {
     connection,
     concurrency: 3,
     settings: {
@@ -118,12 +132,19 @@ function createWorkers(connection: IORedis, pageSyncDeps: PageSyncDeps): BridgeW
         type === PAGE_SYNC_BACKOFF.type ? PAGE_SYNC_BACKOFF.delay(attemptsMade) : 0,
     },
   });
+  const docmostPush = new Worker(DOCMOST_PUSH_QUEUE, createDocmostPushProcessor(deps.docmostPush), {
+    connection,
+    concurrency: 1,
+  });
 
   pageSync.on('error', (error) => {
     console.error(`${WORKER_NAME}: page-sync worker error`, error);
   });
+  docmostPush.on('error', (error) => {
+    console.error(`${WORKER_NAME}: docmost-push worker error`, error);
+  });
 
-  return { pageSync };
+  return { pageSync, docmostPush };
 }
 
 function parseHealthPort(value: string | undefined): number {
@@ -167,7 +188,7 @@ async function shutdown(
 ): Promise<void> {
   let shutdownFailed = false;
   const queueList = [queues.pageSync, queues.permissionSync, queues.attachmentSync, queues.docmostPush];
-  const workerList = [workers.pageSync];
+  const workerList = [workers.pageSync, workers.docmostPush];
 
   try {
     console.log(`${WORKER_NAME}: shutting down`);
