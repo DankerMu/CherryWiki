@@ -13,8 +13,13 @@
   },
   "dependencies": {
     "@cherrygraph/shared": "workspace:*",
+    "@cherrygraph/wiki-core": "workspace:*",
     "bullmq": "^5.76.3",
     "drizzle-orm": "^0.45.2",
-    "ioredis": "^5.10.1"
+    "ioredis": "^5.10.1",
+    "pg": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.20.0"
   }
 }

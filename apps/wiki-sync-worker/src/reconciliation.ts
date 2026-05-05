@@ -10,7 +10,11 @@ export type BridgeSyncJobData = {
 };
 
 export type ReconciliationQueue = {
-  add: (name: string, data: BridgeSyncJobData, opts: { jobId: string }) => Promise<unknown>;
+  add: (
+    name: string,
+    data: BridgeSyncJobData,
+    opts: { jobId: string; group?: { id: string } },
+  ) => Promise<unknown>;
 };
 
 export type ReconciliationQueues = {
@@ -89,7 +93,12 @@ async function enqueueBridgeEvent(
     return;
   }
 
-  await queue.add(event.event_type, toJobData(event), { jobId: event.event_id });
+  const jobData = toJobData(event);
+  await queue.add(
+    event.event_type,
+    jobData,
+    bridgeSyncJobOptions(event.event_type as BridgeEventType, event.event_id, jobData),
+  );
 }
 
 function queueForEventType(
@@ -119,4 +128,16 @@ function toJobData(event: BridgeEventRow): BridgeSyncJobData {
     ...(event.space_id !== null ? { spaceId: event.space_id } : {}),
     ...(event.page_id !== null ? { pageId: event.page_id } : {}),
   };
+}
+
+function bridgeSyncJobOptions(
+  eventType: BridgeEventType,
+  eventId: string,
+  data: BridgeSyncJobData,
+): { jobId: string; group?: { id: string } } {
+  if ((eventType === 'page.saved' || eventType === 'page.deleted') && data.pageId !== undefined) {
+    return { jobId: eventId, group: { id: data.pageId } };
+  }
+
+  return { jobId: eventId };
 }

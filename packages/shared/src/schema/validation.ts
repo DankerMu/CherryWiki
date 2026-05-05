@@ -262,7 +262,7 @@ export const updateSourceDocumentSchema = z
   .partial();
 
 export const wikiPageStatusSchema = z.enum(['draft', 'published', 'archived']);
-export const wikiVersionSourceSchema = z.enum(['graphify', 'human', 'import', 'rollback']);
+export const wikiVersionSourceSchema = z.enum(['graphify', 'human', 'import', 'rollback', 'docmost']);
 
 export const insertWikiPageSchema = z.object({
   id: optionalIdSchema.optional(),
