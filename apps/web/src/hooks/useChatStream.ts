@@ -4,6 +4,9 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateA
 export const CHAT_INPUT_MAX_LENGTH = 4000;
 
 export type ChatRole = 'user' | 'assistant';
+export type RetrievalMode = 'wiki_only' | 'graph_rag' | 'path_first' | 'community_first';
+
+export const DEFAULT_RETRIEVAL_MODE: RetrievalMode = 'wiki_only';
 
 export type ChatCitation = {
   index: number;
@@ -27,15 +30,38 @@ export type ChatUsage = {
   total_tokens: number;
 };
 
+export type ChatToolUsePart = {
+  type: 'tool_use';
+  id: string | null;
+  name: string;
+  input: unknown;
+};
+
+export type ChatChartPart = {
+  type: 'chart';
+  id: string;
+  chart_type: string | null;
+  option: Record<string, unknown>;
+  raw: Record<string, unknown>;
+};
+
+export type ChatMessagePart = ChatToolUsePart | ChatChartPart;
+
 export type ChatMessage = {
   id: string;
   session_id: string | null;
   role: ChatRole;
   content: string;
+  parts: ChatMessagePart[];
   citations: ChatCitation[];
   usage: ChatUsage | null;
   created_at: string;
   status: ChatMessageStatus;
+  agentPath: boolean;
+  agentThinking: boolean;
+  completedAt: string | null;
+  latencyMs: number | null;
+  firstSseLatencyMs: number | null;
   error?: string;
 };
 
@@ -71,8 +97,11 @@ type UseChatStreamParams = {
   onSession?: (sessionId: string) => void;
 };
 
-type SendMessageOptions = {
+export type SendMessageOptions = {
   sessionId?: string | null;
+  enableDeepAnalysis?: boolean;
+  enableDatabase?: boolean;
+  retrievalMode?: RetrievalMode;
 };
 
 export function useChatStream({ spaceId, accessToken, onSession }: UseChatStreamParams) {
@@ -83,6 +112,7 @@ export function useChatStream({ spaceId, accessToken, onSession }: UseChatStream
   const abortControllerRef = useRef<AbortController | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const isStreamingRef = useRef(false);
+  const lastSendOptionsRef = useRef<Omit<SendMessageOptions, 'sessionId'> | null>(null);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -123,11 +153,19 @@ export function useChatStream({ spaceId, accessToken, onSession }: UseChatStream
       }
 
       const requestSessionId = options.sessionId ?? sessionId;
+      const retrievalMode = options.retrievalMode ?? DEFAULT_RETRIEVAL_MODE;
+      const agentPath =
+        options.enableDeepAnalysis === true || options.enableDatabase === true || isAgentRetrievalMode(retrievalMode);
       const userMessageId = createLocalMessageId('user');
       const assistantMessageId = createLocalMessageId('assistant');
       const now = new Date().toISOString();
       const controller = new AbortController();
       abortControllerRef.current = controller;
+      lastSendOptionsRef.current = {
+        enableDeepAnalysis: options.enableDeepAnalysis === true,
+        enableDatabase: options.enableDatabase === true,
+        retrievalMode,
+      };
       isStreamingRef.current = true;
       setIsStreaming(true);
       setError(null);
@@ -138,20 +176,32 @@ export function useChatStream({ spaceId, accessToken, onSession }: UseChatStream
           session_id: requestSessionId,
           role: 'user',
           content,
+          parts: [],
           citations: [],
           usage: null,
           created_at: now,
           status: 'complete',
+          agentPath: false,
+          agentThinking: false,
+          completedAt: now,
+          latencyMs: null,
+          firstSseLatencyMs: null,
         },
         {
           id: assistantMessageId,
           session_id: requestSessionId,
           role: 'assistant',
           content: '',
+          parts: [],
           citations: [],
           usage: null,
           created_at: now,
           status: 'streaming',
+          agentPath,
+          agentThinking: agentPath,
+          completedAt: null,
+          latencyMs: null,
+          firstSseLatencyMs: null,
         },
       ]);
 
@@ -167,7 +217,10 @@ export function useChatStream({ spaceId, accessToken, onSession }: UseChatStream
           body: JSON.stringify({
             space_id: spaceId,
             message: content,
+            retrieval_mode: retrievalMode,
             ...(requestSessionId !== null && requestSessionId.length > 0 ? { session_id: requestSessionId } : {}),
+            ...(options.enableDeepAnalysis === true ? { enable_deep_analysis: true } : {}),
+            ...(options.enableDatabase === true ? { enable_database: true } : {}),
           }),
         });
 
@@ -232,7 +285,12 @@ export function useChatStream({ spaceId, accessToken, onSession }: UseChatStream
           setMessages((current) =>
             current.map((message) =>
               message.id === assistantMessageId && message.status === 'streaming'
-                ? { ...message, status: 'complete' }
+                ? {
+                    ...message,
+                    status: 'complete',
+                    agentThinking: false,
+                    completedAt: message.completedAt ?? new Date().toISOString(),
+                  }
                 : message,
             ),
           );
@@ -262,7 +320,7 @@ export function useChatStream({ spaceId, accessToken, onSession }: UseChatStream
       return;
     }
 
-    await sendMessage(lastUserMessage.content, { sessionId });
+    await sendMessage(lastUserMessage.content, { sessionId, ...(lastSendOptionsRef.current ?? {}) });
   }, [sendMessage, sessionId]);
 
   return {
@@ -285,11 +343,21 @@ export function normalizeChatMessages(rows: ChatApiMessage[]): ChatMessage[] {
       session_id: row.session_id,
       role: row.role as ChatRole,
       content: row.content,
+      parts: [],
       citations: normalizeCitationArray(row.citations_json),
       usage: null,
       created_at: row.created_at,
       status: 'complete',
+      agentPath: false,
+      agentThinking: false,
+      completedAt: null,
+      latencyMs: null,
+      firstSseLatencyMs: null,
     }));
+}
+
+export function isAgentRetrievalMode(mode: RetrievalMode): boolean {
+  return mode === 'graph_rag' || mode === 'path_first' || mode === 'community_first';
 }
 
 export function getChatErrorMessage(error: ChatStreamError | null): string | null {
@@ -354,13 +422,18 @@ function handleStreamEvent(
     return { done: false, error: null };
   }
 
-  if (eventType === 'content') {
+  if (eventType === 'content' || eventType === 'message.delta') {
     const delta = readString(data, 'delta') ?? '';
     if (delta.length > 0) {
       setMessages((current) =>
         current.map((message) =>
           message.id === assistantMessageId
-            ? { ...message, content: `${message.content}${delta}`, status: 'streaming' }
+            ? {
+                ...message,
+                content: `${message.content}${delta}`,
+                status: 'streaming',
+                agentThinking: false,
+              }
             : message,
         ),
       );
@@ -382,6 +455,49 @@ function handleStreamEvent(
       current.map((message) => (message.id === assistantMessageId ? { ...message, usage } : message)),
     );
     return { done: false, error: null };
+  }
+
+  if (eventType === 'agent.tool_use') {
+    const toolUse = normalizeToolUse(data);
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === assistantMessageId ? { ...message, parts: [...message.parts, toolUse] } : message,
+      ),
+    );
+    return { done: false, error: null };
+  }
+
+  if (eventType === 'chart.data') {
+    const chart = normalizeChartPart(data);
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === assistantMessageId ? { ...message, parts: [...message.parts, chart] } : message,
+      ),
+    );
+    return { done: false, error: null };
+  }
+
+  if (eventType === 'message.completed') {
+    const completedUsage = normalizeCompletedUsage(data);
+    const latencyMs = readNumber(data, 'latency_ms');
+    const firstSseLatencyMs = readNumber(data, 'first_sse_latency_ms');
+    const completedAt = new Date().toISOString();
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === assistantMessageId
+          ? {
+              ...message,
+              status: 'complete',
+              agentThinking: false,
+              completedAt,
+              latencyMs,
+              firstSseLatencyMs,
+              usage: completedUsage ?? message.usage,
+            }
+          : message,
+      ),
+    );
+    return { done: true, error: null };
   }
 
   if (eventType === 'error') {
@@ -407,6 +523,7 @@ function markAssistantError(
         ? {
             ...chatMessage,
             status: 'error',
+            agentThinking: false,
             error: message,
           }
         : chatMessage,
@@ -548,14 +665,59 @@ function normalizeUsage(value: unknown): ChatUsage | null {
   const completionTokens = readNumber(value, 'completion_tokens');
   const totalTokens = readNumber(value, 'total_tokens');
 
+  const agentInputTokens = readNumber(value, 'input_tokens');
+  const agentOutputTokens = readNumber(value, 'output_tokens');
+
   if (promptTokens === null || completionTokens === null || totalTokens === null) {
-    return null;
+    if (agentInputTokens === null && agentOutputTokens === null) {
+      return null;
+    }
+
+    const normalizedPromptTokens = agentInputTokens ?? 0;
+    const normalizedCompletionTokens = agentOutputTokens ?? 0;
+    return {
+      prompt_tokens: normalizedPromptTokens,
+      completion_tokens: normalizedCompletionTokens,
+      total_tokens: normalizedPromptTokens + normalizedCompletionTokens,
+    };
   }
 
   return {
     prompt_tokens: promptTokens,
     completion_tokens: completionTokens,
     total_tokens: totalTokens,
+  };
+}
+
+function normalizeCompletedUsage(value: unknown): ChatUsage | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const nestedUsage = readRecord(value, 'usage');
+  return normalizeUsage(nestedUsage ?? value);
+}
+
+function normalizeToolUse(value: Record<string, unknown>): ChatToolUsePart {
+  return {
+    type: 'tool_use',
+    id: readString(value, 'id'),
+    name: readString(value, 'name') ?? readString(value, 'tool') ?? readString(value, 'tool_name') ?? 'Tool',
+    input: readUnknown(value, 'input') ?? readUnknown(value, 'tool_input') ?? {},
+  };
+}
+
+function normalizeChartPart(value: Record<string, unknown>): ChatChartPart {
+  const nestedData = readRecord(value, 'data');
+  const raw = nestedData ?? value;
+  const option = readRecord(raw, 'echarts_option') ?? readRecord(value, 'echarts_option') ?? raw;
+
+  return {
+    type: 'chart',
+    id: createLocalMessageId('chart'),
+    chart_type: readString(raw, 'chart_type') ?? readString(value, 'chart_type'),
+    option,
+    raw,
   };
 }
 
