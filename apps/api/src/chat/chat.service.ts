@@ -15,7 +15,9 @@ import {
   chatMessages,
   chatSessions,
   indexSnapshots,
+  modelUsageLogs,
   model_configs,
+  retrievalTraces,
   spaces,
 } from '@cherrygraph/shared';
 import {
@@ -41,6 +43,8 @@ import {
   type PaginatedResponse,
 } from '../common/dto/pagination.dto.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
+import { GraphService } from '../graph/graph.service.js';
+import { decryptSpaceDatabaseConfig } from '../spaces/database-config.js';
 
 export const CHAT_PROVIDER_FACTORY = Symbol('CHAT_PROVIDER_FACTORY');
 export const EMBEDDING_PROVIDER_FACTORY = Symbol('EMBEDDING_PROVIDER_FACTORY');
@@ -59,6 +63,19 @@ type ChatUsage = {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+};
+
+export type Intent =
+  | 'relationship_explanation'
+  | 'architecture_reasoning'
+  | 'fact_lookup'
+  | 'how_to'
+  | 'summarization';
+
+export type QueryRoute = {
+  path: 'agent' | 'static_rag';
+  reason: string;
+  intent: Intent;
 };
 
 export type ChatAuditContext = {
@@ -146,6 +163,37 @@ type PreparedCompletion = {
   auditContext: ChatAuditContext;
 };
 
+type RetrievedContext = {
+  results: RetrievalResult[];
+  trace: {
+    candidates: {
+      vector: SearchHit[];
+      bm25: SearchHit[];
+      graph: GraphHint[];
+    };
+    aclFiltered: {
+      wiki: RetrievalResult[];
+      graph: GraphHint[];
+    };
+    finalContext: {
+      wiki: Array<Pick<RetrievalResult, 'chunkId' | 'score' | 'pageTitle' | 'sectionTitle'>>;
+      graph_hints: GraphHint[];
+      wiki_tokens: number;
+      graph_tokens: number;
+    };
+  };
+};
+
+export type GraphHint = {
+  id: string;
+  label: string;
+  node_type: string | null;
+  description: string | null;
+  score: number;
+  space_id: string;
+  content: string;
+};
+
 type SearchRow = {
   id: string;
   content: string;
@@ -187,6 +235,7 @@ export class ChatService {
     @Optional() @Inject(CHAT_PROVIDER_FACTORY) chatProviderFactory?: ChatProviderFactory,
     @Optional() @Inject(EMBEDDING_PROVIDER_FACTORY) embeddingProviderFactory?: EmbeddingProviderFactory,
     @Optional() private readonly agentService?: AgentService,
+    @Optional() private readonly graphService?: GraphService,
   ) {
     this.chatProviderFactory =
       chatProviderFactory ?? ((config: ChatProviderConfig): ChatProvider => new OpenAIChatProvider(config));
@@ -332,22 +381,23 @@ export class ChatService {
       auditContext: input.auditContext ?? {},
     };
 
-    if (this.shouldRouteToAgent(prepared, input)) {
+    if (this.getRoute(prepared, input).path === 'agent') {
       return this.runAgentCompletion(prepared, input);
     }
 
-    return this.runCompletion(prepared);
+    return this.runCompletion(prepared, input);
   }
 
   buildRagPrompt(input: {
     retrievalResults: RetrievalResult[];
+    graphHints?: GraphHint[];
     history: ChatMessageRow[];
     currentMessage: string;
     modelId: string;
     modelMaxTokens?: number | null;
     relaxedNoHit?: boolean;
   }): RagPrompt {
-    const systemPrompt = buildSystemPrompt(input.retrievalResults, input.relaxedNoHit === true);
+    const systemPrompt = buildSystemPrompt(input.retrievalResults, input.relaxedNoHit === true, input.graphHints ?? []);
     const messages = truncateHistoryForBudget(
       input.history,
       input.currentMessage,
@@ -392,32 +442,37 @@ export class ChatService {
     return retrievalResults.slice(0, 3).map((result, index) => toCitationResponse(result, index + 1, true));
   }
 
-  private shouldRouteToAgent(prepared: PreparedCompletion, input: StreamCompletionInput): boolean {
-    if (this.agentService === undefined) {
-      return false;
-    }
-
-    return (
-      this.agentService.hasSession(prepared.session.id) ||
-      input.enableDeepAnalysis === true ||
-      (input.enableDatabase === true && isDatabaseToggleVisible(prepared.space)) ||
-      (input.retrievalMode !== undefined && AGENT_RETRIEVAL_MODES.has(input.retrievalMode))
-    );
+  private getRoute(prepared: PreparedCompletion, input: StreamCompletionInput): QueryRoute {
+    return decideQueryRoute({
+      query: prepared.message,
+      agentAvailable: this.agentService !== undefined,
+      hasAgentSession: this.agentService?.hasSession(prepared.session.id) ?? false,
+      databaseToggleVisible: isDatabaseToggleVisible(prepared.space),
+      ...(input.enableDeepAnalysis !== undefined ? { enableDeepAnalysis: input.enableDeepAnalysis } : {}),
+      ...(input.enableDatabase !== undefined ? { enableDatabase: input.enableDatabase } : {}),
+      ...(input.retrievalMode !== undefined ? { retrievalMode: input.retrievalMode } : {}),
+    });
   }
 
   private async *runAgentCompletion(
     prepared: PreparedCompletion,
     input: StreamCompletionInput,
+    options: { yieldSession?: boolean } = {},
   ): AsyncIterable<ChatStreamEvent> {
-    yield { type: 'session', session_id: prepared.session.id };
+    if (options.yieldSession !== false) {
+      yield { type: 'session', session_id: prepared.session.id };
+    }
 
     if (this.agentService === undefined) {
       yield { type: 'error', code: ErrorCode.INTERNAL_ERROR, message: 'Agent runtime is not available' };
       return;
     }
 
-    const databaseConfig = normalizeDatabaseConfig(prepared.space.database_config);
-    const enableDatabase = input.enableDatabase === true && databaseConfig.enabled;
+    const visibleDatabaseConfig = normalizeDatabaseConfig(prepared.space.database_config);
+    const enableDatabase = input.enableDatabase === true && visibleDatabaseConfig.enabled;
+    const databaseConfig = enableDatabase
+      ? await decryptSpaceDatabaseConfig(this.db, prepared.space.database_config)
+      : visibleDatabaseConfig;
     const agentOptions: AgentSpawnOptions = {
       tenantId: prepared.tenantId,
       userId: prepared.userId,
@@ -493,33 +548,69 @@ export class ChatService {
     }
   }
 
-  private async *runCompletion(prepared: PreparedCompletion): AsyncIterable<ChatStreamEvent> {
+  private async *runCompletion(
+    prepared: PreparedCompletion,
+    input: StreamCompletionInput,
+  ): AsyncIterable<ChatStreamEvent> {
     yield { type: 'session', session_id: prepared.session.id };
 
     let retrievalResults: RetrievalResult[] = [];
+    let graphHints: GraphHint[] = [];
     let usage = emptyUsage();
+    const startedAt = Date.now();
 
     try {
       const snapshot = await this.findActivatedSnapshot(prepared.tenantId, prepared.space.id);
+      let retrievedContext = emptyRetrievedContext();
 
       if (snapshot !== undefined) {
-        retrievalResults = await this.retrieveContext(prepared, snapshot);
+        retrievedContext = await this.retrieveContext(prepared, snapshot);
+        retrievalResults = retrievedContext.results;
       }
 
-      if (retrievalResults.length === 0 && prepared.space.strict_knowledge_only) {
+      graphHints = await this.retrieveGraphHints(prepared);
+      retrievedContext.trace.candidates.graph = graphHints;
+      retrievedContext.trace.aclFiltered.graph = graphHints;
+      retrievedContext.trace.finalContext.graph_hints = graphHints;
+      retrievedContext.trace.finalContext.graph_tokens = graphHints.reduce(
+        (total, hint) => total + countTokens(hint.content, prepared.chatModel.model_id),
+        0,
+      );
+
+      const noHit = retrievalResults.length === 0 && graphHints.length === 0;
+      if (noHit && prepared.space.strict_knowledge_only) {
         const assistant = await this.persistMessage(prepared.session.id, 'assistant', NO_HIT_MESSAGE, 0, [], {
           source: 'no_hit',
         });
+        await this.persistRetrievalTrace(prepared, input.retrievalMode ?? 'wiki_only', retrievedContext).catch(
+          () => undefined,
+        );
         yield { type: 'content', delta: NO_HIT_MESSAGE };
         yield { type: 'citations', citations: [] };
         yield { type: 'usage', usage };
+        yield { type: 'message.completed' };
         this.auditCompletion(prepared, usage, retrievalResults.length, false, assistant.id);
         return;
       }
 
-      const relaxedNoHit = retrievalResults.length === 0;
+      if (
+        shouldFallbackToAgentAfterNoHit({
+          noHit,
+          strictKnowledgeOnly: prepared.space.strict_knowledge_only,
+          agentAvailable: this.agentService !== undefined,
+        })
+      ) {
+        await this.persistRetrievalTrace(prepared, input.retrievalMode ?? 'wiki_only', retrievedContext).catch(
+          () => undefined,
+        );
+        yield* this.runAgentCompletion(prepared, input, { yieldSession: false });
+        return;
+      }
+
+      const relaxedNoHit = noHit;
       const prompt = this.buildRagPrompt({
         retrievalResults,
+        graphHints,
         history: prepared.history,
         currentMessage: prepared.message,
         modelId: prepared.chatModel.model_id,
@@ -562,9 +653,14 @@ export class ChatService {
         metadata,
       );
       await this.persistCitations(assistant.id, citations);
+      await this.persistRetrievalTrace(prepared, input.retrievalMode ?? 'wiki_only', retrievedContext).catch(
+        () => undefined,
+      );
+      await this.recordStaticModelUsage(prepared, usage, Date.now() - startedAt).catch(() => undefined);
 
       yield { type: 'citations', citations };
       yield { type: 'usage', usage };
+      yield { type: 'message.completed' };
       this.auditCompletion(prepared, usage, retrievalResults.length, citations.length > 0, assistant.id);
     } catch {
       yield {
@@ -698,16 +794,23 @@ export class ChatService {
     return model;
   }
 
-  private async retrieveContext(prepared: PreparedCompletion, snapshot: IndexSnapshotRow): Promise<RetrievalResult[]> {
+  private async retrieveContext(prepared: PreparedCompletion, snapshot: IndexSnapshotRow): Promise<RetrievedContext> {
     const embeddingModel = await this.resolveSnapshotEmbeddingModel(prepared.tenantId, snapshot);
     const embeddingProvider = this.embeddingProviderFactory(toEmbeddingProviderConfig(embeddingModel));
     const [queryEmbedding] = await embeddingProvider.embedBatch([prepared.message]);
 
     if (queryEmbedding === undefined || queryEmbedding.length === 0) {
-      return [];
+      return emptyRetrievedContext();
     }
 
-    return retrieve(
+    const candidates: RetrievedContext['trace']['candidates'] = {
+      vector: [],
+      bm25: [],
+      graph: [],
+    };
+    const vectorSearch = this.createVectorSearchFn();
+    const bm25Search = this.createBm25SearchFn();
+    const results = await retrieve(
       {
         query: prepared.message,
         queryEmbedding,
@@ -717,9 +820,108 @@ export class ChatService {
         snapshotId: snapshot.id,
         topK: RETRIEVAL_TOP_K,
       },
-      this.createVectorSearchFn(),
-      this.createBm25SearchFn(),
+      async (params) => {
+        const hits = await vectorSearch(params);
+        candidates.vector = hits;
+        return hits;
+      },
+      async (params) => {
+        const hits = await bm25Search(params);
+        candidates.bm25 = hits;
+        return hits;
+      },
     );
+
+    return {
+      results,
+      trace: {
+        candidates,
+        aclFiltered: {
+          wiki: results,
+          graph: [],
+        },
+        finalContext: {
+          wiki: results.map((result) => ({
+            chunkId: result.chunkId,
+            score: result.score,
+            pageTitle: result.pageTitle,
+            sectionTitle: result.sectionTitle,
+          })),
+          graph_hints: [],
+          wiki_tokens: results.reduce(
+            (total, result) => total + countTokens(result.content, prepared.chatModel.model_id),
+            0,
+          ),
+          graph_tokens: 0,
+        },
+      },
+    };
+  }
+
+  private async retrieveGraphHints(prepared: PreparedCompletion): Promise<GraphHint[]> {
+    if (this.graphService === undefined) {
+      return [];
+    }
+
+    try {
+      const result = await this.graphService.searchNodes(
+        {
+          q: prepared.message,
+          space_id: prepared.space.id,
+          top_k: 5,
+        },
+        {
+          tenantId: prepared.tenantId,
+          actorUserId: prepared.userId,
+          userId: prepared.userId,
+          spacePermissions: {
+            [prepared.space.id]: ['space:view'],
+          },
+        },
+      );
+
+      return result.nodes.slice(0, 5).map(toGraphHint);
+    } catch {
+      return [];
+    }
+  }
+
+  private async persistRetrievalTrace(
+    prepared: PreparedCompletion,
+    retrievalMode: string,
+    context: RetrievedContext,
+  ): Promise<void> {
+    await this.db.insert(retrievalTraces).values({
+      id: randomUUID(),
+      tenant_id: prepared.tenantId,
+      user_id: prepared.userId,
+      conversation_id: prepared.session.id,
+      space_ids: [prepared.space.id],
+      query: prepared.message,
+      retrieval_mode: normalizeRetrievalMode(retrievalMode),
+      candidates_json: context.trace.candidates,
+      acl_filtered_json: context.trace.aclFiltered,
+      final_context_json: context.trace.finalContext,
+    });
+  }
+
+  private async recordStaticModelUsage(
+    prepared: PreparedCompletion,
+    usage: ChatUsage,
+    latencyMs: number,
+  ): Promise<void> {
+    await this.db.insert(modelUsageLogs).values({
+      id: randomUUID(),
+      tenant_id: prepared.tenantId,
+      user_id: prepared.userId,
+      model_config_id: prepared.chatModel.id,
+      request_type: 'static_rag',
+      input_tokens: usage.prompt_tokens,
+      output_tokens: usage.completion_tokens,
+      latency_ms: Math.max(0, Math.trunc(latencyMs)),
+      space_id: prepared.space.id,
+      conversation_id: prepared.session.id,
+    });
   }
 
   private createVectorSearchFn(): VectorSearchFn {
@@ -833,7 +1035,81 @@ export class ChatService {
   }
 }
 
-function buildSystemPrompt(retrievalResults: RetrievalResult[], relaxedNoHit: boolean): string {
+export function classifyIntent(query: string): Intent {
+  if (/关系|依赖|调用|连接|之间|相互|架构|relationship|depends|calls/i.test(query)) {
+    return 'relationship_explanation';
+  }
+
+  if (/为什么|原因|因果|导致|影响|why|cause|because/i.test(query)) {
+    return 'architecture_reasoning';
+  }
+
+  if (/是什么|定义|含义|怎么用|what is|define/i.test(query)) {
+    return 'fact_lookup';
+  }
+
+  if (/怎么做|步骤|流程|操作|how to|steps/i.test(query)) {
+    return 'how_to';
+  }
+
+  if (/总结|汇总|概述|summary|overview/i.test(query)) {
+    return 'summarization';
+  }
+
+  return 'fact_lookup';
+}
+
+export function decideQueryRoute(input: {
+  query: string;
+  agentAvailable: boolean;
+  hasAgentSession?: boolean;
+  enableDeepAnalysis?: boolean;
+  enableDatabase?: boolean;
+  databaseToggleVisible?: boolean;
+  retrievalMode?: string;
+}): QueryRoute {
+  const intent = classifyIntent(input.query);
+  if (!input.agentAvailable) {
+    return { path: 'static_rag', reason: 'agent_unavailable', intent };
+  }
+
+  if (input.hasAgentSession === true) {
+    return { path: 'agent', reason: 'bound_agent_session', intent };
+  }
+
+  if (input.enableDeepAnalysis === true) {
+    return { path: 'agent', reason: 'deep_analysis_enabled', intent };
+  }
+
+  if (input.enableDatabase === true && input.databaseToggleVisible === true) {
+    return { path: 'agent', reason: 'database_enabled', intent };
+  }
+
+  const retrievalMode = normalizeRetrievalMode(input.retrievalMode);
+  if (AGENT_RETRIEVAL_MODES.has(retrievalMode)) {
+    return { path: 'agent', reason: `retrieval_mode:${retrievalMode}`, intent };
+  }
+
+  if (intent === 'relationship_explanation' || intent === 'architecture_reasoning') {
+    return { path: 'agent', reason: `intent:${intent}`, intent };
+  }
+
+  return { path: 'static_rag', reason: `intent:${intent}`, intent };
+}
+
+export function shouldFallbackToAgentAfterNoHit(input: {
+  noHit: boolean;
+  strictKnowledgeOnly: boolean;
+  agentAvailable: boolean;
+}): boolean {
+  return input.noHit && input.strictKnowledgeOnly === false && input.agentAvailable;
+}
+
+function buildSystemPrompt(
+  retrievalResults: RetrievalResult[],
+  relaxedNoHit: boolean,
+  graphHints: GraphHint[] = [],
+): string {
   const lines = [
     'You are CherryWiki Chat. Answer the user with concise, factual information.',
     'Use citations in [^N] format when facts come from provided sources.',
@@ -853,6 +1129,14 @@ function buildSystemPrompt(retrievalResults: RetrievalResult[], relaxedNoHit: bo
     lines.push('', 'Context blocks:', formatContextBlock(retrievalResults));
   }
 
+  if (graphHints.length > 0) {
+    lines.push(
+      '',
+      'Graph hints (supplemental, do not cite these with [^N]):',
+      formatGraphHintBlock(graphHints),
+    );
+  }
+
   return lines.join('\n');
 }
 
@@ -866,6 +1150,57 @@ function formatContextBlock(results: RetrievalResult[]): string {
       return `${marker} (Page: ${result.pageTitle}, Section: ${section})\n${content}\n`;
     })
     .join('\n');
+}
+
+function formatGraphHintBlock(hints: GraphHint[]): string {
+  return hints.map((hint, index) => `[G${index + 1}] ${hint.content}`).join('\n');
+}
+
+function toGraphHint(node: {
+  id: string;
+  label: string;
+  node_type: string | null;
+  description?: string | null | undefined;
+  score: number;
+  space_id: string;
+}): GraphHint {
+  const description = node.description?.trim() ?? null;
+  const type = node.node_type ?? 'unknown';
+  return {
+    id: node.id,
+    label: node.label,
+    node_type: node.node_type,
+    description,
+    score: node.score,
+    space_id: node.space_id,
+    content:
+      description === null || description.length === 0
+        ? `${node.label} (${type})`
+        : `${node.label} (${type}): ${description}`,
+  };
+}
+
+function emptyRetrievedContext(): RetrievedContext {
+  return {
+    results: [],
+    trace: {
+      candidates: {
+        vector: [],
+        bm25: [],
+        graph: [],
+      },
+      aclFiltered: {
+        wiki: [],
+        graph: [],
+      },
+      finalContext: {
+        wiki: [],
+        graph_hints: [],
+        wiki_tokens: 0,
+        graph_tokens: 0,
+      },
+    },
+  };
 }
 
 function truncateHistoryForBudget(
@@ -1071,6 +1406,11 @@ function toSimpleTsQuery(query: string): string {
     .map((term) => term.replace(/[':*!&|()]/g, ''))
     .filter((term) => term.length > 0)
     .join(' & ');
+}
+
+function normalizeRetrievalMode(value: string | undefined): string {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === undefined || normalized.length === 0 ? 'wiki_only' : normalized;
 }
 
 function normalizePositiveInt(value: number | undefined, fallback: number, max = Number.POSITIVE_INFINITY): number {

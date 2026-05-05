@@ -178,6 +178,7 @@ describe('ChatService streamCompletion', () => {
       { type: 'content', delta: NO_HIT_MESSAGE },
       { type: 'citations', citations: [] },
       { type: 'usage', usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } },
+      { type: 'message.completed' },
     ]);
     expect(chatFactory).not.toHaveBeenCalled();
     expect(audit.push).toHaveBeenCalledWith(
@@ -211,10 +212,10 @@ describe('ChatService streamCompletion', () => {
       }),
     );
 
-    expect(events.map((event) => event.type)).toEqual(['session', 'content', 'citations', 'usage']);
+    expect(events.map((event) => event.type)).toEqual(['session', 'content', 'citations', 'usage', 'message.completed']);
     expect(chatFactory).toHaveBeenCalledTimes(1);
     expect(chatProvider.lastParams?.systemPrompt).toContain('No relevant Wiki sources found');
-    expect(db.inserts.at(-1)?.value).toMatchObject({
+    expect([...db.inserts].reverse().find((insert) => insert.table === chatMessages)?.value).toMatchObject({
       metadata_json: { source: 'model_knowledge' },
     });
   });

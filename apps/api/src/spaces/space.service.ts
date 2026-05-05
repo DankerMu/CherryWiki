@@ -24,6 +24,12 @@ import {
   type PaginatedResponse,
 } from '../common/dto/pagination.dto.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
+import {
+  databaseConfigStorageValue,
+  maskSpaceDatabaseConfig,
+  mergeSpaceDatabaseConfig,
+  type SpaceDatabaseConfig,
+} from './database-config.js';
 
 type SpaceDatabase = NodePgDatabase;
 type SpaceRow = typeof spaces.$inferSelect;
@@ -56,6 +62,7 @@ export type UpdateSpaceInput = {
   description?: string;
   strict_knowledge_only?: boolean;
   graphify_config?: JsonRecord;
+  database_config?: unknown;
   wiki_repo_path?: string;
 };
 
@@ -71,6 +78,7 @@ export type SpaceListItem = {
   slug: string;
   status: string;
   description: string | null;
+  database_config: SpaceDatabaseConfig;
   stats: SpaceStatsSummary;
   created_at: Date;
   updated_at: Date;
@@ -269,6 +277,12 @@ export class SpaceService {
     if (input.graphify_config !== undefined) {
       updateValues.graphify_config = input.graphify_config;
       changedFields.push('graphify_config');
+    }
+
+    if (input.database_config !== undefined) {
+      const databaseConfig = mergeSpaceDatabaseConfig(existing.database_config, input.database_config);
+      updateValues.database_config = databaseConfigStorageValue(databaseConfig);
+      changedFields.push('database_config');
     }
 
     if (changedFields.length === 0) {
@@ -566,6 +580,7 @@ function toSpaceListItem(row: SpaceRow, counts?: SpaceCounts): SpaceListItem {
     slug: row.slug,
     status: row.status,
     description: row.description,
+    database_config: maskSpaceDatabaseConfig(row.database_config),
     stats: {
       page_count: counts?.pages ?? 0,
       source_count: counts?.sources ?? 0,
