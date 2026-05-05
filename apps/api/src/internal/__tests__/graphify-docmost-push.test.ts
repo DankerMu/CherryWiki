@@ -23,7 +23,7 @@ describe('Graphify completion docmost push dispatch', () => {
   it('enqueues a docmost-push job when Graphify completion succeeds', async () => {
     const context = await runGraphifyCompletion();
 
-    expect(context.bridgeQueue.enqueueDocmostPushJob).toHaveBeenCalledWith({
+    expect(context.enqueueSpy).toHaveBeenCalledWith({
       runId: 'run-1',
       spaceId: 'space-1',
       tenantId: 'tenant-1',
@@ -42,7 +42,7 @@ describe('Graphify completion docmost push dispatch', () => {
       },
     ]);
     expect(context.db.operations).toEqual(['enqueue', 'update:docmost_syncing']);
-    expect(context.bridgeQueue.enqueueDocmostPushJob).toHaveBeenCalledTimes(1);
+    expect(context.enqueueSpy).toHaveBeenCalledTimes(1);
   });
 
   it('sets docmost_sync_failed when enqueue fails', async () => {
@@ -71,6 +71,7 @@ describe('Graphify completion docmost push dispatch', () => {
 type RunContext = {
   db: GraphifyDocmostDb;
   bridgeQueue: BridgeQueueService;
+  enqueueSpy: ReturnType<typeof vi.fn>;
 };
 
 type RunOptions = {
@@ -83,11 +84,12 @@ async function runGraphifyCompletion(options: RunOptions = {}): Promise<RunConte
   const graphifyService = {
     handleRunCompletion: vi.fn(() => Promise.resolve({ status: 'succeeded', space_id: 'space-1' })),
   };
+  const enqueueSpy = vi.fn(() => {
+    db.operations.push('enqueue');
+    return options.enqueueDocmostPushJob?.() ?? Promise.resolve();
+  });
   const bridgeQueue = {
-    enqueueDocmostPushJob: vi.fn(() => {
-      db.operations.push('enqueue');
-      return options.enqueueDocmostPushJob?.() ?? Promise.resolve();
-    }),
+    enqueueDocmostPushJob: enqueueSpy,
   } as unknown as BridgeQueueService;
   const service = new InternalJobsService(
     db.asDb() as never,
@@ -142,7 +144,7 @@ async function runGraphifyCompletion(options: RunOptions = {}): Promise<RunConte
     result_json: { graph_json_uri: 's3://bucket/graph.json' },
   });
 
-  return { db, bridgeQueue };
+  return { db, bridgeQueue, enqueueSpy };
 }
 
 class GraphifyDocmostDb {

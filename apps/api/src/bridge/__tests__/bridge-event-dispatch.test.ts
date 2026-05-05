@@ -13,24 +13,25 @@ import type { BridgeQueueService } from '../bridge-queue.service.js';
 describe('BridgeEventService queue dispatch', () => {
   it('enqueues a BullMQ job after a bridge event is persisted', async () => {
     const db = new InMemoryBridgeDatabase();
-    const queue = createBridgeQueueMock();
+    const enqueueSpy = vi.fn(() => Promise.resolve());
+    const queue = createBridgeQueueMock(enqueueSpy);
     const service = new BridgeEventService(db.asDb() as never, queue);
     const payload = createPayload('page.saved');
 
     await service.receiveEvent(payload);
 
-    expect(queue.enqueueBridgeJob).toHaveBeenCalledWith('page.saved', {
-      bridgeEventId: expect.any(String),
+    expect(enqueueSpy).toHaveBeenCalledWith('page.saved', expect.objectContaining({
       eventId: payload.event_id,
       eventType: 'page.saved',
       spaceId: 'space-1',
       pageId: 'page-1',
-    });
+    }));
   });
 
   it('does not enqueue another job for a deduplicated event that is already processed', async () => {
     const db = new InMemoryBridgeDatabase();
-    const queue = createBridgeQueueMock();
+    const enqueueSpy = vi.fn(() => Promise.resolve());
+    const queue = createBridgeQueueMock(enqueueSpy);
     const service = new BridgeEventService(db.asDb() as never, queue);
     const eventId = randomUUID();
 
@@ -39,12 +40,13 @@ describe('BridgeEventService queue dispatch', () => {
     const result = await service.receiveEvent(createPayload('page.saved', { event_id: eventId }));
 
     expect(result.deduplicated).toBe(true);
-    expect(queue.enqueueBridgeJob).toHaveBeenCalledTimes(1);
+    expect(enqueueSpy).toHaveBeenCalledTimes(1);
   });
 
   it('re-enqueues on duplicate if event is not yet processed', async () => {
     const db = new InMemoryBridgeDatabase();
-    const queue = createBridgeQueueMock();
+    const enqueueSpy = vi.fn(() => Promise.resolve());
+    const queue = createBridgeQueueMock(enqueueSpy);
     const service = new BridgeEventService(db.asDb() as never, queue);
     const eventId = randomUUID();
 
@@ -52,14 +54,13 @@ describe('BridgeEventService queue dispatch', () => {
     const result = await service.receiveEvent(createPayload('page.saved', { event_id: eventId }));
 
     expect(result.deduplicated).toBe(true);
-    expect(queue.enqueueBridgeJob).toHaveBeenCalledTimes(2);
-    expect(queue.enqueueBridgeJob).toHaveBeenLastCalledWith('page.saved', {
-      bridgeEventId: expect.any(String),
+    expect(enqueueSpy).toHaveBeenCalledTimes(2);
+    expect(enqueueSpy).toHaveBeenLastCalledWith('page.saved', expect.objectContaining({
       eventId,
       eventType: 'page.saved',
       spaceId: 'space-1',
       pageId: 'page-1',
-    });
+    }));
   });
 });
 
@@ -142,9 +143,9 @@ class InMemoryBridgeDatabase {
   }
 }
 
-function createBridgeQueueMock(): BridgeQueueService {
+function createBridgeQueueMock(enqueueSpy: ReturnType<typeof vi.fn>): BridgeQueueService {
   return {
-    enqueueBridgeJob: vi.fn(() => Promise.resolve()),
+    enqueueBridgeJob: enqueueSpy,
   } as unknown as BridgeQueueService;
 }
 
