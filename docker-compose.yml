@@ -17,6 +17,9 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    networks:
+      - default
+      - agent_private
 
   redis:
     image: redis:8-alpine
@@ -112,6 +115,7 @@ services:
     networks:
       - default
       - url_fetch_private
+      - agent_private
 
   cherry-web:
     build:
@@ -341,6 +345,67 @@ services:
       cherry-api:
         condition: service_healthy
 
+  cherry-agent:
+    profiles: ["phase3", "agent"]
+    build:
+      context: .
+      dockerfile: ops/agent/Dockerfile
+      args:
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-latest}
+    restart: unless-stopped
+    working_dir: /work/agent
+    command: ["sleep", "infinity"]
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 1.0
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 2048
+      nproc:
+        soft: 128
+        hard: 256
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m
+      - /home/agent/.cache:rw,nosuid,nodev,size=256m
+    environment:
+      HOME: /home/agent
+      TMPDIR: /tmp
+      CHERRY_AGENT_SANDBOX_CONFIG: /etc/cherrywiki/agent-sandbox.json
+      CHERRY_API_INTERNAL_URL: ${CHERRY_API_INTERNAL_URL:-http://cherry-api:8080}
+      CHERRY_AGENT_TOKEN: ${CHERRY_AGENT_TOKEN:-dev-agent-token}
+      CHERRY_GRAPHIFY_BASE_PATH: /graphs
+      ANTHROPIC_API_KEY: ${AGENT_ANTHROPIC_API_KEY:-}
+      ANTHROPIC_BASE_URL: ${AGENT_ANTHROPIC_BASE_URL:-}
+      ANTHROPIC_MODEL: ${AGENT_ANTHROPIC_MODEL:-}
+      CHERRY_DB_DSN: ${CHERRY_DB_DSN:-}
+      CHERRY_DB_ALLOWED_TABLES: ${CHERRY_DB_ALLOWED_TABLES:-}
+      CHERRY_DB_MASKED_COLUMNS: ${CHERRY_DB_MASKED_COLUMNS:-}
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      no_proxy: cherry-api,postgres,localhost,127.0.0.1
+    volumes:
+      - ./tools:/app/tools:ro
+      - ./external/graphify:/opt/graphify:ro
+      - ./ops/agent/agent-sandbox.json:/etc/cherrywiki/agent-sandbox.json:ro
+      - graphify_work:/graphs:ro
+      - agent_work:/work/agent
+    depends_on:
+      cherry-api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - agent_private
+
   nginx:
     image: nginx:alpine
     restart: unless-stopped
@@ -426,6 +491,7 @@ volumes:
   redis_data:
   minio_data:
   graphify_work:
+  agent_work:
   api_node_modules:
   api_pnpm_store:
   indexer_node_modules:
@@ -437,4 +503,6 @@ networks:
   default:
     name: cherry-net
   url_fetch_private:
+    internal: true
+  agent_private:
     internal: true

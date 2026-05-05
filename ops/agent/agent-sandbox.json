@@ -1,0 +1,39 @@
+{
+  "user": {
+    "uid": 10001,
+    "gid": 10001,
+    "home": "/home/agent"
+  },
+  "filesystem": {
+    "read_only_root": true,
+    "writable_paths": ["/work/agent", "/tmp", "/home/agent/.cache"],
+    "read_only_mounts": ["/graphs", "/app/tools", "/opt/graphify"],
+    "deny_write_globs": ["**/.git/**", "/graphs/**", "/app/tools/**", "/opt/graphify/**"]
+  },
+  "network": {
+    "compose_network": "agent_private",
+    "internal_only": true,
+    "allowed_hosts": ["cherry-api", "postgres", "localhost", "127.0.0.1"],
+    "egress_proxy": null
+  },
+  "process": {
+    "pids_limit": 256,
+    "ulimits": {
+      "nofile": {
+        "soft": 1024,
+        "hard": 2048
+      },
+      "nproc": {
+        "soft": 128,
+        "hard": 256
+      }
+    },
+    "cap_drop": ["ALL"],
+    "security_opt": ["no-new-privileges:true"]
+  },
+  "tools": {
+    "allowed": ["claude", "graphify", "cherrywiki", "cherrydb"],
+    "mounted_python_tools": ["/app/tools/cherrydb", "/app/tools/cherrywiki"],
+    "graph_mount": "/graphs"
+  }
+}
