@@ -135,7 +135,7 @@ export class SpaceService {
     const [countRow] = await this.db.select({ total: count() }).from(spaces).where(where);
 
     const spaceIds = rows.map((r) => r.id);
-    const statsMap = spaceIds.length > 0 ? await this.batchSpaceStats(spaceIds) : new Map();
+    const statsMap = spaceIds.length > 0 ? await this.batchSpaceStats(spaceIds) : new Map<string, SpaceCounts>();
 
     return paginatedResponse(
       rows.map((r) => toSpaceListItem(r, statsMap.get(r.id))),
