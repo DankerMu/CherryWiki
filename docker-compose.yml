@@ -367,7 +367,7 @@ services:
     environment:
       APP_URL: ${DOCMOST_BASE_URL:-http://localhost:3000}
       APP_SECRET: ${DOCMOST_APP_SECRET:-dev-docmost-app-secret-minimum-32-chars}
-      DATABASE_URL: ${DOCMOST_DATABASE_URL:-postgresql://cherrygraph:${POSTGRES_PASSWORD:-cherrygraph_dev}@postgres:5432/cherrygraph}
+      DATABASE_URL: ${DOCMOST_DATABASE_URL:-postgresql://cherrygraph:${POSTGRES_PASSWORD:-cherrygraph_dev}@postgres:5432/docmost}
       REDIS_URL: ${DOCMOST_REDIS_URL:-redis://redis:6379}
       CHERRY_API_INTERNAL_URL: ${CHERRY_API_INTERNAL_URL:-http://cherry-api:8080}
       DOCMOST_BRIDGE_SECRET: ${DOCMOST_BRIDGE_SECRET:-dev-docmost-bridge-secret}
