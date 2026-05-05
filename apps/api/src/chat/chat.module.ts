@@ -1,13 +1,14 @@
 import { Module } from '@nestjs/common';
 import { OpenAIChatProvider, OpenAIEmbeddingProvider } from '@cherrygraph/ai-core';
 
+import { AgentModule } from '../agent/agent.module.js';
 import { AuditModule } from '../audit/audit.module.js';
 import { DrizzleModule } from '../database/drizzle.module.js';
 import { CHAT_PROVIDER_FACTORY, EMBEDDING_PROVIDER_FACTORY, ChatService } from './chat.service.js';
 import { ChatController } from './chat.controller.js';
 
 @Module({
-  imports: [DrizzleModule, AuditModule],
+  imports: [DrizzleModule, AuditModule, AgentModule],
   controllers: [ChatController],
   providers: [
     ChatService,

@@ -31,6 +31,8 @@ import type { SQL } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { randomUUID } from 'node:crypto';
 
+import { AgentService, isDatabaseToggleVisible, normalizeDatabaseConfig } from '../agent/agent.service.js';
+import type { AgentEvent, AgentSpawnOptions } from '../agent/dto/agent.dto.js';
 import { AUDIT_EVENTS } from '../audit/audit-events.js';
 import { AuditService } from '../audit/audit.service.js';
 import {
@@ -72,6 +74,9 @@ export type StreamCompletionInput = {
   userGroupIds: string[];
   message: string;
   sessionId?: string;
+  enableDeepAnalysis?: boolean;
+  enableDatabase?: boolean;
+  retrievalMode?: string;
   auditContext?: ChatAuditContext;
 };
 
@@ -80,6 +85,9 @@ export type ChatStreamEvent =
   | { type: 'content'; delta: string }
   | { type: 'citations'; citations: CitationResponse[] }
   | { type: 'usage'; usage: ChatUsage }
+  | { type: 'agent.tool_use'; id?: string; name: string; input: Record<string, unknown> }
+  | { type: 'chart.data'; data: Record<string, unknown> }
+  | { type: 'message.completed' }
   | { type: 'error'; code: string; message: string };
 
 export type ChatSessionResponse = {
@@ -166,6 +174,7 @@ const HISTORY_LIMIT = 10;
 const DEFAULT_MODEL_MAX_TOKENS = 8192;
 const RESPONSE_BUFFER_TOKENS = 1000;
 const RETRIEVAL_TOP_K = 8;
+const AGENT_RETRIEVAL_MODES = new Set(['graph_rag', 'path_first', 'community_first']);
 
 @Injectable()
 export class ChatService {
@@ -177,6 +186,7 @@ export class ChatService {
     private readonly auditService: AuditService,
     @Optional() @Inject(CHAT_PROVIDER_FACTORY) chatProviderFactory?: ChatProviderFactory,
     @Optional() @Inject(EMBEDDING_PROVIDER_FACTORY) embeddingProviderFactory?: EmbeddingProviderFactory,
+    @Optional() private readonly agentService?: AgentService,
   ) {
     this.chatProviderFactory =
       chatProviderFactory ?? ((config: ChatProviderConfig): ChatProvider => new OpenAIChatProvider(config));
@@ -321,6 +331,10 @@ export class ChatService {
       auditContext: input.auditContext ?? {},
     };
 
+    if (this.shouldRouteToAgent(prepared, input)) {
+      return this.runAgentCompletion(prepared, input);
+    }
+
     return this.runCompletion(prepared);
   }
 
@@ -375,6 +389,108 @@ export class ChatService {
     }
 
     return retrievalResults.slice(0, 3).map((result, index) => toCitationResponse(result, index + 1, true));
+  }
+
+  private shouldRouteToAgent(prepared: PreparedCompletion, input: StreamCompletionInput): boolean {
+    if (this.agentService === undefined) {
+      return false;
+    }
+
+    return (
+      this.agentService.hasSession(prepared.session.id) ||
+      input.enableDeepAnalysis === true ||
+      (input.enableDatabase === true && isDatabaseToggleVisible(prepared.space)) ||
+      (input.retrievalMode !== undefined && AGENT_RETRIEVAL_MODES.has(input.retrievalMode))
+    );
+  }
+
+  private async *runAgentCompletion(
+    prepared: PreparedCompletion,
+    input: StreamCompletionInput,
+  ): AsyncIterable<ChatStreamEvent> {
+    yield { type: 'session', session_id: prepared.session.id };
+
+    if (this.agentService === undefined) {
+      yield { type: 'error', code: ErrorCode.INTERNAL_ERROR, message: 'Agent runtime is not available' };
+      return;
+    }
+
+    const databaseConfig = normalizeDatabaseConfig(prepared.space.database_config);
+    const enableDatabase = input.enableDatabase === true && databaseConfig.enabled;
+    const agentOptions: AgentSpawnOptions = {
+      tenantId: prepared.tenantId,
+      userId: prepared.userId,
+      allowedSpaces: [{ id: prepared.space.id, name: prepared.space.name }],
+      enableDatabase,
+      modelConfigId: prepared.chatModel.id,
+    };
+
+    if (enableDatabase) {
+      agentOptions.databaseConfig = databaseConfig;
+    }
+
+    const agentStream = this.agentService.hasSession(prepared.session.id)
+      ? this.agentService.resume(prepared.session.id, prepared.message, agentOptions)
+      : this.agentService.spawnNew(prepared.session.id, prepared.space.id, prepared.message, agentOptions);
+    let assistantText = '';
+    let usage = emptyUsage();
+
+    try {
+      for await (const event of agentStream) {
+        if (event.type === 'message.delta') {
+          assistantText += event.delta;
+          yield { type: 'content', delta: event.delta };
+          continue;
+        }
+
+        if (event.type === 'agent.tool_use') {
+          const toolUseEvent: ChatStreamEvent = {
+            type: 'agent.tool_use',
+            name: event.name,
+            input: event.input,
+          };
+
+          if (event.id !== undefined) {
+            toolUseEvent.id = event.id;
+          }
+
+          yield toolUseEvent;
+          continue;
+        }
+
+        if (event.type === 'chart.data') {
+          yield { type: 'chart.data', data: event.data };
+          continue;
+        }
+
+        if (event.type === 'message.completed') {
+          if (assistantText.length === 0 && event.result !== undefined) {
+            assistantText = event.result;
+          }
+
+          usage = {
+            prompt_tokens: event.usage?.input_tokens ?? 0,
+            completion_tokens: event.usage?.output_tokens ?? 0,
+            total_tokens: (event.usage?.input_tokens ?? 0) + (event.usage?.output_tokens ?? 0),
+          };
+
+          const assistant = await this.persistMessage(prepared.session.id, 'assistant', assistantText, usage.completion_tokens, [], {
+            source: 'agent',
+          });
+          yield { type: 'usage', usage };
+          yield { type: 'message.completed' };
+          this.auditCompletion(prepared, usage, 0, false, assistant.id);
+          return;
+        }
+
+        yield { type: 'error', code: event.code ?? ErrorCode.INTERNAL_ERROR, message: event.message };
+        this.auditCompletion(prepared, usage, 0, false);
+        return;
+      }
+    } catch {
+      yield { type: 'error', code: ErrorCode.INTERNAL_ERROR, message: 'Agent completion failed' };
+      this.auditCompletion(prepared, usage, 0, false);
+    }
   }
 
   private async *runCompletion(prepared: PreparedCompletion): AsyncIterable<ChatStreamEvent> {

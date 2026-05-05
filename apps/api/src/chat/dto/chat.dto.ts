@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 export class ChatCompletionDto {
   @IsString()
@@ -17,6 +17,19 @@ export class ChatCompletionDto {
   @MinLength(1)
   @MaxLength(4000)
   message!: string;
+
+  @IsOptional()
+  @IsBoolean()
+  enable_deep_analysis?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  enable_database?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  retrieval_mode?: string;
 }
 
 export class ChatSessionsQueryDto {

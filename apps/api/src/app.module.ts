@@ -7,6 +7,7 @@ import { RedisModule } from './common/redis/redis.module.js';
 import { AdminHealthModule } from './admin/admin-health.module.js';
 import { AdminIndexModule } from './admin/admin-index.module.js';
 import { ProposalModule } from './admin/proposals/proposal.module.js';
+import { AgentModule } from './agent/agent.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { BridgeModule } from './bridge/bridge.module.js';
@@ -42,6 +43,7 @@ import { WikiModule } from './wiki/wiki.module.js';
     UploadsModule,
     GraphModule,
     GraphifyModule,
+    AgentModule,
     WikiModule,
     BridgeModule,
     ChatModule,
