@@ -77,6 +77,13 @@ describe('ErrorCode', () => {
     expect(ErrorCode.FEEDBACK_TARGET_REQUIRED).toBe('FEEDBACK_TARGET_REQUIRED');
   });
 
+  it('contains MCP gateway error codes', () => {
+    expect(ErrorCode.TOOL_NAME_EXISTS).toBe('TOOL_NAME_EXISTS');
+    expect(ErrorCode.TOOL_NOT_FOUND).toBe('TOOL_NOT_FOUND');
+    expect(ErrorCode.MCP_SERVER_ERROR).toBe('MCP_SERVER_ERROR');
+    expect(ErrorCode.MCP_SERVER_TIMEOUT).toBe('MCP_SERVER_TIMEOUT');
+  });
+
   it('uses uppercase snake case for every value', () => {
     const uppercaseSnakeCase = /^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$/;
 

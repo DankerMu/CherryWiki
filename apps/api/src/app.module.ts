@@ -22,6 +22,7 @@ import { GroupModule } from './groups/group.module.js';
 import { HealthModule } from './health/health.module.js';
 import { InternalModule } from './internal/internal.module.js';
 import { JobsModule } from './jobs/jobs.module.js';
+import { McpModule } from './mcp/mcp.module.js';
 import { ModelConfigModule } from './models/model-config.module.js';
 import { SpaceModule } from './spaces/space.module.js';
 import { StorageModule } from './storage/storage.module.js';
@@ -47,6 +48,7 @@ import { WikiModule } from './wiki/wiki.module.js';
     UploadsModule,
     FeedbackModule,
     GovernanceModule,
+    McpModule,
     GraphModule,
     GraphifyModule,
     AgentModule,
