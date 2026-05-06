@@ -2696,3 +2696,611 @@ paths:
                 properties:
                   status: { type: string, enum: [healthy, unhealthy] }
                   version: { type: string }
+
+  # ===== Phase 4: Knowledge Governance (Stage 13) =====
+
+  # --- Feedback ---
+  /spaces/{space_id}/feedback:
+    post:
+      summary: Submit feedback
+      description: |
+        Submit feedback on a Chat answer or Wiki page. feedback_type distinguishes
+        incorrect / missing / outdated / other.
+      tags: [Feedback]
+      parameters:
+        - { name: space_id, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateFeedbackRequest' }
+      responses:
+        '201':
+          description: Feedback submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/FeedbackItem' }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /admin/feedback:
+    get:
+      summary: List feedback items
+      tags: [Feedback]
+      parameters:
+        - { $ref: '#/components/parameters/pageParam' }
+        - { $ref: '#/components/parameters/perPageParam' }
+        - { $ref: '#/components/parameters/sortParam' }
+        - { name: status, in: query, schema: { type: string, enum: [open, in_review, resolved, rejected] } }
+        - { name: feedback_type, in: query, schema: { type: string, enum: [incorrect, missing, outdated, other] } }
+        - { name: space_id, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Feedback items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/FeedbackItem' } }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+
+  /admin/feedback/{feedback_id}/resolve:
+    patch:
+      summary: Resolve feedback item
+      description: |
+        Mark feedback as resolved or rejected. When resolved with action=edit,
+        the associated Wiki page edit triggers a reindex job automatically.
+      tags: [Feedback]
+      parameters:
+        - { name: feedback_id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ResolveFeedbackRequest' }
+      responses:
+        '200':
+          description: Feedback resolved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/FeedbackItem' }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+        '409':
+          description: Feedback already resolved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  # --- Governance ---
+  /admin/governance/low-confidence-edges:
+    get:
+      summary: List low-confidence edges for review
+      description: |
+        Returns graph edges with effective_confidence_score below the configurable
+        threshold (default 0.5). Ordered by score ascending so weakest edges surface first.
+      tags: [Governance]
+      parameters:
+        - { $ref: '#/components/parameters/pageParam' }
+        - { $ref: '#/components/parameters/perPageParam' }
+        - { name: space_id, in: query, schema: { type: string } }
+        - { name: threshold, in: query, schema: { type: number, default: 0.5, minimum: 0, maximum: 1 }, description: "Maximum effective_confidence_score to include" }
+        - { name: confidence_label, in: query, schema: { type: string, enum: [INFERRED, AMBIGUOUS, LOW] } }
+      responses:
+        '200':
+          description: Low-confidence edges
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/GovernanceEdge' } }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+
+  /admin/governance/edges/{edge_id}/review:
+    patch:
+      summary: Review a graph edge
+      description: |
+        Approve or reject a low-confidence edge. Approval upgrades confidence_label
+        to CONFIRMED. Rejection soft-deletes the edge. Both actions trigger a reindex.
+      tags: [Governance]
+      parameters:
+        - { name: edge_id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReviewEdgeRequest' }
+      responses:
+        '200':
+          description: Edge reviewed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/GovernanceEdge' }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+        '409':
+          description: Edge already reviewed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /admin/governance/duplicate-suggestions:
+    get:
+      summary: List duplicate page / node suggestions
+      description: |
+        Detects potential duplicate graph nodes based on stable_key and norm_label
+        similarity. Returns pairs with a similarity score.
+      tags: [Governance]
+      parameters:
+        - { $ref: '#/components/parameters/pageParam' }
+        - { $ref: '#/components/parameters/perPageParam' }
+        - { name: space_id, in: query, schema: { type: string } }
+        - { name: min_similarity, in: query, schema: { type: number, default: 0.8, minimum: 0, maximum: 1 } }
+      responses:
+        '200':
+          description: Duplicate suggestions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/DuplicateSuggestion' } }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+
+  /admin/governance/merge:
+    post:
+      summary: Merge duplicate nodes
+      description: |
+        Merge from_stable_key into to_stable_key. Creates a graph_node_merges record,
+        re-points edges, merges wiki pages, and triggers reindex.
+      tags: [Governance]
+      parameters:
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MergeNodesRequest' }
+      responses:
+        '200':
+          description: Nodes merged
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/NodeMergeResult' }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+        '409':
+          description: Merge already performed or circular merge
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /admin/governance/conflicts:
+    get:
+      summary: Detect knowledge conflicts
+      description: |
+        Detects contradictory edges between the same entity pair or conflicts
+        between graph edges and wiki chunk content.
+      tags: [Governance]
+      parameters:
+        - { $ref: '#/components/parameters/pageParam' }
+        - { $ref: '#/components/parameters/perPageParam' }
+        - { name: space_id, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Knowledge conflicts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/KnowledgeConflict' } }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+
+  # ===== Phase 4: MCP Gateway (Stage 14) =====
+
+  # --- API Tokens ---
+  /admin/api-tokens:
+    post:
+      summary: Create API token
+      description: |
+        Generate a new API token with specified scopes. The raw token is returned
+        only once in the response; subsequent queries return masked values.
+      tags: [ApiTokens]
+      parameters:
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateApiTokenRequest' }
+      responses:
+        '201':
+          description: Token created (raw token returned only once)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/ApiTokenCreated' }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    get:
+      summary: List API tokens
+      tags: [ApiTokens]
+      parameters:
+        - { $ref: '#/components/parameters/pageParam' }
+        - { $ref: '#/components/parameters/perPageParam' }
+        - { name: user_id, in: query, schema: { type: string } }
+        - { name: include_revoked, in: query, schema: { type: boolean, default: false } }
+      responses:
+        '200':
+          description: API tokens (masked)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/ApiToken' } }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+
+  /admin/api-tokens/{token_id}:
+    delete:
+      summary: Revoke API token
+      description: Sets revoked_at timestamp. Token becomes immediately unusable.
+      tags: [ApiTokens]
+      parameters:
+        - { name: token_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Token revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      revoked_at: { type: string, format: date-time }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+
+  # --- MCP Tools ---
+  /admin/mcp/tools:
+    post:
+      summary: Register MCP tool
+      tags: [MCP]
+      parameters:
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateMcpToolRequest' }
+      responses:
+        '201':
+          description: Tool registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/McpTool' }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '409':
+          description: Tool name conflict
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    get:
+      summary: List MCP tools
+      tags: [MCP]
+      parameters:
+        - { $ref: '#/components/parameters/pageParam' }
+        - { $ref: '#/components/parameters/perPageParam' }
+        - { name: status, in: query, schema: { type: string, enum: [active, disabled] } }
+      responses:
+        '200':
+          description: MCP tools
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/McpTool' } }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+
+  /admin/mcp/tools/{tool_id}:
+    delete:
+      summary: Delete MCP tool
+      tags: [MCP]
+      parameters:
+        - { name: tool_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Tool deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      deleted: { type: boolean }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+
+  /admin/mcp/tools/{tool_id}/policy:
+    put:
+      summary: Set MCP tool access policy
+      description: |
+        Configure role-based access, scope requirements, and rate limits for a tool.
+        Unauthenticated or unauthorized calls return 403.
+      tags: [MCP]
+      parameters:
+        - { name: tool_id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/McpToolPolicy' }
+      responses:
+        '200':
+          description: Policy updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/McpTool' }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+# ===== Phase 4 Component Schemas =====
+# Appended below existing components.schemas via YAML merge-friendly placement.
+
+  # Note: The following schemas should be logically merged into components.schemas.
+  # They are placed at path-level for append-only convenience; tooling should
+  # relocate them under components.schemas in a canonical build step.
+
+# --- Phase 4 Schemas (to be merged into components.schemas) ---
+# Consumers: copy these definitions into components.schemas when consolidating.
+
+x-phase4-schemas:
+  # --- Feedback ---
+  FeedbackItem:
+    type: object
+    properties:
+      id: { type: string }
+      user_id: { type: string }
+      message_id: { type: string }
+      space_id: { type: string }
+      feedback_type: { type: string, enum: [incorrect, missing, outdated, other] }
+      status: { type: string, enum: [open, in_review, resolved, rejected] }
+      payload_json: { type: object }
+      created_at: { type: string, format: date-time }
+      resolved_at: { type: string, format: date-time }
+      resolved_by: { type: string }
+      resolution_note: { type: string }
+
+  CreateFeedbackRequest:
+    type: object
+    required: [feedback_type]
+    properties:
+      feedback_type: { type: string, enum: [incorrect, missing, outdated, other] }
+      message_id: { type: string, description: "Chat message being reported (optional)" }
+      page_id: { type: string, description: "Wiki page being reported (optional)" }
+      description: { type: string, maxLength: 4000 }
+      payload_json: { type: object }
+
+  ResolveFeedbackRequest:
+    type: object
+    required: [resolution]
+    properties:
+      resolution: { type: string, enum: [resolved, rejected] }
+      resolution_note: { type: string }
+      action: { type: string, enum: [edit, ignore, defer], description: "edit triggers reindex after associated page edit" }
+
+  # --- Governance ---
+  GovernanceEdge:
+    type: object
+    properties:
+      edge_id: { type: string }
+      space_id: { type: string }
+      source_node:
+        type: object
+        properties:
+          id: { type: string }
+          label: { type: string }
+          type: { type: string }
+      target_node:
+        type: object
+        properties:
+          id: { type: string }
+          label: { type: string }
+          type: { type: string }
+      relation_type: { type: string }
+      confidence_label: { type: string, enum: [CONFIRMED, INFERRED, AMBIGUOUS, LOW, REJECTED] }
+      effective_confidence_score: { type: number }
+      raw_confidence_score: { type: number }
+      evidence_count: { type: integer }
+      review_status: { type: string, enum: [pending, approved, rejected] }
+      created_at: { type: string, format: date-time }
+
+  ReviewEdgeRequest:
+    type: object
+    required: [decision]
+    properties:
+      decision: { type: string, enum: [approve, reject] }
+      reason: { type: string }
+      new_confidence_label: { type: string, enum: [CONFIRMED, INFERRED, AMBIGUOUS, LOW], description: "Only used when decision=approve; defaults to CONFIRMED" }
+
+  DuplicateSuggestion:
+    type: object
+    properties:
+      suggestion_id: { type: string }
+      space_id: { type: string }
+      node_a:
+        type: object
+        properties:
+          stable_key: { type: string }
+          label: { type: string }
+          type: { type: string }
+          wiki_page_id: { type: string }
+      node_b:
+        type: object
+        properties:
+          stable_key: { type: string }
+          label: { type: string }
+          type: { type: string }
+          wiki_page_id: { type: string }
+      similarity_score: { type: number }
+      reason: { type: string }
+
+  MergeNodesRequest:
+    type: object
+    required: [space_id, from_stable_key, to_stable_key, reason]
+    properties:
+      space_id: { type: string }
+      from_stable_key: { type: string }
+      to_stable_key: { type: string }
+      reason: { type: string }
+      merge_wiki_pages: { type: boolean, default: true, description: "Also merge associated wiki pages" }
+
+  NodeMergeResult:
+    type: object
+    properties:
+      merge_id: { type: string }
+      from_stable_key: { type: string }
+      to_stable_key: { type: string }
+      edges_redirected: { type: integer }
+      wiki_pages_merged: { type: integer }
+      reindex_job_id: { type: string }
+      created_at: { type: string, format: date-time }
+
+  KnowledgeConflict:
+    type: object
+    properties:
+      conflict_id: { type: string }
+      space_id: { type: string }
+      conflict_type: { type: string, enum: [contradictory_edges, edge_chunk_mismatch] }
+      entity_pair:
+        type: object
+        properties:
+          source_label: { type: string }
+          target_label: { type: string }
+      conflicting_items:
+        type: array
+        items:
+          type: object
+          properties:
+            item_type: { type: string, enum: [edge, chunk] }
+            item_id: { type: string }
+            relation_or_content: { type: string }
+            confidence: { type: number }
+      severity: { type: string, enum: [high, medium, low] }
+      detected_at: { type: string, format: date-time }
+
+  # --- API Tokens ---
+  ApiToken:
+    type: object
+    properties:
+      id: { type: string }
+      user_id: { type: string }
+      name: { type: string }
+      token_prefix: { type: string, description: "First 8 chars of the token for identification" }
+      scopes: { type: array, items: { type: string } }
+      last_used_at: { type: string, format: date-time }
+      expires_at: { type: string, format: date-time }
+      revoked_at: { type: string, format: date-time }
+      created_at: { type: string, format: date-time }
+
+  ApiTokenCreated:
+    type: object
+    properties:
+      id: { type: string }
+      name: { type: string }
+      raw_token: { type: string, description: "Full token — shown only once at creation" }
+      token_prefix: { type: string }
+      scopes: { type: array, items: { type: string } }
+      expires_at: { type: string, format: date-time }
+      created_at: { type: string, format: date-time }
+
+  CreateApiTokenRequest:
+    type: object
+    required: [name, scopes]
+    properties:
+      name: { type: string }
+      scopes: { type: array, items: { type: string }, description: "e.g. mcp:invoke, graph:read, wiki:read" }
+      expires_in_days: { type: integer, minimum: 1, maximum: 365, description: "Token TTL in days; omit for non-expiring" }
+
+  # --- MCP ---
+  McpTool:
+    type: object
+    properties:
+      id: { type: string }
+      tool_name: { type: string }
+      description: { type: string }
+      input_schema: { type: object, description: "JSON Schema for tool input" }
+      endpoint: { type: string }
+      status: { type: string, enum: [active, disabled] }
+      policy: { $ref: '#/x-phase4-schemas/McpToolPolicy' }
+      created_at: { type: string, format: date-time }
+      updated_at: { type: string, format: date-time }
+
+  CreateMcpToolRequest:
+    type: object
+    required: [tool_name, description, input_schema, endpoint]
+    properties:
+      tool_name: { type: string, pattern: "^[a-z][a-z0-9_]{1,63}$" }
+      description: { type: string }
+      input_schema: { type: object }
+      endpoint: { type: string, format: uri }
+      status: { type: string, enum: [active, disabled], default: active }
+
+  McpToolPolicy:
+    type: object
+    properties:
+      allowed_roles: { type: array, items: { type: string, enum: [owner, admin, space_admin, editor, viewer] } }
+      allowed_scopes: { type: array, items: { type: string }, description: "Required API token scopes" }
+      rate_limit:
+        type: object
+        properties:
+          requests_per_minute: { type: integer, minimum: 1 }
+          requests_per_hour: { type: integer, minimum: 1 }
+      require_approval: { type: boolean, default: false, description: "If true, invocations require admin approval" }

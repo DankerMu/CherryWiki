@@ -152,6 +152,12 @@ jobs:
       - name: Validate Docker Compose
         run: docker compose config --quiet
 
+      - name: Verify Dockerfiles build (syntax only)
+        run: |
+          for f in apps/*/Dockerfile ops/agent/Dockerfile; do
+            [ -f "$f" ] && echo "Checking $f..." && docker buildx build --check -f "$f" "$(dirname "$f")" || true
+          done
+
   e2e:
     name: E2E — Phase 1 Launch Gate
     runs-on: ubuntu-latest
