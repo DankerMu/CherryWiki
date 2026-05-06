@@ -5,7 +5,7 @@ export const indexerPayloadSchema = z
     tenant_id: z.string().min(1),
     space_id: z.string().min(1),
     graphify_run_id: z.string().optional(),
-    trigger: z.enum(['graphify_completion', 'manual_reindex', 'manual_rebuild']),
+    trigger: z.enum(['graphify_completion', 'manual_reindex', 'manual_rebuild', 'feedback_resolved', 'governance_action']),
     scope: z.enum(['full', 'incremental', 'single_page']),
     page_id: z.string().optional(),
   })
