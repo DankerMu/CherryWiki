@@ -255,12 +255,6 @@ export class GovernanceService {
       throwApiError(ErrorCode.NOT_FOUND, 'Graph edge not found', HttpStatus.NOT_FOUND);
     }
 
-    const job = await this.createGovernanceReindexJob(existing.space_id, context, {
-      governance_action: 'edge_review',
-      edge_id: edgeId,
-      review_action: parsed.action,
-    });
-
     this.auditService.push({
       tenant_id: context.tenantId,
       actor_user_id: context.actorUserId,
@@ -280,8 +274,13 @@ export class GovernanceService {
           confidence_label: updated.confidence_label,
         },
         raw_confidence_score: existing.raw_confidence_score,
-        reindex_job_id: job.id,
       },
+    });
+
+    const job = await this.createGovernanceReindexJob(existing.space_id, context, {
+      governance_action: 'edge_review',
+      edge_id: edgeId,
+      review_action: parsed.action,
     });
 
     return {
@@ -423,13 +422,6 @@ export class GovernanceService {
       }
     });
 
-    const job = await this.createGovernanceReindexJob(fromPage.space_id, context, {
-      governance_action: 'page_merge',
-      from_page_id: fromPage.page_id,
-      to_page_id: toPage.page_id,
-      merge_id: mergeId,
-    });
-
     this.auditService.push({
       tenant_id: context.tenantId,
       actor_user_id: context.actorUserId,
@@ -443,8 +435,14 @@ export class GovernanceService {
         to_page_id: toPage.page_id,
         reason: parsed.reason,
         merge_id: mergeId,
-        reindex_job_id: job.id,
       },
+    });
+
+    const job = await this.createGovernanceReindexJob(fromPage.space_id, context, {
+      governance_action: 'page_merge',
+      from_page_id: fromPage.page_id,
+      to_page_id: toPage.page_id,
+      merge_id: mergeId,
     });
 
     return {
@@ -461,7 +459,7 @@ export class GovernanceService {
     input: ConflictListInput,
     context: GovernanceActorContext,
   ): Promise<DetectedConflict[]> {
-    const existingFingerprints = await this.listOpenConflictFingerprints(input, context);
+    const existingFingerprints = await this.listAllConflictFingerprints(input, context);
     const conflicts = [
       ...detectContradictoryEdgeConflicts(await this.fetchConflictEdgeRows(input, context)),
       ...detectEdgeChunkMismatchConflicts(await this.fetchEdgeChunkMismatchRows(input, context)),
@@ -557,14 +555,13 @@ export class GovernanceService {
     return node?.stable_key ?? page.page_id;
   }
 
-  private async listOpenConflictFingerprints(
+  private async listAllConflictFingerprints(
     input: ConflictListInput,
     context: GovernanceActorContext,
   ): Promise<Set<string>> {
     const filters = [
       eq(feedbackItems.tenant_id, context.tenantId),
       eq(feedbackItems.feedback_type, 'conflict'),
-      eq(feedbackItems.status, 'open'),
     ];
     const spaceId = normalizeOptionalString(input.space_id);
     if (spaceId !== undefined) {
