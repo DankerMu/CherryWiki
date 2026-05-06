@@ -458,7 +458,8 @@ services:
     image: node:20-slim
     restart: unless-stopped
     working_dir: /app
-    command: pnpm --filter @cherrygraph/wiki-sync-worker dev
+    command: >-
+      sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm build && node apps/wiki-sync-worker/dist/main.js"
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://cherrygraph:cherrygraph_dev@postgres:5432/cherrygraph}
       REDIS_URL: ${COMPOSE_REDIS_URL:-redis://redis:6379}

@@ -114,8 +114,8 @@ export class GraphQueryService {
           case when norm_label = ${normalizedQuery} then 1.0 else 0.0 end
         ) as score
       from graph_nodes
-      where space_id = any(${activeScope.spaceIds}::text[])
-        and graphify_run_id = any(${activeScope.runIds}::text[])
+      where space_id = any(${toPgTextArray(activeScope.spaceIds)}::text[])
+        and graphify_run_id = any(${toPgTextArray(activeScope.runIds)}::text[])
         and (
           label % ${trimmedQuery}
           or norm_label = ${normalizedQuery}
@@ -151,8 +151,8 @@ export class GraphQueryService {
           1::double precision as total_confidence
         from graph_nodes n
         where n.id = ${sourceNodeId}
-          and n.space_id = any(${activeScope.spaceIds}::text[])
-          and n.graphify_run_id = any(${activeScope.runIds}::text[])
+          and n.space_id = any(${toPgTextArray(activeScope.spaceIds)}::text[])
+          and n.graphify_run_id = any(${toPgTextArray(activeScope.runIds)}::text[])
 
         union all
 
@@ -174,10 +174,10 @@ export class GraphQueryService {
             else e.source_node_id
           end
         where paths.depth < ${depthLimit}
-          and e.space_id = any(${activeScope.spaceIds}::text[])
-          and e.graphify_run_id = any(${activeScope.runIds}::text[])
-          and next_node.space_id = any(${activeScope.spaceIds}::text[])
-          and next_node.graphify_run_id = any(${activeScope.runIds}::text[])
+          and e.space_id = any(${toPgTextArray(activeScope.spaceIds)}::text[])
+          and e.graphify_run_id = any(${toPgTextArray(activeScope.runIds)}::text[])
+          and next_node.space_id = any(${toPgTextArray(activeScope.spaceIds)}::text[])
+          and next_node.graphify_run_id = any(${toPgTextArray(activeScope.runIds)}::text[])
           and not next_node.id = any(paths.node_ids)
       ),
       candidate_paths as (
@@ -261,8 +261,8 @@ export class GraphQueryService {
           0 as depth
         from graph_nodes n
         where n.id = ${nodeId}
-          and n.space_id = any(${activeScope.spaceIds}::text[])
-          and n.graphify_run_id = any(${activeScope.runIds}::text[])
+          and n.space_id = any(${toPgTextArray(activeScope.spaceIds)}::text[])
+          and n.graphify_run_id = any(${toPgTextArray(activeScope.runIds)}::text[])
 
         union all
 
@@ -281,10 +281,10 @@ export class GraphQueryService {
             else e.source_node_id
           end
         where expansion.depth < ${depthLimit}
-          and e.space_id = any(${activeScope.spaceIds}::text[])
-          and e.graphify_run_id = any(${activeScope.runIds}::text[])
-          and next_node.space_id = any(${activeScope.spaceIds}::text[])
-          and next_node.graphify_run_id = any(${activeScope.runIds}::text[])
+          and e.space_id = any(${toPgTextArray(activeScope.spaceIds)}::text[])
+          and e.graphify_run_id = any(${toPgTextArray(activeScope.runIds)}::text[])
+          and next_node.space_id = any(${toPgTextArray(activeScope.spaceIds)}::text[])
+          and next_node.graphify_run_id = any(${toPgTextArray(activeScope.runIds)}::text[])
           and not next_node.id = any(expansion.node_ids)
       ),
       node_ids as (
@@ -358,8 +358,8 @@ export class GraphQueryService {
     const result = await this.db.execute<RawCommunityRow>(sql`
       select id, community_key, label, summary, node_count
       from graph_communities
-      where space_id = any(${activeScope.spaceIds}::text[])
-        and graphify_run_id = any(${activeScope.runIds}::text[])
+      where space_id = any(${toPgTextArray(activeScope.spaceIds)}::text[])
+        and graphify_run_id = any(${toPgTextArray(activeScope.runIds)}::text[])
       order by node_count desc, label asc nulls last, community_key asc
       limit ${MAX_COMMUNITY_RESULTS}
     `);
@@ -396,8 +396,8 @@ export class GraphQueryService {
         1 as score
       from graph_nodes
       where community_id = ${communityId}
-        and space_id = any(${activeScope.spaceIds}::text[])
-        and graphify_run_id = any(${activeScope.runIds}::text[])
+        and space_id = any(${toPgTextArray(activeScope.spaceIds)}::text[])
+        and graphify_run_id = any(${toPgTextArray(activeScope.runIds)}::text[])
       order by label asc
       limit ${MAX_COMMUNITY_NODE_RESULTS}
     `);
@@ -424,7 +424,7 @@ export class GraphQueryService {
       left join wiki_pages pages on pages.id = refs.page_id
       left join source_documents source_docs on source_docs.id = refs.source_document_id
       where refs.edge_id = ${edgeId}
-        and edge_acl.space_id = any(${allowedSpaceIds}::text[])
+        and edge_acl.space_id = any(${toPgTextArray(allowedSpaceIds)}::text[])
       order by refs.created_at asc, refs.id asc
     `);
 
@@ -593,6 +593,10 @@ function isRawEdgeRow(value: unknown): value is RawEdgeRow {
     isString(value.confidence_label) &&
     isString(value.space_id)
   );
+}
+
+function toPgTextArray(values: string[]): string {
+  return `{${values.map((v) => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(',')}}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
