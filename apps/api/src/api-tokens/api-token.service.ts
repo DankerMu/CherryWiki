@@ -223,6 +223,7 @@ export class ApiTokenService {
         tenant_id: users.tenant_id,
         email: users.email,
         role: users.role,
+        status: users.status,
       })
       .from(users)
       .where(and(eq(users.tenant_id, token.tenant_id), eq(users.id, token.user_id)))
@@ -230,6 +231,10 @@ export class ApiTokenService {
 
     if (owner === undefined) {
       throwApiError(ErrorCode.INVALID_TOKEN, 'API token owner not found', HttpStatus.UNAUTHORIZED);
+    }
+
+    if (owner.status !== 'active') {
+      throwApiError(ErrorCode.INVALID_TOKEN, 'API token owner account is disabled', HttpStatus.UNAUTHORIZED);
     }
 
     await this.db
