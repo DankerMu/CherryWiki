@@ -8,6 +8,7 @@ import { AdminHealthModule } from './admin/admin-health.module.js';
 import { AdminIndexModule } from './admin/admin-index.module.js';
 import { ProposalModule } from './admin/proposals/proposal.module.js';
 import { AgentModule } from './agent/agent.module.js';
+import { ApiTokenModule } from './api-tokens/api-token.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { BridgeModule } from './bridge/bridge.module.js';
@@ -34,6 +35,7 @@ import { WikiModule } from './wiki/wiki.module.js';
     RedisModule,
     DrizzleModule.forRoot({ connectionCheck: process.env.NODE_ENV !== 'test' }),
     AuditModule,
+    ApiTokenModule,
     AuthModule,
     UserModule,
     GroupModule,

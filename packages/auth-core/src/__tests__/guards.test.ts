@@ -37,6 +37,23 @@ describe('JwtAuthGuard', () => {
     });
   });
 
+  it('allows a request already authenticated by an earlier guard', async () => {
+    const guard = new JwtAuthGuard(new Reflector(), { jwtSecret: SECRET });
+
+    await expect(
+      guard.canActivate(
+        createContext({
+          request: {
+            headers: {
+              authorization: 'Bearer cwt_existing_api_token',
+            },
+            user: createRequestUser(),
+          },
+        }),
+      ),
+    ).resolves.toBe(true);
+  });
+
   it('throws 401 for an invalid token', async () => {
     const guard = new JwtAuthGuard(new Reflector(), { jwtSecret: SECRET });
 

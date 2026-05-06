@@ -134,7 +134,7 @@ export const feedbackCreateDto = z
     (input) => {
       const hasMessageId = typeof input.message_id === 'string' && input.message_id.trim().length > 0;
       const pageId = input.payload_json.page_id;
-      const hasPageId = typeof pageId === 'string' && (pageId as string).trim().length > 0;
+      const hasPageId = typeof pageId === 'string' && pageId.trim().length > 0;
 
       return hasMessageId || hasPageId;
     },
