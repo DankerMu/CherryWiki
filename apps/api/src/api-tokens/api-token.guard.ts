@@ -23,17 +23,17 @@ export class ApiTokenGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    const request = context.switchToHttp().getRequest<RequestWithAuth>();
+    const token = getBearerToken(request);
+    if (token !== undefined && token.startsWith(API_TOKEN_PREFIX)) {
+      request.user = await this.apiTokenService.authenticateRawToken(token);
+      return true;
+    }
+
     if (this.isPublic(context)) {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest<RequestWithAuth>();
-    const token = getBearerToken(request);
-    if (token === undefined || !token.startsWith(API_TOKEN_PREFIX)) {
-      return true;
-    }
-
-    request.user = await this.apiTokenService.authenticateRawToken(token);
     return true;
   }
 
