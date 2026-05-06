@@ -491,6 +491,8 @@ CREATE TABLE feedback_items (
   status TEXT NOT NULL DEFAULT 'open',
   payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_by TEXT REFERENCES users(id),
+  resolution_note TEXT,
   resolved_at TIMESTAMPTZ
 );
 
@@ -579,6 +581,7 @@ CREATE TABLE api_tokens (
   user_id TEXT NOT NULL REFERENCES users(id),
   name TEXT NOT NULL,
   token_hash TEXT NOT NULL,
+  token_prefix TEXT NOT NULL DEFAULT '',
   scopes TEXT[] NOT NULL DEFAULT '{}',
   last_used_at TIMESTAMPTZ,
   expires_at TIMESTAMPTZ,
@@ -586,6 +589,26 @@ CREATE TABLE api_tokens (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (token_hash)
 );
+
+-- ===== Phase 4: MCP Tool Registry =====
+CREATE TABLE mcp_tool_registry (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  tool_name TEXT NOT NULL,
+  description TEXT,
+  server_url TEXT NOT NULL,
+  transport TEXT NOT NULL DEFAULT 'sse',
+  input_schema JSONB NOT NULL DEFAULT '{}'::jsonb,
+  scopes TEXT[] NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'active',
+  policy_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_by TEXT REFERENCES users(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, tool_name)
+);
+
+CREATE INDEX idx_mcp_tool_registry_tenant ON mcp_tool_registry(tenant_id, status);
 
 -- ===== Phase 1: Sessions =====
 CREATE TABLE sessions (

@@ -154,9 +154,14 @@ jobs:
 
       - name: Verify Dockerfiles build (syntax only)
         run: |
+          status=0
           for f in apps/*/Dockerfile ops/agent/Dockerfile; do
-            [ -f "$f" ] && echo "Checking $f..." && docker buildx build --check -f "$f" "$(dirname "$f")" || true
+            if [ -f "$f" ]; then
+              echo "Checking $f..."
+              docker buildx build --check -f "$f" "$(dirname "$f")" || status=1
+            fi
           done
+          exit $status
 
   e2e:
     name: E2E — Phase 1 Launch Gate

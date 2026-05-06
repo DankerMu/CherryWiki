@@ -860,6 +860,213 @@ components:
         response_preview: { type: string }
         error: { type: [string, 'null'] }
 
+    # --- Phase 4: Feedback ---
+    FeedbackItem:
+      type: object
+      properties:
+        id: { type: string }
+        user_id: { type: string }
+        message_id: { type: string }
+        space_id: { type: string }
+        feedback_type: { type: string, enum: [incorrect, missing, outdated, citation_error, other] }
+        status: { type: string, enum: [open, in_review, resolved, rejected] }
+        payload_json: { type: object }
+        created_at: { type: string, format: date-time }
+        resolved_at: { type: string, format: date-time }
+        resolved_by: { type: string }
+        resolution_note: { type: string }
+
+    CreateFeedbackRequest:
+      type: object
+      required: [feedback_type]
+      properties:
+        feedback_type: { type: string, enum: [incorrect, missing, outdated, citation_error, other] }
+        message_id: { type: string, description: "Chat message being reported (optional)" }
+        page_id: { type: string, description: "Wiki page being reported (optional)" }
+        description: { type: string, maxLength: 4000 }
+        payload_json: { type: object }
+
+    ResolveFeedbackRequest:
+      type: object
+      required: [resolution]
+      properties:
+        resolution: { type: string, enum: [accepted, resolved, rejected] }
+        notes: { type: string, description: "Resolution notes from admin" }
+        action: { type: string, enum: [edit, ignore, defer], description: "edit triggers reindex after associated page edit" }
+
+    # --- Phase 4: Governance ---
+    GovernanceEdge:
+      type: object
+      properties:
+        edge_id: { type: string }
+        space_id: { type: string }
+        source_node:
+          type: object
+          properties:
+            id: { type: string }
+            label: { type: string }
+            type: { type: string }
+        target_node:
+          type: object
+          properties:
+            id: { type: string }
+            label: { type: string }
+            type: { type: string }
+        relation_type: { type: string }
+        confidence_label: { type: string, enum: [CONFIRMED, INFERRED, AMBIGUOUS, LOW, REJECTED] }
+        effective_confidence_score: { type: number }
+        raw_confidence_score: { type: number }
+        evidence_count: { type: integer }
+        review_status: { type: string, enum: [pending, approved, rejected] }
+        created_at: { type: string, format: date-time }
+
+    ReviewEdgeRequest:
+      type: object
+      required: [action]
+      properties:
+        action: { type: string, enum: [confirm, reject] }
+        effective_score: { type: number, minimum: 0, maximum: 1, description: "Override effective_confidence_score when action=confirm" }
+        reason: { type: string }
+        new_confidence_label: { type: string, enum: [EXTRACTED, CONFIRMED, INFERRED, AMBIGUOUS, LOW], description: "Only used when action=confirm; defaults to EXTRACTED" }
+
+    DuplicateSuggestion:
+      type: object
+      properties:
+        suggestion_id: { type: string }
+        space_id: { type: string }
+        node_a:
+          type: object
+          properties:
+            stable_key: { type: string }
+            label: { type: string }
+            type: { type: string }
+            wiki_page_id: { type: string }
+        node_b:
+          type: object
+          properties:
+            stable_key: { type: string }
+            label: { type: string }
+            type: { type: string }
+            wiki_page_id: { type: string }
+        similarity_score: { type: number }
+        reason: { type: string }
+
+    MergeNodesRequest:
+      type: object
+      required: [from_page_id, to_page_id, reason]
+      properties:
+        from_page_id: { type: string, description: "Source page to merge from" }
+        to_page_id: { type: string, description: "Target page to merge into" }
+        reason: { type: string }
+        merge_wiki_pages: { type: boolean, default: true, description: "Also merge associated wiki pages" }
+
+    NodeMergeResult:
+      type: object
+      properties:
+        merge_id: { type: string }
+        from_stable_key: { type: string }
+        to_stable_key: { type: string }
+        edges_redirected: { type: integer }
+        wiki_pages_merged: { type: integer }
+        reindex_job_id: { type: string }
+        created_at: { type: string, format: date-time }
+
+    KnowledgeConflict:
+      type: object
+      properties:
+        conflict_id: { type: string }
+        space_id: { type: string }
+        conflict_type: { type: string, enum: [contradictory_edges, edge_chunk_mismatch] }
+        entity_pair:
+          type: object
+          properties:
+            source_label: { type: string }
+            target_label: { type: string }
+        conflicting_items:
+          type: array
+          items:
+            type: object
+            properties:
+              item_type: { type: string, enum: [edge, chunk] }
+              item_id: { type: string }
+              relation_or_content: { type: string }
+              confidence: { type: number }
+        severity: { type: string, enum: [high, medium, low] }
+        detected_at: { type: string, format: date-time }
+
+    # --- Phase 4: API Tokens ---
+    ApiToken:
+      type: object
+      properties:
+        id: { type: string }
+        user_id: { type: string }
+        name: { type: string }
+        token_prefix: { type: string, description: "First 8 chars of the token for identification" }
+        scopes: { type: array, items: { type: string } }
+        last_used_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        revoked_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+
+    ApiTokenCreated:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        raw_token: { type: string, description: "Full token — shown only once at creation" }
+        token_prefix: { type: string }
+        scopes: { type: array, items: { type: string } }
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+
+    CreateApiTokenRequest:
+      type: object
+      required: [name, scopes]
+      properties:
+        name: { type: string }
+        scopes: { type: array, items: { type: string }, description: "e.g. mcp:invoke, graph:read, wiki:read" }
+        expires_in_days: { type: integer, minimum: 1, maximum: 365, description: "Token TTL in days; omit for non-expiring" }
+
+    # --- Phase 4: MCP ---
+    McpTool:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        server_url: { type: string }
+        transport: { type: string, enum: [sse, stdio] }
+        scopes: { type: array, items: { type: string } }
+        input_schema: { type: object, description: "JSON Schema for tool input" }
+        status: { type: string, enum: [active, disabled] }
+        policy: { $ref: '#/components/schemas/McpToolPolicy' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    CreateMcpToolRequest:
+      type: object
+      required: [name, description, server_url]
+      properties:
+        name: { type: string, pattern: "^[a-z][a-z0-9_-]{1,63}$" }
+        description: { type: string }
+        server_url: { type: string, format: uri }
+        transport: { type: string, enum: [sse, stdio], default: sse }
+        scopes: { type: array, items: { type: string }, description: "Required scopes for this tool" }
+        input_schema: { type: object }
+        status: { type: string, enum: [active, disabled], default: active }
+
+    McpToolPolicy:
+      type: object
+      properties:
+        allowed_roles: { type: array, items: { type: string, enum: [owner, admin, space_admin, editor, viewer] } }
+        allowed_scopes: { type: array, items: { type: string }, description: "Required API token scopes" }
+        rate_limit:
+          type: object
+          properties:
+            requests_per_minute: { type: integer, minimum: 1 }
+            requests_per_hour: { type: integer, minimum: 1 }
+        require_approval: { type: boolean, default: false, description: "If true, invocations require admin approval" }
+
   responses:
     UnauthorizedError:
       description: Authentication required
@@ -2737,7 +2944,7 @@ paths:
         - { $ref: '#/components/parameters/perPageParam' }
         - { $ref: '#/components/parameters/sortParam' }
         - { name: status, in: query, schema: { type: string, enum: [open, in_review, resolved, rejected] } }
-        - { name: feedback_type, in: query, schema: { type: string, enum: [incorrect, missing, outdated, other] } }
+        - { name: feedback_type, in: query, schema: { type: string, enum: [incorrect, missing, outdated, citation_error, other] } }
         - { name: space_id, in: query, schema: { type: string } }
       responses:
         '200':
@@ -2869,7 +3076,7 @@ paths:
     post:
       summary: Merge duplicate nodes
       description: |
-        Merge from_stable_key into to_stable_key. Creates a graph_node_merges record,
+        Merge from_page_id into to_page_id. Creates a graph_node_merges record,
         re-points edges, merges wiki pages, and triggers reindex.
       tags: [Governance]
       parameters:
@@ -3091,216 +3298,27 @@ paths:
         '404': { $ref: '#/components/responses/NotFoundError' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
-# ===== Phase 4 Component Schemas =====
-# Appended below existing components.schemas via YAML merge-friendly placement.
-
-  # Note: The following schemas should be logically merged into components.schemas.
-  # They are placed at path-level for append-only convenience; tooling should
-  # relocate them under components.schemas in a canonical build step.
-
-# --- Phase 4 Schemas (to be merged into components.schemas) ---
-# Consumers: copy these definitions into components.schemas when consolidating.
-
-x-phase4-schemas:
-  # --- Feedback ---
-  FeedbackItem:
-    type: object
-    properties:
-      id: { type: string }
-      user_id: { type: string }
-      message_id: { type: string }
-      space_id: { type: string }
-      feedback_type: { type: string, enum: [incorrect, missing, outdated, other] }
-      status: { type: string, enum: [open, in_review, resolved, rejected] }
-      payload_json: { type: object }
-      created_at: { type: string, format: date-time }
-      resolved_at: { type: string, format: date-time }
-      resolved_by: { type: string }
-      resolution_note: { type: string }
-
-  CreateFeedbackRequest:
-    type: object
-    required: [feedback_type]
-    properties:
-      feedback_type: { type: string, enum: [incorrect, missing, outdated, other] }
-      message_id: { type: string, description: "Chat message being reported (optional)" }
-      page_id: { type: string, description: "Wiki page being reported (optional)" }
-      description: { type: string, maxLength: 4000 }
-      payload_json: { type: object }
-
-  ResolveFeedbackRequest:
-    type: object
-    required: [resolution]
-    properties:
-      resolution: { type: string, enum: [resolved, rejected] }
-      resolution_note: { type: string }
-      action: { type: string, enum: [edit, ignore, defer], description: "edit triggers reindex after associated page edit" }
-
-  # --- Governance ---
-  GovernanceEdge:
-    type: object
-    properties:
-      edge_id: { type: string }
-      space_id: { type: string }
-      source_node:
-        type: object
-        properties:
-          id: { type: string }
-          label: { type: string }
-          type: { type: string }
-      target_node:
-        type: object
-        properties:
-          id: { type: string }
-          label: { type: string }
-          type: { type: string }
-      relation_type: { type: string }
-      confidence_label: { type: string, enum: [CONFIRMED, INFERRED, AMBIGUOUS, LOW, REJECTED] }
-      effective_confidence_score: { type: number }
-      raw_confidence_score: { type: number }
-      evidence_count: { type: integer }
-      review_status: { type: string, enum: [pending, approved, rejected] }
-      created_at: { type: string, format: date-time }
-
-  ReviewEdgeRequest:
-    type: object
-    required: [decision]
-    properties:
-      decision: { type: string, enum: [approve, reject] }
-      reason: { type: string }
-      new_confidence_label: { type: string, enum: [CONFIRMED, INFERRED, AMBIGUOUS, LOW], description: "Only used when decision=approve; defaults to CONFIRMED" }
-
-  DuplicateSuggestion:
-    type: object
-    properties:
-      suggestion_id: { type: string }
-      space_id: { type: string }
-      node_a:
-        type: object
-        properties:
-          stable_key: { type: string }
-          label: { type: string }
-          type: { type: string }
-          wiki_page_id: { type: string }
-      node_b:
-        type: object
-        properties:
-          stable_key: { type: string }
-          label: { type: string }
-          type: { type: string }
-          wiki_page_id: { type: string }
-      similarity_score: { type: number }
-      reason: { type: string }
-
-  MergeNodesRequest:
-    type: object
-    required: [space_id, from_stable_key, to_stable_key, reason]
-    properties:
-      space_id: { type: string }
-      from_stable_key: { type: string }
-      to_stable_key: { type: string }
-      reason: { type: string }
-      merge_wiki_pages: { type: boolean, default: true, description: "Also merge associated wiki pages" }
-
-  NodeMergeResult:
-    type: object
-    properties:
-      merge_id: { type: string }
-      from_stable_key: { type: string }
-      to_stable_key: { type: string }
-      edges_redirected: { type: integer }
-      wiki_pages_merged: { type: integer }
-      reindex_job_id: { type: string }
-      created_at: { type: string, format: date-time }
-
-  KnowledgeConflict:
-    type: object
-    properties:
-      conflict_id: { type: string }
-      space_id: { type: string }
-      conflict_type: { type: string, enum: [contradictory_edges, edge_chunk_mismatch] }
-      entity_pair:
-        type: object
-        properties:
-          source_label: { type: string }
-          target_label: { type: string }
-      conflicting_items:
-        type: array
-        items:
-          type: object
-          properties:
-            item_type: { type: string, enum: [edge, chunk] }
-            item_id: { type: string }
-            relation_or_content: { type: string }
-            confidence: { type: number }
-      severity: { type: string, enum: [high, medium, low] }
-      detected_at: { type: string, format: date-time }
-
-  # --- API Tokens ---
-  ApiToken:
-    type: object
-    properties:
-      id: { type: string }
-      user_id: { type: string }
-      name: { type: string }
-      token_prefix: { type: string, description: "First 8 chars of the token for identification" }
-      scopes: { type: array, items: { type: string } }
-      last_used_at: { type: string, format: date-time }
-      expires_at: { type: string, format: date-time }
-      revoked_at: { type: string, format: date-time }
-      created_at: { type: string, format: date-time }
-
-  ApiTokenCreated:
-    type: object
-    properties:
-      id: { type: string }
-      name: { type: string }
-      raw_token: { type: string, description: "Full token — shown only once at creation" }
-      token_prefix: { type: string }
-      scopes: { type: array, items: { type: string } }
-      expires_at: { type: string, format: date-time }
-      created_at: { type: string, format: date-time }
-
-  CreateApiTokenRequest:
-    type: object
-    required: [name, scopes]
-    properties:
-      name: { type: string }
-      scopes: { type: array, items: { type: string }, description: "e.g. mcp:invoke, graph:read, wiki:read" }
-      expires_in_days: { type: integer, minimum: 1, maximum: 365, description: "Token TTL in days; omit for non-expiring" }
-
-  # --- MCP ---
-  McpTool:
-    type: object
-    properties:
-      id: { type: string }
-      tool_name: { type: string }
-      description: { type: string }
-      input_schema: { type: object, description: "JSON Schema for tool input" }
-      endpoint: { type: string }
-      status: { type: string, enum: [active, disabled] }
-      policy: { $ref: '#/x-phase4-schemas/McpToolPolicy' }
-      created_at: { type: string, format: date-time }
-      updated_at: { type: string, format: date-time }
-
-  CreateMcpToolRequest:
-    type: object
-    required: [tool_name, description, input_schema, endpoint]
-    properties:
-      tool_name: { type: string, pattern: "^[a-z][a-z0-9_]{1,63}$" }
-      description: { type: string }
-      input_schema: { type: object }
-      endpoint: { type: string, format: uri }
-      status: { type: string, enum: [active, disabled], default: active }
-
-  McpToolPolicy:
-    type: object
-    properties:
-      allowed_roles: { type: array, items: { type: string, enum: [owner, admin, space_admin, editor, viewer] } }
-      allowed_scopes: { type: array, items: { type: string }, description: "Required API token scopes" }
-      rate_limit:
-        type: object
-        properties:
-          requests_per_minute: { type: integer, minimum: 1 }
-          requests_per_hour: { type: integer, minimum: 1 }
-      require_approval: { type: boolean, default: false, description: "If true, invocations require admin approval" }
+  # --- MCP Invoke ---
+  /mcp/invoke:
+    post:
+      summary: Invoke MCP tool
+      tags: [MCP]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tool, arguments, space_id]
+              properties:
+                tool: { type: string }
+                arguments: { type: object }
+                space_id: { type: string }
+      responses:
+        '200':
+          description: Tool execution result
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
+        '429': { $ref: '#/components/responses/RateLimitError' }

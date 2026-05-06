@@ -6,6 +6,7 @@ on:
       - 'apps/api/src/mcp/**'
       - 'apps/mcp-gateway/**'
       - 'tests/integration/mcp-*.test.ts'
+      - 'apps/api/src/api-tokens/**'
       - '.github/workflows/mcp-gateway-tests.yml'
 
 permissions:
@@ -47,4 +48,10 @@ jobs:
         run: |
           pnpm exec vitest run \
             apps/mcp-gateway/src/__tests__/ \
+            --config vitest.config.ts
+
+      - name: MCP integration tests
+        run: |
+          pnpm exec vitest run \
+            tests/integration/mcp-*.test.ts \
             --config vitest.config.ts
