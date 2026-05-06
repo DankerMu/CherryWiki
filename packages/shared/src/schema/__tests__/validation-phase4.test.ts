@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   apiTokenCreateDto,
   confidenceLabelSchema,
+  conflictItemDto,
   feedbackCreateDto,
   feedbackResolveDto,
   governanceEdgeReviewDto,
@@ -35,6 +36,16 @@ describe('Phase 4 feedback validation', () => {
     expect(
       feedbackCreateDto.safeParse({
         feedback_type: 'outdated',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('rejects feedbackCreateDto with whitespace-only targets', () => {
+    expect(
+      feedbackCreateDto.safeParse({
+        feedback_type: 'incorrect',
+        message_id: '   ',
+        payload_json: { page_id: '  ' },
       }).success,
     ).toBe(false);
   });
@@ -157,17 +168,27 @@ describe('Phase 4 MCP validation', () => {
     expect(
       mcpInvokeDto.safeParse({
         tool_name: '   ',
+        space_id: 'space-1',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('rejects mcpInvokeDto without space_id', () => {
+    expect(
+      mcpInvokeDto.safeParse({
+        tool_name: 'search-docs',
       }).success,
     ).toBe(false);
   });
 });
 
 describe('Phase 4 governance validation', () => {
-  it('validates governanceEdgeReviewDto confirm with valid score', () => {
+  it('validates governanceEdgeReviewDto confirm with valid score and reason', () => {
     expect(
       governanceEdgeReviewDto.safeParse({
         action: 'confirm',
-        new_score: 0.8,
+        effective_score: 0.8,
+        reason: 'Manual verification',
       }).success,
     ).toBe(true);
   });
@@ -176,34 +197,139 @@ describe('Phase 4 governance validation', () => {
     expect(
       governanceEdgeReviewDto.safeParse({
         action: 'confirm',
+        reason: 'Manual verification',
       }).success,
     ).toBe(false);
   });
 
-  it('validates governanceEdgeReviewDto reject without score', () => {
+  it('rejects governanceEdgeReviewDto without reason', () => {
     expect(
       governanceEdgeReviewDto.safeParse({
         action: 'reject',
       }).success,
+    ).toBe(false);
+  });
+
+  it('validates governanceEdgeReviewDto reject with reason but no score', () => {
+    expect(
+      governanceEdgeReviewDto.safeParse({
+        action: 'reject',
+        reason: 'Hallucinated relationship',
+      }).success,
     ).toBe(true);
   });
 
-  it('validates governanceMergeDto and rejects same page', () => {
+  it('validates governanceMergeDto with reason and rejects same page', () => {
     expect(
       governanceMergeDto.safeParse({
         from_page_id: 'page-1',
         to_page_id: 'page-2',
+        reason: 'Duplicate content',
       }).success,
     ).toBe(true);
     expect(
       governanceMergeDto.safeParse({
         from_page_id: 'page-1',
         to_page_id: 'page-1',
+        reason: 'Duplicate content',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('rejects governanceMergeDto without reason', () => {
+    expect(
+      governanceMergeDto.safeParse({
+        from_page_id: 'page-1',
+        to_page_id: 'page-2',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('validates governanceEdgeReviewDto confirm at boundary score 0.55', () => {
+    expect(
+      governanceEdgeReviewDto.safeParse({
+        action: 'confirm',
+        effective_score: 0.55,
+        reason: 'Borderline but valid',
+      }).success,
+    ).toBe(true);
+  });
+
+  it('rejects governanceEdgeReviewDto confirm with score below 0.55', () => {
+    expect(
+      governanceEdgeReviewDto.safeParse({
+        action: 'confirm',
+        effective_score: 0.54,
+        reason: 'Too low',
       }).success,
     ).toBe(false);
   });
 
   it('accepts REJECTED confidence labels', () => {
     expect(confidenceLabelSchema.safeParse('REJECTED').success).toBe(true);
+  });
+});
+
+describe('Phase 4 conflict validation', () => {
+  it('validates conflictItemDto with required fields', () => {
+    expect(
+      conflictItemDto.safeParse({
+        conflict_type: 'contradictory_edges',
+        entity_pair: {
+          source_node_id: 'node-1',
+          target_node_id: 'node-2',
+          source_label: 'React',
+          target_label: 'Vue',
+        },
+        conflicting_items: [{ edge_id: 'e1' }, { edge_id: 'e2' }],
+        severity: 'high',
+      }).success,
+    ).toBe(true);
+  });
+
+  it('rejects conflictItemDto with fewer than 2 conflicting items', () => {
+    expect(
+      conflictItemDto.safeParse({
+        conflict_type: 'edge_chunk_mismatch',
+        entity_pair: {
+          source_node_id: 'node-1',
+          target_node_id: 'node-2',
+          source_label: 'React',
+          target_label: 'Vue',
+        },
+        conflicting_items: [{ edge_id: 'e1' }],
+        severity: 'medium',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('rejects conflictItemDto with invalid severity', () => {
+    expect(
+      conflictItemDto.safeParse({
+        conflict_type: 'contradictory_edges',
+        entity_pair: {
+          source_node_id: 'node-1',
+          target_node_id: 'node-2',
+          source_label: 'A',
+          target_label: 'B',
+        },
+        conflicting_items: [{ edge_id: 'e1' }, { edge_id: 'e2' }],
+        severity: 'critical',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('rejects conflictItemDto missing entity_pair labels', () => {
+    expect(
+      conflictItemDto.safeParse({
+        conflict_type: 'contradictory_edges',
+        entity_pair: {
+          source_node_id: 'node-1',
+          target_node_id: 'node-2',
+        },
+        conflicting_items: [{ edge_id: 'e1' }, { edge_id: 'e2' }],
+        severity: 'low',
+      }).success,
+    ).toBe(false);
   });
 });

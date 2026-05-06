@@ -129,9 +129,9 @@ export const feedbackCreateDto = z
   })
   .refine(
     (input) => {
-      const hasMessageId = typeof input.message_id === 'string' && input.message_id.length > 0;
+      const hasMessageId = typeof input.message_id === 'string' && input.message_id.trim().length > 0;
       const pageId = input.payload_json.page_id;
-      const hasPageId = typeof pageId === 'string' && pageId.length > 0;
+      const hasPageId = typeof pageId === 'string' && (pageId as string).trim().length > 0;
 
       return hasMessageId || hasPageId;
     },
@@ -170,24 +170,30 @@ export const mcpToolPolicyDto = z.object({
 export const mcpInvokeDto = z.object({
   tool_name: z.string().trim().min(1).max(200),
   arguments: z.record(z.unknown()).default({}),
-  space_id: z.string().max(200).optional(),
+  space_id: z.string().trim().min(1).max(200),
 });
 
 export const governanceEdgeReviewDto = z
   .object({
     action: z.enum(['confirm', 'reject']),
-    new_score: z.number().min(0).max(1).optional(),
+    effective_score: z.number().min(0).max(1).optional(),
+    reason: z.string().trim().min(1).max(5000),
   })
-  .refine((input) => input.action === 'reject' || (input.new_score !== undefined && input.new_score >= 0.55), {
-    message: 'Confirming an edge requires new_score >= 0.55',
-    path: ['new_score'],
-  });
+  .refine(
+    (input) => input.action === 'reject' || (input.effective_score !== undefined && input.effective_score >= 0.55),
+    {
+      message: 'Confirming an edge requires effective_score >= 0.55',
+      path: ['effective_score'],
+    },
+  );
 
 export const conflictItemDto = z.object({
   conflict_type: z.enum(['contradictory_edges', 'edge_chunk_mismatch']),
   entity_pair: z.object({
     source_node_id: z.string(),
     target_node_id: z.string(),
+    source_label: z.string(),
+    target_label: z.string(),
   }),
   conflicting_items: z.array(z.record(z.unknown())).min(2),
   severity: z.enum(['high', 'medium', 'low']),
@@ -197,6 +203,7 @@ export const governanceMergeDto = z
   .object({
     from_page_id: z.string().trim().min(1).max(200),
     to_page_id: z.string().trim().min(1).max(200),
+    reason: z.string().trim().min(1).max(5000),
   })
   .refine((input) => input.from_page_id !== input.to_page_id, {
     message: 'from_page_id and to_page_id must be different',
