@@ -982,3 +982,70 @@ export const webhookDeliveries = pgTable(
     index('idx_webhook_deliveries_direction_created').on(table.direction, table.created_at.desc()),
   ],
 );
+
+export const feedbackItems = pgTable('feedback_items', {
+  id: text('id').primaryKey(),
+  tenant_id: text('tenant_id')
+    .notNull()
+    .references(() => tenants.id),
+  user_id: text('user_id').references(() => users.id),
+  message_id: text('message_id').references(() => chatMessages.id),
+  space_id: text('space_id').references(() => spaces.id),
+  feedback_type: text('feedback_type').notNull(),
+  status: text('status').notNull().default('open'),
+  payload_json: jsonb('payload_json').notNull().default(sql`'{}'::jsonb`),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  resolved_by: text('resolved_by').references(() => users.id),
+  resolution_note: text('resolution_note'),
+  resolved_at: timestamp('resolved_at', { withTimezone: true }),
+});
+
+export const apiTokens = pgTable(
+  'api_tokens',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id),
+    name: text('name').notNull(),
+    token_hash: text('token_hash').notNull(),
+    token_prefix: text('token_prefix').notNull().default(''),
+    scopes: text('scopes').array().notNull().default(sql`'{}'`),
+    last_used_at: timestamp('last_used_at', { withTimezone: true }),
+    expires_at: timestamp('expires_at', { withTimezone: true }),
+    revoked_at: timestamp('revoked_at', { withTimezone: true }),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('api_tokens_token_hash_unique').on(table.token_hash),
+    index('idx_api_tokens_user').on(table.tenant_id, table.user_id).where(sql`${table.revoked_at} IS NULL`),
+  ],
+);
+
+export const mcpToolRegistry = pgTable(
+  'mcp_tool_registry',
+  {
+    id: text('id').primaryKey(),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    tool_name: text('tool_name').notNull(),
+    description: text('description'),
+    server_url: text('server_url').notNull(),
+    transport: text('transport').notNull().default('sse'),
+    input_schema: jsonb('input_schema').notNull().default(sql`'{}'::jsonb`),
+    scopes: text('scopes').array().notNull().default(sql`'{}'`),
+    status: text('status').notNull().default('active'),
+    policy_json: jsonb('policy_json').notNull().default(sql`'{}'::jsonb`),
+    created_by: text('created_by').references(() => users.id),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('mcp_tool_registry_tenant_id_tool_name_unique').on(table.tenant_id, table.tool_name),
+    index('idx_mcp_tool_registry_tenant').on(table.tenant_id, table.status),
+  ],
+);

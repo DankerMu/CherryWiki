@@ -214,6 +214,36 @@ describe('Drizzle core schema', () => {
     expect(Object.hasOwn(schema, 'pgVector')).toBe(true);
     expect(schema.embeddings.embedding.getSQLType()).toBe('vector');
   });
+
+  it('defines Phase 4 governance, API token, and MCP tables', () => {
+    expect(schema.feedbackItems.payload_json.getSQLType()).toBe('jsonb');
+    expect(schema.feedbackItems.payload_json.notNull).toBe(true);
+    expect(schema.feedbackItems.status.default).toBe('open');
+    expect(schema.feedbackItems.resolution_note.notNull).toBe(false);
+    expect(schema.feedbackItems.resolved_at.getSQLType()).toBe('timestamp with time zone');
+    expect(Object.hasOwn(schema.feedbackItems, 'page_id')).toBe(false);
+    expect(foreignKeyColumns(schema.feedbackItems, 'feedback_items_message_id_chat_messages_id_fk')).toEqual([
+      'message_id',
+    ]);
+
+    expect(schema.apiTokens.token_prefix.default).toBe('');
+    expect(schema.apiTokens.scopes.getSQLType()).toBe('text[]');
+    expect(schema.apiTokens.scopes.notNull).toBe(true);
+    expect(schema.apiTokens.revoked_at.notNull).toBe(false);
+    expect(uniqueColumns(schema.apiTokens, 'api_tokens_token_hash_unique')).toEqual(['token_hash']);
+    expect(indexColumns(schema.apiTokens, 'idx_api_tokens_user')).toEqual(['tenant_id', 'user_id']);
+
+    expect(schema.mcpToolRegistry.transport.default).toBe('sse');
+    expect(schema.mcpToolRegistry.input_schema.getSQLType()).toBe('jsonb');
+    expect(schema.mcpToolRegistry.scopes.getSQLType()).toBe('text[]');
+    expect(schema.mcpToolRegistry.status.default).toBe('active');
+    expect(schema.mcpToolRegistry.policy_json.notNull).toBe(true);
+    expect(uniqueColumns(schema.mcpToolRegistry, 'mcp_tool_registry_tenant_id_tool_name_unique')).toEqual([
+      'tenant_id',
+      'tool_name',
+    ]);
+    expect(indexColumns(schema.mcpToolRegistry, 'idx_mcp_tool_registry_tenant')).toEqual(['tenant_id', 'status']);
+  });
 });
 
 function indexColumns(table: PgTable, indexName: string): string[] {

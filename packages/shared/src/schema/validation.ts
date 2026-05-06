@@ -49,13 +49,19 @@ export const graphifyRunStatusSchema = z.enum([
   'docmost_sync_failed',
 ]);
 export const graphifyTriggerTypeSchema = z.enum(['manual', 'scheduled', 'auto']);
-export const confidenceLabelSchema = z.enum(['EXTRACTED', 'INFERRED', 'AMBIGUOUS']);
+export const confidenceLabelSchema = z.enum(['EXTRACTED', 'INFERRED', 'AMBIGUOUS', 'REJECTED']);
 export const blockOwnerSchema = z.enum(['graphify', 'human', 'locked']);
 export const proposalTypeSchema = z.enum(['conflict', 'deprecation', 'new_page']);
 export const proposalStatusSchema = z.enum(['pending', 'accepted', 'rejected']);
 export const indexSnapshotStatusSchema = z.enum(['building', 'ready', 'activated', 'superseded']);
 export const chunkIndexStatusSchema = z4.enum(['pending', 'indexed']);
 export const syncStatusSchema = z.enum(['synced', 'sync_pending', 'conflict_required']);
+export const feedbackTypeSchema = z.enum(['incorrect', 'missing', 'outdated', 'other', 'conflict']);
+export const feedbackStatusSchema = z.enum(['open', 'resolved']);
+export const feedbackResolutionSchema = z.enum(['accepted', 'rejected', 'duplicate']);
+export const apiTokenScopeSchema = z.string().trim().min(1).max(100);
+export const mcpTransportSchema = z.enum(['sse', 'http', 'stdio']);
+export const mcpToolStatusSchema = z.enum(['active', 'inactive']);
 
 const nonEmptyString = z.string().trim().min(1);
 const idSchema = nonEmptyString.max(200);
@@ -114,6 +120,88 @@ export const sourceDocumentMetadataSchema = z
     cleanup_at: z.string().datetime().optional(),
   })
   .passthrough();
+
+export const feedbackCreateDto = z
+  .object({
+    feedback_type: feedbackTypeSchema.exclude(['conflict']),
+    message_id: z.string().max(200).nullable().optional(),
+    payload_json: z.record(z.unknown()).default({}),
+  })
+  .refine(
+    (input) => {
+      const hasMessageId = typeof input.message_id === 'string' && input.message_id.length > 0;
+      const pageId = input.payload_json.page_id;
+      const hasPageId = typeof pageId === 'string' && pageId.length > 0;
+
+      return hasMessageId || hasPageId;
+    },
+    {
+      message: 'Either message_id or payload_json.page_id is required',
+    },
+  );
+
+export const feedbackResolveDto = z.object({
+  resolution: feedbackResolutionSchema,
+  notes: z.string().max(5000).optional(),
+});
+
+export const apiTokenCreateDto = z.object({
+  name: z.string().trim().min(1).max(200),
+  scopes: z.array(apiTokenScopeSchema).min(1).max(50),
+  expires_in_days: z.number().int().min(1).max(365).optional(),
+});
+
+export const mcpToolCreateDto = z.object({
+  tool_name: z.string().trim().min(1).max(200),
+  description: z.string().max(5000).optional(),
+  server_url: z.string().url().max(2048),
+  transport: mcpTransportSchema.default('sse'),
+  input_schema: z.record(z.unknown()).default({}),
+  scopes: z.array(apiTokenScopeSchema).max(50).default([]),
+});
+
+export const mcpToolPolicyDto = z.object({
+  allowed_roles: z.array(z.string().max(50)).max(20).default([]),
+  allowed_spaces: z.array(z.string().max(200)).max(100).default([]),
+  allowed_scopes: z.array(apiTokenScopeSchema).max(50).default([]),
+  rate_limit_rpm: z.number().int().min(0).max(10000).default(60),
+});
+
+export const mcpInvokeDto = z.object({
+  tool_name: z.string().trim().min(1).max(200),
+  arguments: z.record(z.unknown()).default({}),
+  space_id: z.string().max(200).optional(),
+});
+
+export const governanceEdgeReviewDto = z
+  .object({
+    action: z.enum(['confirm', 'reject']),
+    new_score: z.number().min(0).max(1).optional(),
+  })
+  .refine((input) => input.action === 'reject' || (input.new_score !== undefined && input.new_score >= 0.55), {
+    message: 'Confirming an edge requires new_score >= 0.55',
+    path: ['new_score'],
+  });
+
+export const conflictItemDto = z.object({
+  conflict_type: z.enum(['contradictory_edges', 'edge_chunk_mismatch']),
+  entity_pair: z.object({
+    source_node_id: z.string(),
+    target_node_id: z.string(),
+  }),
+  conflicting_items: z.array(z.record(z.unknown())).min(2),
+  severity: z.enum(['high', 'medium', 'low']),
+});
+
+export const governanceMergeDto = z
+  .object({
+    from_page_id: z.string().trim().min(1).max(200),
+    to_page_id: z.string().trim().min(1).max(200),
+  })
+  .refine((input) => input.from_page_id !== input.to_page_id, {
+    message: 'from_page_id and to_page_id must be different',
+    path: ['to_page_id'],
+  });
 
 export const insertUserSchema = z.object({
   id: optionalIdSchema.optional(),
@@ -509,11 +597,26 @@ export type ProposalType = z.infer<typeof proposalTypeSchema>;
 export type ProposalStatus = z.infer<typeof proposalStatusSchema>;
 export type IndexSnapshotStatus = z.infer<typeof indexSnapshotStatusSchema>;
 export type ChunkIndexStatus = z4.infer<typeof chunkIndexStatusSchema>;
+export type FeedbackType = z.infer<typeof feedbackTypeSchema>;
+export type FeedbackStatus = z.infer<typeof feedbackStatusSchema>;
+export type FeedbackResolution = z.infer<typeof feedbackResolutionSchema>;
+export type ApiTokenScope = z.infer<typeof apiTokenScopeSchema>;
+export type McpTransport = z.infer<typeof mcpTransportSchema>;
+export type McpToolStatus = z.infer<typeof mcpToolStatusSchema>;
 export type CreateGraphifyRunInput = z.infer<typeof createGraphifyRunSchema>;
 export type GraphNodeInput = z.infer<typeof graphNodeSchema>;
 export type GraphEdgeInput = z.infer<typeof graphEdgeSchema>;
 export type GraphCommunityInput = z.infer<typeof graphCommunitySchema>;
 export type PageBlockMetadataInput = z.infer<typeof pageBlockMetadataSchema>;
+export type FeedbackCreateDto = z.infer<typeof feedbackCreateDto>;
+export type FeedbackResolveDto = z.infer<typeof feedbackResolveDto>;
+export type ApiTokenCreateDto = z.infer<typeof apiTokenCreateDto>;
+export type McpToolCreateDto = z.infer<typeof mcpToolCreateDto>;
+export type McpToolPolicyDto = z.infer<typeof mcpToolPolicyDto>;
+export type McpInvokeDto = z.infer<typeof mcpInvokeDto>;
+export type GovernanceEdgeReviewDto = z.infer<typeof governanceEdgeReviewDto>;
+export type ConflictItemDto = z.infer<typeof conflictItemDto>;
+export type GovernanceMergeDto = z.infer<typeof governanceMergeDto>;
 export type InsertWikiChunkInput = z4.infer<typeof insertWikiChunkSchema>;
 export type SelectWikiChunkInput = z4.infer<typeof selectWikiChunkSchema>;
 export type InsertEmbeddingInput = z4.infer<typeof insertEmbeddingSchema>;
