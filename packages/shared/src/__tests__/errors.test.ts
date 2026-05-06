@@ -69,6 +69,12 @@ describe('ErrorCode', () => {
     expect(ErrorCode.GRAPHIFY_RUN_NOT_RETRYABLE).toBe('GRAPHIFY_RUN_NOT_RETRYABLE');
   });
 
+  it('contains feedback module error codes', () => {
+    expect(ErrorCode.FEEDBACK_NOT_FOUND).toBe('FEEDBACK_NOT_FOUND');
+    expect(ErrorCode.FEEDBACK_ALREADY_RESOLVED).toBe('FEEDBACK_ALREADY_RESOLVED');
+    expect(ErrorCode.FEEDBACK_TARGET_REQUIRED).toBe('FEEDBACK_TARGET_REQUIRED');
+  });
+
   it('uses uppercase snake case for every value', () => {
     const uppercaseSnakeCase = /^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$/;
 
