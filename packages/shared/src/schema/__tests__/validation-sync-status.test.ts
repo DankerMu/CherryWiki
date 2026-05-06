@@ -15,6 +15,11 @@ describe('sync status validation', () => {
     },
   );
 
+  it('accepts governance merge redirect sync statuses', () => {
+    expect(syncStatusSchema.safeParse('redirect:target-page').success).toBe(true);
+    expect(syncStatusSchema.safeParse('redirect:').success).toBe(false);
+  });
+
   it('rejects invalid sync status values', () => {
     expect(syncStatusSchema.safeParse('pending').success).toBe(false);
     expect(syncStatusSchema.safeParse('graphify_suggestion').success).toBe(false);

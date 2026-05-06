@@ -9,6 +9,7 @@ import {
 import {
   ErrorCode,
   answerCitations,
+  conflictItemDto,
   feedbackCreateDto,
   feedbackItems,
   feedbackResolveDto,
@@ -46,6 +47,19 @@ export type FeedbackActorContext = {
 
 export type CreateFeedbackContext = FeedbackActorContext & {
   spaceId: string;
+};
+
+export type ConflictFeedbackInput = {
+  conflict_type: 'contradictory_edges' | 'edge_chunk_mismatch';
+  entity_pair: {
+    source_node_id: string;
+    target_node_id: string;
+    source_label: string;
+    target_label: string;
+  };
+  conflicting_items: JsonRecord[];
+  severity: 'high' | 'medium' | 'low';
+  fingerprint: string;
 };
 
 export type ListFeedbackInput = {
@@ -125,6 +139,53 @@ export class FeedbackService {
         feedback_type: created.feedback_type,
         message_id: created.message_id,
         page_id: readPageId(created.payload_json),
+      },
+    });
+
+    return created;
+  }
+
+  async createConflictFeedback(input: ConflictFeedbackInput, context: CreateFeedbackContext): Promise<FeedbackRow> {
+    const parsed = conflictItemDto.safeParse(input);
+    if (!parsed.success) {
+      throwValidationError(parsed.error);
+    }
+
+    const id = randomUUID();
+    const now = new Date();
+    const payloadJson = { ...input };
+    const [created] = await this.db
+      .insert(feedbackItems)
+      .values({
+        id,
+        tenant_id: context.tenantId,
+        user_id: context.actorUserId,
+        message_id: null,
+        space_id: context.spaceId,
+        feedback_type: 'conflict',
+        status: 'open',
+        payload_json: payloadJson,
+        created_at: now,
+      } satisfies FeedbackInsert)
+      .returning();
+
+    if (created === undefined) {
+      throw new Error('Failed to create conflict feedback');
+    }
+
+    this.auditService.push({
+      tenant_id: context.tenantId,
+      actor_user_id: context.actorUserId,
+      action: 'feedback.created',
+      resource_type: 'feedback_item',
+      resource_id: created.id,
+      space_id: context.spaceId,
+      ...toAuditFields(context.audit),
+      metadata_json: {
+        feedback_type: 'conflict',
+        conflict_type: input.conflict_type,
+        severity: input.severity,
+        fingerprint: input.fingerprint,
       },
     });
 

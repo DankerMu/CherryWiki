@@ -14,6 +14,7 @@ import { BridgeModule } from './bridge/bridge.module.js';
 import { ChatModule } from './chat/chat.module.js';
 import { DrizzleModule } from './database/drizzle.module.js';
 import { FeedbackModule } from './feedback/feedback.module.js';
+import { GovernanceModule } from './governance/governance.module.js';
 import { GraphModule } from './graph/graph.module.js';
 import { GraphifyModule } from './graphify/graphify.module.js';
 import { GroupModule } from './groups/group.module.js';
@@ -43,6 +44,7 @@ import { WikiModule } from './wiki/wiki.module.js';
     StorageModule,
     UploadsModule,
     FeedbackModule,
+    GovernanceModule,
     GraphModule,
     GraphifyModule,
     AgentModule,
