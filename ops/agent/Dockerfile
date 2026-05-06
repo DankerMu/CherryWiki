@@ -19,9 +19,8 @@ COPY tools/cherrywiki/requirements.txt /tmp/cherrywiki-requirements.txt
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
   && python3 -m venv /opt/cherry-tools \
   && /opt/cherry-tools/bin/pip install --no-cache-dir --upgrade pip \
-  && /opt/cherry-tools/bin/pip install --no-cache-dir \
-    -r /tmp/cherrydb-requirements.txt \
-    -r /tmp/cherrywiki-requirements.txt \
+  && grep -hv '^-e ' /tmp/cherrydb-requirements.txt /tmp/cherrywiki-requirements.txt \
+     | /opt/cherry-tools/bin/pip install --no-cache-dir -r /dev/stdin \
   && rm -f /tmp/cherrydb-requirements.txt /tmp/cherrywiki-requirements.txt
 
 RUN groupadd --gid 10001 agent \

@@ -59,7 +59,7 @@ export async function bootstrap(): Promise<void> {
   configureApp(app);
   await app.register(fastifyMultipart, {
     limits: {
-      fileSize: UPLOAD_MAX_BYTES,
+      fileSize: UPLOAD_MAX_BYTES + 1,
       files: 1,
     },
   });
