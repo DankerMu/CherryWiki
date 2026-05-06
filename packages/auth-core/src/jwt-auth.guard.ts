@@ -37,6 +37,10 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest<RequestWithUser>();
+    if (request.user !== undefined) {
+      return true;
+    }
+
     const token = getBearerToken(request);
     if (token === undefined) {
       throwUnauthenticated();

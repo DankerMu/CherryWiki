@@ -17,7 +17,9 @@ describe('ErrorCode', () => {
     expect(ErrorCode.ACCOUNT_LOCKED).toBe('ACCOUNT_LOCKED');
     expect(ErrorCode.ACCOUNT_DISABLED).toBe('ACCOUNT_DISABLED');
     expect(ErrorCode.INVALID_REFRESH_TOKEN).toBe('INVALID_REFRESH_TOKEN');
+    expect(ErrorCode.INVALID_TOKEN).toBe('INVALID_TOKEN');
     expect(ErrorCode.TOKEN_REVOKED).toBe('TOKEN_REVOKED');
+    expect(ErrorCode.TOKEN_EXPIRED).toBe('TOKEN_EXPIRED');
     expect(ErrorCode.INVALID_CURRENT_PASSWORD).toBe('INVALID_CURRENT_PASSWORD');
     expect(ErrorCode.PASSWORD_TOO_WEAK).toBe('PASSWORD_TOO_WEAK');
     expect(ErrorCode.SESSION_NOT_FOUND).toBe('SESSION_NOT_FOUND');
