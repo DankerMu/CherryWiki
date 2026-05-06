@@ -55,7 +55,10 @@ export const proposalTypeSchema = z.enum(['conflict', 'deprecation', 'new_page']
 export const proposalStatusSchema = z.enum(['pending', 'accepted', 'rejected']);
 export const indexSnapshotStatusSchema = z.enum(['building', 'ready', 'activated', 'superseded']);
 export const chunkIndexStatusSchema = z4.enum(['pending', 'indexed']);
-export const syncStatusSchema = z.enum(['synced', 'sync_pending', 'conflict_required']);
+export const syncStatusSchema = z.union([
+  z.enum(['synced', 'sync_pending', 'conflict_required']),
+  z.string().regex(/^redirect:[^\s]+$/),
+]);
 export const feedbackTypeSchema = z.enum(['incorrect', 'missing', 'outdated', 'other', 'conflict']);
 export const feedbackStatusSchema = z.enum(['open', 'resolved']);
 export const feedbackResolutionSchema = z.enum(['accepted', 'rejected', 'duplicate']);
@@ -369,7 +372,7 @@ export const updateSourceDocumentSchema = z
   })
   .partial();
 
-export const wikiPageStatusSchema = z.enum(['draft', 'published', 'archived']);
+export const wikiPageStatusSchema = z.enum(['draft', 'published', 'archived', 'merged']);
 export const wikiVersionSourceSchema = z.enum(['graphify', 'human', 'import', 'rollback', 'docmost']);
 
 export const insertWikiPageSchema = z.object({

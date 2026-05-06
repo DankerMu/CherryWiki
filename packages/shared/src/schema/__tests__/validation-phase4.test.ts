@@ -11,6 +11,7 @@ import {
   mcpInvokeDto,
   mcpToolCreateDto,
   mcpToolPolicyDto,
+  wikiPageStatusSchema,
 } from '../validation.js';
 
 describe('Phase 4 feedback validation', () => {
@@ -267,6 +268,10 @@ describe('Phase 4 governance validation', () => {
 
   it('accepts REJECTED confidence labels', () => {
     expect(confidenceLabelSchema.safeParse('REJECTED').success).toBe(true);
+  });
+
+  it('accepts merged wiki page status for governance merges', () => {
+    expect(wikiPageStatusSchema.safeParse('merged').success).toBe(true);
   });
 });
 
