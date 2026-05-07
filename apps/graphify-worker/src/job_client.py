@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import uuid
@@ -55,22 +56,34 @@ async def poll_jobs(
                         await _sleep(poll_interval, stop_event)
                         continue
 
+                    # Redis coordinates duplicate local workers; the API progress
+                    # claim is the server-side ownership source of truth.
                     if not await acquire_lock(redis, job_id, current_worker_id):
                         await _sleep(poll_interval, stop_event)
                         continue
 
+                    claim_failed = False
                     try:
-                        try:
-                            result = await run(job)
-                        except Exception as exc:
-                            logger.exception(
-                                "graphify job failed", extra={"job_id": job_id}
-                            )
-                            await _fail_job(http_client, job_id, exc)
+                        if not await _claim_job(http_client, job_id, current_worker_id):
+                            claim_failed = True
                         else:
-                            await _complete_job(http_client, job_id, result)
+                            try:
+                                result = await run(job)
+                            except Exception as exc:
+                                logger.exception(
+                                    "graphify job failed", extra={"job_id": job_id}
+                                )
+                                await _fail_job(
+                                    http_client, job_id, current_worker_id, exc
+                                )
+                            else:
+                                await _complete_job(
+                                    http_client, job_id, current_worker_id, result
+                                )
                     finally:
                         await release_lock(redis, job_id, current_worker_id)
+                    if claim_failed:
+                        await _sleep(poll_interval, stop_event)
                 except (httpx.HTTPError, OSError) as exc:
                     logger.warning("job polling failed: %s", exc)
                     await _sleep(poll_interval, stop_event)
@@ -91,22 +104,57 @@ async def _fetch_pending_job(http_client: httpx.AsyncClient) -> dict[str, Any] |
     return _parse_pending_job(payload)
 
 
-async def _complete_job(
-    http_client: httpx.AsyncClient, job_id: str, result: dict[str, Any]
+async def _claim_job(
+    http_client: httpx.AsyncClient, job_id: str, worker_id: str
+) -> bool:
+    try:
+        await _report_progress(http_client, job_id, worker_id, 0, "claimed")
+    except (httpx.HTTPError, OSError) as exc:
+        logger.info(
+            "failed to claim graphify job",
+            extra={"job_id": job_id, "worker_id": worker_id, "error": str(exc)},
+        )
+        return False
+
+    return True
+
+
+async def _report_progress(
+    http_client: httpx.AsyncClient,
+    job_id: str,
+    worker_id: str,
+    percent: int,
+    stage: str,
 ) -> None:
-    response = await http_client.patch(f"/internal/jobs/{job_id}/complete", json=result)
+    response = await http_client.patch(
+        f"/internal/jobs/{job_id}/progress",
+        json={"worker_id": worker_id, "percent": percent, "stage": stage},
+    )
+    response.raise_for_status()
+
+
+async def _complete_job(
+    http_client: httpx.AsyncClient,
+    job_id: str,
+    worker_id: str,
+    result: dict[str, Any],
+) -> None:
+    response = await http_client.patch(
+        f"/internal/jobs/{job_id}/complete",
+        json={"worker_id": worker_id, "result_json": result},
+    )
     response.raise_for_status()
 
 
 async def _fail_job(
-    http_client: httpx.AsyncClient, job_id: str, exc: Exception
+    http_client: httpx.AsyncClient, job_id: str, worker_id: str, exc: Exception
 ) -> None:
     response = await http_client.patch(
         f"/internal/jobs/{job_id}/fail",
         json={
-            "status": "failed",
-            "error": str(exc),
-            "error_type": type(exc).__name__,
+            "worker_id": worker_id,
+            "error_json": _build_error_json(exc),
+            "retryable": _is_retryable(exc),
         },
     )
     response.raise_for_status()
@@ -157,3 +205,30 @@ def _job_id(job: dict[str, Any]) -> str | None:
         return None
 
     return str(raw_id)
+
+
+def _build_error_json(exc: Exception) -> dict[str, Any]:
+    payload = _runtime_error_payload(exc)
+    if payload is not None:
+        return payload
+
+    return {"error": str(exc), "error_type": type(exc).__name__}
+
+
+def _is_retryable(exc: Exception) -> bool:
+    payload = _runtime_error_payload(exc)
+    return payload is not None and payload.get("retryable") is True
+
+
+def _runtime_error_payload(exc: Exception) -> dict[str, Any] | None:
+    if not isinstance(exc, RuntimeError):
+        return None
+    if len(exc.args) != 1 or not isinstance(exc.args[0], str):
+        return None
+
+    try:
+        parsed = json.loads(exc.args[0])
+    except json.JSONDecodeError:
+        return None
+
+    return parsed if isinstance(parsed, dict) else None
