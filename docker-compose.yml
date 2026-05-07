@@ -88,7 +88,6 @@ services:
       DOCMOST_BASE_URL: ${DOCMOST_BASE_URL:-http://localhost:3000}
       DOCMOST_BRIDGE_SECRET: ${DOCMOST_BRIDGE_SECRET:-dev-docmost-bridge-secret}
       DOCMOST_BRIDGE_SECRET_NEXT: ${DOCMOST_BRIDGE_SECRET_NEXT:-}
-      GRAPHIFY_PINNED_REF: ${GRAPHIFY_PINNED_REF:-58271fb5af4c0c123ddbad9c689ee1e220360be8}
     ports:
       - "127.0.0.1:8081:8080"
     volumes:
@@ -292,6 +291,9 @@ services:
     build:
       context: ./apps/graphify-worker
       dockerfile: Dockerfile
+      args:
+        GRAPHIFY_REF: ${GRAPHIFY_REF:-58271fb5af4c0c123ddbad9c689ee1e220360be8}
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-1.0.18}
     restart: unless-stopped
     working_dir: /app/apps/graphify-worker
     command: >-
@@ -307,17 +309,23 @@ services:
       STORAGE_BUCKET_PREFIX: ${STORAGE_BUCKET_PREFIX:-cherrywiki}
       MODEL_API_BASE_URL: ${MODEL_API_BASE_URL:-http://localhost:11434}
       MODEL_API_KEY: ${MODEL_API_KEY:-dev-model-key}
+      DEFAULT_CHAT_MODEL: ${DEFAULT_CHAT_MODEL:-deepseek-v4-flash}
       CHERRY_API_URL: ${CHERRY_API_URL:-http://cherry-api:8080/api}
       API_BASE_URL: http://cherry-api:8080/api
       WORKER_API_KEY: ${WORKER_API_KEY:-dev-worker-api-key}
+      AGENT_ANTHROPIC_API_KEY: ${AGENT_ANTHROPIC_API_KEY:-}
+      AGENT_ANTHROPIC_BASE_URL: ${AGENT_ANTHROPIC_BASE_URL:-}
+      AGENT_ANTHROPIC_MODEL: ${AGENT_ANTHROPIC_MODEL:-deepseek-v4-flash}
       GRAPHIFY_WORKDIR: ${GRAPHIFY_WORKDIR:-/work/graphify}
       GRAPHIFY_DEFAULT_MODE: ${GRAPHIFY_DEFAULT_MODE:-deep}
       GRAPHIFY_ENABLE_WIKI: ${GRAPHIFY_ENABLE_WIKI:-true}
-      GRAPHIFY_PINNED_REF: ${GRAPHIFY_PINNED_REF:-58271fb5af4c0c123ddbad9c689ee1e220360be8}
+      GRAPHIFY_PINNED_REF: ${GRAPHIFY_REF:-58271fb5af4c0c123ddbad9c689ee1e220360be8}
+      GRAPHIFY_MAX_INPUT_FILES: ${GRAPHIFY_MAX_INPUT_FILES:-150}
+      GRAPHIFY_MAX_INPUT_WORDS: ${GRAPHIFY_MAX_INPUT_WORDS:-1500000}
+      GRAPHIFY_RUNNER_MODE: ${GRAPHIFY_RUNNER_MODE:-claude_code}
       GRAPHIFY_TIMEOUT_SECONDS: ${GRAPHIFY_TIMEOUT_SECONDS:-3600}
       GRAPHIFY_MAX_NODES: ${GRAPHIFY_MAX_NODES:-50000}
       GRAPHIFY_MAX_EDGES: ${GRAPHIFY_MAX_EDGES:-200000}
-      DEFAULT_CHAT_MODEL: ${DEFAULT_CHAT_MODEL:-deepseek-v4-flash}
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
       http_proxy: ""
