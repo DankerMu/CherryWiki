@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.resources
 import json
+import logging
 import os
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -50,6 +53,7 @@ _WAITING_FOR_INPUT_RE = re.compile(
     r")",
     re.IGNORECASE,
 )
+_LOGGER = logging.getLogger(__name__)
 
 
 class RunState(str, Enum):
@@ -94,6 +98,12 @@ def prepare_run_dirs(run_id: str) -> RunDirs:
     input_dir = session_dir / "input"
     home_dir = session_dir / ".home"
     config_dir = home_dir / ".claude"
+
+    if session_dir.exists() or session_dir.is_symlink():
+        if session_dir.is_symlink() or session_dir.is_file():
+            session_dir.unlink()
+        else:
+            shutil.rmtree(session_dir)
 
     input_dir.mkdir(parents=True, exist_ok=True)
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -146,38 +156,49 @@ def build_claude_env(
         "ANTHROPIC_BASE_URL": os.environ.get("AGENT_ANTHROPIC_BASE_URL", ""),
         "ANTHROPIC_MODEL": model,
         "ANTHROPIC_DEFAULT_MODEL": model,
+        "ANTHROPIC_DEFAULT_OPUS_MODEL": model,
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": model,
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
     }
 
 
 def install_skill(config_dir: Path | str) -> Path:
     config_path = Path(config_dir)
     skill_dst = config_path / "skills" / "graphify" / "SKILL.md"
-    skill_dst.parent.mkdir(parents=True, exist_ok=True)
-
-    skill_src = _find_graphify_skill()
-    if skill_src is not None:
-        shutil.copy2(skill_src, skill_dst)
-        (skill_dst.parent / ".graphify_version").write_text(
-            "local", encoding="utf-8"
-        )
-        return skill_dst
-
     env = {
         "HOME": str(config_path.parent),
         "CLAUDE_CONFIG_DIR": str(config_path),
         "PATH": os.environ.get("PATH", ""),
         "LANG": os.environ.get("LANG", "C.UTF-8"),
     }
-    subprocess.run(
-        ["graphify", "install"],
-        check=True,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    if not skill_dst.exists():
-        raise RuntimeError(f"graphify install did not create {skill_dst}")
+
+    try:
+        subprocess.run(
+            ["graphify", "install"],
+            check=True,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if skill_dst.exists():
+            return skill_dst
+    except (OSError, subprocess.CalledProcessError) as install_error:
+        fallback_reason = install_error
+    else:
+        fallback_reason = RuntimeError(f"graphify install did not create {skill_dst}")
+
+    skill_dst.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        skill_src = _find_graphify_skill()
+    except RuntimeError as lookup_error:
+        raise RuntimeError(
+            "Unable to install graphify skill via `graphify install` or local copy: "
+            f"{lookup_error}"
+        ) from fallback_reason
+
+    shutil.copy2(skill_src, skill_dst)
+    (skill_dst.parent / ".graphify_version").write_text("local", encoding="utf-8")
     return skill_dst
 
 
@@ -196,7 +217,7 @@ def spawn_claude(
         args,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
         cwd=str(session_dir),
         env=build_claude_env(config_path.parent, config_path),
         text=True,
@@ -275,7 +296,20 @@ def assistant_waiting_for_input(text: str) -> bool:
 
 def preflight_check(input_dir: Path | str) -> dict[str, Any]:
     input_path = Path(input_dir)
-    if not input_path.is_dir():
+    try:
+        input_stat = input_path.lstat()
+    except OSError:
+        return {
+            "ok": False,
+            "reason": "input_missing",
+            "file_count": 0,
+            "total_words": 0,
+        }
+
+    if stat.S_ISLNK(input_stat.st_mode):
+        return _symlink_rejected_result(input_path)
+
+    if not stat.S_ISDIR(input_stat.st_mode):
         return {
             "ok": False,
             "reason": "input_missing",
@@ -286,7 +320,17 @@ def preflight_check(input_dir: Path | str) -> dict[str, Any]:
     max_files = _env_int("GRAPHIFY_MAX_INPUT_FILES", DEFAULT_MAX_INPUT_FILES)
     max_words = _env_int("GRAPHIFY_MAX_INPUT_WORDS", DEFAULT_MAX_INPUT_WORDS)
 
-    files = sorted(path for path in input_path.rglob("*") if path.is_file())
+    files: list[Path] = []
+    for path in sorted(input_path.rglob("*")):
+        try:
+            path_stat = path.lstat()
+        except OSError:
+            continue
+        if stat.S_ISLNK(path_stat.st_mode):
+            return _symlink_rejected_result(path)
+        if stat.S_ISREG(path_stat.st_mode):
+            files.append(path)
+
     file_count = len(files)
     if file_count > max_files:
         return {
@@ -315,7 +359,23 @@ def preflight_check(input_dir: Path | str) -> dict[str, Any]:
 
 
 def output_complete(session_dir: Path | str) -> bool:
-    return (Path(session_dir) / "graphify-out" / "graph.json").is_file()
+    output_dir = Path(session_dir) / "graphify-out"
+    graph_json = output_dir / "graph.json"
+    try:
+        if not graph_json.is_file() or graph_json.stat().st_size == 0:
+            return False
+    except OSError:
+        return False
+
+    wiki_dir = output_dir / "wiki"
+    if not wiki_dir.is_dir():
+        return False
+    if not any(path.is_file() for path in wiki_dir.glob("*.md")):
+        return False
+
+    if not (output_dir / "GRAPH_REPORT.md").is_file():
+        _LOGGER.warning("GRAPH_REPORT.md missing from graphify output")
+    return True
 
 
 def resolve_idle_state(
@@ -361,12 +421,12 @@ async def run_graphify(
     run_id: str, input_dir: Path | str, *, timeout: float | None = None
 ) -> dict[str, Any]:
     if os.environ.get("GRAPHIFY_RUNNER_MODE", "claude_code") == "disabled":
-        return {"reason": "runner_disabled", "retryable": True}
+        return {"status": "failed", "state": RunState.FAILED.value, "reason": "runner_disabled", "retryable": True}
 
     if not os.environ.get("AGENT_ANTHROPIC_API_KEY") or not os.environ.get(
         "AGENT_ANTHROPIC_BASE_URL"
     ):
-        return {"reason": "missing_api_key"}
+        return {"status": "failed", "state": RunState.FAILED.value, "reason": "missing_api_key", "retryable": False}
 
     preflight = preflight_check(input_dir)
     if not preflight.get("ok"):
@@ -376,14 +436,19 @@ async def run_graphify(
     _copy_inputs(Path(input_dir), dirs.input_dir)
     install_skill(dirs.config_dir)
     settings_path = generate_settings(dirs.config_dir)
-    proc = spawn_claude(dirs.session_dir, dirs.config_dir, settings_path)
-    write_user_message(proc, FIRST_GRAPHIFY_MESSAGE)
 
     timeout_seconds = timeout
     if timeout_seconds is None:
         timeout_seconds = _env_int("GRAPHIFY_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS)
 
-    return await _run_stream_loop(proc, dirs.session_dir, float(timeout_seconds))
+    proc: subprocess.Popen[str] | None = None
+    try:
+        proc = spawn_claude(dirs.session_dir, dirs.config_dir, settings_path)
+        write_user_message(proc, FIRST_GRAPHIFY_MESSAGE)
+        return await _run_stream_loop(proc, dirs.session_dir, float(timeout_seconds))
+    finally:
+        if proc is not None:
+            await _cleanup_process(proc)
 
 
 async def _run_stream_loop(
@@ -500,6 +565,37 @@ async def _terminate_for_timeout(proc: subprocess.Popen[str]) -> dict[str, Any]:
     }
 
 
+async def _cleanup_process(proc: subprocess.Popen[str]) -> None:
+    _close_stdin(proc)
+    if _process_exited(proc):
+        return
+
+    _request_terminate(proc)
+    try:
+        await _wait_for_process_exit(proc, 5)
+    except TimeoutError:
+        _request_kill(proc)
+        try:
+            await _wait_for_process_exit(proc, 5)
+        except TimeoutError:
+            _LOGGER.warning("Claude process %s did not exit after SIGKILL", proc.pid)
+
+
+def _close_stdin(proc: subprocess.Popen[str]) -> None:
+    stdin = getattr(proc, "stdin", None)
+    if stdin is None:
+        return
+    try:
+        stdin.close()
+    except OSError:
+        pass
+
+
+def _process_exited(proc: subprocess.Popen[str]) -> bool:
+    poll = getattr(proc, "poll", None)
+    return poll is not None and poll() is not None
+
+
 async def _wait_for_process_exit(
     proc: subprocess.Popen[str], timeout: float
 ) -> int | None:
@@ -533,10 +629,19 @@ def _read_stdout_line(proc: subprocess.Popen[str]) -> str:
 
 
 def _copy_inputs(src_dir: Path, dst_dir: Path) -> None:
+    src_stat = src_dir.lstat()
+    if stat.S_ISLNK(src_stat.st_mode):
+        raise ValueError(f"Refusing to copy symlinked input directory: {src_dir}")
     if src_dir.resolve() == dst_dir.resolve():
         return
     for src in src_dir.rglob("*"):
-        if not src.is_file():
+        try:
+            src_stat = src.lstat()
+        except OSError:
+            continue
+        if stat.S_ISLNK(src_stat.st_mode):
+            raise ValueError(f"Refusing to copy symlinked input path: {src}")
+        if not stat.S_ISREG(src_stat.st_mode):
             continue
         rel = src.relative_to(src_dir)
         dst = dst_dir / rel
@@ -620,27 +725,53 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _symlink_rejected_result(path: Path) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "reason": "input_symlink_rejected",
+        "path": str(path),
+    }
+
+
 def _run_root() -> Path:
     return Path(os.environ.get("GRAPHIFY_RUN_ROOT", str(GRAPHIFY_RUN_ROOT)))
 
 
-def _find_graphify_skill() -> Path | None:
+def _find_graphify_skill() -> Path:
     env_path = os.environ.get("GRAPHIFY_SKILL_PATH")
     candidates: list[Path] = []
     if env_path:
         candidates.append(Path(env_path))
 
-    repo_root = Path(__file__).resolve().parents[3]
-    candidates.append(repo_root / "external" / "graphify" / "graphify" / "skill.md")
+    try:
+        resource = importlib.resources.files("graphify").joinpath("skill.md")
+        if resource.is_file():
+            with importlib.resources.as_file(resource) as resource_path:
+                candidates.append(resource_path)
+    except Exception:
+        pass
 
     try:
         import graphify  # type: ignore[import-not-found]
-
         candidates.append(Path(graphify.__file__).resolve().parent / "skill.md")
     except Exception:
         pass
 
+    try:
+        repo_root = Path(__file__).resolve().parents[3]
+    except IndexError:
+        repo_root = None
+    if repo_root is not None:
+        candidates.append(
+            repo_root / "external" / "graphify" / "graphify" / "skill.md"
+        )
+
     for candidate in candidates:
         if candidate.is_file():
             return candidate
-    return None
+
+    checked = ", ".join(str(candidate) for candidate in candidates) or "no candidates"
+    raise RuntimeError(
+        "Unable to locate graphify skill.md. Checked installed graphify package, "
+        f"repo checkout, and GRAPHIFY_SKILL_PATH. Candidates: {checked}"
+    )
