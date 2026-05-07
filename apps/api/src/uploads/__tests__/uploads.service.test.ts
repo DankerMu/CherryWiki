@@ -1,6 +1,5 @@
 import { JobRepository, type JobCreateInput, type JobRow } from '@cherrygraph/job-core';
-import type { SourceDocumentStatus } from '@cherrygraph/shared';
-import { ErrorCode } from '@cherrygraph/shared';
+import { ErrorCode, graphifyRuns, type SourceDocumentStatus } from '@cherrygraph/shared';
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -449,8 +448,8 @@ describe('UploadsService', () => {
     expect(storage.deleteQuarantineFile).toHaveBeenCalledTimes(1);
   });
 
-  it('creates one graphify job for a parsed immediate batch and marks documents pending', async () => {
-    const { service, sourceDocuments, jobs } = createServiceContext();
+  it('creates one graphify run and job for a parsed immediate batch and marks documents pending', async () => {
+    const { service, db, sourceDocuments, jobs } = createServiceContext();
     for (let index = 0; index < 5; index += 1) {
       sourceDocuments.seed(
         createSourceDocumentRow({
@@ -459,6 +458,10 @@ describe('UploadsService', () => {
           metadata_json: {
             batch_id: 'batch-1',
             processing_strategy: 'immediate',
+            ...(index === 0 ? { parsed_uri: 's3://parsed/source-1.md' } : {}),
+            ...(index === 1 ? { parsed_md_uri: 's3://parsed/source-2.md' } : {}),
+            ...(index === 2 ? { parsed_markdown_uri: 's3://parsed/source-3.md' } : {}),
+            ...(index === 3 ? { parsed_uri: 's3://parsed/source-4.md' } : {}),
           },
         }),
       );
@@ -469,11 +472,36 @@ describe('UploadsService', () => {
     }
 
     expect(jobs.created.filter((job) => job.type === 'graphify')).toHaveLength(1);
+    expect(db.inserts[0]?.table).toBe(graphifyRuns);
+    const runInsert = asRecord(db.inserts[0]?.value);
+    expect(runInsert.id).toEqual(expect.any(String));
+    const runId = runInsert.id as string;
+    expect(runInsert).toMatchObject({
+      tenant_id: TEST_TENANT_ID,
+      space_id: TEST_SPACE_ID,
+      trigger_type: 'upload',
+      mode: 'standard',
+      status: 'pending',
+      stats_json: {
+        input_scope: { source_document_ids: ['source-1', 'source-2', 'source-3', 'source-4', 'source-5'] },
+        batch_id: 'batch-1',
+        input_uri_count: 4,
+      },
+    });
     expect(jobs.created[0]?.payload_json).toMatchObject({
+      tenant_id: TEST_TENANT_ID,
+      space_id: TEST_SPACE_ID,
+      run_id: runId,
+      mode: 'standard',
+      input_uris: ['s3://parsed/source-1.md', 's3://parsed/source-2.md', 's3://parsed/source-3.md', 's3://parsed/source-4.md'],
       batch_id: 'batch-1',
       source_document_ids: ['source-1', 'source-2', 'source-3', 'source-4', 'source-5'],
     });
+    expect(db.updates[0]?.table).toBe(graphifyRuns);
+    expect(asRecord(db.updates[0]?.value)).toMatchObject({ job_id: 'job-1' });
     expect(sourceDocuments.rows.every((row) => row.status === 'graphify_pending')).toBe(true);
+    expect(sourceDocuments.rows.every((row) => asRecord(row.metadata_json).graphify_run_id === runId)).toBe(true);
+    expect(sourceDocuments.rows.every((row) => asRecord(row.metadata_json).graphify_run_id !== 'job-1')).toBe(true);
   });
 
   it('does not graphify parsed documents with stash strategy', async () => {
@@ -813,6 +841,10 @@ function getHttpExceptionErrorCode(err: unknown): unknown {
   }
 
   return (response as Record<string, unknown>).error_code;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 function createJobRow(overrides: Partial<JobRow> = {}): JobRow {
