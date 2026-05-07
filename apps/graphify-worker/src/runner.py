@@ -10,7 +10,7 @@ import stat
 from pathlib import Path
 from typing import Any
 
-from . import graphify_pipeline
+from . import claude_runner
 from .manifest import generate_manifest
 from .storage_client import MinioStorageClient, parse_storage_uri
 
@@ -27,6 +27,13 @@ _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
 async def run(job_data: dict[str, Any]) -> dict[str, Any]:
+    if os.environ.get("GRAPHIFY_RUNNER_MODE", "claude_code") == "disabled":
+        raise RuntimeError(json.dumps({"reason": "runner_disabled", "retryable": True}))
+    if not os.environ.get("AGENT_ANTHROPIC_API_KEY") or not os.environ.get(
+        "AGENT_ANTHROPIC_BASE_URL"
+    ):
+        raise RuntimeError(json.dumps({"reason": "missing_api_key"}))
+
     job_id = job_data.get("id") or job_data.get("job_id")
     payload = _payload(job_data)
     tenant_id = _safe_id(
@@ -43,7 +50,6 @@ async def run(job_data: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"workdir escapes base: {workdir}")
 
     input_dir = workdir / "input"
-    output_dir = workdir / "output"
     key_prefix = f"graphify-out/{tenant_id}/{space_id}/{run_id}"
 
     logger.info(
@@ -53,7 +59,6 @@ async def run(job_data: dict[str, Any]) -> dict[str, Any]:
 
     try:
         input_dir.mkdir(parents=True, exist_ok=True)
-        output_dir.mkdir(parents=True, exist_ok=True)
 
         storage = MinioStorageClient.from_env()
         input_files = _download_inputs(storage, input_uris, input_dir)
@@ -62,7 +67,17 @@ async def run(job_data: dict[str, Any]) -> dict[str, Any]:
         manifest_path = workdir / "graphify_input_manifest.json"
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-        await graphify_pipeline.execute(input_dir, output_dir, mode)
+        result = await claude_runner.run_graphify(
+            run_id, str(input_dir), timeout=GRAPHIFY_TIMEOUT
+        )
+        if result.get("status") != "success":
+            raise RuntimeError(json.dumps(result))
+
+        output_dir = _output_dir_from_result(result)
+        if output_dir.is_symlink():
+            raise RuntimeError(
+                json.dumps({"reason": "output_dir_symlink", "path": str(output_dir)})
+            )
 
         validation = _validate_output(
             output_dir, run_id=run_id, graphify_ref=GRAPHIFY_REF
@@ -101,10 +116,17 @@ async def run(job_data: dict[str, Any]) -> dict[str, Any]:
                 "wiki_page_count": validation.get("wiki_page_count", 0),
                 "total_output_bytes": validation.get("total_output_bytes", 0),
             },
+            "schema_version": "v1",
         }
     finally:
         if workdir.exists():
             shutil.rmtree(workdir, ignore_errors=True)
+        claude_run_dir = (
+            Path(os.environ.get("GRAPHIFY_RUN_ROOT", "/work/graphify")).resolve()
+            / run_id
+        )
+        if claude_run_dir.exists() and claude_run_dir != workdir:
+            shutil.rmtree(claude_run_dir, ignore_errors=True)
 
 
 def _safe_id(value: str) -> str:
@@ -209,6 +231,18 @@ def _download_inputs(
                 json.dumps({"reason": "download_failed", "uri": uri, "error": str(exc)})
             ) from exc
     return input_files
+
+
+def _output_dir_from_result(result: dict[str, Any]) -> Path:
+    output_dir = result.get("output_dir")
+    if output_dir:
+        return Path(str(output_dir))
+
+    graph_json_path = result.get("graph_json_path")
+    if graph_json_path:
+        return Path(str(graph_json_path)).parent
+
+    raise RuntimeError(json.dumps({"reason": "missing_output_dir", "result": result}))
 
 
 def _validate_output(
@@ -339,7 +373,11 @@ def _validate_output(
         try:
             data = json.loads(graph_json.read_text(encoding="utf-8"))
             nodes = data.get("nodes", []) if isinstance(data, dict) else []
-            edges = data.get("edges", []) if isinstance(data, dict) else []
+            edges = (
+                data.get("links", data.get("edges", []))
+                if isinstance(data, dict)
+                else []
+            )
             node_count = len(nodes) if isinstance(nodes, list) else 0
             edge_count = len(edges) if isinstance(edges, list) else 0
             checks.append(

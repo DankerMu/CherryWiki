@@ -4,7 +4,7 @@ import asyncio
 import json
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import pytest
 
@@ -21,7 +21,7 @@ def test_run_success_uploads_outputs_and_cleans_workdir(
     install_runner_config(monkeypatch, tmp_path)
     captured_manifest: dict[str, Any] = {}
 
-    async def fake_execute(input_dir: Path, output_dir: Path, mode: str) -> None:
+    def build_output(input_dir: Path, output_dir: Path) -> None:
         captured_manifest.update(
             json.loads(
                 (input_dir.parent / "graphify_input_manifest.json").read_text(
@@ -31,11 +31,12 @@ def test_run_success_uploads_outputs_and_cleans_workdir(
         )
         shutil.copytree(FIXTURE_OUTPUT, output_dir, dirs_exist_ok=True)
 
-    monkeypatch.setattr(runner.graphify_pipeline, "execute", fake_execute)
+    install_fake_run_graphify(monkeypatch, build_output)
 
     result = asyncio.run(runner.run(job_data()))
 
     assert result["status"] == "success"
+    assert result["schema_version"] == "v1"
     assert result["graph_json_uri"] == (
         "s3://out-bucket/graphify-out/tenant-1/space-1/run-1/graph.json"
     )
@@ -73,11 +74,11 @@ def test_run_success_omits_report_uri_when_report_missing(
     install_fake_storage(monkeypatch)
     install_runner_config(monkeypatch, tmp_path)
 
-    async def fake_execute(input_dir: Path, output_dir: Path, mode: str) -> None:
+    def build_output(_input_dir: Path, output_dir: Path) -> None:
         shutil.copytree(FIXTURE_OUTPUT, output_dir, dirs_exist_ok=True)
         (output_dir / "GRAPH_REPORT.md").unlink()
 
-    monkeypatch.setattr(runner.graphify_pipeline, "execute", fake_execute)
+    install_fake_run_graphify(monkeypatch, build_output)
 
     result = asyncio.run(runner.run(job_data()))
 
@@ -99,18 +100,66 @@ def test_run_rejects_unsafe_run_id(
     assert not any(tmp_path.iterdir())
 
 
+def test_run_disabled_mode_fails_before_download(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    storage = install_fake_storage(monkeypatch)
+    install_runner_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("GRAPHIFY_RUNNER_MODE", "disabled")
+
+    async def fail_run_graphify(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise AssertionError("disabled runner must not call Claude runner")
+
+    monkeypatch.setattr(runner.claude_runner, "run_graphify", fail_run_graphify)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        asyncio.run(runner.run(job_data()))
+
+    error = json.loads(str(exc_info.value))
+    assert error == {"reason": "runner_disabled", "retryable": True}
+    assert storage.downloads == []
+    assert not any(tmp_path.iterdir())
+
+
+def test_run_missing_api_key_fails_before_download(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    storage = install_fake_storage(monkeypatch)
+    install_runner_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("GRAPHIFY_RUNNER_MODE", "claude_code")
+    monkeypatch.delenv("AGENT_ANTHROPIC_API_KEY", raising=False)
+
+    async def fail_run_graphify(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise AssertionError("missing API key must not call Claude runner")
+
+    monkeypatch.setattr(runner.claude_runner, "run_graphify", fail_run_graphify)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        asyncio.run(runner.run(job_data()))
+
+    assert json.loads(str(exc_info.value)) == {"reason": "missing_api_key"}
+    assert storage.downloads == []
+    assert not any(tmp_path.iterdir())
+
+
 def test_run_pipeline_error_reports_and_cleans_workdir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     install_fake_storage(monkeypatch)
     install_runner_config(monkeypatch, tmp_path)
 
-    async def fake_execute(input_dir: Path, output_dir: Path, mode: str) -> None:
-        raise RuntimeError(
-            json.dumps({"reason": "llm_error", "details": "API unreachable"})
-        )
+    async def fake_run_graphify(
+        _run_id: str, _input_dir: str, *, timeout: float | None = None
+    ) -> dict[str, Any]:
+        assert timeout == 5
+        return {
+            "status": "failed",
+            "state": "FAILED",
+            "reason": "llm_error",
+            "details": "API unreachable",
+        }
 
-    monkeypatch.setattr(runner.graphify_pipeline, "execute", fake_execute)
+    monkeypatch.setattr(runner.claude_runner, "run_graphify", fake_run_graphify)
 
     with pytest.raises(RuntimeError) as exc_info:
         asyncio.run(runner.run(job_data()))
@@ -125,12 +174,12 @@ def test_run_missing_graph_json_fails_validation_and_cleans_workdir(
     storage = install_fake_storage(monkeypatch)
     install_runner_config(monkeypatch, tmp_path)
 
-    async def fake_execute(input_dir: Path, output_dir: Path, mode: str) -> None:
+    def build_output(_input_dir: Path, output_dir: Path) -> None:
         (output_dir / "wiki").mkdir(parents=True)
         (output_dir / "wiki" / "index.md").write_text("# Index", encoding="utf-8")
         (output_dir / "GRAPH_REPORT.md").write_text("report", encoding="utf-8")
 
-    monkeypatch.setattr(runner.graphify_pipeline, "execute", fake_execute)
+    install_fake_run_graphify(monkeypatch, build_output)
 
     with pytest.raises(RuntimeError) as exc_info:
         asyncio.run(runner.run(job_data()))
@@ -150,13 +199,13 @@ def test_run_missing_wiki_dir_fails_validation_and_cleans_workdir(
     storage = install_fake_storage(monkeypatch)
     install_runner_config(monkeypatch, tmp_path)
 
-    async def fake_execute(input_dir: Path, output_dir: Path, mode: str) -> None:
+    def build_output(_input_dir: Path, output_dir: Path) -> None:
         (output_dir / "graph.json").write_text(
             '{"nodes":[],"edges":[]}', encoding="utf-8"
         )
         (output_dir / "GRAPH_REPORT.md").write_text("report", encoding="utf-8")
 
-    monkeypatch.setattr(runner.graphify_pipeline, "execute", fake_execute)
+    install_fake_run_graphify(monkeypatch, build_output)
 
     with pytest.raises(RuntimeError) as exc_info:
         asyncio.run(runner.run(job_data()))
@@ -178,14 +227,14 @@ def test_run_path_traversal_detection_fails_on_symlink_and_cleans_workdir(
     outside = tmp_path / "outside.md"
     outside.write_text("outside", encoding="utf-8")
 
-    async def fake_execute(input_dir: Path, output_dir: Path, mode: str) -> None:
+    def build_output(_input_dir: Path, output_dir: Path) -> None:
         shutil.copytree(FIXTURE_OUTPUT, output_dir, dirs_exist_ok=True)
         try:
             (output_dir / "wiki" / "escape.md").symlink_to(outside)
         except OSError as exc:
             pytest.skip(f"symlink not available: {exc}")
 
-    monkeypatch.setattr(runner.graphify_pipeline, "execute", fake_execute)
+    install_fake_run_graphify(monkeypatch, build_output)
 
     with pytest.raises(RuntimeError) as exc_info:
         asyncio.run(runner.run(job_data()))
@@ -207,10 +256,7 @@ def test_run_file_size_check_fails_validation_and_cleans_workdir(
     install_runner_config(monkeypatch, tmp_path)
     monkeypatch.setattr(runner, "MAX_FILE_SIZE", 10)
 
-    async def fake_execute(input_dir: Path, output_dir: Path, mode: str) -> None:
-        shutil.copytree(FIXTURE_OUTPUT, output_dir, dirs_exist_ok=True)
-
-    monkeypatch.setattr(runner.graphify_pipeline, "execute", fake_execute)
+    install_fake_run_graphify(monkeypatch)
 
     with pytest.raises(RuntimeError) as exc_info:
         asyncio.run(runner.run(job_data()))
@@ -236,10 +282,7 @@ def test_run_total_size_check_uses_quarantine_error_shape(
     install_runner_config(monkeypatch, tmp_path)
     monkeypatch.setattr(runner, "MAX_TOTAL_SIZE", 10)
 
-    async def fake_execute(input_dir: Path, output_dir: Path, mode: str) -> None:
-        shutil.copytree(FIXTURE_OUTPUT, output_dir, dirs_exist_ok=True)
-
-    monkeypatch.setattr(runner.graphify_pipeline, "execute", fake_execute)
+    install_fake_run_graphify(monkeypatch)
 
     with pytest.raises(RuntimeError) as exc_info:
         asyncio.run(runner.run(job_data()))
@@ -288,9 +331,26 @@ def test_validate_output_reports_pass_stats() -> None:
     assert validation["generated_at"].endswith("Z")
 
 
+def test_validate_output_counts_links_field(tmp_path: Path) -> None:
+    output_dir = tmp_path / "graphify-out"
+    shutil.copytree(FIXTURE_OUTPUT, output_dir)
+    graph_path = output_dir / "graph.json"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    graph["links"] = graph.pop("edges")
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+
+    validation = runner._validate_output(output_dir, run_id="run-1")
+
+    assert validation["validation_passed"] is True
+    assert validation["edge_count"] == len(graph["links"])
+
+
 def install_runner_config(
     monkeypatch: pytest.MonkeyPatch, workdir: Path, *, output_bucket: str = "out-bucket"
 ) -> None:
+    monkeypatch.setenv("GRAPHIFY_RUNNER_MODE", "claude_code")
+    monkeypatch.setenv("AGENT_ANTHROPIC_API_KEY", "test-agent-key")
+    monkeypatch.setenv("AGENT_ANTHROPIC_BASE_URL", "https://test-proxy.example.com")
     monkeypatch.setattr(runner, "GRAPHIFY_WORKDIR", str(workdir))
     monkeypatch.setattr(runner, "GRAPHIFY_TIMEOUT", 5)
     monkeypatch.setattr(runner, "GRAPHIFY_MODE", "full")
@@ -330,7 +390,43 @@ def job_data() -> dict[str, Any]:
 
 def fixture_count(key: str) -> int:
     graph = json.loads((FIXTURE_OUTPUT / "graph.json").read_text(encoding="utf-8"))
+    if key == "edges":
+        return len(graph.get("links", graph.get("edges", [])))
     return len(graph[key])
+
+
+def install_fake_run_graphify(
+    monkeypatch: pytest.MonkeyPatch,
+    build_output: Callable[[Path, Path], None] | None = None,
+    *,
+    expected_run_id: str = "run-1",
+) -> None:
+    async def fake_run_graphify(
+        run_id: str, input_dir: str, *, timeout: float | None = None
+    ) -> dict[str, Any]:
+        assert run_id == expected_run_id
+        assert timeout == 5
+        input_path = Path(input_dir)
+        output_dir = input_path.parent / "session" / "graphify-out"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        if build_output is None:
+            shutil.copytree(FIXTURE_OUTPUT, output_dir, dirs_exist_ok=True)
+        else:
+            build_output(input_path, output_dir)
+        return success_run_graphify_result(output_dir)
+
+    monkeypatch.setattr(runner.claude_runner, "run_graphify", fake_run_graphify)
+
+
+def success_run_graphify_result(output_dir: Path) -> dict[str, Any]:
+    return {
+        "status": "success",
+        "state": "SUCCEEDED",
+        "output_dir": str(output_dir),
+        "graph_json_path": str(output_dir / "graph.json"),
+        "wiki_output_path": str(output_dir / "wiki"),
+        "report_path": str(output_dir / "GRAPH_REPORT.md"),
+    }
 
 
 class FakeStorage:
