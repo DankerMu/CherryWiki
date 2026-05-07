@@ -36,7 +36,7 @@ def test_run_success_uploads_outputs_and_cleans_workdir(
     result = asyncio.run(runner.run(job_data()))
 
     assert result["status"] == "success"
-    assert result["schema_version"] == "1"
+    assert result["schema_version"] == "v1"
     assert result["graph_json_uri"] == (
         "s3://out-bucket/graphify-out/tenant-1/space-1/run-1/graph.json"
     )
@@ -350,6 +350,7 @@ def install_runner_config(
 ) -> None:
     monkeypatch.setenv("GRAPHIFY_RUNNER_MODE", "claude_code")
     monkeypatch.setenv("AGENT_ANTHROPIC_API_KEY", "test-agent-key")
+    monkeypatch.setenv("AGENT_ANTHROPIC_BASE_URL", "https://test-proxy.example.com")
     monkeypatch.setattr(runner, "GRAPHIFY_WORKDIR", str(workdir))
     monkeypatch.setattr(runner, "GRAPHIFY_TIMEOUT", 5)
     monkeypatch.setattr(runner, "GRAPHIFY_MODE", "full")
