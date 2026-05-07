@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import json
-import shutil
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from src import runner
-from tests.test_runner import FIXTURE_OUTPUT, fixture_count, install_runner_config
+from tests.test_runner import (
+    fixture_count,
+    install_fake_run_graphify,
+    install_runner_config,
+)
 
 
 def test_runner_integration_with_prepared_graphify_output(
@@ -25,10 +28,10 @@ def test_runner_integration_with_prepared_graphify_output(
     install_runner_config(monkeypatch, tmp_path)
     monkeypatch.setattr(runner, "MinioStorageClient", StorageFactory)
 
-    async def fake_execute(input_dir: Path, output_dir: Path, mode: str) -> None:
-        shutil.copytree(FIXTURE_OUTPUT, output_dir, dirs_exist_ok=True)
-
-    monkeypatch.setattr(runner.graphify_pipeline, "execute", fake_execute)
+    install_fake_run_graphify(
+        monkeypatch,
+        expected_run_id="run-integration",
+    )
 
     result = asyncio.run(
         runner.run(
