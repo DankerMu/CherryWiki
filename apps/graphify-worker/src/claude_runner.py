@@ -421,12 +421,22 @@ async def run_graphify(
     run_id: str, input_dir: Path | str, *, timeout: float | None = None
 ) -> dict[str, Any]:
     if os.environ.get("GRAPHIFY_RUNNER_MODE", "claude_code") == "disabled":
-        return {"status": "failed", "state": RunState.FAILED.value, "reason": "runner_disabled", "retryable": True}
+        return {
+            "status": "failed",
+            "state": RunState.FAILED.value,
+            "reason": "runner_disabled",
+            "retryable": True,
+        }
 
     if not os.environ.get("AGENT_ANTHROPIC_API_KEY") or not os.environ.get(
         "AGENT_ANTHROPIC_BASE_URL"
     ):
-        return {"status": "failed", "state": RunState.FAILED.value, "reason": "missing_api_key", "retryable": False}
+        return {
+            "status": "failed",
+            "state": RunState.FAILED.value,
+            "reason": "missing_api_key",
+            "retryable": False,
+        }
 
     preflight = preflight_check(input_dir)
     if not preflight.get("ok"):
@@ -753,6 +763,7 @@ def _find_graphify_skill() -> Path:
 
     try:
         import graphify  # type: ignore[import-not-found]
+
         candidates.append(Path(graphify.__file__).resolve().parent / "skill.md")
     except Exception:
         pass
@@ -762,9 +773,7 @@ def _find_graphify_skill() -> Path:
     except IndexError:
         repo_root = None
     if repo_root is not None:
-        candidates.append(
-            repo_root / "external" / "graphify" / "graphify" / "skill.md"
-        )
+        candidates.append(repo_root / "external" / "graphify" / "graphify" / "skill.md")
 
     for candidate in candidates:
         if candidate.is_file():
