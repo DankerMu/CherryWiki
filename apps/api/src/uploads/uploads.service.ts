@@ -2,6 +2,7 @@ import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { JobRepository, job_events, jobs, type JobRow } from '@cherrygraph/job-core';
 import {
   ErrorCode,
+  graphifyRuns,
   group_members,
   sourceDocumentMetadataSchema,
   space_permissions,
@@ -602,26 +603,61 @@ export class UploadsService {
       (item) => item.status === 'parsed' && normalizeProcessingStrategy(asJsonRecord(item.metadata_json).processing_strategy) === 'immediate',
     );
     const sourceDocumentIds = readyDocuments.length === 0 ? [document.id] : readyDocuments.map((item) => item.id);
-    const job = await JobRepository.create(this.db, {
-      tenant_id: tenantId,
-      space_id: document.space_id,
-      queue_name: UPLOAD_JOB_QUEUES.GRAPHIFY,
-      type: UPLOAD_JOB_TYPES.GRAPHIFY,
-      priority: 100,
-      payload_json: {
-        source_document_ids: sourceDocumentIds,
-        batch_id: batchId,
-      },
-      idempotency_key: `graphify:${tenantId}:${document.space_id}:${batchId}`,
-      created_by: context.actorUserId ?? context.userId ?? null,
+    const graphifyDocuments = readyDocuments.length === 0 ? [document] : readyDocuments;
+    const inputUris = graphifyDocuments.map(readParsedUriFromMetadata).filter((uri): uri is string => uri !== undefined);
+    const runId = randomUUID();
+    const createdBy = context.actorUserId ?? context.userId ?? null;
+    const now = new Date();
+    const job = await this.db.transaction(async (tx) => {
+      await tx
+        .insert(graphifyRuns)
+        .values({
+          id: runId,
+          tenant_id: tenantId,
+          space_id: document.space_id,
+          trigger_type: 'upload',
+          mode: 'standard',
+          status: 'pending',
+          schema_version: 'v1',
+          stats_json: {
+            input_scope: { source_document_ids: sourceDocumentIds },
+            batch_id: batchId,
+            input_uri_count: inputUris.length,
+          },
+          created_by: createdBy,
+          created_at: now,
+        });
+
+      const createdJob = await JobRepository.create(tx, {
+        tenant_id: tenantId,
+        space_id: document.space_id,
+        queue_name: UPLOAD_JOB_QUEUES.GRAPHIFY,
+        type: UPLOAD_JOB_TYPES.GRAPHIFY,
+        priority: 100,
+        payload_json: {
+          tenant_id: tenantId,
+          space_id: document.space_id,
+          run_id: runId,
+          mode: 'standard',
+          input_uris: inputUris,
+          source_document_ids: sourceDocumentIds,
+          batch_id: batchId,
+        },
+        idempotency_key: `graphify:${tenantId}:${document.space_id}:${batchId}`,
+        created_by: createdBy,
+      });
+
+      await tx.update(graphifyRuns).set({ job_id: createdJob.id }).where(eq(graphifyRuns.id, runId));
+
+      return createdJob;
     });
 
-    for (const item of readyDocuments.length === 0 ? [document] : readyDocuments) {
+    for (const item of graphifyDocuments) {
       if (item.status === 'parsed') {
         await this.sourceDocumentRepository.updateStatus(item.id, 'graphify_pending', {
           metadata_json: {
             ...asJsonRecord(item.metadata_json),
-            graphify_run_id: job.id,
+            graphify_run_id: runId,
           },
         });
       }
@@ -1098,6 +1134,12 @@ function hasImplicitSpaceAccess(role: string | undefined): boolean {
 
 function asJsonRecord(value: unknown): JsonRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as JsonRecord : {};
+}
+
+function readParsedUriFromMetadata(document: SourceDocumentRow): string | undefined {
+  const metadata = asJsonRecord(document.metadata_json);
+  const parsedUri = metadata.parsed_uri ?? metadata.parsed_md_uri ?? metadata.parsed_markdown_uri;
+  return typeof parsedUri === 'string' && parsedUri.trim().length > 0 ? parsedUri : undefined;
 }
 
 function isArchiveStorageUri(storageUri: string): boolean {
