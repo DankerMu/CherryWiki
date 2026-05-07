@@ -2,6 +2,36 @@
 
 > 生成时间：2026-05-02 | 基于 graphify 源码实际验证
 
+## 2026-05-07 决策更新：graphify-worker 通过 Claude Code 执行 /graphify
+
+### 背景
+
+原 §6 决策"graphify-worker 不使用 Claude Code"已被推翻。
+
+### 新决策
+
+graphify-worker 容器内安装 Node.js 20 + Claude Code CLI + graphify Python 包。Worker 通过 `claude_runner.py` spawn Claude Code 子进程，使用 `--bare -p --input-format stream-json --output-format stream-json` 双向协议执行 `/graphify ./input --wiki`。
+
+### 变更摘要
+
+- `graphify_pipeline.py` 已删除（直接调 LLM API 的简化实现）
+- 新增 `claude_runner.py`：隔离 HOME/workdir、settings 生成、env allowlist、skill 安装、stream-json 解析、多轮状态机、超时/预检
+- `runner.py` 调用 `claude_runner.run_graphify()`
+- Job 协议修复：claim/progress/complete/fail DTO
+- 上传 handoff 统一创建 Graphify run + input_uris
+- 模型通过代理网关路由到 deepseek-v4-flash
+
+### 参考
+
+- PR #177 (Dockerfile + env)
+- PR #178 (claude_runner.py)
+- PR #179 (runner.py rewrite)
+- PR #180 (job client protocol)
+- PR #181 (API handoff)
+- `openspec/changes/graphify-claude-code-pipeline/`
+
+> 本节是 2026-05-07 后的当前决策；下方 2026-05-02 勘误中的 Python API + 直接 LLM 调用方案仅作为历史记录保留。
+
 ## 1. 勘误背景
 
 原设计文档多处将 `graphify --wiki` 视为 CLI binary 直接支持的命令。经源码验证（pinned commit `7359cdac` 及最新 `517f3c89`），发现原设计存在根本性架构误解。
