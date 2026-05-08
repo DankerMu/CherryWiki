@@ -16,6 +16,7 @@ export class AgentTestDb {
 }
 
 export type MockAgentProcess = EventEmitter & {
+  stdin: PassThrough;
   stdout: PassThrough;
   stderr: PassThrough;
   exitCode: number | null;
@@ -25,12 +26,14 @@ export type MockAgentProcess = EventEmitter & {
 
 export function createMockProcess(): MockAgentProcess {
   const proc = new EventEmitter() as MockAgentProcess;
+  proc.stdin = new PassThrough();
   proc.stdout = new PassThrough();
   proc.stderr = new PassThrough();
   proc.exitCode = null;
   proc.kill = vi.fn(() => true);
   proc.close = (code: number | null = 0, signal: NodeJS.Signals | null = null) => {
     proc.exitCode = code;
+    proc.stdin.end();
     proc.stdout.end();
     proc.stderr.end();
     proc.emit('close', code, signal);
