@@ -143,7 +143,7 @@ function ModelsPage() {
       if (result.reachable) {
         void message.success(`${t('admin.models.reachable')} (${result.latency_ms} ms)`);
       } else {
-        void message.warning(result.error ?? 'Failed');
+        void message.warning(result.error ?? t('common.status.failed'));
       }
     } catch (err) {
       void message.error(getErrorMessage(err));
@@ -212,7 +212,7 @@ function ModelsPage() {
       render: (_: unknown, model: AdminModel) => (
         <Typography.Text type="secondary">
           {model.config.base_url ?? t('admin.models.defaultEndpoint')}
-          {model.config.max_tokens !== null ? `; ${model.config.max_tokens} max tokens` : ''}
+          {model.config.max_tokens !== null ? `; ${model.config.max_tokens} ${t('admin.models.form.maxTokens').toLowerCase()}` : ''}
         </Typography.Text>
       ),
     },
@@ -226,7 +226,7 @@ function ModelsPage() {
         }
         return (
           <Tag color={testResult.reachable ? 'green' : 'red'}>
-            {testResult.reachable ? t('admin.models.reachable') : (testResult.error ?? 'Failed')} ({testResult.latency_ms} ms)
+            {testResult.reachable ? t('admin.models.reachable') : (testResult.error ?? t('common.status.failed'))} ({testResult.latency_ms} ms)
           </Tag>
         );
       },

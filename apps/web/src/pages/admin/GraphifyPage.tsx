@@ -15,9 +15,9 @@ import {
 } from '../../lib/graphifyApi';
 import {
   GRAPHIFY_PAGE_SIZE,
-  formatGraphifyStats,
-  formatRunDuration,
+  formatCount,
   getFirstItemIndex,
+  getGraphifyStat,
   getLastItemIndex,
   getQuarantineType,
   isGraphifyRunActive,
@@ -186,7 +186,7 @@ function GraphifyPage() {
       key: 'timing',
       render: (_: unknown, run: GraphifyRun) => (
         <div>
-          <Typography.Text strong>{formatRunDuration(run)}</Typography.Text>
+          <Typography.Text strong>{formatRunDurationI18n(run, t)}</Typography.Text>
           <br />
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             {t('admin.graphify.created', { date: formatDate(run.created_at) })}
@@ -197,7 +197,7 @@ function GraphifyPage() {
     {
       title: t('admin.graphify.columns.stats'),
       key: 'stats',
-      render: (_: unknown, run: GraphifyRun) => formatGraphifyStats(run),
+      render: (_: unknown, run: GraphifyRun) => formatGraphifyStatsI18n(run, t),
     },
     {
       title: t('admin.graphify.columns.actions'),
@@ -301,6 +301,35 @@ function GraphifyPage() {
       />
     </>
   );
+}
+
+function formatGraphifyStatsI18n(run: GraphifyRun, t: (key: string) => string): string {
+  return [
+    `${t('admin.graphify.stats.nodes')} ${formatCount(getGraphifyStat(run, 'node_count'))}`,
+    `${t('admin.graphify.stats.edges')} ${formatCount(getGraphifyStat(run, 'edge_count'))}`,
+    `${t('admin.graphify.stats.wiki')} ${formatCount(getGraphifyStat(run, 'wiki_page_count'))}`,
+  ].join(' / ');
+}
+
+function formatRunDurationI18n(run: GraphifyRun, t: (key: string) => string): string {
+  if (run.started_at === null) {
+    return run.status === 'pending' ? t('common.status.pending') : t('admin.graphify.timing.notStarted');
+  }
+
+  const startMs = new Date(run.started_at).getTime();
+  if (Number.isNaN(startMs)) return t('admin.graphify.timing.unavailable');
+
+  const endMs = run.completed_at !== null
+    ? new Date(run.completed_at).getTime()
+    : run.status === 'running' ? Date.now() : null;
+
+  if (endMs === null || Number.isNaN(endMs)) return t('admin.graphify.timing.unavailable');
+
+  const seconds = Math.round((endMs - startMs) / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes}m ${remainingSeconds}s`;
 }
 
 export default requireAdminPage(GraphifyPage);

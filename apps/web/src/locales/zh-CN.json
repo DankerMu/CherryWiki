@@ -438,6 +438,10 @@
         "nodes": "节点",
         "edges": "边",
         "wiki": "Wiki"
+      },
+      "timing": {
+        "notStarted": "未开始",
+        "unavailable": "不可用"
       }
     }
   }
