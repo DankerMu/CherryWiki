@@ -1,21 +1,17 @@
+import { ArrowLeftOutlined, HistoryOutlined } from '@ant-design/icons';
+import { Alert, Button, Spin, Tag, Typography } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
-import {
-  ErrorBanner,
-  LoadingState,
-  PageHeader,
-  formatDate,
-  getErrorMessage,
-} from '../../components/adminUi.js';
-import SpaceNav from '../../components/SpaceNav.js';
-import { ApiError } from '../../lib/api.js';
-import { useAuth } from '../../lib/auth.js';
-import { wikiApi, type WikiPage, type WikiPageContent } from '../../lib/wikiApi.js';
-import NotFound from '../NotFound.js';
-import { WikiStatusBadge } from './wikiUi.js';
+import { formatDate, getErrorMessage } from '../../components/adminUi';
+import { ApiError } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
+import { wikiApi, type WikiPage, type WikiPageContent } from '../../lib/wikiApi';
+import NotFound from '../NotFound';
+import { WikiStatusBadge } from './wikiUi';
 
 type WikiPageDetailProps = {
   spaceId: string;
@@ -24,6 +20,7 @@ type WikiPageDetailProps = {
 };
 
 export default function WikiPageDetail({ spaceId, pageId, versionId }: WikiPageDetailProps) {
+  const { t } = useTranslation();
   const { hasSpacePermission } = useAuth();
   const [page, setPage] = useState<WikiPage | null>(null);
   const [content, setContent] = useState<WikiPageContent | null>(null);
@@ -78,11 +75,7 @@ export default function WikiPageDetail({ spaceId, pageId, versionId }: WikiPageD
   }
 
   if (notFound) {
-    return (
-      <main className="admin-content wiki-page">
-        <NotFound />
-      </main>
-    );
+    return <NotFound />;
   }
 
   const canPublish =
@@ -91,50 +84,63 @@ export default function WikiPageDetail({ spaceId, pageId, versionId }: WikiPageD
     page.current_version_id !== null &&
     hasSpacePermission(spaceId, 'wiki:publish');
 
-  return (
-    <main className="admin-content wiki-page">
-      <PageHeader
-        title={page?.title ?? 'Wiki Page'}
-        {...(page !== null
-          ? {
-              description: `${page.status === 'draft' ? 'Draft' : page.status === 'published' ? 'Published' : 'Archived'} page updated ${formatDate(page.updated_at)}`,
-            }
-          : {})}
-        actions={
-          <>
-            <SpaceNav spaceId={spaceId} />
-            <Link className="button button-secondary" to={`/spaces/${encodeURIComponent(spaceId)}/wiki`}>
-              Back to Wiki
-            </Link>
-            <Link className="button button-secondary" to={`/spaces/${encodeURIComponent(spaceId)}/wiki/${encodeURIComponent(pageId)}/history`}>
-              History
-            </Link>
-            {canPublish ? (
-              <button
-                className="button button-primary"
-                type="button"
-                disabled={isPublishing}
-                onClick={() => {
-                  void publishCurrentVersion();
-                }}
-              >
-                {isPublishing ? 'Publishing...' : 'Publish'}
-              </button>
-            ) : null}
-          </>
-        }
-      />
+  const statusDescription =
+    page !== null
+      ? page.status === 'draft'
+        ? t('wiki.detail.statusDraft')
+        : page.status === 'published'
+          ? t('wiki.detail.statusPublished')
+          : t('wiki.detail.statusArchived')
+      : '';
 
-      <ErrorBanner error={error} />
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <Typography.Title level={4} style={{ margin: 0 }}>
+            {page?.title ?? t('wiki.detail.title')}
+          </Typography.Title>
+          {page !== null && (
+            <Typography.Text type="secondary">
+              {statusDescription} {t('wiki.detail.updatedAt', { date: formatDate(page.updated_at) })}
+            </Typography.Text>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Link to={`/spaces/${encodeURIComponent(spaceId)}/wiki`}>
+            <Button icon={<ArrowLeftOutlined />}>{t('wiki.detail.backToWiki')}</Button>
+          </Link>
+          <Link to={`/spaces/${encodeURIComponent(spaceId)}/wiki/${encodeURIComponent(pageId)}/history`}>
+            <Button icon={<HistoryOutlined />}>{t('wiki.detail.history')}</Button>
+          </Link>
+          {canPublish && (
+            <Button
+              type="primary"
+              loading={isPublishing}
+              onClick={() => { void publishCurrentVersion(); }}
+            >
+              {t('wiki.detail.publish')}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {error !== null && (
+        <Alert message={error} type="error" showIcon style={{ marginBottom: 16 }} />
+      )}
 
       {isLoading ? (
-        <LoadingState label="Loading wiki page..." />
+        <Spin tip={t('wiki.detail.loadingPage')}><div style={{ minHeight: 200 }} /></Spin>
       ) : page !== null && content !== null ? (
-        <article className="detail-panel wiki-detail" aria-label="Wiki page content">
-          <div className="wiki-detail-meta">
+        <div style={{ background: 'var(--ant-color-bg-container, #fff)', padding: 24, borderRadius: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <WikiStatusBadge status={page.status} />
-            <span>Updated {formatDate(page.updated_at)}</span>
-            {versionId !== undefined && versionId.length > 0 ? <span>Version {content.version_id}</span> : null}
+            <Typography.Text type="secondary">
+              {t('wiki.detail.updatedAt', { date: formatDate(page.updated_at) })}
+            </Typography.Text>
+            {versionId !== undefined && versionId.length > 0 && (
+              <Tag>{t('wiki.detail.version', { id: content.version_id })}</Tag>
+            )}
           </div>
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
@@ -145,10 +151,10 @@ export default function WikiPageDetail({ spaceId, pageId, versionId }: WikiPageD
           >
             {content.content_markdown}
           </ReactMarkdown>
-        </article>
+        </div>
       ) : (
-        <div className="muted-state">Wiki page content is unavailable.</div>
+        <Typography.Text type="secondary">{t('wiki.detail.unavailable')}</Typography.Text>
       )}
-    </main>
+    </>
   );
 }

@@ -1,7 +1,9 @@
+import { ReloadOutlined } from '@ant-design/icons';
+import { Alert, Button, Spin, Typography } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Navigate, useParams } from 'react-router';
-import SpaceNav from '../../components/SpaceNav';
-import { ErrorBanner, LoadingState, PageHeader, getErrorMessage } from '../../components/adminUi';
+import { getErrorMessage } from '../../components/adminUi';
 import { useUploadPolling } from '../../hooks/useUploadPolling';
 import { type ApiMeta, api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
@@ -19,6 +21,7 @@ const DEFAULT_PAGINATION: NonNullable<ApiMeta['pagination']> = {
 };
 
 export default function UploadCenter() {
+  const { t } = useTranslation();
   const { spaceId = '' } = useParams();
   const { accessToken, isAuthenticated } = useAuth();
   const [uploads, setUploads] = useState<UploadItem[]>([]);
@@ -162,29 +165,22 @@ export default function UploadCenter() {
   }
 
   return (
-    <main className="admin-content upload-page">
-      <PageHeader
-        title="Upload Center"
-        description="Upload files and URLs, then track processing status for this space."
-        actions={
-          <>
-            <SpaceNav spaceId={spaceId} />
-            <button
-              className="button button-secondary"
-              type="button"
-              onClick={() => {
-                void loadUploads();
-              }}
-            >
-              Refresh
-            </button>
-          </>
-        }
-      />
+    <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <Typography.Title level={4} style={{ margin: 0 }}>{t('upload.title')}</Typography.Title>
+          <Typography.Text type="secondary">{t('upload.description')}</Typography.Text>
+        </div>
+        <Button icon={<ReloadOutlined />} onClick={() => { void loadUploads(); }}>
+          {t('common.action.refresh')}
+        </Button>
+      </div>
 
-      <ErrorBanner error={error} />
+      {error !== null && (
+        <Alert message={error} type="error" showIcon closable style={{ marginBottom: 16 }} onClose={() => setError(null)} />
+      )}
 
-      <div className="upload-center-grid">
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
         <FileUploadZone
           spaceId={spaceId}
           accessToken={accessToken}
@@ -209,7 +205,7 @@ export default function UploadCenter() {
       </div>
 
       {isLoading ? (
-        <LoadingState label="Loading uploads..." />
+        <Spin tip={t('upload.loading')}><div style={{ minHeight: 200 }} /></Spin>
       ) : (
         <UploadList
           uploads={uploads}
@@ -229,30 +225,29 @@ export default function UploadCenter() {
         />
       )}
 
-      {selectedUpload !== null ? (
-        <UploadDetail
-          upload={selectedUpload}
-          status={selectedStatus}
-          onClose={() => {
-            setSelectedUploadId(null);
-            setSelectedStatus(null);
-          }}
-          onReprocessed={(response) => {
-            mergeStatuses([
-              {
-                source_document_id: response.source_document_id,
-                status: response.status,
-                job_id: response.job_id,
-                job_status: null,
-                progress_percent: null,
-                error_json: null,
-              },
-            ]);
-            void loadUploads(true);
-            void loadUploadStatus(response.source_document_id);
-          }}
-        />
-      ) : null}
-    </main>
+      <UploadDetail
+        open={selectedUpload !== null}
+        upload={selectedUpload}
+        status={selectedStatus}
+        onClose={() => {
+          setSelectedUploadId(null);
+          setSelectedStatus(null);
+        }}
+        onReprocessed={(response) => {
+          mergeStatuses([
+            {
+              source_document_id: response.source_document_id,
+              status: response.status,
+              job_id: response.job_id,
+              job_status: null,
+              progress_percent: null,
+              error_json: null,
+            },
+          ]);
+          void loadUploads(true);
+          void loadUploadStatus(response.source_document_id);
+        }}
+      />
+    </>
   );
 }

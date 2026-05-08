@@ -1,6 +1,7 @@
+import { InboxOutlined } from '@ant-design/icons';
+import { Card, Progress, Tag, Typography, Upload } from 'antd';
 import { useCallback, useState } from 'react';
-import { useDropzone } from 'react-dropzone';
-import ProgressBar from '../../components/ProgressBar';
+import { useTranslation } from 'react-i18next';
 import {
   MAX_UPLOAD_SIZE_BYTES,
   SUPPORTED_UPLOAD_EXTENSIONS,
@@ -35,6 +36,7 @@ type FileUploadZoneProps = {
 let uploadAttemptCounter = 0;
 
 export default function FileUploadZone({ spaceId, accessToken, onUploaded }: FileUploadZoneProps) {
+  const { t } = useTranslation();
   const [attempts, setAttempts] = useState<UploadAttempt[]>([]);
 
   const updateAttempt = useCallback((id: string, patch: Partial<UploadAttempt>) => {
@@ -45,7 +47,7 @@ export default function FileUploadZone({ spaceId, accessToken, onUploaded }: Fil
     (files: File[]) => {
       const nextUploads = files.map((file) => ({
         file,
-        attempt: validateFileAttempt(file, createFileAttemptKey(file)),
+        attempt: validateFileAttempt(file, createFileAttemptKey(file), t),
       }));
       setAttempts((current) => [...nextUploads.map((upload) => upload.attempt), ...current]);
 
@@ -78,75 +80,86 @@ export default function FileUploadZone({ spaceId, accessToken, onUploaded }: Fil
           });
       }
     },
-    [accessToken, onUploaded, spaceId, updateAttempt],
+    [accessToken, onUploaded, spaceId, t, updateAttempt],
   );
 
-  const onDrop = useCallback(
-    (acceptedFiles: File[]) => {
-      uploadFiles(acceptedFiles);
-    },
-    [uploadFiles],
-  );
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    multiple: true,
-    noKeyboard: false,
-    onDrop,
-  });
+  function handleBeforeUpload(file: File, fileList: File[]): false {
+    // Only trigger once for a batch by checking if this is the last file
+    if (file === fileList[fileList.length - 1]) {
+      uploadFiles(fileList);
+    }
+    return false;
+  }
 
   return (
-    <section className="detail-panel upload-panel" aria-label="File upload">
-      <div className="detail-panel-header">
-        <div>
-          <h2>Files</h2>
-          <p>Drop files here or choose them from disk.</p>
-        </div>
-      </div>
+    <Card
+      title={t('upload.file.title')}
+      size="small"
+      styles={{ body: { padding: 16 } }}
+    >
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+        {t('upload.file.description')}
+      </Typography.Paragraph>
 
-      <div
-        {...getRootProps({
-          className: isDragActive ? 'upload-dropzone active' : 'upload-dropzone',
-        })}
+      <Upload.Dragger
+        multiple
+        showUploadList={false}
+        beforeUpload={handleBeforeUpload}
+        style={{ marginBottom: attempts.length > 0 ? 16 : 0 }}
       >
-        <input {...getInputProps({ 'aria-label': 'Choose files for upload' })} />
-        <strong>{isDragActive ? 'Release to upload' : 'Drop files or click to select'}</strong>
-        <span>
-          Supported: {SUPPORTED_UPLOAD_EXTENSIONS.join(', ')}. Limit: {formatFileSize(MAX_UPLOAD_SIZE_BYTES)} per
-          file.
-        </span>
-      </div>
+        <p className="ant-upload-drag-icon"><InboxOutlined /></p>
+        <p className="ant-upload-text">{t('upload.file.dropIdle')}</p>
+        <p className="ant-upload-hint">
+          {t('upload.file.supported', {
+            extensions: SUPPORTED_UPLOAD_EXTENSIONS.join(', '),
+            limit: formatFileSize(MAX_UPLOAD_SIZE_BYTES),
+          })}
+        </p>
+      </Upload.Dragger>
 
-      {attempts.length > 0 ? (
-        <div className="upload-attempt-list" aria-label="Upload results">
+      {attempts.length > 0 && (
+        <div style={{ marginTop: 12 }}>
           {attempts.map((attempt) => (
-            <article className="upload-attempt" key={attempt.id}>
-              <div className="upload-attempt-header">
+            <div key={attempt.id} style={{ marginBottom: 8, padding: '8px 0', borderBottom: '1px solid var(--ant-color-border-secondary, #f0f0f0)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                 <div>
-                  <strong>{attempt.filename}</strong>
-                  <span>{formatFileSize(attempt.sizeBytes)}</span>
+                  <Typography.Text strong>{attempt.filename}</Typography.Text>
+                  <Typography.Text type="secondary" style={{ marginLeft: 8 }}>{formatFileSize(attempt.sizeBytes)}</Typography.Text>
                 </div>
-                {renderAttemptState(attempt)}
+                <AttemptTag status={attempt.status} />
               </div>
-              {attempt.status === 'uploading' ? (
-                <ProgressBar percent={attempt.progress} stage="Uploading" size="sm" />
-              ) : null}
-              {attempt.status === 'success' && attempt.sourceDocumentId !== undefined ? (
-                <p className="upload-result upload-result-success">✓ source_document_id: {attempt.sourceDocumentId}</p>
-              ) : null}
-              {attempt.status === 'error' ? (
-                <p className="upload-result upload-result-error" role="alert">
-                  <strong>{attempt.errorCode ?? 'UPLOAD_ERROR'}</strong>: {attempt.errorMessage ?? 'Upload failed'}
-                </p>
-              ) : null}
-            </article>
+              {attempt.status === 'uploading' && (
+                <Progress percent={attempt.progress} size="small" />
+              )}
+              {attempt.status === 'success' && attempt.sourceDocumentId !== undefined && (
+                <Typography.Text type="success">source_document_id: {attempt.sourceDocumentId}</Typography.Text>
+              )}
+              {attempt.status === 'error' && (
+                <Typography.Text type="danger">
+                  <strong>{attempt.errorCode ?? 'UPLOAD_ERROR'}</strong>: {attempt.errorMessage ?? t('upload.attempt.uploadError')}
+                </Typography.Text>
+              )}
+            </div>
           ))}
         </div>
-      ) : null}
-    </section>
+      )}
+    </Card>
   );
 }
 
-function validateFileAttempt(file: File, id: string): UploadAttempt {
+function AttemptTag({ status }: { status: UploadAttemptStatus }) {
+  const { t } = useTranslation();
+  const map: Record<UploadAttemptStatus, { color: string; label: string }> = {
+    success: { color: 'green', label: t('upload.attempt.uploaded') },
+    error: { color: 'red', label: t('upload.attempt.failed') },
+    uploading: { color: 'blue', label: t('upload.attempt.uploading') },
+    queued: { color: 'orange', label: t('upload.attempt.queued') },
+  };
+  const entry = map[status];
+  return <Tag color={entry.color}>{entry.label}</Tag>;
+}
+
+function validateFileAttempt(file: File, id: string, t: (key: string) => string): UploadAttempt {
   if (!isSupportedUploadFile(file.name)) {
     return {
       id,
@@ -155,7 +168,7 @@ function validateFileAttempt(file: File, id: string): UploadAttempt {
       status: 'error',
       progress: 0,
       errorCode: 'UNSUPPORTED_FILE_TYPE',
-      errorMessage: 'Unsupported file type.',
+      errorMessage: t('upload.attempt.unsupportedType'),
     };
   }
 
@@ -167,7 +180,7 @@ function validateFileAttempt(file: File, id: string): UploadAttempt {
       status: 'error',
       progress: 0,
       errorCode: 'FILE_TOO_LARGE',
-      errorMessage: 'File exceeds the 200 MB upload limit.',
+      errorMessage: t('upload.attempt.fileTooLarge'),
     };
   }
 
@@ -183,22 +196,6 @@ function validateFileAttempt(file: File, id: string): UploadAttempt {
 function createFileAttemptKey(file: File): string {
   uploadAttemptCounter += 1;
   return `${file.name}-${file.size}-${file.lastModified}-${uploadAttemptCounter}`;
-}
-
-function renderAttemptState(attempt: UploadAttempt) {
-  if (attempt.status === 'success') {
-    return <span className="upload-state upload-state-success">Uploaded</span>;
-  }
-
-  if (attempt.status === 'error') {
-    return <span className="upload-state upload-state-error">Failed</span>;
-  }
-
-  if (attempt.status === 'uploading') {
-    return <span className="upload-state upload-state-info">Uploading</span>;
-  }
-
-  return <span className="upload-state upload-state-info">Queued</span>;
 }
 
 function uploadFile({

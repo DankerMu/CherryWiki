@@ -1,16 +1,9 @@
+import { ArrowLeftOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, Descriptions, Popconfirm, Progress, Spin, Statistic, Typography } from 'antd';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router';
-import {
-  EmptyState,
-  ErrorBanner,
-  LoadingState,
-  PageHeader,
-  StatusBadge,
-  formatDate,
-  formatLabel,
-  getErrorMessage,
-} from '../components/adminUi.js';
-import SpaceNav from '../components/SpaceNav.js';
+import { formatDate, formatLabel, getErrorMessage } from '../components/adminUi';
 import {
   cancelGraphifyRun,
   getGraphifyReport,
@@ -20,23 +13,24 @@ import {
   type GraphifyReport,
   type GraphifyRun,
   type GraphifySummary,
-} from '../lib/graphifyApi.js';
+} from '../lib/graphifyApi';
 import {
   GraphifyStatusCell,
   asRecord,
   formatCount,
   formatJson,
-  formatRunDuration,
+  formatRunDurationWithT,
   getGraphifyStat,
   getQuarantineType,
   isGraphifyRunActive,
   isQuarantined,
-} from './graphifyUi.js';
-import NotFound from './NotFound.js';
+} from './graphifyUi';
+import NotFound from './NotFound';
 
 const GRAPHIFY_REFRESH_INTERVAL_MS = 5_000;
 
 export default function GraphifyRunDetailPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { spaceId = '', runId = '' } = useParams();
   const [run, setRun] = useState<GraphifyRun | null>(null);
@@ -113,9 +107,7 @@ export default function GraphifyRunDetailPage() {
   }
 
   async function cancelRun(): Promise<void> {
-    if (run === null || !window.confirm(`Cancel Graphify run ${run.run_id}?`)) {
-      return;
-    }
+    if (run === null) return;
 
     setIsCancelling(true);
     setError(null);
@@ -132,9 +124,7 @@ export default function GraphifyRunDetailPage() {
   }
 
   async function retryRun(): Promise<void> {
-    if (run === null || !window.confirm(`Retry Graphify run ${run.run_id}?`)) {
-      return;
-    }
+    if (run === null) return;
 
     setIsRetrying(true);
     setError(null);
@@ -153,169 +143,137 @@ export default function GraphifyRunDetailPage() {
   const showRetryButton = run !== null && run.status === 'failed';
 
   return (
-    <main className="admin-content graphify-page">
-      <PageHeader
-        title="Graphify Run Detail"
-        description="Inspect Graphify metadata, import statistics, reports, and failures."
-        actions={
-          <>
-            <SpaceNav spaceId={spaceId} />
-            <button
-              className="button button-secondary"
-              type="button"
-              onClick={() => {
-                void navigate(`/spaces/${encodeURIComponent(spaceId)}/graphify`);
-              }}
+    <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <Typography.Title level={4} style={{ margin: 0 }}>{t('graphify.space.detail.title')}</Typography.Title>
+          <Typography.Text type="secondary">{t('graphify.space.detail.description')}</Typography.Text>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Button
+            icon={<ArrowLeftOutlined />}
+            onClick={() => { void navigate(`/spaces/${encodeURIComponent(spaceId)}/graphify`); }}
+          >
+            {t('graphify.space.detail.backToGraphify')}
+          </Button>
+          {showCancelButton && (
+            <Popconfirm
+              title={t('graphify.space.detail.confirmCancel')}
+              onConfirm={() => { void cancelRun(); }}
             >
-              Back to Graphify
-            </button>
-            {showCancelButton ? (
-              <button
-                className="button button-danger"
-                type="button"
-                disabled={isCancelling}
-                onClick={() => {
-                  void cancelRun();
-                }}
-              >
-                {isCancelling ? 'Cancelling...' : 'Cancel Run'}
-              </button>
-            ) : null}
-            {showRetryButton ? (
-              <button
-                className="button button-secondary"
-                type="button"
-                disabled={isRetrying}
-                onClick={() => {
-                  void retryRun();
-                }}
-              >
-                {isRetrying ? 'Retrying...' : 'Retry Run'}
-              </button>
-            ) : null}
-          </>
-        }
-      />
+              <Button danger loading={isCancelling}>
+                {t('graphify.space.detail.cancelRun')}
+              </Button>
+            </Popconfirm>
+          )}
+          {showRetryButton && (
+            <Popconfirm
+              title={t('graphify.space.detail.confirmRetry')}
+              onConfirm={() => { void retryRun(); }}
+            >
+              <Button loading={isRetrying}>
+                {t('graphify.space.detail.retryRun')}
+              </Button>
+            </Popconfirm>
+          )}
+        </div>
+      </div>
 
-      <ErrorBanner error={error} />
+      {error !== null && (
+        <Alert message={error} type="error" showIcon style={{ marginBottom: 16 }} />
+      )}
 
       {isLoading ? (
-        <LoadingState label="Loading graphify run details..." />
+        <Spin tip={t('graphify.space.detail.loading')}><div style={{ minHeight: 200 }} /></Spin>
       ) : run === null ? (
-        <EmptyState label="Graphify run details are unavailable." />
+        <Typography.Text type="secondary">{t('graphify.space.detail.unavailable')}</Typography.Text>
       ) : (
         <>
-          <section className="detail-panel" aria-label="Graphify run overview">
-            <div className="detail-panel-header">
+          <Card style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div>
-                <h2>{run.run_id}</h2>
-                <p>{run.space_id}</p>
+                <Typography.Title level={5} style={{ margin: 0 }}>{run.run_id}</Typography.Title>
+                <Typography.Text type="secondary">{run.space_id}</Typography.Text>
               </div>
               <GraphifyStatusCell run={run} />
             </div>
 
-            <div className="settings-grid">
-              <div>
-                <span className="eyebrow">Run ID</span>
-                <code>{run.run_id}</code>
-              </div>
-              <div>
-                <span className="eyebrow">Status</span>
-                <StatusBadge status={run.status} />
-              </div>
-              <div>
-                <span className="eyebrow">Mode</span>
-                <span className="job-meta-value">{formatLabel(run.mode)}</span>
-              </div>
-              <div>
-                <span className="eyebrow">Trigger</span>
-                <span className="job-meta-value">{formatLabel(run.trigger_type)}</span>
-              </div>
-              <div>
-                <span className="eyebrow">Duration</span>
-                <span className="job-meta-value">{formatRunDuration(run)}</span>
-              </div>
-              <div>
-                <span className="eyebrow">Created at</span>
-                <span className="job-meta-value">{formatDate(run.created_at)}</span>
-              </div>
-              <div>
-                <span className="eyebrow">Started at</span>
-                <span className="job-meta-value">{formatDate(run.started_at)}</span>
-              </div>
-              <div>
-                <span className="eyebrow">Completed at</span>
-                <span className="job-meta-value">{formatDate(run.completed_at)}</span>
-              </div>
-              <div>
-                <span className="eyebrow">Input scope</span>
-                <span className="job-meta-value">{formatInputScope(run)}</span>
-              </div>
-            </div>
-          </section>
+            <Descriptions column={2} bordered size="small">
+              <Descriptions.Item label={t('graphify.space.detail.overview.runId')}><Typography.Text copyable>{run.run_id}</Typography.Text></Descriptions.Item>
+              <Descriptions.Item label={t('graphify.space.detail.overview.status')}><GraphifyStatusCell run={run} /></Descriptions.Item>
+              <Descriptions.Item label={t('graphify.space.detail.overview.mode')}>{formatLabel(run.mode)}</Descriptions.Item>
+              <Descriptions.Item label={t('graphify.space.detail.overview.trigger')}>{formatLabel(run.trigger_type)}</Descriptions.Item>
+              <Descriptions.Item label={t('graphify.space.detail.overview.duration')}>{formatRunDurationWithT(run, t)}</Descriptions.Item>
+              <Descriptions.Item label={t('graphify.space.detail.overview.createdAt')}>{formatDate(run.created_at)}</Descriptions.Item>
+              <Descriptions.Item label={t('graphify.space.detail.overview.startedAt')}>{formatDate(run.started_at)}</Descriptions.Item>
+              <Descriptions.Item label={t('graphify.space.detail.overview.completedAt')}>{formatDate(run.completed_at)}</Descriptions.Item>
+              <Descriptions.Item label={t('graphify.space.detail.overview.inputScope')} span={2}>{formatInputScope(run, t)}</Descriptions.Item>
+            </Descriptions>
+          </Card>
 
-          <section className="detail-panel" aria-label="Graphify run stats">
-            <div className="detail-panel-header">
-              <div>
-                <h2>Stats</h2>
-                <p>Imported graph and wiki output counts.</p>
-              </div>
-            </div>
-            <div className="settings-grid">
-              <StatCard label="Nodes" value={summary?.summary.node_count ?? getGraphifyStat(run, 'node_count')} />
-              <StatCard label="Edges" value={summary?.summary.edge_count ?? getGraphifyStat(run, 'edge_count')} />
-              <StatCard
-                label="Communities"
-                value={summary?.summary.community_count ?? getGraphifyStat(run, 'community_count')}
-              />
-              <StatCard label="Wiki pages" value={getGraphifyStat(run, 'wiki_page_count')} />
-            </div>
-          </section>
+          <Card
+            title={t('graphify.space.detail.stats.title')}
+            style={{ marginBottom: 16 }}
+            styles={{ body: { display: 'flex', gap: 32 } }}
+          >
+            <Statistic
+              title={t('graphify.space.detail.stats.nodes')}
+              value={formatCount(summary?.summary.node_count ?? getGraphifyStat(run, 'node_count'))}
+            />
+            <Statistic
+              title={t('graphify.space.detail.stats.edges')}
+              value={formatCount(summary?.summary.edge_count ?? getGraphifyStat(run, 'edge_count'))}
+            />
+            <Statistic
+              title={t('graphify.space.detail.stats.communities')}
+              value={formatCount(summary?.summary.community_count ?? getGraphifyStat(run, 'community_count'))}
+            />
+            <Statistic
+              title={t('graphify.space.detail.stats.wikiPages')}
+              value={formatCount(getGraphifyStat(run, 'wiki_page_count'))}
+            />
+          </Card>
 
-          <section className="detail-panel" aria-label="Graphify report">
-            <div className="detail-panel-header">
-              <div>
-                <h2>GRAPH_REPORT.md</h2>
-                <p>{report === null ? 'No report has been captured for this run.' : `Generated ${formatDate(report.generated_at)}`}</p>
-              </div>
-            </div>
+          <Card
+            title="GRAPH_REPORT.md"
+            style={{ marginBottom: 16 }}
+            extra={
+              report !== null ? (
+                <Typography.Text type="secondary">
+                  {t('graphify.space.detail.report.generated', { date: formatDate(report.generated_at) })}
+                </Typography.Text>
+              ) : null
+            }
+          >
             {report === null ? (
-              <EmptyState label="No Graphify report is available for this run." />
+              <Typography.Text type="secondary">{t('graphify.space.detail.report.empty')}</Typography.Text>
             ) : (
               <GraphifyMarkdown content={report.content} />
             )}
-          </section>
+          </Card>
 
-          {run.status === 'failed' ? (
-            <section className="detail-panel" aria-label="Graphify error details">
-              <div className="detail-panel-header">
-                <div>
-                  <h2>Error Details</h2>
-                  <p>
-                    {isQuarantined(run)
-                      ? `Quarantine: ${formatLabel(getQuarantineType(run) ?? 'unknown')}`
-                      : 'Failure metadata captured for this run.'}
-                  </p>
-                </div>
-              </div>
-              <details className="job-json-disclosure" open>
-                <summary>Error JSON</summary>
-                <pre>{formatJson(run.error_json)}</pre>
-              </details>
-            </section>
-          ) : null}
+          {run.status === 'failed' && (
+            <Card title={t('graphify.space.detail.error.title')} style={{ marginBottom: 16 }}>
+              <Typography.Paragraph type="secondary">
+                {isQuarantined(run)
+                  ? t('graphify.space.detail.error.quarantine', { type: formatLabel(getQuarantineType(run) ?? 'unknown') })
+                  : t('graphify.space.detail.error.description')}
+              </Typography.Paragraph>
+              <pre style={{ background: 'var(--ant-color-fill-quaternary, #fafafa)', padding: 12, borderRadius: 4, overflow: 'auto', maxHeight: 300, fontSize: 12 }}>
+                {formatJson(run.error_json)}
+              </pre>
+            </Card>
+          )}
+
+          {isGraphifyRunActive(run) && run.progress !== null && (
+            <Card style={{ marginBottom: 16 }}>
+              <Progress percent={Math.round(run.progress.percent)} />
+              <Typography.Text type="secondary">{run.progress.stage}</Typography.Text>
+            </Card>
+          )}
         </>
       )}
-    </main>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: number | null }) {
-  return (
-    <div>
-      <span className="eyebrow">{label}</span>
-      <span className="job-meta-value">{formatCount(value)}</span>
-    </div>
+    </>
   );
 }
 
@@ -397,7 +355,7 @@ function renderBoldMarkdown(text: string, keyPrefix: string): ReactNode[] {
   return nodes;
 }
 
-function formatInputScope(run: GraphifyRun): string {
+function formatInputScope(run: GraphifyRun, t: (key: string) => string): string {
   const inputScope = asRecord(run.input_scope);
   const sourceDocumentIds = readStringArray(inputScope.source_document_ids);
   const pageIds = readStringArray(inputScope.page_ids);
@@ -410,7 +368,7 @@ function formatInputScope(run: GraphifyRun): string {
     return pageIds.join(', ');
   }
 
-  return 'All available sources';
+  return t('graphify.space.detail.overview.allSources');
 }
 
 function readStringArray(value: unknown): string[] {

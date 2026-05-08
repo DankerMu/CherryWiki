@@ -1,6 +1,7 @@
+import { Alert, Button, Descriptions, Drawer, Progress, Typography } from 'antd';
 import { useState } from 'react';
-import ProgressBar from '../../components/ProgressBar';
-import { ErrorBanner, formatDate, formatLabel, getErrorMessage } from '../../components/adminUi';
+import { useTranslation } from 'react-i18next';
+import { formatDate, formatLabel, getErrorMessage } from '../../components/adminUi';
 import { api } from '../../lib/api';
 import {
   formatFileSize,
@@ -14,21 +15,29 @@ import {
 import { UploadStatusBadge } from './UploadList';
 
 type UploadDetailProps = {
-  upload: UploadItem;
+  open: boolean;
+  upload: UploadItem | null;
   status: UploadStatus | null;
   onClose: () => void;
   onReprocessed: (response: UploadResponse) => void;
 };
 
-export default function UploadDetail({ upload, status, onClose, onReprocessed }: UploadDetailProps) {
+export default function UploadDetail({ open, upload, status, onClose, onReprocessed }: UploadDetailProps) {
+  const { t } = useTranslation();
   const [isReprocessing, setIsReprocessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  if (upload === null) {
+    return <Drawer open={open} onClose={onClose} title={t('upload.detail.title')} width={560} />;
+  }
+
   const activeStatus = status?.status ?? upload.status;
   const failureDetails = readUploadFailureDetails(status, upload);
   const showFailureDetails =
     activeStatus === 'parse_failed' || activeStatus === 'security_rejected' || failureDetails.errorMessage !== null;
 
   async function reprocessUpload(): Promise<void> {
+    if (upload === null) return;
     setIsReprocessing(true);
     setError(null);
 
@@ -42,126 +51,77 @@ export default function UploadDetail({ upload, status, onClose, onReprocessed }:
     }
   }
 
+  const progressPercent = getUploadProgressPercent(upload, status);
+  const progressStage = getUploadStageLabel(upload, status);
+
   return (
-    <div className="upload-drawer-backdrop" role="presentation">
-      <aside className="upload-drawer" role="dialog" aria-modal="true" aria-label="Upload detail">
-        <div className="modal-header">
-          <div>
-            <h2>Upload Detail</h2>
-            <p className="muted-copy">{upload.filename}</p>
-          </div>
-          <button className="icon-button" type="button" aria-label="Close dialog" onClick={onClose}>
-            x
-          </button>
+    <Drawer
+      open={open}
+      onClose={onClose}
+      title={t('upload.detail.title')}
+      width={560}
+      extra={<UploadStatusBadge status={activeStatus} />}
+    >
+      {error !== null && (
+        <Alert message={error} type="error" showIcon style={{ marginBottom: 16 }} />
+      )}
+
+      <Typography.Title level={5}>{upload.filename}</Typography.Title>
+
+      <div style={{ marginBottom: 16 }}>
+        <Progress
+          percent={Math.round(progressPercent)}
+          size="small"
+          {...(activeStatus === 'parse_failed' || activeStatus === 'security_rejected' ? { status: 'exception' as const } : {})}
+        />
+        <Typography.Text type="secondary">{progressStage}</Typography.Text>
+      </div>
+
+      <Descriptions column={2} bordered size="small" style={{ marginBottom: 16 }}>
+        <Descriptions.Item label={t('upload.detail.sourceDocId')}><Typography.Text copyable>{upload.id}</Typography.Text></Descriptions.Item>
+        <Descriptions.Item label={t('upload.detail.type')}>{formatLabel(upload.source_type)}</Descriptions.Item>
+        <Descriptions.Item label={t('upload.detail.size')}>{formatFileSize(upload.size_bytes)}</Descriptions.Item>
+        <Descriptions.Item label={t('upload.detail.uploader')}>{upload.uploader_id ?? t('upload.detail.unknown')}</Descriptions.Item>
+        <Descriptions.Item label={t('upload.detail.mime')}>{upload.mime_type ?? t('upload.detail.unknown')}</Descriptions.Item>
+        <Descriptions.Item label={t('upload.detail.sha256')}>{upload.sha256 ?? t('upload.detail.pending')}</Descriptions.Item>
+        <Descriptions.Item label={t('upload.detail.created')}>{formatDate(upload.created_at)}</Descriptions.Item>
+        <Descriptions.Item label={t('upload.detail.updated')}>{formatDate(upload.updated_at)}</Descriptions.Item>
+        <Descriptions.Item label={t('upload.detail.jobId')}>{status?.job_id ?? upload.job_id ?? t('upload.detail.none')}</Descriptions.Item>
+        <Descriptions.Item label={t('upload.detail.jobStatus')}>{status?.job_status ?? upload.job_status ?? t('upload.detail.none')}</Descriptions.Item>
+      </Descriptions>
+
+      {showFailureDetails && (
+        <>
+          <Typography.Title level={5}>{t('upload.detail.failure.title')}</Typography.Title>
+          <Typography.Paragraph type="secondary">{t('upload.detail.failure.description')}</Typography.Paragraph>
+          <Descriptions column={1} bordered size="small" style={{ marginBottom: 16 }}>
+            <Descriptions.Item label={t('upload.detail.failure.errorType')}>
+              {failureDetails.errorType ?? t('upload.detail.unknown')}
+            </Descriptions.Item>
+            <Descriptions.Item label={t('upload.detail.failure.errorMessage')}>
+              {failureDetails.errorMessage ?? t('upload.detail.failure.noErrorMessage')}
+            </Descriptions.Item>
+          </Descriptions>
+        </>
+      )}
+
+      <Typography.Title level={5}>{t('upload.detail.metadata.title')}</Typography.Title>
+      <Typography.Paragraph type="secondary">{t('upload.detail.metadata.description')}</Typography.Paragraph>
+      <pre style={{ background: 'var(--ant-color-fill-quaternary, #fafafa)', padding: 12, borderRadius: 4, overflow: 'auto', maxHeight: 200, fontSize: 12 }}>
+        {JSON.stringify(upload.metadata_json ?? {}, null, 2)}
+      </pre>
+
+      {activeStatus === 'parse_failed' && (
+        <div style={{ marginTop: 16, textAlign: 'right' }}>
+          <Button
+            type="primary"
+            loading={isReprocessing}
+            onClick={() => { void reprocessUpload(); }}
+          >
+            {t('upload.detail.reprocess')}
+          </Button>
         </div>
-
-        <ErrorBanner error={error} />
-
-        <section className="detail-panel upload-detail-section" aria-label="Upload overview">
-          <div className="detail-panel-header">
-            <div>
-              <h2>{upload.filename}</h2>
-              <p>{upload.id}</p>
-            </div>
-            <UploadStatusBadge status={activeStatus} />
-          </div>
-
-          <ProgressBar
-            percent={getUploadProgressPercent(upload, status)}
-            stage={getUploadStageLabel(upload, status)}
-            size="md"
-          />
-
-          <div className="settings-grid">
-            <div>
-              <span className="eyebrow">Source Document ID</span>
-              <code>{upload.id}</code>
-            </div>
-            <div>
-              <span className="eyebrow">Type</span>
-              <span className="job-meta-value">{formatLabel(upload.source_type)}</span>
-            </div>
-            <div>
-              <span className="eyebrow">Size</span>
-              <span className="job-meta-value">{formatFileSize(upload.size_bytes)}</span>
-            </div>
-            <div>
-              <span className="eyebrow">Uploader</span>
-              <span className="job-meta-value">{upload.uploader_id ?? 'Unknown'}</span>
-            </div>
-            <div>
-              <span className="eyebrow">MIME</span>
-              <span className="job-meta-value">{upload.mime_type ?? 'Unknown'}</span>
-            </div>
-            <div>
-              <span className="eyebrow">SHA256</span>
-              <span className="job-meta-value">{upload.sha256 ?? 'Pending'}</span>
-            </div>
-            <div>
-              <span className="eyebrow">Created</span>
-              <span className="job-meta-value">{formatDate(upload.created_at)}</span>
-            </div>
-            <div>
-              <span className="eyebrow">Updated</span>
-              <span className="job-meta-value">{formatDate(upload.updated_at)}</span>
-            </div>
-            <div>
-              <span className="eyebrow">Job ID</span>
-              <span className="job-meta-value">{status?.job_id ?? upload.job_id ?? 'None'}</span>
-            </div>
-            <div>
-              <span className="eyebrow">Job Status</span>
-              <span className="job-meta-value">{status?.job_status ?? upload.job_status ?? 'None'}</span>
-            </div>
-          </div>
-        </section>
-
-        {showFailureDetails ? (
-          <section className="detail-panel upload-detail-section" aria-label="Failure details">
-            <div className="detail-panel-header">
-              <div>
-                <h2>Failure Details</h2>
-                <p>Parser or security validation details returned by the processing job.</p>
-              </div>
-            </div>
-            <div className="settings-grid">
-              <div>
-                <span className="eyebrow">Error Type</span>
-                <span className="job-meta-value">{failureDetails.errorType ?? 'Unknown'}</span>
-              </div>
-              <div>
-                <span className="eyebrow">Error Message</span>
-                <span className="job-meta-value">{failureDetails.errorMessage ?? 'No error message recorded'}</span>
-              </div>
-            </div>
-          </section>
-        ) : null}
-
-        <section className="detail-panel upload-detail-section" aria-label="Metadata">
-          <div className="detail-panel-header">
-            <div>
-              <h2>Metadata</h2>
-              <p>Raw upload metadata captured by the API.</p>
-            </div>
-          </div>
-          <pre className="upload-metadata-json">{JSON.stringify(upload.metadata_json ?? {}, null, 2)}</pre>
-        </section>
-
-        {activeStatus === 'parse_failed' ? (
-          <div className="form-actions">
-            <button
-              className="button button-primary"
-              type="button"
-              disabled={isReprocessing}
-              onClick={() => {
-                void reprocessUpload();
-              }}
-            >
-              {isReprocessing ? 'Reprocessing...' : 'Reprocess'}
-            </button>
-          </div>
-        ) : null}
-      </aside>
-    </div>
+      )}
+    </Drawer>
   );
 }

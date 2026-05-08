@@ -1,17 +1,12 @@
+import { Input, Select, Space, Table, Typography, message } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
-import {
-  EmptyState,
-  ErrorBanner,
-  LoadingState,
-  PageHeader,
-  formatDate,
-  getErrorMessage,
-} from '../../components/adminUi.js';
-import SpaceNav from '../../components/SpaceNav.js';
-import { type ApiMeta } from '../../lib/api.js';
-import { wikiApi, type WikiPage } from '../../lib/wikiApi.js';
-import { WIKI_PAGE_SIZE, WikiStatusBadge, getFirstItemIndex, getLastItemIndex } from './wikiUi.js';
+import { formatDate, getErrorMessage } from '../../components/adminUi';
+import { type ApiMeta } from '../../lib/api';
+import { wikiApi, type WikiPage } from '../../lib/wikiApi';
+import { WIKI_PAGE_SIZE, WikiStatusBadge } from './wikiUi';
 
 type WikiPageListProps = {
   spaceId: string;
@@ -27,6 +22,7 @@ const DEFAULT_PAGINATION: NonNullable<ApiMeta['pagination']> = {
 const STATUS_OPTIONS = ['draft', 'published', 'archived'] as const;
 
 export default function WikiPageList({ spaceId }: WikiPageListProps) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [pages, setPages] = useState<WikiPage[]>([]);
   const [page, setPage] = useState(DEFAULT_PAGINATION.page);
@@ -35,7 +31,6 @@ export default function WikiPageList({ spaceId }: WikiPageListProps) {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [pagination, setPagination] = useState(DEFAULT_PAGINATION);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const loadPages = useCallback(async () => {
     if (spaceId.length === 0) {
@@ -46,7 +41,6 @@ export default function WikiPageList({ spaceId }: WikiPageListProps) {
     }
 
     setIsLoading(true);
-    setError(null);
 
     try {
       const response = await wikiApi.listPages(spaceId, {
@@ -65,7 +59,7 @@ export default function WikiPageList({ spaceId }: WikiPageListProps) {
         },
       );
     } catch (err) {
-      setError(getErrorMessage(err));
+      void message.error(getErrorMessage(err));
     } finally {
       setIsLoading(false);
     }
@@ -91,132 +85,88 @@ export default function WikiPageList({ spaceId }: WikiPageListProps) {
     void navigate(`/spaces/${encodeURIComponent(spaceId)}/wiki/${encodeURIComponent(wikiPage.page_id)}`);
   }
 
+  const columns: ColumnsType<WikiPage> = [
+    {
+      title: t('wiki.list.columns.title'),
+      key: 'title',
+      render: (_: unknown, wikiPage: WikiPage) => (
+        <div>
+          <Typography.Text strong>{wikiPage.title}</Typography.Text>
+          <br />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>{wikiPage.page_id}</Typography.Text>
+        </div>
+      ),
+    },
+    {
+      title: t('wiki.list.columns.status'),
+      dataIndex: 'status',
+      key: 'status',
+      render: (val: string) => <WikiStatusBadge status={val} />,
+    },
+    {
+      title: t('wiki.list.columns.updated'),
+      dataIndex: 'updated_at',
+      key: 'updated_at',
+      render: (val: string) => formatDate(val),
+      sorter: (a, b) => new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime(),
+    },
+    {
+      title: t('wiki.list.columns.createdBy'),
+      dataIndex: 'created_by',
+      key: 'created_by',
+      render: (val: string | null) => val ?? t('wiki.list.unknown'),
+    },
+  ];
+
   return (
-    <main className="admin-content wiki-page">
-      <PageHeader
-        title="Wiki"
-        description="Read canonical pages generated for this knowledge space."
-        actions={<SpaceNav spaceId={spaceId} />}
+    <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <Typography.Title level={4} style={{ margin: 0 }}>{t('wiki.title')}</Typography.Title>
+          <Typography.Text type="secondary">{t('wiki.description')}</Typography.Text>
+        </div>
+      </div>
+
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Input.Search
+          placeholder={t('wiki.list.searchPlaceholder')}
+          value={searchInput}
+          onChange={(e) => { setSearchInput(e.target.value); setPage(1); }}
+          allowClear
+          style={{ width: 240 }}
+        />
+        <Select
+          value={statusFilter || undefined}
+          onChange={(val) => { setStatusFilter(val ?? ''); setPage(1); }}
+          placeholder={t('wiki.list.filter.allStatuses')}
+          allowClear
+          style={{ width: 160 }}
+        >
+          {STATUS_OPTIONS.map((status) => (
+            <Select.Option key={status} value={status}>{t(`wiki.list.statusOptions.${status}`)}</Select.Option>
+          ))}
+        </Select>
+      </Space>
+
+      <Table<WikiPage>
+        columns={columns}
+        dataSource={pages}
+        rowKey="id"
+        loading={isLoading}
+        onRow={(wikiPage) => ({
+          onClick: () => openPage(wikiPage),
+          style: { cursor: 'pointer' },
+        })}
+        pagination={{
+          current: page,
+          pageSize: WIKI_PAGE_SIZE,
+          total: pagination.total,
+          onChange: (p) => setPage(p),
+          showTotal: (totalItems, range) => t('wiki.list.pagination.showing', { from: range[0], to: range[1], total: totalItems }),
+        }}
+        locale={{ emptyText: t('wiki.list.empty') }}
+        size="middle"
       />
-
-      <ErrorBanner error={error} />
-
-      <section className="detail-panel" aria-label="Wiki pages">
-        <div className="detail-panel-header">
-          <div>
-            <h2>Pages</h2>
-            <p>Browse the current wiki page catalog.</p>
-          </div>
-        </div>
-
-        <div className="toolbar">
-          <label>
-            Search
-            <input
-              type="search"
-              value={searchInput}
-              placeholder="Search titles"
-              onChange={(event) => {
-                setSearchInput(event.target.value);
-                setPage(1);
-              }}
-            />
-          </label>
-          <label>
-            Status
-            <select
-              value={statusFilter}
-              onChange={(event) => {
-                setStatusFilter(event.target.value);
-                setPage(1);
-              }}
-            >
-              <option value="">All statuses</option>
-              {STATUS_OPTIONS.map((status) => (
-                <option key={status} value={status}>
-                  {status[0]?.toUpperCase() ?? ''}
-                  {status.slice(1)}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        {isLoading ? (
-          <LoadingState label="Loading wiki pages..." />
-        ) : pages.length === 0 ? (
-          <EmptyState label="No wiki pages in this space yet." />
-        ) : (
-          <>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Title</th>
-                    <th>Status</th>
-                    <th>Updated</th>
-                    <th>Created By</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pages.map((wikiPage) => (
-                    <tr
-                      key={wikiPage.id}
-                      className="interactive-row"
-                      tabIndex={0}
-                      onClick={() => openPage(wikiPage)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          openPage(wikiPage);
-                        }
-                      }}
-                    >
-                      <td>
-                        <strong>{wikiPage.title}</strong>
-                        <span className="subtle-id">{wikiPage.page_id}</span>
-                      </td>
-                      <td>
-                        <WikiStatusBadge status={wikiPage.status} />
-                      </td>
-                      <td>{formatDate(wikiPage.updated_at)}</td>
-                      <td>{wikiPage.created_by ?? 'Unknown'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="pagination-bar">
-              <span className="pagination-summary">
-                Showing {getFirstItemIndex(pagination.page, pagination.total)}-
-                {getLastItemIndex(pagination.page, pages.length, pagination.total)} of {pagination.total}
-              </span>
-              <div className="upload-pagination-actions">
-                <button
-                  className="button button-secondary"
-                  type="button"
-                  disabled={pagination.page <= 1}
-                  onClick={() => setPage(pagination.page - 1)}
-                >
-                  Previous
-                </button>
-                <span className="pagination-summary">
-                  Page {pagination.page} of {Math.max(1, Math.ceil(pagination.total / WIKI_PAGE_SIZE), pagination.page)}
-                </span>
-                <button
-                  className="button button-secondary"
-                  type="button"
-                  disabled={!pagination.has_next}
-                  onClick={() => setPage(pagination.page + 1)}
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-      </section>
-    </main>
+    </>
   );
 }

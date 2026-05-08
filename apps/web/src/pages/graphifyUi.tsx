@@ -1,37 +1,42 @@
-import { useState, type FormEvent } from 'react';
-import {
-  Modal,
-  StatusBadge,
-  formatLabel,
-} from '../components/adminUi.js';
+import { ExclamationCircleOutlined } from '@ant-design/icons';
+import { Button, Form, Modal, Select, Tag } from 'antd';
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { formatLabel } from '../components/adminUi';
 import {
   GRAPHIFY_RUN_MODES,
   type CreateGraphifyRunParams,
   type GraphifyRun,
   type GraphifyRunMode,
   type GraphifyTriggerType,
-} from '../lib/graphifyApi.js';
+} from '../lib/graphifyApi';
 
 export const GRAPHIFY_PAGE_SIZE = 20;
 
 export const GRAPHIFY_STATUS_FILTERS = [
-  { value: '', label: 'All' },
-  { value: 'pending', label: 'Pending' },
-  { value: 'running', label: 'Running' },
-  { value: 'succeeded', label: 'Succeeded' },
-  { value: 'failed', label: 'Failed' },
-  { value: 'cancelled', label: 'Cancelled' },
+  { value: '', labelKey: 'graphify.space.statusFilter.all' },
+  { value: 'pending', labelKey: 'graphify.space.statusFilter.pending' },
+  { value: 'running', labelKey: 'graphify.space.statusFilter.running' },
+  { value: 'succeeded', labelKey: 'graphify.space.statusFilter.succeeded' },
+  { value: 'failed', labelKey: 'graphify.space.statusFilter.failed' },
+  { value: 'cancelled', labelKey: 'graphify.space.statusFilter.cancelled' },
 ] as const;
+
+function graphifyStatusColor(status: string): string {
+  if (status === 'succeeded') return 'green';
+  if (status === 'running') return 'blue';
+  if (status === 'failed') return 'red';
+  if (status === 'cancelled') return 'default';
+  return 'orange';
+}
 
 export function GraphifyStatusCell({ run }: { run: GraphifyRun }) {
   return (
-    <span className="graphify-status-cell">
-      <StatusBadge status={run.status} />
-      {isQuarantined(run) ? (
-        <span className="quarantine-icon" role="img" aria-label="Quarantined" title="Quarantined">
-          !
-        </span>
-      ) : null}
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      <Tag color={graphifyStatusColor(run.status)}>{formatLabel(run.status)}</Tag>
+      {isQuarantined(run) && (
+        <ExclamationCircleOutlined style={{ color: '#faad14' }} title="Quarantined" />
+      )}
     </span>
   );
 }
@@ -43,19 +48,18 @@ export function GraphifyStatusTabs({
   status: string;
   onStatusChange: (status: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
-    <div className="status-filter-tabs" role="tablist" aria-label="Graphify status filters">
+    <div style={{ display: 'flex', gap: 4 }}>
       {GRAPHIFY_STATUS_FILTERS.map((option) => (
-        <button
+        <Button
           key={option.value || 'all'}
-          className={status === option.value ? 'status-filter-tab active' : 'status-filter-tab'}
-          type="button"
-          role="tab"
-          aria-selected={status === option.value}
+          type={status === option.value ? 'primary' : 'default'}
+          size="small"
           onClick={() => onStatusChange(option.value)}
         >
-          {option.label}
-        </button>
+          {t(option.labelKey)}
+        </Button>
       ))}
     </div>
   );
@@ -70,55 +74,38 @@ export function NewRunDialog({
   onClose: () => void;
   onSubmit: (params: CreateGraphifyRunParams) => Promise<void> | void;
 }) {
+  const { t } = useTranslation();
   const [mode, setMode] = useState<GraphifyRunMode>('full');
   const [triggerType, setTriggerType] = useState<GraphifyTriggerType>('manual');
 
-  async function submitForm(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    await onSubmit({
-      mode,
-      trigger_type: triggerType,
-    });
+  function handleOk(): void {
+    void onSubmit({ mode, trigger_type: triggerType });
   }
 
   return (
-    <Modal title="New Graphify Run" onClose={onClose}>
-      <form className="form-grid" onSubmit={(event) => void submitForm(event)}>
-        <label>
-          Mode
-          <select
-            value={mode}
-            onChange={(event) => {
-              setMode(event.target.value as GraphifyRunMode);
-            }}
-          >
+    <Modal
+      open
+      title={t('graphify.space.newRunDialog.title')}
+      onCancel={onClose}
+      onOk={handleOk}
+      confirmLoading={isSubmitting}
+      okText={isSubmitting ? t('graphify.space.newRunDialog.creating') : t('graphify.space.newRunDialog.createRun')}
+      cancelText={t('common.action.cancel')}
+    >
+      <Form layout="vertical">
+        <Form.Item label={t('graphify.space.newRunDialog.mode')}>
+          <Select value={mode} onChange={(val) => setMode(val)}>
             {GRAPHIFY_RUN_MODES.map((option) => (
-              <option key={option} value={option}>
-                {formatLabel(option)}
-              </option>
+              <Select.Option key={option} value={option}>{formatLabel(option)}</Select.Option>
             ))}
-          </select>
-        </label>
-        <label>
-          Trigger type
-          <select
-            value={triggerType}
-            onChange={(event) => {
-              setTriggerType(event.target.value as GraphifyTriggerType);
-            }}
-          >
-            <option value="manual">Manual</option>
-          </select>
-        </label>
-        <div className="form-actions span-2">
-          <button className="button button-secondary" type="button" disabled={isSubmitting} onClick={onClose}>
-            Cancel
-          </button>
-          <button className="button button-primary" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? 'Creating...' : 'Create Run'}
-          </button>
-        </div>
-      </form>
+          </Select>
+        </Form.Item>
+        <Form.Item label={t('graphify.space.newRunDialog.triggerType')}>
+          <Select value={triggerType} onChange={(val) => setTriggerType(val)}>
+            <Select.Option value="manual">{t('graphify.space.newRunDialog.triggerManual')}</Select.Option>
+          </Select>
+        </Form.Item>
+      </Form>
     </Modal>
   );
 }
@@ -143,6 +130,18 @@ export function getQuarantineType(run: GraphifyRun): string | null {
   );
 }
 
+export function formatGraphifyStatsWithT(
+  run: GraphifyRun,
+  t: (key: string) => string,
+): string {
+  return [
+    `${t('graphify.space.stats.nodes')} ${formatCount(getGraphifyStat(run, 'node_count'))}`,
+    `${t('graphify.space.stats.edges')} ${formatCount(getGraphifyStat(run, 'edge_count'))}`,
+    `${t('graphify.space.stats.wiki')} ${formatCount(getGraphifyStat(run, 'wiki_page_count'))}`,
+  ].join(' / ');
+}
+
+// Keep backward-compatible export for any remaining references
 export function formatGraphifyStats(run: GraphifyRun): string {
   return [
     `Nodes ${formatCount(getGraphifyStat(run, 'node_count'))}`,
@@ -181,6 +180,30 @@ export function formatCount(value: number | null): string {
   return value === null ? '0' : value.toLocaleString();
 }
 
+export function formatRunDurationWithT(
+  run: GraphifyRun,
+  t: (key: string) => string,
+): string {
+  if (run.started_at === null) {
+    return run.status === 'pending' ? t('graphify.space.timing.queued') : t('graphify.space.timing.notStarted');
+  }
+
+  const startedAt = parseTimestamp(run.started_at);
+  if (startedAt === null) {
+    return t('graphify.space.timing.unavailable');
+  }
+
+  const completedAt =
+    run.completed_at !== null ? parseTimestamp(run.completed_at) : run.status === 'running' ? Date.now() : null;
+
+  if (completedAt === null) {
+    return t('graphify.space.timing.inProgress');
+  }
+
+  return formatElapsedTime(completedAt - startedAt);
+}
+
+// Keep backward-compatible export
 export function formatRunDuration(run: GraphifyRun): string {
   if (run.started_at === null) {
     return run.status === 'pending' ? 'Queued' : 'Not started';

@@ -1,4 +1,7 @@
-import { EmptyState, formatDate, formatLabel } from '../../components/adminUi';
+import { Button, Select, Space, Table, Tag, Typography } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import { useTranslation } from 'react-i18next';
+import { formatDate, formatLabel } from '../../components/adminUi';
 import {
   UPLOAD_PAGE_SIZE,
   UPLOAD_STATUS_OPTIONS,
@@ -17,6 +20,13 @@ type UploadListProps = {
   onSelectUpload: (upload: UploadItem) => void;
 };
 
+function uploadStatusColor(status: string): string {
+  const cls = getUploadStatusClass(status);
+  if (cls === 'healthy') return 'green';
+  if (cls === 'unhealthy') return 'red';
+  return 'blue';
+}
+
 export default function UploadList({
   uploads,
   page,
@@ -26,123 +36,108 @@ export default function UploadList({
   onPageChange,
   onSelectUpload,
 }: UploadListProps) {
-  const totalPages = Math.max(1, Math.ceil(total / UPLOAD_PAGE_SIZE), page);
+  const { t } = useTranslation();
+
+  const columns: ColumnsType<UploadItem> = [
+    {
+      title: t('upload.list.columns.filename'),
+      key: 'filename',
+      render: (_: unknown, upload: UploadItem) => (
+        <div>
+          <Typography.Text strong>{upload.filename}</Typography.Text>
+          <br />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>{upload.id}</Typography.Text>
+        </div>
+      ),
+    },
+    {
+      title: t('upload.list.columns.type'),
+      dataIndex: 'source_type',
+      key: 'source_type',
+      render: (val: string) => formatLabel(val),
+    },
+    {
+      title: t('upload.list.columns.size'),
+      dataIndex: 'size_bytes',
+      key: 'size_bytes',
+      render: (val: number | null) => formatFileSize(val),
+    },
+    {
+      title: t('upload.list.columns.status'),
+      dataIndex: 'status',
+      key: 'status',
+      render: (val: string) => <Tag color={uploadStatusColor(val)}>{formatLabel(val)}</Tag>,
+    },
+    {
+      title: t('upload.list.columns.uploader'),
+      dataIndex: 'uploader_id',
+      key: 'uploader_id',
+      render: (val: string | null) => val ?? t('upload.list.unknown'),
+    },
+    {
+      title: t('upload.list.columns.time'),
+      dataIndex: 'created_at',
+      key: 'created_at',
+      render: (val: string) => formatDate(val),
+    },
+    {
+      title: t('upload.list.columns.actions'),
+      key: 'actions',
+      render: (_: unknown, upload: UploadItem) => (
+        <Button
+          size="small"
+          onClick={(e) => { e.stopPropagation(); onSelectUpload(upload); }}
+        >
+          {t('upload.list.details')}
+        </Button>
+      ),
+    },
+  ];
 
   return (
-    <section className="detail-panel" aria-label="Upload list">
-      <div className="detail-panel-header">
+    <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <div>
-          <h2>Uploads</h2>
-          <p>Track processing state for files and URLs in this space.</p>
+          <Typography.Title level={5} style={{ margin: 0 }}>{t('upload.list.title')}</Typography.Title>
+          <Typography.Text type="secondary">{t('upload.list.description')}</Typography.Text>
         </div>
-        <label className="upload-status-filter">
-          Status
-          <select
-            value={statusFilter}
-            onChange={(event) => {
-              onStatusFilterChange(event.target.value);
-            }}
+        <Space>
+          <Select
+            value={statusFilter || undefined}
+            onChange={(val) => onStatusFilterChange(val ?? '')}
+            placeholder={t('upload.list.filter.allStatuses')}
+            allowClear
+            style={{ width: 160 }}
           >
-            <option value="">All statuses</option>
             {UPLOAD_STATUS_OPTIONS.map((status) => (
-              <option key={status} value={status}>
-                {formatLabel(status)}
-              </option>
+              <Select.Option key={status} value={status}>{formatLabel(status)}</Select.Option>
             ))}
-          </select>
-        </label>
+          </Select>
+        </Space>
       </div>
 
-      {uploads.length === 0 ? (
-        <EmptyState label="No uploads match the current filters." />
-      ) : (
-        <>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Filename</th>
-                  <th>Type</th>
-                  <th>Size</th>
-                  <th>Status</th>
-                  <th>Uploader</th>
-                  <th>Time</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {uploads.map((upload) => (
-                  <tr key={upload.id}>
-                    <td>
-                      <strong>{upload.filename}</strong>
-                      <span className="subtle-id">{upload.id}</span>
-                    </td>
-                    <td>{formatLabel(upload.source_type)}</td>
-                    <td>{formatFileSize(upload.size_bytes)}</td>
-                    <td>
-                      <UploadStatusBadge status={upload.status} />
-                    </td>
-                    <td>{upload.uploader_id ?? 'Unknown'}</td>
-                    <td>{formatDate(upload.created_at)}</td>
-                    <td>
-                      <button className="button button-secondary" type="button" onClick={() => onSelectUpload(upload)}>
-                        Details
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="pagination-bar">
-            <span className="pagination-summary">
-              Showing {getFirstItemIndex(page, total)}-{getLastItemIndex(page, uploads.length, total)} of {total}
-            </span>
-            <div className="upload-pagination-actions">
-              <button
-                className="button button-secondary"
-                type="button"
-                disabled={page <= 1}
-                onClick={() => onPageChange(page - 1)}
-              >
-                Previous
-              </button>
-              <span className="pagination-summary">
-                Page {page} of {totalPages}
-              </span>
-              <button
-                className="button button-secondary"
-                type="button"
-                disabled={page >= totalPages}
-                onClick={() => onPageChange(page + 1)}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-    </section>
+      <Table<UploadItem>
+        columns={columns}
+        dataSource={uploads}
+        rowKey="id"
+        onRow={(upload) => ({
+          onClick: () => onSelectUpload(upload),
+          style: { cursor: 'pointer' },
+        })}
+        pagination={{
+          current: page,
+          pageSize: UPLOAD_PAGE_SIZE,
+          total,
+          onChange: onPageChange,
+          showTotal: (totalItems, range) => t('upload.list.pagination.showing', { from: range[0], to: range[1], total: totalItems }),
+        }}
+        locale={{ emptyText: t('upload.list.emptyFilter') }}
+        size="middle"
+      />
+    </>
   );
 }
 
 export function UploadStatusBadge({ status }: { status: string }) {
-  return <span className={`status-badge status-${getUploadStatusClass(status)}`}>{formatLabel(status)}</span>;
-}
-
-function getFirstItemIndex(page: number, total: number): number {
-  if (total === 0) {
-    return 0;
-  }
-
-  return (page - 1) * UPLOAD_PAGE_SIZE + 1;
-}
-
-function getLastItemIndex(page: number, itemCount: number, total: number): number {
-  if (total === 0) {
-    return 0;
-  }
-
-  return Math.min(total, getFirstItemIndex(page, total) + itemCount - 1);
+  return <Tag color={uploadStatusColor(status)}>{formatLabel(status)}</Tag>;
 }
