@@ -26,8 +26,25 @@ export class ScriptedAgentService {
     private readonly resumeEvents: AgentEvent[] = spawnEvents,
   ) {}
 
-  hasSession(conversationId: string): boolean {
+  hasSession(conversationId: string, _options?: { includePersisted?: boolean }): boolean | Promise<boolean> {
     return this.sessions.has(conversationId);
+  }
+
+  async *sendTurn(
+    conversationId: string,
+    spaceId: string,
+    message: string,
+    options: Record<string, unknown> = {},
+  ): AsyncGenerator<AgentEvent> {
+    const isResume = this.sessions.has(conversationId);
+    this.sessions.add(conversationId);
+    if (isResume) {
+      this.resumeCalls.push({ conversationId, message, options });
+      yield* scriptedEvents(this.resumeEvents);
+    } else {
+      this.spawnCalls.push({ conversationId, spaceId, message, options });
+      yield* scriptedEvents(this.spawnEvents);
+    }
   }
 
   async *spawnNew(
@@ -62,6 +79,19 @@ export class TimedAgentService extends ScriptedAgentService {
     private readonly totalDelayMs: number,
   ) {
     super([]);
+  }
+
+  override async *sendTurn(
+    conversationId: string,
+    spaceId: string,
+    message: string,
+    options: Record<string, unknown> = {},
+  ): AsyncGenerator<AgentEvent> {
+    this.spawnCalls.push({ conversationId, spaceId, message, options });
+    await sleep(this.firstDelayMs);
+    yield { type: 'message.delta', delta: 'deep answer' };
+    await sleep(Math.max(0, this.totalDelayMs - this.firstDelayMs));
+    yield { type: 'message.completed', usage: { input_tokens: 12, output_tokens: 4 } };
   }
 
   override async *spawnNew(

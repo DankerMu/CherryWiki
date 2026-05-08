@@ -33,7 +33,12 @@ import type { SQL } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { randomUUID } from 'node:crypto';
 
-import { AgentService, isDatabaseToggleVisible, normalizeDatabaseConfig } from '../agent/agent.service.js';
+import {
+  AgentService,
+  AgentSessionBusyError,
+  isDatabaseToggleVisible,
+  normalizeDatabaseConfig,
+} from '../agent/agent.service.js';
 import type { AgentSpawnOptions } from '../agent/dto/agent.dto.js';
 import { AUDIT_EVENTS } from '../audit/audit-events.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -381,7 +386,7 @@ export class ChatService {
       auditContext: input.auditContext ?? {},
     };
 
-    if (this.getRoute(prepared, input).path === 'agent') {
+    if ((await this.getRoute(prepared, input)).path === 'agent') {
       return this.runAgentCompletion(prepared, input);
     }
 
@@ -442,11 +447,12 @@ export class ChatService {
     return retrievalResults.slice(0, 3).map((result, index) => toCitationResponse(result, index + 1, true));
   }
 
-  private getRoute(prepared: PreparedCompletion, input: StreamCompletionInput): QueryRoute {
+  private async getRoute(prepared: PreparedCompletion, input: StreamCompletionInput): Promise<QueryRoute> {
     return decideQueryRoute({
       query: prepared.message,
       agentAvailable: this.agentService !== undefined,
-      hasAgentSession: this.agentService?.hasSession(prepared.session.id) ?? false,
+      hasAgentSession:
+        (await this.agentService?.hasSession(prepared.session.id, { includePersisted: true })) ?? false,
       databaseToggleVisible: isDatabaseToggleVisible(prepared.space),
       ...(input.enableDeepAnalysis !== undefined ? { enableDeepAnalysis: input.enableDeepAnalysis } : {}),
       ...(input.enableDatabase !== undefined ? { enableDatabase: input.enableDatabase } : {}),
@@ -484,9 +490,12 @@ export class ChatService {
       agentOptions.databaseConfig = databaseConfig;
     }
 
-    const agentStream = this.agentService.hasSession(prepared.session.id)
-      ? this.agentService.resume(prepared.session.id, prepared.message, agentOptions)
-      : this.agentService.spawnNew(prepared.session.id, prepared.space.id, prepared.message, agentOptions);
+    const agentStream = this.agentService.sendTurn(
+      prepared.session.id,
+      prepared.space.id,
+      prepared.message,
+      agentOptions,
+    );
     let assistantText = '';
     let usage = emptyUsage();
 
@@ -542,8 +551,12 @@ export class ChatService {
         this.auditCompletion(prepared, usage, 0, false);
         return;
       }
-    } catch {
-      yield { type: 'error', code: ErrorCode.INTERNAL_ERROR, message: 'Agent completion failed' };
+    } catch (err) {
+      if (err instanceof AgentSessionBusyError) {
+        yield { type: 'error', code: 'agent_session_busy', message: err.message };
+      } else {
+        yield { type: 'error', code: ErrorCode.INTERNAL_ERROR, message: 'Agent completion failed' };
+      }
       this.auditCompletion(prepared, usage, 0, false);
     }
   }

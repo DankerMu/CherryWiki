@@ -40,6 +40,16 @@ export class PersistentStreamParser {
     return queue;
   }
 
+  cancelActiveTurn(): void {
+    const turn = this.activeTurn;
+    if (turn === undefined) {
+      return;
+    }
+
+    this.activeTurn = undefined;
+    turn.dispose();
+  }
+
   stop(): void {
     this.stopped = true;
     this.completeActiveTurn();

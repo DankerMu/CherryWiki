@@ -20,6 +20,9 @@ type SseReply = {
     writeHead: (statusCode: number, headers: Record<string, string>) => void;
     write: (chunk: string) => void;
     end: () => void;
+    on?: (event: 'close', listener: () => void) => void;
+    off?: (event: 'close', listener: () => void) => void;
+    removeListener?: (event: 'close', listener: () => void) => void;
     destroyed?: boolean;
     writableEnded?: boolean;
   };
@@ -67,12 +70,33 @@ export class ChatController {
       lastWriteAt = Date.now();
     }, 15_000);
 
+    const iterator = events[Symbol.asyncIterator]();
+    let closeConnection: (() => void) | undefined;
+    const closePromise = new Promise<'close'>((resolve) => {
+      closeConnection = () => resolve('close');
+    });
+
+    if (closeConnection !== undefined) {
+      reply.raw.on?.('close', closeConnection);
+    }
+
     try {
-      for await (const event of events) {
-        if (!isReplyWritable(reply)) {
+      while (true) {
+        const next = await Promise.race([
+          iterator.next().then((result) => ({ type: 'event' as const, result })),
+          closePromise.then((type) => ({ type })),
+        ]);
+
+        if (next.type === 'close' || !isReplyWritable(reply)) {
+          await iterator.return?.();
           break;
         }
 
+        if (next.result.done === true) {
+          break;
+        }
+
+        const event = next.result.value;
         writeSseEvent(reply, event);
         lastWriteAt = Date.now();
       }
@@ -86,6 +110,10 @@ export class ChatController {
       }
     } finally {
       clearInterval(keepalive);
+      if (closeConnection !== undefined) {
+        reply.raw.off?.('close', closeConnection);
+        reply.raw.removeListener?.('close', closeConnection);
+      }
       if (isReplyWritable(reply)) {
         reply.raw.write('data: [DONE]\n\n');
         reply.raw.end();

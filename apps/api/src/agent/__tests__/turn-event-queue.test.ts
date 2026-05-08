@@ -96,6 +96,26 @@ describe('TurnEventQueue', () => {
     await expect(iterator.next()).resolves.toEqual({ value: undefined, done: true });
     await expect(collectAsync(queue)).resolves.toEqual([]);
   });
+
+  it('allows cancellation code to wait for settlement without consuming events', async () => {
+    const queue = new TurnEventQueue();
+    const settled = queue.waitUntilSettled();
+
+    queue.push(delta('still buffered'));
+    queue.complete();
+
+    await expect(settled).resolves.toBeUndefined();
+    await expect(collectAsync(queue)).resolves.toEqual([delta('still buffered')]);
+  });
+
+  it('rejects settlement waiters when the queue errors', async () => {
+    const queue = new TurnEventQueue();
+    const settled = queue.waitUntilSettled();
+
+    queue.error(new Error('stream failed'));
+
+    await expect(settled).rejects.toThrow('stream failed');
+  });
 });
 
 function delta(text: string): AgentEvent {
