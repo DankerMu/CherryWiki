@@ -203,6 +203,22 @@ export class AgentService implements OnModuleDestroy {
   }
 
   async spawnPersistentProcess(session: PersistentAgentSession): Promise<void> {
+    const attemptedResumeSessionId = getNonEmptyString(session.providerSessionId);
+
+    try {
+      await this.spawnPersistentProcessOnce(session);
+      return;
+    } catch (err) {
+      if (attemptedResumeSessionId === undefined) {
+        throw err;
+      }
+
+      await this.recoverFromPersistentResumeFailure(session);
+      await this.spawnPersistentProcessOnce(session);
+    }
+  }
+
+  private async spawnPersistentProcessOnce(session: PersistentAgentSession): Promise<void> {
     const existing = session.child;
     if (isLiveProcess(existing) && this.persistentParsers.has(session.conversationId)) {
       return;
@@ -212,7 +228,7 @@ export class AgentService implements OnModuleDestroy {
     this.persistentSlotHolders.add(session.conversationId);
 
     let proc: ChildProcess | undefined;
-    let processAttached = false;
+    let trackedExitPromise: Promise<ProcessExit> | undefined;
     try {
       await this.writeRuntimeFiles(session);
       const args = buildPersistentClaudeArgs(session);
@@ -242,7 +258,6 @@ export class AgentService implements OnModuleDestroy {
         : Promise.resolve();
 
       await this.sessionManager.attachProcess(session.conversationId, proc);
-      processAttached = true;
       session.child = proc;
       session.status = 'running';
       session.lastActivityAt = Date.now();
@@ -256,20 +271,26 @@ export class AgentService implements OnModuleDestroy {
       });
       this.persistentParsers.set(session.conversationId, parser);
 
-      const exitPromise = this.trackPersistentExit(session.conversationId, processExitPromise, parser, auditPromise);
+      trackedExitPromise = this.trackPersistentExit(session.conversationId, processExitPromise, parser, auditPromise);
 
-      await this.waitForPersistentStartup(session, initPromise, exitPromise);
+      await this.waitForPersistentStartup(session, initPromise, trackedExitPromise);
     } catch (err) {
+      this.persistentParsers.get(session.conversationId)?.stop();
       this.persistentParsers.delete(session.conversationId);
-
-      if (!processAttached) {
-        this.releasePersistentSlot(session.conversationId);
-        await this.sessionManager.markFailed(session.conversationId);
-      }
 
       if (proc !== undefined && proc.exitCode === null) {
         proc.kill('SIGTERM');
       }
+
+      if (trackedExitPromise !== undefined) {
+        await Promise.race([
+          trackedExitPromise.catch(() => undefined),
+          delay(readPositiveIntegerEnv('AGENT_SIGINT_GRACE_MS', HARD_KILL_GRACE_MS)),
+        ]);
+      }
+
+      this.releasePersistentSlot(session.conversationId);
+      await this.sessionManager.markFailed(session.conversationId);
 
       throw err;
     }
@@ -294,17 +315,18 @@ export class AgentService implements OnModuleDestroy {
         options.userId ?? '',
         options,
       );
+      const refreshedSession = await this.refreshConfigIfNeeded(session, options);
 
       if (
-        !isLiveProcess(session.child) ||
-        session.status === 'starting' ||
-        session.status === 'stopped' ||
-        session.status === 'failed'
+        !isLiveProcess(refreshedSession.child) ||
+        refreshedSession.status === 'starting' ||
+        refreshedSession.status === 'stopped' ||
+        refreshedSession.status === 'failed'
       ) {
-        await this.spawnPersistentProcess(session);
+        await this.spawnPersistentProcess(refreshedSession);
       }
 
-      yield* this.sendTurnToPersistentProcessLocked(session, userMessage);
+      yield* this.sendTurnToPersistentProcessLocked(refreshedSession, userMessage);
     } finally {
       releaseTurn();
     }
@@ -351,11 +373,15 @@ export class AgentService implements OnModuleDestroy {
         throw new AgentProcessError('Claude persistent process is not available');
       }
 
+      turn = parser.createTurn();
+      await this.sessionManager.attachProcess(session.conversationId, proc);
+      session.status = 'running';
+      session.child = proc;
+
       const timing: AgentTiming = { spawn_at: new Date() };
       this.timings.set(session.conversationId, timing);
       let firstForwardedEventSeen = false;
 
-      turn = parser.createTurn();
       await writePersistentTurn(proc.stdin, userMessage);
 
       for await (const event of turn) {
@@ -403,6 +429,62 @@ export class AgentService implements OnModuleDestroy {
 
       await Promise.all(usageWrites);
     }
+  }
+
+  private async refreshConfigIfNeeded(
+    session: PersistentAgentSession,
+    options: AgentSpawnOptions,
+  ): Promise<PersistentAgentSession> {
+    const mergedOptions = { ...session.options, ...options };
+    const nextFingerprint = this.sessionManager.computeOptionsFingerprint(mergedOptions);
+    const fingerprintChanged = session.optionsFingerprint !== nextFingerprint;
+    const refreshedSession: PersistentAgentSession = {
+      ...session,
+      options: mergedOptions,
+      optionsFingerprint: nextFingerprint,
+    };
+
+    await this.writeRuntimeFiles(refreshedSession);
+
+    if (fingerprintChanged && isLiveProcess(session.child)) {
+      if (session.status !== 'idle') {
+        throw new AgentSessionBusyError(session.conversationId);
+      }
+
+      await this.stopPersistentProcessForRestart(session);
+      refreshedSession.child = undefined;
+      refreshedSession.status = 'stopped';
+    }
+
+    return (
+      (await this.sessionManager.updateRuntimeConfig(
+        session.conversationId,
+        mergedOptions,
+        nextFingerprint,
+      )) ?? refreshedSession
+    );
+  }
+
+  private async stopPersistentProcessForRestart(session: PersistentAgentSession): Promise<void> {
+    this.persistentParsers.get(session.conversationId)?.stop();
+    this.persistentParsers.delete(session.conversationId);
+    await this.sessionManager.markStopped(session.conversationId);
+    this.releasePersistentSlot(session.conversationId);
+    session.child = undefined;
+    session.status = 'stopped';
+  }
+
+  private async recoverFromPersistentResumeFailure(session: PersistentAgentSession): Promise<void> {
+    this.persistentParsers.get(session.conversationId)?.stop();
+    this.persistentParsers.delete(session.conversationId);
+    this.releasePersistentSlot(session.conversationId);
+
+    const recovered = await this.sessionManager.resetAfterResumeFailure(session.conversationId);
+    if (recovered === undefined) {
+      throw new AgentProcessError('Unable to reset Agent session after resume failure');
+    }
+
+    Object.assign(session, recovered);
   }
 
   private handlePersistentTerminalEvent(
@@ -636,24 +718,32 @@ export class AgentService implements OnModuleDestroy {
   ): Promise<ProcessExit> {
     return processExitPromise
       .then(async (exit) => {
+        const stillCurrentParser = this.persistentParsers.get(conversationId) === parser;
         parser.stop();
-        this.persistentParsers.delete(conversationId);
 
-        if (exit.error !== undefined || exit.code !== 0) {
-          await this.sessionManager.markFailed(conversationId);
-        } else {
-          await this.sessionManager.markStopped(conversationId);
+        if (stillCurrentParser) {
+          this.persistentParsers.delete(conversationId);
+
+          if (exit.error !== undefined || exit.code !== 0) {
+            await this.sessionManager.markFailed(conversationId);
+          } else {
+            await this.sessionManager.markStopped(conversationId);
+          }
+
+          this.releasePersistentSlot(conversationId);
         }
 
-        this.releasePersistentSlot(conversationId);
         await auditPromise.catch(() => undefined);
         return exit;
       })
       .catch(async (err: unknown) => {
+        const stillCurrentParser = this.persistentParsers.get(conversationId) === parser;
         parser.stop();
-        this.persistentParsers.delete(conversationId);
-        await this.sessionManager.markFailed(conversationId);
-        this.releasePersistentSlot(conversationId);
+        if (stillCurrentParser) {
+          this.persistentParsers.delete(conversationId);
+          await this.sessionManager.markFailed(conversationId);
+          this.releasePersistentSlot(conversationId);
+        }
         await auditPromise.catch(() => undefined);
         return { code: null, signal: null, error: toError(err) };
       });
@@ -997,6 +1087,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isString(value: unknown): value is string {
   return typeof value === 'string';
+}
+
+function getNonEmptyString(value: string | undefined): string | undefined {
+  return value !== undefined && value.length > 0 ? value : undefined;
 }
 
 function readPositiveIntegerEnv(name: string, fallback: number): number {

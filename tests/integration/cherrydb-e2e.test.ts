@@ -42,9 +42,9 @@ afterEach(async () => {
 });
 
 describe('cherrydb Agent integration', () => {
-  // TODO(#176): update for persistent sendTurn path — currently expects one-shot spawnNew flow
-  it.skip('enables database tools, streams table/query/chart events, and captures SQL audit logs', async () => {
+  it('enables database tools, streams table/query/chart events, and captures SQL audit logs', async () => {
     const proc = createMockProcess();
+    const stdinChunks = captureStdin(proc);
     spawnMock.mockReturnValue(proc as never);
     const { service, db, audit } = createChatAgentHarness();
     const chatSessionId = uniqueChatSessionId('cherrydb-happy');
@@ -74,6 +74,7 @@ describe('cherrydb Agent integration', () => {
     await waitForSpawn(1);
 
     writeJsonLine(proc, { type: 'system', subtype: 'init', session_id: 'db-session' });
+    await vi.waitFor(() => expect(stdinChunks.join('')).toContain('show orders by month as a chart'));
     writeJsonLine(proc, {
       type: 'assistant',
       message: {
@@ -125,7 +126,6 @@ describe('cherrydb Agent integration', () => {
       session_id: 'db-session',
       usage: { input_tokens: 30, output_tokens: 11 },
     });
-    proc.close(0);
 
     const events = await eventsPromise;
     expect(events.map((event) => event.type)).toEqual([
@@ -166,11 +166,12 @@ describe('cherrydb Agent integration', () => {
         conversation_id: chatSessionId,
       }),
     });
+    proc.close(0);
   });
 
-  // TODO(#176): update for persistent sendTurn path — currently expects one-shot spawnNew flow
-  it.skip('surfaces cherrydb execution failures as chat errors without chart SSE', async () => {
+  it('surfaces cherrydb execution failures as chat errors without chart SSE', async () => {
     const proc = createMockProcess();
+    const stdinChunks = captureStdin(proc);
     spawnMock.mockReturnValue(proc as never);
     const { service, db, audit } = createChatAgentHarness();
     const chatSessionId = uniqueChatSessionId('cherrydb-error');
@@ -197,6 +198,8 @@ describe('cherrydb Agent integration', () => {
     const eventsPromise = collectEvents(iterable);
     await waitForSpawn(1);
 
+    writeJsonLine(proc, { type: 'system', subtype: 'init', session_id: 'db-error-session' });
+    await vi.waitFor(() => expect(stdinChunks.join('')).toContain('delete old orders'));
     writeJsonLine(proc, {
       type: 'assistant',
       message: {
@@ -210,7 +213,6 @@ describe('cherrydb Agent integration', () => {
       subtype: 'error_during_execution',
       error: 'cherrydb rejected non-readonly SQL',
     });
-    proc.close(0);
 
     const events = await eventsPromise;
     expect(events).toEqual([
@@ -219,6 +221,7 @@ describe('cherrydb Agent integration', () => {
       { type: 'error', code: 'error_during_execution', message: 'cherrydb rejected non-readonly SQL' },
     ]);
     expect(audit.push.mock.calls.some(([entry]) => entry.action === 'database_query')).toBe(false);
+    proc.close(0);
   });
 });
 
@@ -249,4 +252,12 @@ async function waitForSpawn(count: number): Promise<void> {
 
 function uniqueChatSessionId(prefix: string): string {
   return `${prefix}-${process.pid}-${randomUUID()}`;
+}
+
+function captureStdin(proc: ReturnType<typeof createMockProcess>): string[] {
+  const chunks: string[] = [];
+  proc.stdin.on('data', (chunk: Buffer | string) => {
+    chunks.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8'));
+  });
+  return chunks;
 }
