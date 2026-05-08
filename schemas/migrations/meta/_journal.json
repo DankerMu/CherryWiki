@@ -92,6 +92,13 @@
       "when": 1778067556594,
       "tag": "0012_freezing_jimmy_woo",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1778220329062,
+      "tag": "0013_agent_sessions",
+      "breakpoints": true
     }
   ]
 }

@@ -858,6 +858,40 @@ export const chatSessions = pgTable(
   ],
 );
 
+export const agentSessions = pgTable(
+  'agent_sessions',
+  {
+    conversation_id: text('conversation_id')
+      .primaryKey()
+      .references(() => chatSessions.id, { onDelete: 'cascade' }),
+    tenant_id: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    space_id: text('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id),
+    provider: text('provider').notNull().default('claude'),
+    provider_session_id: text('provider_session_id'),
+    work_dir: text('work_dir').notNull(),
+    agent_home: text('agent_home').notNull(),
+    status: text('status').notNull(),
+    options_hash: text('options_hash'),
+    owned_by_instance: text('owned_by_instance'),
+    last_activity_at: timestamp('last_activity_at', { withTimezone: true }).notNull(),
+    process_started_at: timestamp('process_started_at', { withTimezone: true }),
+    process_stopped_at: timestamp('process_stopped_at', { withTimezone: true }),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_agent_sessions_status').on(table.status),
+    index('idx_agent_sessions_instance').on(table.owned_by_instance),
+  ],
+);
+
 export const chatMessages = pgTable(
   'chat_messages',
   {
