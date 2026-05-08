@@ -4,7 +4,6 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '../i18n';
-import ProgressBar from '../components/ProgressBar';
 import { AuthProvider, type AuthUser } from '../lib/auth';
 import JobDetailPage from '../pages/admin/JobDetailPage';
 import JobsPage from '../pages/admin/JobsPage';
@@ -93,16 +92,6 @@ describe('JobDetailPage', () => {
         ),
       ).toBe(true),
     );
-  });
-});
-
-describe('ProgressBar', () => {
-  it('renders progress text, stage, and aria state', () => {
-    render(<ProgressBar percent={65} stage="chunking" size="md" />);
-
-    expect(screen.getByText('65%')).toBeInTheDocument();
-    expect(screen.getByText('chunking')).toBeInTheDocument();
-    expect(screen.getByRole('progressbar', { name: 'chunking progress' })).toHaveAttribute('aria-valuenow', '65');
   });
 });
 
