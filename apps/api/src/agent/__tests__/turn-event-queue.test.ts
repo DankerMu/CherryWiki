@@ -47,6 +47,16 @@ describe('TurnEventQueue', () => {
     await expect(next).rejects.toThrow('stream failed');
   });
 
+  it('delivers buffered events before throwing on error', async () => {
+    const queue = new TurnEventQueue();
+    queue.push(delta('first'));
+    queue.error(new Error('late failure'));
+
+    const iterator = queue[Symbol.asyncIterator]();
+    await expect(iterator.next()).resolves.toEqual({ value: delta('first'), done: false });
+    await expect(iterator.next()).rejects.toThrow('late failure');
+  });
+
   it('ignores pushes after complete without throwing', async () => {
     const queue = new TurnEventQueue();
 
