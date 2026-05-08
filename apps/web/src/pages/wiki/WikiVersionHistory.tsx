@@ -1,20 +1,15 @@
+import { ArrowLeftOutlined } from '@ant-design/icons';
+import { Button, Popconfirm, Table, Typography, message } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router';
-import {
-  EmptyState,
-  ErrorBanner,
-  LoadingState,
-  PageHeader,
-  formatDate,
-  formatLabel,
-  getErrorMessage,
-} from '../../components/adminUi.js';
-import SpaceNav from '../../components/SpaceNav.js';
-import { ApiError, type ApiMeta } from '../../lib/api.js';
-import { useAuth } from '../../lib/auth.js';
-import { wikiApi, type WikiPage, type WikiPageVersion } from '../../lib/wikiApi.js';
-import NotFound from '../NotFound.js';
-import { WIKI_PAGE_SIZE, WikiStatusBadge, getFirstItemIndex, getLastItemIndex } from './wikiUi.js';
+import { formatDate, formatLabel, getErrorMessage } from '../../components/adminUi';
+import { ApiError, type ApiMeta } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
+import { wikiApi, type WikiPage, type WikiPageVersion } from '../../lib/wikiApi';
+import NotFound from '../NotFound';
+import { WIKI_PAGE_SIZE, WikiStatusBadge } from './wikiUi';
 
 type WikiVersionHistoryProps = {
   spaceId: string;
@@ -29,6 +24,7 @@ const DEFAULT_PAGINATION: NonNullable<ApiMeta['pagination']> = {
 };
 
 export default function WikiVersionHistory({ spaceId, pageId }: WikiVersionHistoryProps) {
+  const { t } = useTranslation();
   const { hasSpacePermission } = useAuth();
   const canRollback = hasSpacePermission(spaceId, 'wiki:rollback');
   const navigate = useNavigate();
@@ -39,12 +35,10 @@ export default function WikiVersionHistory({ spaceId, pageId }: WikiVersionHisto
   const [isLoading, setIsLoading] = useState(true);
   const [rollingBackVersionId, setRollingBackVersionId] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const loadVersions = useCallback(async () => {
     setIsLoading(true);
     setNotFound(false);
-    setError(null);
 
     try {
       const [pageResponse, versionsResponse] = await Promise.all([
@@ -65,7 +59,7 @@ export default function WikiVersionHistory({ spaceId, pageId }: WikiVersionHisto
       if (err instanceof ApiError && err.status === 404) {
         setNotFound(true);
       } else {
-        setError(getErrorMessage(err));
+        void message.error(getErrorMessage(err));
       }
     } finally {
       setIsLoading(false);
@@ -78,13 +72,12 @@ export default function WikiVersionHistory({ spaceId, pageId }: WikiVersionHisto
 
   async function rollbackVersion(version: WikiPageVersion): Promise<void> {
     setRollingBackVersionId(version.version_id);
-    setError(null);
 
     try {
       await wikiApi.rollback(spaceId, pageId, version.version_id);
       void navigate(`/spaces/${encodeURIComponent(spaceId)}/wiki/${encodeURIComponent(pageId)}`);
     } catch (err) {
-      setError(getErrorMessage(err));
+      void message.error(getErrorMessage(err));
     } finally {
       setRollingBackVersionId(null);
     }
@@ -97,128 +90,97 @@ export default function WikiVersionHistory({ spaceId, pageId }: WikiVersionHisto
   }
 
   if (notFound) {
-    return (
-      <main className="admin-content wiki-page">
-        <NotFound />
-      </main>
-    );
+    return <NotFound />;
   }
 
-  return (
-    <main className="admin-content wiki-page">
-      <PageHeader
-        title="Version History"
-        {...(page !== null ? { description: page.title } : {})}
-        actions={
-          <>
-            <SpaceNav spaceId={spaceId} />
-            <Link className="button button-secondary" to={`/spaces/${encodeURIComponent(spaceId)}/wiki/${encodeURIComponent(pageId)}`}>
-              Back to Page
-            </Link>
-          </>
+  const columns: ColumnsType<WikiPageVersion> = [
+    {
+      title: t('wiki.history.columns.version'),
+      dataIndex: 'version_id',
+      key: 'version_id',
+      render: (val: string) => <Typography.Text strong>{val}</Typography.Text>,
+    },
+    {
+      title: t('wiki.history.columns.source'),
+      key: 'source',
+      render: (_: unknown, version: WikiPageVersion) => formatLabel(version.source_run_id ?? t('wiki.history.manual')),
+    },
+    {
+      title: t('wiki.history.columns.status'),
+      dataIndex: 'status',
+      key: 'status',
+      render: (val: string) => <WikiStatusBadge status={val} />,
+    },
+    {
+      title: t('wiki.history.columns.createdBy'),
+      dataIndex: 'author',
+      key: 'author',
+    },
+    {
+      title: t('wiki.history.columns.createdAt'),
+      dataIndex: 'created_at',
+      key: 'created_at',
+      render: (val: string) => formatDate(val),
+      sorter: (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+    },
+    {
+      title: t('wiki.history.columns.actions'),
+      key: 'actions',
+      render: (_: unknown, version: WikiPageVersion) => {
+        const isCurrent = version.status === 'current';
+        if (isCurrent || !canRollback) {
+          return <Typography.Text type="secondary">{t('wiki.history.current')}</Typography.Text>;
         }
+        return (
+          <Popconfirm
+            title={t('wiki.history.confirmRollback')}
+            onConfirm={() => { void rollbackVersion(version); }}
+            onCancel={(e) => e?.stopPropagation()}
+          >
+            <Button
+              size="small"
+              loading={rollingBackVersionId === version.version_id}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {t('wiki.history.rollback')}
+            </Button>
+          </Popconfirm>
+        );
+      },
+    },
+  ];
+
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <Typography.Title level={4} style={{ margin: 0 }}>{t('wiki.history.title')}</Typography.Title>
+          {page !== null && <Typography.Text type="secondary">{page.title}</Typography.Text>}
+        </div>
+        <Link to={`/spaces/${encodeURIComponent(spaceId)}/wiki/${encodeURIComponent(pageId)}`}>
+          <Button icon={<ArrowLeftOutlined />}>{t('wiki.history.backToPage')}</Button>
+        </Link>
+      </div>
+
+      <Table<WikiPageVersion>
+        columns={columns}
+        dataSource={versions}
+        rowKey="version_id"
+        loading={isLoading}
+        onRow={(version) => ({
+          onClick: () => openVersion(version),
+          style: { cursor: 'pointer' },
+        })}
+        pagination={{
+          current: pageNumber,
+          pageSize: WIKI_PAGE_SIZE,
+          total: pagination.total,
+          onChange: (p) => setPageNumber(p),
+          showTotal: (totalItems, range) => t('wiki.history.pagination.showing', { from: range[0], to: range[1], total: totalItems }),
+        }}
+        locale={{ emptyText: t('wiki.history.empty') }}
+        size="middle"
       />
-
-      <ErrorBanner error={error} />
-
-      <section className="detail-panel" aria-label="Wiki version history">
-        {isLoading ? (
-          <LoadingState label="Loading wiki versions..." />
-        ) : versions.length === 0 ? (
-          <EmptyState label="No versions are available for this page." />
-        ) : (
-          <>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Version</th>
-                    <th>Source</th>
-                    <th>Status</th>
-                    <th>Created By</th>
-                    <th>Created At</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {versions.map((version) => {
-                    const isCurrent = version.status === 'current';
-                    return (
-                      <tr
-                        key={version.version_id}
-                        className="interactive-row"
-                        tabIndex={0}
-                        onClick={() => openVersion(version)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault();
-                            openVersion(version);
-                          }
-                        }}
-                      >
-                        <td>
-                          <strong>{version.version_id}</strong>
-                        </td>
-                        <td>{formatLabel(version.source_run_id ?? 'manual')}</td>
-                        <td>
-                          <WikiStatusBadge status={version.status} />
-                        </td>
-                        <td>{version.author}</td>
-                        <td>{formatDate(version.created_at)}</td>
-                        <td>
-                          {!isCurrent && canRollback ? (
-                            <button
-                              className="button button-secondary"
-                              type="button"
-                              disabled={rollingBackVersionId === version.version_id}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void rollbackVersion(version);
-                              }}
-                            >
-                              {rollingBackVersionId === version.version_id ? 'Rolling back...' : 'Rollback'}
-                            </button>
-                          ) : (
-                            <span className="pagination-summary">Current</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="pagination-bar">
-              <span className="pagination-summary">
-                Showing {getFirstItemIndex(pagination.page, pagination.total)}-
-                {getLastItemIndex(pagination.page, versions.length, pagination.total)} of {pagination.total}
-              </span>
-              <div className="upload-pagination-actions">
-                <button
-                  className="button button-secondary"
-                  type="button"
-                  disabled={pagination.page <= 1}
-                  onClick={() => setPageNumber(pagination.page - 1)}
-                >
-                  Previous
-                </button>
-                <span className="pagination-summary">
-                  Page {pagination.page} of {Math.max(1, Math.ceil(pagination.total / WIKI_PAGE_SIZE), pagination.page)}
-                </span>
-                <button
-                  className="button button-secondary"
-                  type="button"
-                  disabled={!pagination.has_next}
-                  onClick={() => setPageNumber(pagination.page + 1)}
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-      </section>
-    </main>
+    </>
   );
 }

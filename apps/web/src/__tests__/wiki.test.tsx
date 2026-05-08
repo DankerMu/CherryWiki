@@ -51,7 +51,7 @@ afterEach(() => {
 });
 
 describe('WikiPageList', () => {
-  it('renders loading state, then page list', async () => {
+  it('renders page list with antd Table', async () => {
     apiMocks.getWrapped.mockResolvedValueOnce({
       data: [
         buildPage({ id: 'row-1', page_id: 'space-1.community.main', title: 'Community Overview', status: 'published' }),
@@ -61,10 +61,11 @@ describe('WikiPageList', () => {
 
     renderWithRouter(<WikiPageList spaceId="space-1" />);
 
-    expect(screen.getByText('Loading wiki pages...')).toBeInTheDocument();
+    // antd Table shows data after loading
     expect(await screen.findByText('Community Overview')).toBeInTheDocument();
-    expect(getStatusBadge('Published')).toHaveClass('status-healthy');
     expect(screen.getByText('space-1.community.main')).toBeInTheDocument();
+    // antd Tag renders status
+    expect(screen.getByText('Published')).toBeInTheDocument();
   });
 
   it('shows empty state when no pages exist', async () => {
@@ -116,7 +117,7 @@ describe('WikiPageDetail', () => {
 });
 
 describe('WikiVersionHistory', () => {
-  it('renders version list', async () => {
+  it('renders version list with antd Table', async () => {
     apiMocks.getWrapped.mockImplementation((path: string) => {
       if (path.endsWith('/versions')) {
         return Promise.resolve({
@@ -134,14 +135,14 @@ describe('WikiVersionHistory', () => {
     renderWithRouter(<WikiVersionHistory spaceId="space-1" pageId="page-1" />);
 
     expect(await screen.findByText('version-2')).toBeInTheDocument();
-    expect(screen.getAllByText('Graphify').length).toBeGreaterThan(0);
     expect(screen.getByText('version-1')).toBeInTheDocument();
+    // Rollback button for non-current version
     expect(screen.getByRole('button', { name: 'Rollback' })).toBeInTheDocument();
   });
 });
 
 describe('WikiStatusBadge', () => {
-  it('renders status badges with correct text and classes', () => {
+  it('renders status badges as antd Tags', () => {
     render(
       <>
         <WikiStatusBadge status="draft" />
@@ -150,9 +151,10 @@ describe('WikiStatusBadge', () => {
       </>,
     );
 
-    expect(getStatusBadge('Draft')).toHaveClass('status-neutral');
-    expect(getStatusBadge('Published')).toHaveClass('status-healthy');
-    expect(getStatusBadge('Archived')).toHaveClass('status-degraded');
+    // antd Tag renders the status text
+    expect(screen.getByText('Draft')).toBeInTheDocument();
+    expect(screen.getByText('Published')).toBeInTheDocument();
+    expect(screen.getByText('Archived')).toBeInTheDocument();
   });
 });
 
@@ -210,13 +212,4 @@ function buildVersion(overrides: Partial<WikiPageVersion> = {}): WikiPageVersion
     created_at: '2026-05-01T09:00:00.000Z',
     ...overrides,
   };
-}
-
-function getStatusBadge(label: string): HTMLElement {
-  const badge = screen.getAllByText(label).find((element) => element.classList.contains('status-badge'));
-  if (badge === undefined) {
-    throw new Error(`Status badge not found: ${label}`);
-  }
-
-  return badge;
 }

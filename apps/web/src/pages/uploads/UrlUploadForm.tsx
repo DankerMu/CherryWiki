@@ -1,5 +1,7 @@
-import { type FormEvent, useState } from 'react';
-import { ErrorBanner, getErrorMessage } from '../../components/adminUi';
+import { Alert, Button, Card, Input, Typography, message } from 'antd';
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { getErrorMessage } from '../../components/adminUi';
 import { api } from '../../lib/api';
 import type { UploadResponse } from './types';
 
@@ -9,24 +11,20 @@ type UrlUploadFormProps = {
 };
 
 export default function UrlUploadForm({ spaceId, onUploaded }: UrlUploadFormProps) {
+  const { t } = useTranslation();
   const [url, setUrl] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  async function submitUrl(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-
+  async function submitUrl(): Promise<void> {
     const trimmedUrl = url.trim();
     if (!isValidHttpUrl(trimmedUrl)) {
-      setError('Enter a valid http or https URL.');
-      setSuccessMessage(null);
+      setError(t('upload.url.invalidUrl'));
       return;
     }
 
     setIsSubmitting(true);
     setError(null);
-    setSuccessMessage(null);
 
     try {
       const response = await api.post<UploadResponse>(`/spaces/${encodeURIComponent(spaceId)}/uploads`, {
@@ -35,7 +33,7 @@ export default function UrlUploadForm({ spaceId, onUploaded }: UrlUploadFormProp
       });
       onUploaded(response, trimmedUrl);
       setUrl('');
-      setSuccessMessage(`Added source_document_id: ${response.source_document_id}`);
+      void message.success(t('upload.url.success', { id: response.source_document_id }));
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -44,36 +42,36 @@ export default function UrlUploadForm({ spaceId, onUploaded }: UrlUploadFormProp
   }
 
   return (
-    <section className="detail-panel upload-panel" aria-label="URL upload">
-      <div className="detail-panel-header">
-        <div>
-          <h2>URL</h2>
-          <p>Add a web source to fetch and process for this space.</p>
-        </div>
+    <Card
+      title={t('upload.url.title')}
+      size="small"
+      styles={{ body: { padding: 16 } }}
+    >
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+        {t('upload.url.description')}
+      </Typography.Paragraph>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: error !== null ? 12 : 0 }}>
+        <Input
+          type="url"
+          value={url}
+          placeholder={t('upload.url.placeholder')}
+          onChange={(event) => setUrl(event.target.value)}
+          onPressEnter={() => { void submitUrl(); }}
+        />
+        <Button
+          type="primary"
+          loading={isSubmitting}
+          onClick={() => { void submitUrl(); }}
+        >
+          {t('upload.url.submit')}
+        </Button>
       </div>
 
-      <form className="url-upload-form" noValidate onSubmit={(event) => void submitUrl(event)}>
-        <label>
-          URL
-          <input
-            type="url"
-            value={url}
-            placeholder="https://example.com/article"
-            onChange={(event) => setUrl(event.target.value)}
-          />
-        </label>
-        <button className="button button-primary" type="submit" disabled={isSubmitting}>
-          {isSubmitting ? 'Adding...' : 'Add URL'}
-        </button>
-      </form>
-
-      <ErrorBanner error={error} />
-      {successMessage !== null ? (
-        <p className="upload-result upload-result-success" role="status">
-          {successMessage}
-        </p>
-      ) : null}
-    </section>
+      {error !== null && (
+        <Alert message={error} type="error" showIcon style={{ marginTop: 8 }} />
+      )}
+    </Card>
   );
 }
 

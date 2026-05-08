@@ -444,5 +444,279 @@
         "unavailable": "不可用"
       }
     }
+  },
+  "upload": {
+    "title": "上传中心",
+    "description": "上传文件和 URL，跟踪此空间的处理状态。",
+    "loading": "加载上传记录中...",
+    "file": {
+      "title": "文件",
+      "description": "拖放文件至此处或从磁盘选择。",
+      "dropActive": "松开即可上传",
+      "dropIdle": "拖放文件或点击选择",
+      "supported": "支持格式：{{extensions}}。限制：每文件 {{limit}}。",
+      "chooseLabel": "选择要上传的文件"
+    },
+    "url": {
+      "title": "URL",
+      "description": "添加一个网页源以供此空间抓取和处理。",
+      "label": "URL",
+      "placeholder": "https://example.com/article",
+      "submit": "添加 URL",
+      "submitting": "添加中...",
+      "invalidUrl": "请输入有效的 http 或 https URL。",
+      "success": "已添加 source_document_id: {{id}}"
+    },
+    "list": {
+      "title": "上传列表",
+      "description": "跟踪此空间中文件和 URL 的处理状态。",
+      "emptyFilter": "没有上传记录匹配当前筛选条件。",
+      "columns": {
+        "filename": "文件名",
+        "type": "类型",
+        "size": "大小",
+        "status": "状态",
+        "uploader": "上传者",
+        "time": "时间",
+        "actions": "操作"
+      },
+      "filter": {
+        "status": "状态",
+        "allStatuses": "所有状态"
+      },
+      "details": "详情",
+      "unknown": "未知",
+      "pagination": {
+        "showing": "显示 {{from}}-{{to}} / 共 {{total}}",
+        "page": "第 {{current}} / {{total}} 页"
+      }
+    },
+    "detail": {
+      "title": "上传详情",
+      "sourceDocId": "源文档 ID",
+      "type": "类型",
+      "size": "大小",
+      "uploader": "上传者",
+      "mime": "MIME",
+      "sha256": "SHA256",
+      "created": "创建时间",
+      "updated": "更新时间",
+      "jobId": "任务 ID",
+      "jobStatus": "任务状态",
+      "unknown": "未知",
+      "pending": "待处理",
+      "none": "无",
+      "failure": {
+        "title": "失败详情",
+        "description": "处理任务返回的解析或安全验证详情。",
+        "errorType": "错误类型",
+        "errorMessage": "错误信息",
+        "noErrorMessage": "未记录错误信息"
+      },
+      "metadata": {
+        "title": "元数据",
+        "description": "API 捕获的原始上传元数据。"
+      },
+      "reprocess": "重新处理",
+      "reprocessing": "重新处理中..."
+    },
+    "attempt": {
+      "uploaded": "已上传",
+      "failed": "失败",
+      "uploading": "上传中",
+      "queued": "排队中",
+      "unsupportedType": "不支持的文件类型。",
+      "fileTooLarge": "文件超过 200 MB 上传限制。",
+      "uploadError": "上传失败"
+    },
+    "stage": {
+      "uploaded": "已上传",
+      "validating": "验证中",
+      "archived": "排队解析中",
+      "parsing": "解析中",
+      "graphifyPending": "等待图谱化",
+      "graphifyRunning": "构建图谱中",
+      "parsed": "已解析",
+      "parseFailed": "解析失败",
+      "securityRejected": "安全拒绝"
+    }
+  },
+  "wiki": {
+    "title": "知识库",
+    "description": "查阅为此知识空间生成的规范页面。",
+    "loading": "加载知识库页面中...",
+    "list": {
+      "title": "页面",
+      "description": "浏览当前知识库页面目录。",
+      "empty": "此空间尚无知识库页面。",
+      "columns": {
+        "title": "标题",
+        "status": "状态",
+        "updated": "更新时间",
+        "createdBy": "创建者"
+      },
+      "searchPlaceholder": "搜索标题",
+      "filter": {
+        "status": "状态",
+        "allStatuses": "所有状态"
+      },
+      "statusOptions": {
+        "draft": "草稿",
+        "published": "已发布",
+        "archived": "已归档"
+      },
+      "pagination": {
+        "showing": "显示 {{from}}-{{to}} / 共 {{total}}",
+        "page": "第 {{current}} / {{total}} 页"
+      },
+      "unknown": "未知"
+    },
+    "detail": {
+      "title": "知识库页面",
+      "backToWiki": "返回知识库",
+      "history": "历史",
+      "publish": "发布",
+      "publishing": "发布中...",
+      "loadingPage": "加载知识库页面中...",
+      "unavailable": "知识库页面内容不可用。",
+      "statusDraft": "草稿",
+      "statusPublished": "已发布",
+      "statusArchived": "已归档",
+      "updatedAt": "更新于 {{date}}",
+      "version": "版本 {{id}}"
+    },
+    "history": {
+      "title": "版本历史",
+      "loading": "加载版本历史中...",
+      "empty": "此页面没有可用版本。",
+      "backToPage": "返回页面",
+      "columns": {
+        "version": "版本",
+        "source": "来源",
+        "status": "状态",
+        "createdBy": "创建者",
+        "createdAt": "创建时间",
+        "actions": "操作"
+      },
+      "rollback": "回滚",
+      "rollingBack": "回滚中...",
+      "confirmRollback": "确定要回滚到此版本吗？",
+      "current": "当前",
+      "manual": "手动",
+      "pagination": {
+        "showing": "显示 {{from}}-{{to}} / 共 {{total}}",
+        "page": "第 {{current}} / {{total}} 页"
+      }
+    },
+    "status": {
+      "draft": "草稿",
+      "published": "已发布",
+      "archived": "已归档",
+      "current": "当前"
+    }
+  },
+  "graphify": {
+    "space": {
+      "title": "图谱化运行",
+      "description": "创建和跟踪此空间的 Graphify 输出导入。",
+      "loading": "加载图谱化运行中...",
+      "emptyFilter": "没有图谱化运行匹配当前筛选条件。",
+      "newRun": "新建运行",
+      "columns": {
+        "run": "运行",
+        "status": "状态",
+        "mode": "模式",
+        "trigger": "触发方式",
+        "timing": "耗时",
+        "stats": "统计",
+        "actions": "操作"
+      },
+      "filter": {
+        "trigger": "触发方式",
+        "allTriggers": "所有触发方式",
+        "page": "页码",
+        "perPage": "每页条数"
+      },
+      "noReport": "暂无报告",
+      "created": "创建于 {{date}}",
+      "retrying": "重试中...",
+      "confirmRetry": "确定要重试此图谱化运行吗？",
+      "pagination": {
+        "showing": "显示 {{from}}-{{to}} / 共 {{total}}",
+        "page": "第 {{current}} / {{total}} 页"
+      },
+      "detail": {
+        "title": "图谱化运行详情",
+        "description": "检查 Graphify 元数据、导入统计、报告和失败信息。",
+        "backToGraphify": "返回图谱化",
+        "cancelRun": "取消运行",
+        "cancelling": "取消中...",
+        "retryRun": "重试运行",
+        "confirmCancel": "确定要取消此运行吗？",
+        "confirmRetry": "确定要重试此运行吗？",
+        "unavailable": "图谱化运行详情不可用。",
+        "loading": "加载图谱化运行详情中...",
+        "overview": {
+          "runId": "运行 ID",
+          "status": "状态",
+          "mode": "模式",
+          "trigger": "触发方式",
+          "duration": "耗时",
+          "createdAt": "创建时间",
+          "startedAt": "开始时间",
+          "completedAt": "完成时间",
+          "inputScope": "输入范围",
+          "allSources": "所有可用资源"
+        },
+        "stats": {
+          "title": "统计",
+          "description": "导入的图谱和知识库输出计数。",
+          "nodes": "节点",
+          "edges": "边",
+          "communities": "社区",
+          "wikiPages": "知识库页面"
+        },
+        "report": {
+          "title": "GRAPH_REPORT.md",
+          "noReport": "此运行尚未生成报告。",
+          "generated": "生成于 {{date}}",
+          "empty": "此运行没有可用的 Graphify 报告。"
+        },
+        "error": {
+          "title": "错误详情",
+          "quarantine": "隔离：{{type}}",
+          "description": "此运行捕获的失败元数据。",
+          "errorJson": "错误 JSON"
+        }
+      },
+      "newRunDialog": {
+        "title": "新建图谱化运行",
+        "mode": "模式",
+        "triggerType": "触发类型",
+        "triggerManual": "手动",
+        "creating": "创建中...",
+        "createRun": "创建运行"
+      },
+      "statusFilter": {
+        "all": "全部",
+        "pending": "等待中",
+        "running": "运行中",
+        "succeeded": "已成功",
+        "failed": "已失败",
+        "cancelled": "已取消"
+      },
+      "stats": {
+        "nodes": "节点",
+        "edges": "边",
+        "wiki": "Wiki"
+      },
+      "timing": {
+        "queued": "排队中",
+        "notStarted": "未开始",
+        "unavailable": "不可用",
+        "inProgress": "进行中"
+      },
+      "quarantined": "已隔离"
+    }
   }
 }

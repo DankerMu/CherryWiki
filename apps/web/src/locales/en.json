@@ -444,5 +444,279 @@
         "unavailable": "Unavailable"
       }
     }
+  },
+  "upload": {
+    "title": "Upload Center",
+    "description": "Upload files and URLs, then track processing status for this space.",
+    "loading": "Loading uploads...",
+    "file": {
+      "title": "Files",
+      "description": "Drop files here or choose them from disk.",
+      "dropActive": "Release to upload",
+      "dropIdle": "Drop files or click to select",
+      "supported": "Supported: {{extensions}}. Limit: {{limit}} per file.",
+      "chooseLabel": "Choose files for upload"
+    },
+    "url": {
+      "title": "URL",
+      "description": "Add a web source to fetch and process for this space.",
+      "label": "URL",
+      "placeholder": "https://example.com/article",
+      "submit": "Add URL",
+      "submitting": "Adding...",
+      "invalidUrl": "Enter a valid http or https URL.",
+      "success": "Added source_document_id: {{id}}"
+    },
+    "list": {
+      "title": "Uploads",
+      "description": "Track processing state for files and URLs in this space.",
+      "emptyFilter": "No uploads match the current filters.",
+      "columns": {
+        "filename": "Filename",
+        "type": "Type",
+        "size": "Size",
+        "status": "Status",
+        "uploader": "Uploader",
+        "time": "Time",
+        "actions": "Actions"
+      },
+      "filter": {
+        "status": "Status",
+        "allStatuses": "All statuses"
+      },
+      "details": "Details",
+      "unknown": "Unknown",
+      "pagination": {
+        "showing": "Showing {{from}}-{{to}} of {{total}}",
+        "page": "Page {{current}} of {{total}}"
+      }
+    },
+    "detail": {
+      "title": "Upload Detail",
+      "sourceDocId": "Source Document ID",
+      "type": "Type",
+      "size": "Size",
+      "uploader": "Uploader",
+      "mime": "MIME",
+      "sha256": "SHA256",
+      "created": "Created",
+      "updated": "Updated",
+      "jobId": "Job ID",
+      "jobStatus": "Job Status",
+      "unknown": "Unknown",
+      "pending": "Pending",
+      "none": "None",
+      "failure": {
+        "title": "Failure Details",
+        "description": "Parser or security validation details returned by the processing job.",
+        "errorType": "Error Type",
+        "errorMessage": "Error Message",
+        "noErrorMessage": "No error message recorded"
+      },
+      "metadata": {
+        "title": "Metadata",
+        "description": "Raw upload metadata captured by the API."
+      },
+      "reprocess": "Reprocess",
+      "reprocessing": "Reprocessing..."
+    },
+    "attempt": {
+      "uploaded": "Uploaded",
+      "failed": "Failed",
+      "uploading": "Uploading",
+      "queued": "Queued",
+      "unsupportedType": "Unsupported file type.",
+      "fileTooLarge": "File exceeds the 200 MB upload limit.",
+      "uploadError": "Upload failed"
+    },
+    "stage": {
+      "uploaded": "Uploaded",
+      "validating": "Validating",
+      "archived": "Queued for parsing",
+      "parsing": "Parsing",
+      "graphifyPending": "Waiting for graphify",
+      "graphifyRunning": "Building graph",
+      "parsed": "Parsed",
+      "parseFailed": "Parse failed",
+      "securityRejected": "Security rejected"
+    }
+  },
+  "wiki": {
+    "title": "Wiki",
+    "description": "Read canonical pages generated for this knowledge space.",
+    "loading": "Loading wiki pages...",
+    "list": {
+      "title": "Pages",
+      "description": "Browse the current wiki page catalog.",
+      "empty": "No wiki pages in this space yet.",
+      "columns": {
+        "title": "Title",
+        "status": "Status",
+        "updated": "Updated",
+        "createdBy": "Created By"
+      },
+      "searchPlaceholder": "Search titles",
+      "filter": {
+        "status": "Status",
+        "allStatuses": "All statuses"
+      },
+      "statusOptions": {
+        "draft": "Draft",
+        "published": "Published",
+        "archived": "Archived"
+      },
+      "pagination": {
+        "showing": "Showing {{from}}-{{to}} of {{total}}",
+        "page": "Page {{current}} of {{total}}"
+      },
+      "unknown": "Unknown"
+    },
+    "detail": {
+      "title": "Wiki Page",
+      "backToWiki": "Back to Wiki",
+      "history": "History",
+      "publish": "Publish",
+      "publishing": "Publishing...",
+      "loadingPage": "Loading wiki page...",
+      "unavailable": "Wiki page content is unavailable.",
+      "statusDraft": "Draft",
+      "statusPublished": "Published",
+      "statusArchived": "Archived",
+      "updatedAt": "Updated {{date}}",
+      "version": "Version {{id}}"
+    },
+    "history": {
+      "title": "Version History",
+      "loading": "Loading wiki versions...",
+      "empty": "No versions are available for this page.",
+      "backToPage": "Back to Page",
+      "columns": {
+        "version": "Version",
+        "source": "Source",
+        "status": "Status",
+        "createdBy": "Created By",
+        "createdAt": "Created At",
+        "actions": "Actions"
+      },
+      "rollback": "Rollback",
+      "rollingBack": "Rolling back...",
+      "confirmRollback": "Are you sure you want to rollback to this version?",
+      "current": "Current",
+      "manual": "Manual",
+      "pagination": {
+        "showing": "Showing {{from}}-{{to}} of {{total}}",
+        "page": "Page {{current}} of {{total}}"
+      }
+    },
+    "status": {
+      "draft": "Draft",
+      "published": "Published",
+      "archived": "Archived",
+      "current": "Current"
+    }
+  },
+  "graphify": {
+    "space": {
+      "title": "Graphify Runs",
+      "description": "Create and track Graphify output imports for this space.",
+      "loading": "Loading graphify runs...",
+      "emptyFilter": "No graphify runs match the current filters.",
+      "newRun": "New Run",
+      "columns": {
+        "run": "Run",
+        "status": "Status",
+        "mode": "Mode",
+        "trigger": "Trigger",
+        "timing": "Timing",
+        "stats": "Stats",
+        "actions": "Actions"
+      },
+      "filter": {
+        "trigger": "Trigger",
+        "allTriggers": "All triggers",
+        "page": "Page",
+        "perPage": "Per page"
+      },
+      "noReport": "No report yet",
+      "created": "Created {{date}}",
+      "retrying": "Retrying...",
+      "confirmRetry": "Are you sure you want to retry this graphify run?",
+      "pagination": {
+        "showing": "Showing {{from}}-{{to}} of {{total}}",
+        "page": "Page {{current}} of {{total}}"
+      },
+      "detail": {
+        "title": "Graphify Run Detail",
+        "description": "Inspect Graphify metadata, import statistics, reports, and failures.",
+        "backToGraphify": "Back to Graphify",
+        "cancelRun": "Cancel Run",
+        "cancelling": "Cancelling...",
+        "retryRun": "Retry Run",
+        "confirmCancel": "Are you sure you want to cancel this run?",
+        "confirmRetry": "Are you sure you want to retry this run?",
+        "unavailable": "Graphify run details are unavailable.",
+        "loading": "Loading graphify run details...",
+        "overview": {
+          "runId": "Run ID",
+          "status": "Status",
+          "mode": "Mode",
+          "trigger": "Trigger",
+          "duration": "Duration",
+          "createdAt": "Created at",
+          "startedAt": "Started at",
+          "completedAt": "Completed at",
+          "inputScope": "Input scope",
+          "allSources": "All available sources"
+        },
+        "stats": {
+          "title": "Stats",
+          "description": "Imported graph and wiki output counts.",
+          "nodes": "Nodes",
+          "edges": "Edges",
+          "communities": "Communities",
+          "wikiPages": "Wiki pages"
+        },
+        "report": {
+          "title": "GRAPH_REPORT.md",
+          "noReport": "No report has been captured for this run.",
+          "generated": "Generated {{date}}",
+          "empty": "No Graphify report is available for this run."
+        },
+        "error": {
+          "title": "Error Details",
+          "quarantine": "Quarantine: {{type}}",
+          "description": "Failure metadata captured for this run.",
+          "errorJson": "Error JSON"
+        }
+      },
+      "newRunDialog": {
+        "title": "New Graphify Run",
+        "mode": "Mode",
+        "triggerType": "Trigger type",
+        "triggerManual": "Manual",
+        "creating": "Creating...",
+        "createRun": "Create Run"
+      },
+      "statusFilter": {
+        "all": "All",
+        "pending": "Pending",
+        "running": "Running",
+        "succeeded": "Succeeded",
+        "failed": "Failed",
+        "cancelled": "Cancelled"
+      },
+      "stats": {
+        "nodes": "Nodes",
+        "edges": "Edges",
+        "wiki": "Wiki"
+      },
+      "timing": {
+        "queued": "Queued",
+        "notStarted": "Not started",
+        "unavailable": "Unavailable",
+        "inProgress": "In progress"
+      },
+      "quarantined": "Quarantined"
+    }
   }
 }
