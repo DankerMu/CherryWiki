@@ -5,8 +5,14 @@ type PendingWait = {
   reject: (err: Error) => void;
 };
 
+type SettlementWait = {
+  resolve: () => void;
+  reject: (err: Error) => void;
+};
+
 export class TurnEventQueue implements AsyncIterable<AgentEvent> {
   private readonly buffer: AgentEvent[] = [];
+  private readonly settlementWaiters: SettlementWait[] = [];
   private pending: PendingWait | undefined = undefined;
   private done = false;
   private disposed = false;
@@ -35,6 +41,7 @@ export class TurnEventQueue implements AsyncIterable<AgentEvent> {
 
     this.done = true;
     this.resolvePending(undefined);
+    this.resolveSettlement();
   }
 
   error(err: Error): void {
@@ -48,6 +55,7 @@ export class TurnEventQueue implements AsyncIterable<AgentEvent> {
       this.pending = undefined;
       pending.reject(err);
     }
+    this.rejectSettlement(err);
   }
 
   [Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
@@ -99,6 +107,21 @@ export class TurnEventQueue implements AsyncIterable<AgentEvent> {
     this.failure = undefined;
     this.buffer.length = 0;
     this.resolvePending(undefined);
+    this.resolveSettlement();
+  }
+
+  waitUntilSettled(): Promise<void> {
+    if (this.done || this.disposed) {
+      return Promise.resolve();
+    }
+
+    if (this.failure !== undefined) {
+      return Promise.reject(this.failure);
+    }
+
+    return new Promise((resolve, reject) => {
+      this.settlementWaiters.push({ resolve, reject });
+    });
   }
 
   private resolvePending(event: AgentEvent | undefined): void {
@@ -109,5 +132,19 @@ export class TurnEventQueue implements AsyncIterable<AgentEvent> {
 
     this.pending = undefined;
     pending.resolve(event);
+  }
+
+  private resolveSettlement(): void {
+    const waiters = this.settlementWaiters.splice(0);
+    for (const waiter of waiters) {
+      waiter.resolve();
+    }
+  }
+
+  private rejectSettlement(err: Error): void {
+    const waiters = this.settlementWaiters.splice(0);
+    for (const waiter of waiters) {
+      waiter.reject(err);
+    }
   }
 }
