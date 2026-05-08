@@ -78,9 +78,9 @@ describe('TurnEventQueue', () => {
     await expect(collectAsync(queue)).resolves.toEqual(events);
   });
 
-  it('rejects concurrent consumers', async () => {
+  it('rejects concurrent consumers', () => {
     const queue = new TurnEventQueue();
-    const _first = queue[Symbol.asyncIterator]();
+    void queue[Symbol.asyncIterator]();
     expect(() => queue[Symbol.asyncIterator]()).toThrow('only one concurrent consumer');
     queue.dispose();
   });
