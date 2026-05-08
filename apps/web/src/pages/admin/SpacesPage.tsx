@@ -1,15 +1,27 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import {
-  EmptyState,
-  ErrorBanner,
-  LoadingState,
+  Button,
+  Checkbox,
+  Collapse,
+  Descriptions,
+  Drawer,
+  Empty,
+  Form,
+  Input,
   Modal,
-  PageHeader,
-  StatusBadge,
-  getErrorMessage,
-} from '../../components/adminUi';
+  Space,
+  Switch,
+  Table,
+  Tag,
+  Typography,
+  message,
+} from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { requireAdminPage } from '../../components/RequireAdminPage';
 import { api } from '../../lib/api';
+import { getErrorMessage } from '../../components/adminUi';
 import {
   SPACE_PERMISSION_OPTIONS,
   type AdminGroup,
@@ -24,13 +36,16 @@ type CreateSpaceForm = {
   description: string;
 };
 
-const EMPTY_SPACE_FORM: CreateSpaceForm = {
-  name: '',
-  slug: '',
-  description: '',
-};
+const EMPTY_SPACE_FORM: CreateSpaceForm = { name: '', slug: '', description: '' };
+
+function statusColor(status: string): string {
+  if (status === 'active') return 'green';
+  if (status === 'disabled') return 'default';
+  return 'orange';
+}
 
 function SpacesPage() {
+  const { t } = useTranslation();
   const [spaces, setSpaces] = useState<AdminSpace[]>([]);
   const [groups, setGroups] = useState<AdminGroup[]>([]);
   const [selectedSpace, setSelectedSpace] = useState<AdminSpaceDetail | null>(null);
@@ -39,11 +54,10 @@ function SpacesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [formInstance] = Form.useForm<CreateSpaceForm>();
 
   const loadSpaces = useCallback(async () => {
     setIsLoading(true);
-    setError(null);
 
     try {
       const [nextSpaces, nextGroups] = await Promise.all([
@@ -53,7 +67,7 @@ function SpacesPage() {
       setSpaces(nextSpaces);
       setGroups(nextGroups);
     } catch (err) {
-      setError(getErrorMessage(err));
+      void message.error(getErrorMessage(err));
     } finally {
       setIsLoading(false);
     }
@@ -63,24 +77,23 @@ function SpacesPage() {
     void loadSpaces();
   }, [loadSpaces]);
 
-  async function submitCreateSpace(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    if (createForm === null) {
-      return;
-    }
+  async function submitCreateSpace(): Promise<void> {
+    if (createForm === null) return;
 
     setIsSaving(true);
-    setError(null);
     try {
+      const values = await formInstance.validateFields();
       await api.post<AdminSpaceDetail>('/spaces', {
-        name: createForm.name,
-        slug: createForm.slug,
-        description: createForm.description,
+        name: values.name,
+        slug: values.slug,
+        description: values.description,
       });
       setCreateForm(null);
+      formInstance.resetFields();
       await loadSpaces();
     } catch (err) {
-      setError(getErrorMessage(err));
+      if (err && typeof err === 'object' && 'errorFields' in err) return;
+      void message.error(getErrorMessage(err));
     } finally {
       setIsSaving(false);
     }
@@ -88,7 +101,6 @@ function SpacesPage() {
 
   async function openDetails(space: AdminSpace): Promise<void> {
     setIsDetailLoading(true);
-    setError(null);
 
     try {
       const [detail, permissions] = await Promise.all([
@@ -98,19 +110,16 @@ function SpacesPage() {
       setSelectedSpace(detail);
       setPermissionsByGroup(Object.fromEntries(permissions.map((item) => [item.group_id, item.permissions])));
     } catch (err) {
-      setError(getErrorMessage(err));
+      void message.error(getErrorMessage(err));
     } finally {
       setIsDetailLoading(false);
     }
   }
 
   async function saveStrictMode(strictKnowledgeOnly: boolean): Promise<void> {
-    if (selectedSpace === null) {
-      return;
-    }
+    if (selectedSpace === null) return;
 
     setIsSaving(true);
-    setError(null);
     try {
       const updated = await api.patch<AdminSpaceDetail>(`/spaces/${selectedSpace.id}`, {
         strict_knowledge_only: strictKnowledgeOnly,
@@ -118,233 +127,215 @@ function SpacesPage() {
       setSelectedSpace(updated);
       await loadSpaces();
     } catch (err) {
-      setError(getErrorMessage(err));
+      void message.error(getErrorMessage(err));
     } finally {
       setIsSaving(false);
     }
   }
 
   async function savePermissions(): Promise<void> {
-    if (selectedSpace === null) {
-      return;
-    }
+    if (selectedSpace === null) return;
 
     setIsSaving(true);
-    setError(null);
     try {
       const permissions = Object.entries(permissionsByGroup)
         .map(([group_id, groupPermissions]) => ({ group_id, permissions: groupPermissions }))
         .filter((item) => item.permissions.length > 0);
       const updated = await api.put<SpacePermissionGroup[]>(`/spaces/${selectedSpace.id}/permissions`, { permissions });
       setPermissionsByGroup(Object.fromEntries(updated.map((item) => [item.group_id, item.permissions])));
+      void message.success(t('admin.spaces.detail.savePermissions'));
     } catch (err) {
-      setError(getErrorMessage(err));
+      void message.error(getErrorMessage(err));
     } finally {
       setIsSaving(false);
     }
   }
 
-  function updatePermission(groupId: string, permission: string, checked: boolean): void {
-    setPermissionsByGroup((current) => {
-      const currentPermissions = current[groupId] ?? [];
-      const nextPermissions = checked
-        ? [...new Set([...currentPermissions, permission])]
-        : currentPermissions.filter((item) => item !== permission);
-
-      return {
-        ...current,
-        [groupId]: nextPermissions,
-      };
-    });
-  }
+  const columns: ColumnsType<AdminSpace> = [
+    {
+      title: t('admin.spaces.columns.name'),
+      dataIndex: 'name',
+      key: 'name',
+      sorter: (a, b) => a.name.localeCompare(b.name),
+      render: (name: string, space: AdminSpace) => (
+        <div>
+          <Typography.Text strong>{name}</Typography.Text>
+          <br />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>{space.id}</Typography.Text>
+        </div>
+      ),
+    },
+    {
+      title: t('admin.spaces.columns.slug'),
+      dataIndex: 'slug',
+      key: 'slug',
+      render: (slug: string) => <Typography.Text code>{slug}</Typography.Text>,
+    },
+    {
+      title: t('admin.spaces.columns.status'),
+      dataIndex: 'status',
+      key: 'status',
+      render: (val: string) => <Tag color={statusColor(val)}>{t(`common.status.${val}`, val)}</Tag>,
+    },
+    {
+      title: t('admin.spaces.columns.pages'),
+      key: 'pages',
+      render: (_: unknown, space: AdminSpace) => space.stats.page_count,
+    },
+    {
+      title: t('admin.spaces.columns.sources'),
+      key: 'sources',
+      render: (_: unknown, space: AdminSpace) => space.stats.source_count,
+    },
+    {
+      title: t('admin.spaces.columns.actions'),
+      key: 'actions',
+      render: (_: unknown, space: AdminSpace) => (
+        <Button size="small" loading={isDetailLoading} onClick={() => { void openDetails(space); }}>
+          {t('common.action.configure')}
+        </Button>
+      ),
+    },
+  ];
 
   return (
     <>
-      <PageHeader
-        title="Spaces"
-        description="Create knowledge spaces and manage their access controls."
-        actions={
-          <button className="button button-primary" type="button" onClick={() => setCreateForm({ ...EMPTY_SPACE_FORM })}>
-            Create Space
-          </button>
-        }
-      />
-      <ErrorBanner error={error} />
-
-      {isLoading ? (
-        <LoadingState />
-      ) : spaces.length === 0 ? (
-        <EmptyState label="No spaces are available to administer." />
-      ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Slug</th>
-                <th>Status</th>
-                <th>Pages</th>
-                <th>Sources</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {spaces.map((space) => (
-                <tr key={space.id}>
-                  <td>
-                    <strong>{space.name}</strong>
-                    <span className="subtle-id">{space.id}</span>
-                  </td>
-                  <td>
-                    <code>{space.slug}</code>
-                  </td>
-                  <td>
-                    <StatusBadge status={space.status} />
-                  </td>
-                  <td>{space.stats.page_count}</td>
-                  <td>{space.stats.source_count}</td>
-                  <td>
-                    <button
-                      className="button button-secondary"
-                      type="button"
-                      onClick={() => {
-                        void openDetails(space);
-                      }}
-                    >
-                      Configure
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <Typography.Title level={4} style={{ margin: 0 }}>{t('admin.spaces.title')}</Typography.Title>
+          <Typography.Text type="secondary">{t('admin.spaces.description')}</Typography.Text>
         </div>
-      )}
-
-      {isDetailLoading ? <LoadingState label="Loading space details..." /> : null}
-
-      {selectedSpace !== null ? (
-        <section className="detail-panel" aria-label="Space configuration">
-          <div className="detail-panel-header">
-            <div>
-              <h2>{selectedSpace.name}</h2>
-              <p>{selectedSpace.description ?? 'No description'}</p>
-            </div>
-            <button className="button button-secondary" type="button" onClick={() => setSelectedSpace(null)}>
-              Close
-            </button>
-          </div>
-
-          <div className="settings-grid">
-            <label className="toggle-row">
-              <input
-                type="checkbox"
-                checked={selectedSpace.strict_knowledge_only}
-                disabled={isSaving}
-                onChange={(event) => {
-                  void saveStrictMode(event.target.checked);
-                }}
-              />
-              <span>
-                <strong>Strict knowledge only</strong>
-                <small>Restrict answers to indexed space knowledge.</small>
-              </span>
-            </label>
-            <div>
-              <span className="eyebrow">Repository path</span>
-              <code>{selectedSpace.wiki_repo_path}</code>
-            </div>
-            <div>
-              <span className="eyebrow">Index status</span>
-              <StatusBadge status={selectedSpace.index_consistency_status} />
-            </div>
-          </div>
-
-          <div className="permission-editor">
-            <div className="section-heading-row">
-              <h3>Group permissions</h3>
-              <button
-                className="button button-primary"
-                type="button"
-                disabled={isSaving}
-                onClick={() => {
-                  void savePermissions();
-                }}
-              >
-                Save Permissions
-              </button>
-            </div>
-            {groups.length === 0 ? (
-              <p className="muted-copy">Create a group before assigning permissions.</p>
-            ) : (
-              groups.map((group) => (
-                <fieldset key={group.id}>
-                  <legend>{group.name}</legend>
-                  {SPACE_PERMISSION_OPTIONS.map((permission) => (
-                    <label key={permission} className="checkbox-row">
-                      <input
-                        type="checkbox"
-                        checked={(permissionsByGroup[group.id] ?? []).includes(permission)}
-                        onChange={(event) => updatePermission(group.id, permission, event.target.checked)}
-                      />
-                      {permission}
-                    </label>
-                  ))}
-                </fieldset>
-              ))
-            )}
-          </div>
-        </section>
-      ) : null}
-
-      {createForm !== null ? (
-        <Modal title="Create Space" onClose={() => setCreateForm(null)}>
-          <form
-            className="form-grid"
-            onSubmit={(event) => {
-              void submitCreateSpace(event);
+        <Space>
+          <Button icon={<ReloadOutlined />} onClick={() => { void loadSpaces(); }}>
+            {t('common.action.refresh')}
+          </Button>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => {
+              setCreateForm({ ...EMPTY_SPACE_FORM });
+              formInstance.resetFields();
             }}
           >
-            <label>
-              Name *
-              <input
-                required
-                type="text"
-                value={createForm.name}
-                onChange={(event) => setCreateForm((current) => (current === null ? current : { ...current, name: event.target.value }))}
-              />
-            </label>
-            <label>
-              Slug *
-              <input
-                required
-                type="text"
-                pattern="[a-z0-9]+(-[a-z0-9]+)*"
-                value={createForm.slug}
-                onChange={(event) => setCreateForm((current) => (current === null ? current : { ...current, slug: event.target.value }))}
-              />
-            </label>
-            <label className="span-2">
-              Description
-              <textarea
-                rows={4}
-                value={createForm.description}
-                onChange={(event) =>
-                  setCreateForm((current) => (current === null ? current : { ...current, description: event.target.value }))
-                }
-              />
-            </label>
-            <div className="form-actions span-2">
-              <button className="button button-secondary" type="button" onClick={() => setCreateForm(null)}>
-                Cancel
-              </button>
-              <button className="button button-primary" type="submit" disabled={isSaving}>
-                {isSaving ? 'Creating...' : 'Create Space'}
-              </button>
-            </div>
-          </form>
-        </Modal>
-      ) : null}
+            {t('admin.spaces.createButton')}
+          </Button>
+        </Space>
+      </div>
+
+      <Table<AdminSpace>
+        columns={columns}
+        dataSource={spaces}
+        rowKey="id"
+        loading={isLoading}
+        pagination={{ pageSize: 20, showSizeChanger: true }}
+        locale={{ emptyText: t('admin.spaces.emptyList') }}
+        size="middle"
+      />
+
+      <Drawer
+        title={selectedSpace?.name ?? t('admin.spaces.detail.title')}
+        open={selectedSpace !== null}
+        onClose={() => setSelectedSpace(null)}
+        width={560}
+      >
+        {selectedSpace !== null ? (
+          <>
+            <Descriptions column={1} bordered size="small">
+              <Descriptions.Item label={t('admin.spaces.columns.name')}>{selectedSpace.name}</Descriptions.Item>
+              <Descriptions.Item label={t('admin.spaces.form.description')}>
+                {selectedSpace.description ?? t('admin.spaces.detail.noDescription')}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('admin.spaces.detail.repoPath')}>
+                <Typography.Text code>{selectedSpace.wiki_repo_path}</Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label={t('admin.spaces.detail.indexStatus')}>
+                <Tag color={statusColor(selectedSpace.index_consistency_status)}>
+                  {selectedSpace.index_consistency_status}
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label={t('admin.spaces.detail.strictKnowledge')}>
+                <Space>
+                  <Switch
+                    checked={selectedSpace.strict_knowledge_only}
+                    disabled={isSaving}
+                    onChange={(checked) => { void saveStrictMode(checked); }}
+                  />
+                  <Typography.Text type="secondary">{t('admin.spaces.detail.strictKnowledgeHelp')}</Typography.Text>
+                </Space>
+              </Descriptions.Item>
+            </Descriptions>
+
+            <Typography.Title level={5} style={{ marginTop: 24 }}>
+              {t('admin.spaces.detail.groupPermissions')}
+            </Typography.Title>
+
+            {groups.length === 0 ? (
+              <Empty description={t('admin.spaces.detail.noGroupHint')} />
+            ) : (
+              <>
+                <Collapse>
+                  {groups.map((group) => (
+                    <Collapse.Panel key={group.id} header={group.name}>
+                      <Checkbox.Group
+                        value={permissionsByGroup[group.id] ?? []}
+                        onChange={(checked) => {
+                          setPermissionsByGroup((current) => ({
+                            ...current,
+                            [group.id]: checked,
+                          }));
+                        }}
+                      >
+                        <Space direction="vertical">
+                          {SPACE_PERMISSION_OPTIONS.map((perm) => (
+                            <Checkbox key={perm} value={perm}>{perm}</Checkbox>
+                          ))}
+                        </Space>
+                      </Checkbox.Group>
+                    </Collapse.Panel>
+                  ))}
+                </Collapse>
+                <Button
+                  type="primary"
+                  loading={isSaving}
+                  style={{ marginTop: 16 }}
+                  onClick={() => { void savePermissions(); }}
+                >
+                  {t('admin.spaces.detail.savePermissions')}
+                </Button>
+              </>
+            )}
+          </>
+        ) : null}
+      </Drawer>
+
+      <Modal
+        title={t('admin.spaces.createTitle')}
+        open={createForm !== null}
+        onCancel={() => { setCreateForm(null); formInstance.resetFields(); }}
+        onOk={() => { void submitCreateSpace(); }}
+        confirmLoading={isSaving}
+        okText={isSaving ? t('admin.spaces.creating') : t('admin.spaces.createButton')}
+        cancelText={t('common.action.cancel')}
+      >
+        <Form form={formInstance} layout="vertical" initialValues={EMPTY_SPACE_FORM}>
+          <Form.Item name="name" label={t('admin.spaces.form.name')} rules={[{ required: true, message: t('admin.spaces.form.nameRequired') }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item
+            name="slug"
+            label={t('admin.spaces.form.slug')}
+            rules={[
+              { required: true, message: t('admin.spaces.form.slugRequired') },
+              { pattern: /^[a-z0-9]+(-[a-z0-9]+)*$/, message: t('admin.spaces.form.slugPattern') },
+            ]}
+          >
+            <Input />
+          </Form.Item>
+          <Form.Item name="description" label={t('admin.spaces.form.description')}>
+            <Input.TextArea rows={4} />
+          </Form.Item>
+        </Form>
+      </Modal>
     </>
   );
 }
