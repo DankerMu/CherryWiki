@@ -88,12 +88,21 @@ services:
       DOCMOST_BASE_URL: ${DOCMOST_BASE_URL:-http://localhost:3000}
       DOCMOST_BRIDGE_SECRET: ${DOCMOST_BRIDGE_SECRET:-dev-docmost-bridge-secret}
       DOCMOST_BRIDGE_SECRET_NEXT: ${DOCMOST_BRIDGE_SECRET_NEXT:-}
+      AGENT_ANTHROPIC_API_KEY: ${AGENT_ANTHROPIC_API_KEY:-}
+      AGENT_ANTHROPIC_BASE_URL: ${AGENT_ANTHROPIC_BASE_URL:-}
+      AGENT_ANTHROPIC_MODEL: ${AGENT_ANTHROPIC_MODEL:-deepseek-v4-flash}
+      CHERRY_AGENT_TOKEN: ${CHERRY_AGENT_TOKEN:-dev-agent-token}
+      CHERRY_AGENT_TMP_ROOT: /work/agent
+      CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.131}
+      AGENT_MAX_RESIDENT_PROCESSES: ${AGENT_MAX_RESIDENT_PROCESSES:-20}
     ports:
       - "127.0.0.1:8081:8080"
     volumes:
       - .:/app
       - api_node_modules:/app/node_modules
       - api_pnpm_store:/app/.pnpm-store
+      - agent_work:/work/agent
+      - ./tools:/app/tools:ro
     healthcheck:
       test:
         [

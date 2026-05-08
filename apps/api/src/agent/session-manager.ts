@@ -2,7 +2,7 @@ import { Inject, Injectable, Optional, type OnModuleDestroy } from '@nestjs/comm
 import type { ChildProcess } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, type Dirent } from 'node:fs';
-import { chmod, mkdir, readdir, rename, rm } from 'node:fs/promises';
+import { chmod, chown, mkdir, readdir, rename, rm } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
@@ -716,6 +716,11 @@ async function prepareSessionDirectories(workDir: string, agentHome: string): Pr
   await mkdir(agentHome, { recursive: true, mode: 0o700 });
   await mkdir(tmpDir, { recursive: true, mode: 0o700 });
   await Promise.all([chmod(workDir, 0o700), chmod(agentHome, 0o700), chmod(tmpDir, 0o700)]);
+  const uid = readPositiveIntegerEnv('AGENT_SPAWN_UID', process.getuid?.() === 0 ? 10001 : 0);
+  if (uid > 0) {
+    const gid = readPositiveIntegerEnv('AGENT_SPAWN_GID', uid);
+    await Promise.all([chown(workDir, uid, gid), chown(agentHome, uid, gid), chown(tmpDir, uid, gid)]);
+  }
 }
 
 async function terminateChild(
