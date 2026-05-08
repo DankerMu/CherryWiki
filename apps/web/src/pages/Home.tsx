@@ -18,7 +18,8 @@ export default function Home() {
 
   return (
     <div style={{ textAlign: 'center', padding: 48 }}>
-      <h1>{t('home.noSpaces.description')}</h1>
+      <h1>{t('home.noSpaces.title')}</h1>
+      <p>{t('home.noSpaces.description')}</p>
     </div>
   );
 }

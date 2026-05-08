@@ -42,8 +42,7 @@ code {
   font-size: 0.85rem;
 }
 
-.login-page,
-.forbidden-page {
+.login-page {
   display: grid;
   min-height: 100vh;
   place-items: center;
@@ -54,8 +53,7 @@ code {
     var(--color-background);
 }
 
-.login-panel,
-.forbidden-panel {
+.login-panel {
   width: min(100%, 430px);
   padding: 32px;
   border: 1px solid var(--color-border);
@@ -65,7 +63,6 @@ code {
 }
 
 .login-panel h1,
-.forbidden-panel h1,
 .admin-page-header h1 {
   margin: 0;
   color: var(--color-text-1);
@@ -2036,7 +2033,6 @@ dd {
 
 @media (max-width: 520px) {
   .login-panel,
-  .forbidden-panel,
   .modal-panel {
     padding: 20px;
   }

@@ -336,7 +336,9 @@ export default function AppShell() {
 
 function getRoleLabel(user: AuthUser | null, t: (key: string) => string): string {
   const role = user?.role ?? 'unknown';
-  return t(`common.role.${role}`);
+  const key = `common.role.${role}`;
+  const label = t(key);
+  return label === key ? t('common.role.unknown') : label;
 }
 
 function isSpaceFunction(key: string): key is SpaceFunction {
@@ -344,6 +346,7 @@ function isSpaceFunction(key: string): key is SpaceFunction {
 }
 
 function getSpaceFunctionFromPath(pathname: string): SpaceFunction | null {
+  if (pathname.startsWith('/admin')) return null;
   if (pathname.includes('/wiki')) return 'wiki';
   if (pathname.includes('/uploads')) return 'uploads';
   if (pathname.includes('/graphify')) return 'graphify';
@@ -363,7 +366,8 @@ function getAdminRouteKey(pathname: string): AdminRouteKey | null {
   if (pathname.startsWith('/admin/health')) return 'health';
   if (pathname.startsWith('/admin/jobs')) return 'jobs';
   if (pathname.startsWith('/admin/graphify')) return 'adminGraphify';
-  return 'users';
+  if (pathname.startsWith('/admin/users') || pathname === '/admin') return 'users';
+  return null;
 }
 
 function buildBreadcrumbItems(pathname: string, spaceName: string | undefined, t: (key: string) => string) {

@@ -2,9 +2,13 @@ import { LockOutlined, MailOutlined } from '@ant-design/icons';
 import { Alert, Button, Card, Form, Input, Typography } from 'antd';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { ApiError } from '../lib/api';
 import { useAuth } from '../lib/auth';
+
+type LocationState = {
+  from?: string;
+};
 
 type LoginFormValues = {
   email: string;
@@ -14,6 +18,7 @@ type LoginFormValues = {
 export default function Login() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -24,7 +29,8 @@ export default function Login() {
 
     try {
       await login(values.email, values.password);
-      void navigate('/', { replace: true });
+      const state = location.state as LocationState | null;
+      void navigate(state?.from ?? '/', { replace: true });
     } catch (err) {
       setError(getLoginErrorMessage(err, t));
     } finally {
@@ -47,10 +53,7 @@ export default function Login() {
           className="login-form"
           layout="vertical"
           onFinish={(values) => {
-            void submitLogin(values).catch((err: unknown) => {
-              setError(getLoginErrorMessage(err, t));
-              setIsSubmitting(false);
-            });
+            void submitLogin(values);
           }}
         >
           <Form.Item
