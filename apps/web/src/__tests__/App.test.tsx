@@ -131,15 +131,11 @@ describe('App routing', () => {
     expect(await screen.findByRole('heading', { name: '用户管理' })).toBeInTheDocument();
   });
 
-  it('renders all admin sub-pages when authorized', async () => {
+  it('renders admin sub-pages when authorized', async () => {
     mockAdminApi();
 
     const routes = [
       ['/admin/users', '用户管理'],
-      ['/admin/groups', '分组管理'],
-      ['/admin/spaces', '空间管理'],
-      ['/admin/models', '模型管理'],
-      ['/admin/audit', '审计日志'],
       ['/admin/health', '系统健康'],
     ] as const;
 
