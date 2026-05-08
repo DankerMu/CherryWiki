@@ -37,7 +37,7 @@ export default function GraphPathViewer({ path }: GraphPathViewerProps) {
   const confidenceTone = getConfidenceTone(pathConfidence);
 
   if (path.nodes.length === 0) {
-    return <div className="graph-path-empty">No graph path data</div>;
+    return <div className="graph-path-empty">{t('chat.noGraphPath')}</div>;
   }
 
   return (
@@ -63,7 +63,7 @@ export default function GraphPathViewer({ path }: GraphPathViewerProps) {
                 <div className={`graph-path-edge confidence-${getConfidenceTone(getEdgeScore(edge))}`}>
                   <span className="graph-path-edge-line" aria-hidden="true" />
                   <span className="graph-path-edge-label">
-                    {edge.relationship ?? 'RELATED'}
+                    {edge.relationship ?? t('chat.relatedEdge')}
                     <ConfidenceBadge label={edge.confidence_label} />
                   </span>
                 </div>

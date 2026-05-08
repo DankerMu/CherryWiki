@@ -760,7 +760,9 @@
     "graphNodeIds": "graph_node_ids",
     "graphEdgeIds": "graph_edge_ids",
     "chainConfidence": "chain_confidence",
-    "toolUseLabel": "Agent tool use"
+    "toolUseLabel": "Agent tool use",
+    "noGraphPath": "No graph path data",
+    "relatedEdge": "RELATED"
   },
   "notFound": {
     "title": "Page Not Found",

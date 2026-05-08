@@ -760,7 +760,9 @@
     "graphNodeIds": "图谱节点",
     "graphEdgeIds": "图谱边",
     "chainConfidence": "链路置信度",
-    "toolUseLabel": "Agent 工具调用"
+    "toolUseLabel": "Agent 工具调用",
+    "noGraphPath": "暂无图谱路径数据",
+    "relatedEdge": "关联"
   },
   "notFound": {
     "title": "页面未找到",

@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import { Navigate, useNavigate, useParams } from 'react-router';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
-import { Alert, Button, Collapse, Empty, List, Popconfirm, Result, Select, Spin, Tag } from 'antd';
+import { Alert, Button, Collapse, Empty, Input, List, Popconfirm, Result, Select, Spin, Tag } from 'antd';
 import { CloseOutlined, DeleteOutlined, MenuOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons';
 import ChatChart from '../components/ChatChart.js';
 import { ConfidenceBadge } from '../components/ConfidenceBadge.js';
@@ -424,7 +424,7 @@ export function MessageInput({
       }}
     >
       <label htmlFor="chat-message-input">{t('chat.messageLabel')}</label>
-      <textarea
+      <Input.TextArea
         id="chat-message-input"
         value={value}
         maxLength={CHAT_INPUT_MAX_LENGTH}
@@ -443,10 +443,10 @@ export function MessageInput({
         {deepAnalysisSegmentOptions.map((opt) => {
           const isActive = segmentedValue.includes(opt.value);
           return (
-            <button
+            <Button
               key={opt.value}
-              className={`chat-toggle-chip${isActive ? ' active' : ''}`}
-              type="button"
+              size="small"
+              type={isActive ? 'primary' : 'default'}
               aria-pressed={isActive}
               disabled={disabled}
               onClick={() => {
@@ -458,7 +458,7 @@ export function MessageInput({
               }}
             >
               {opt.label}
-            </button>
+            </Button>
           );
         })}
         <label className="chat-retrieval-mode-label" htmlFor="chat-retrieval-mode">
