@@ -277,6 +277,3 @@ function captureStdin(proc: MockAgentProcess): string[] {
   return chunks;
 }
 
-async function waitForSpawn(count = 1): Promise<void> {
-  await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(count));
-}

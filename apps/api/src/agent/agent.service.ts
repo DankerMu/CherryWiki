@@ -2,7 +2,7 @@ import { HttpException, HttpStatus, Inject, Injectable, type OnModuleDestroy } f
 import { modelUsageLogs } from '@cherrygraph/shared';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { chown, chmod, mkdir, open, rename, rm, writeFile } from 'node:fs/promises';
+import { chown, chmod, mkdir, open, rename, rm } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { join } from 'node:path';
 import type { Readable } from 'node:stream';
