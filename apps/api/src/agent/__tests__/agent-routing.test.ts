@@ -47,7 +47,7 @@ describe('Agent routing', () => {
       }),
     );
 
-    expect(agent.spawnNew).toHaveBeenCalledWith( // eslint-disable-line @typescript-eslint/unbound-method
+    expect(agent.sendTurn).toHaveBeenCalledWith( // eslint-disable-line @typescript-eslint/unbound-method
       'session-1',
       TEST_SPACE_ID,
       'run a deep analysis',
@@ -119,6 +119,7 @@ function queuePreparedAgentCompletion(db: ScriptedDb, space: SpaceRow = createSp
 function createAgentServiceMock(events: ChatAgentEvent[]): AgentService {
   return {
     hasSession: vi.fn(() => false),
+    sendTurn: vi.fn(() => toAsyncIterable(events)),
     spawnNew: vi.fn(() => toAsyncIterable(events)),
     resume: vi.fn(() => toAsyncIterable(events)),
   } as unknown as AgentService;

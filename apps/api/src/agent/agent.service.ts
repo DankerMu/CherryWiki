@@ -23,6 +23,7 @@ import { SessionMutex } from './session-mutex.js';
 import { SessionManager } from './session-manager.js';
 import { SettingsGenerator } from './settings-generator.js';
 import { StreamParser } from './stream-parser.js';
+import type { TurnEventQueue } from './turn-event-queue.js';
 
 const DEFAULT_MAX_CONCURRENT_AGENTS = 20;
 const DEFAULT_PROCESS_TIMEOUT_MS = 60 * 60_000;
@@ -33,6 +34,17 @@ const DEFAULT_MAX_BUDGET_USD = 2;
 const DEFAULT_COMMAND = 'claude';
 const DEFAULT_INTERNAL_API_URL = 'http://127.0.0.1:3000';
 const DEFAULT_AGENT_ROOT = '/tmp/cherry-agent';
+
+type HasSessionOptions = {
+  includePersisted: true;
+};
+
+export class AgentSessionBusyError extends Error {
+  constructor(conversationId: string) {
+    super(`Agent session ${conversationId} is busy with another turn`);
+    this.name = 'AgentSessionBusyError';
+  }
+}
 
 @Injectable()
 export class AgentService implements OnModuleDestroy {
@@ -124,7 +136,13 @@ export class AgentService implements OnModuleDestroy {
     }
   }
 
-  hasSession(conversationId: string): boolean {
+  hasSession(conversationId: string): boolean;
+  hasSession(conversationId: string, options: HasSessionOptions): Promise<boolean>;
+  hasSession(conversationId: string, options?: HasSessionOptions): boolean | Promise<boolean> {
+    if (options?.includePersisted === true) {
+      return this.sessionManager.hasSession(conversationId, options);
+    }
+
     return this.sessionManager.hasSession(conversationId);
   }
 
@@ -257,6 +275,41 @@ export class AgentService implements OnModuleDestroy {
     }
   }
 
+  async *sendTurn(
+    conversationId: string,
+    spaceId: string,
+    userMessage: string,
+    options: AgentSpawnOptions = {},
+  ): AsyncGenerator<AgentEvent> {
+    const releaseTurn = this.turnMutex.tryAcquire(conversationId);
+    if (releaseTurn === null) {
+      throw new AgentSessionBusyError(conversationId);
+    }
+
+    try {
+      const session = await this.sessionManager.getOrCreateSession(
+        conversationId,
+        spaceId,
+        options.tenantId ?? '',
+        options.userId ?? '',
+        options,
+      );
+
+      if (
+        !isLiveProcess(session.child) ||
+        session.status === 'starting' ||
+        session.status === 'stopped' ||
+        session.status === 'failed'
+      ) {
+        await this.spawnPersistentProcess(session);
+      }
+
+      yield* this.sendTurnToPersistentProcessLocked(session, userMessage);
+    } finally {
+      releaseTurn();
+    }
+  }
+
   async *sendTurnToPersistentProcess(
     session: PersistentAgentSession,
     userMessage: string,
@@ -271,7 +324,20 @@ export class AgentService implements OnModuleDestroy {
       return;
     }
 
+    try {
+      yield* this.sendTurnToPersistentProcessLocked(session, userMessage);
+    } finally {
+      releaseTurn();
+    }
+  }
+
+  private async *sendTurnToPersistentProcessLocked(
+    session: PersistentAgentSession,
+    userMessage: string,
+  ): AsyncGenerator<AgentEvent> {
     const usageWrites: Array<Promise<void>> = [];
+    let turn: TurnEventQueue | undefined;
+    let turnStreamFinished = false;
     let terminalEventSeen = false;
 
     try {
@@ -289,7 +355,7 @@ export class AgentService implements OnModuleDestroy {
       this.timings.set(session.conversationId, timing);
       let firstForwardedEventSeen = false;
 
-      const turn = parser.createTurn();
+      turn = parser.createTurn();
       await writePersistentTurn(proc.stdin, userMessage);
 
       for await (const event of turn) {
@@ -299,30 +365,17 @@ export class AgentService implements OnModuleDestroy {
           this.timings.set(session.conversationId, timing);
         }
 
-        if (event.type === 'message.completed') {
+        if (this.handlePersistentTerminalEvent(session, event, timing, usageWrites)) {
           terminalEventSeen = true;
-          const completedAt = new Date();
-          timing.completed_at = completedAt;
-          event.latency_ms = completedAt.getTime() - timing.spawn_at.getTime();
-
-          if (timing.first_sse_at !== undefined) {
-            event.first_sse_latency_ms = timing.first_sse_at.getTime() - timing.spawn_at.getTime();
-          }
-
-          usageWrites.push(this.recordModelUsage(session, event).catch(() => undefined));
-        } else if (event.type === 'message.error') {
-          terminalEventSeen = true;
+          await this.finishPersistentTurn(session);
         }
 
         yield event;
       }
 
-      if (terminalEventSeen && isLiveProcess(session.child)) {
-        await this.sessionManager.markIdle(session.conversationId);
-        session.status = 'idle';
-        session.lastActivityAt = Date.now();
-        this.sessionManager.touch(session.conversationId, session.lastActivityAt);
-      } else if (!terminalEventSeen && !isLiveProcess(session.child)) {
+      turnStreamFinished = true;
+
+      if (!terminalEventSeen && !isLiveProcess(session.child)) {
         yield {
           type: 'message.error',
           code: 'process_exited',
@@ -330,6 +383,11 @@ export class AgentService implements OnModuleDestroy {
         };
       }
     } catch (err) {
+      turnStreamFinished = true;
+      if (turn !== undefined && !terminalEventSeen) {
+        this.persistentParsers.get(session.conversationId)?.cancelActiveTurn();
+      }
+
       const proc = session.child;
       if (isLiveProcess(proc)) {
         await this.sessionManager.markIdle(session.conversationId);
@@ -339,9 +397,97 @@ export class AgentService implements OnModuleDestroy {
 
       yield toAgentErrorEvent(err);
     } finally {
-      releaseTurn();
+      if (turn !== undefined && !turnStreamFinished && !terminalEventSeen) {
+        await this.cancelPersistentTurn(session, turn);
+      }
+
       await Promise.all(usageWrites);
     }
+  }
+
+  private handlePersistentTerminalEvent(
+    session: PersistentAgentSession,
+    event: AgentEvent,
+    timing: AgentTiming,
+    usageWrites: Array<Promise<void>>,
+  ): boolean {
+    if (event.type === 'message.completed') {
+      const completedAt = new Date();
+      timing.completed_at = completedAt;
+      event.latency_ms = completedAt.getTime() - timing.spawn_at.getTime();
+
+      if (timing.first_sse_at !== undefined) {
+        event.first_sse_latency_ms = timing.first_sse_at.getTime() - timing.spawn_at.getTime();
+      }
+
+      usageWrites.push(this.recordModelUsage(session, event).catch(() => undefined));
+      return true;
+    }
+
+    return event.type === 'message.error';
+  }
+
+  private async finishPersistentTurn(session: PersistentAgentSession): Promise<void> {
+    if (!isLiveProcess(session.child)) {
+      await this.sessionManager.markFailed(session.conversationId);
+      return;
+    }
+
+    await this.sessionManager.markIdle(session.conversationId);
+    session.status = 'idle';
+    session.lastActivityAt = Date.now();
+    this.sessionManager.touch(session.conversationId, session.lastActivityAt);
+  }
+
+  private async cancelPersistentTurn(
+    session: PersistentAgentSession,
+    turn: TurnEventQueue,
+  ): Promise<void> {
+    const proc = session.child;
+    const parser = this.persistentParsers.get(session.conversationId);
+    if (!isLiveProcess(proc)) {
+      parser?.cancelActiveTurn();
+      return;
+    }
+
+    const turnSettled = turn.waitUntilSettled().then(
+      () => ({ type: 'turn' as const }),
+      () => ({ type: 'turn' as const }),
+    );
+    const processExited = waitForProcessExit(proc).then(() => ({ type: 'exit' as const }));
+    const graceMs = readPositiveIntegerEnv('AGENT_SIGINT_GRACE_MS', HARD_KILL_GRACE_MS);
+
+    proc.kill('SIGINT');
+
+    const outcome = await Promise.race([
+      turnSettled,
+      processExited,
+      delay(graceMs).then(() => ({ type: 'timeout' as const })),
+    ]);
+
+    if (outcome.type === 'turn') {
+      if (isLiveProcess(proc)) {
+        await this.finishPersistentTurn(session);
+      }
+      return;
+    }
+
+    if (outcome.type === 'exit' || !isLiveProcess(proc)) {
+      return;
+    }
+
+    const exitedAfterKill = waitForProcessCloseOrTimeout(proc, graceMs);
+    proc.kill('SIGKILL');
+
+    if (await exitedAfterKill) {
+      return;
+    }
+
+    parser?.cancelActiveTurn();
+    parser?.stop();
+    this.persistentParsers.delete(session.conversationId);
+    await this.sessionManager.markFailed(session.conversationId);
+    this.releasePersistentSlot(session.conversationId);
   }
 
   private async *runClaudeProcess(
@@ -814,6 +960,12 @@ function waitForProcessCloseOrTimeout(proc: ChildProcess, timeoutMs: number): Pr
   });
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function isReadable(value: unknown): value is Readable {
   return value !== null && value !== undefined && typeof (value as Readable).pipe === 'function';
 }
@@ -845,6 +997,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isString(value: unknown): value is string {
   return typeof value === 'string';
+}
+
+function readPositiveIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 class AgentProcessError extends Error {}
