@@ -73,9 +73,9 @@ describe('App routing', () => {
     await i18n.changeLanguage('zh-CN');
   });
 
-  it('redirects unauthenticated / to /login', () => {
+  it('redirects unauthenticated / to /login', async () => {
     renderRoute('/');
-    expect(screen.getByRole('heading', { name: '登录' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '登录' })).toBeInTheDocument();
   });
 
   it('redirects authenticated admin with spaces to first space chat', async () => {
