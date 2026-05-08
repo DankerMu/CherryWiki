@@ -1,14 +1,10 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import {
-  EmptyState,
-  ErrorBanner,
-  LoadingState,
-  Modal,
-  PageHeader,
-  getErrorMessage,
-} from '../../components/adminUi';
+import { EditOutlined, PlusOutlined, ReloadOutlined, TeamOutlined } from '@ant-design/icons';
+import { Button, Card, Checkbox, Collapse, Empty, Form, Input, Modal, Select, Space, Spin, Typography, message } from 'antd';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { requireAdminPage } from '../../components/RequireAdminPage';
 import { api } from '../../lib/api';
+import { getErrorMessage } from '../../components/adminUi';
 import {
   SPACE_PERMISSION_OPTIONS,
   type AdminGroup,
@@ -25,17 +21,17 @@ type GroupForm = {
 };
 
 function GroupsPage() {
+  const { t } = useTranslation();
   const [groups, setGroups] = useState<AdminGroup[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [spaces, setSpaces] = useState<AdminSpace[]>([]);
   const [form, setForm] = useState<GroupForm | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [antForm] = Form.useForm();
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
-    setError(null);
 
     try {
       const [nextGroups, nextUsers, nextSpaces] = await Promise.all([
@@ -47,7 +43,7 @@ function GroupsPage() {
       setUsers(nextUsers);
       setSpaces(nextSpaces);
     } catch (err) {
-      setError(getErrorMessage(err));
+      void message.error(getErrorMessage(err));
     } finally {
       setIsLoading(false);
     }
@@ -57,16 +53,10 @@ function GroupsPage() {
     void loadData();
   }, [loadData]);
 
-  const modalTitle = form?.id === undefined ? 'Create Group' : 'Edit Group';
-
-  async function submitGroup(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    if (form === null) {
-      return;
-    }
+  async function submitGroup(): Promise<void> {
+    if (form === null) return;
 
     setIsSaving(true);
-    setError(null);
     const body = {
       name: form.name,
       description: form.description,
@@ -83,31 +73,33 @@ function GroupsPage() {
       setForm(null);
       await loadData();
     } catch (err) {
-      setError(getErrorMessage(err));
+      void message.error(getErrorMessage(err));
     } finally {
       setIsSaving(false);
     }
   }
 
   function openCreateForm(): void {
-    setForm(createEmptyForm());
+    const newForm = createEmptyForm();
+    setForm(newForm);
+    antForm.setFieldsValue({ name: '', description: '', memberIds: [] });
   }
 
   function openEditForm(group: AdminGroup): void {
-    setForm({
+    const editData: GroupForm = {
       id: group.id,
       name: group.name,
       description: group.description ?? '',
       memberIds: users.filter((user) => user.groups.includes(group.id)).map((user) => user.id),
       permissionsBySpace: Object.fromEntries(group.spaces.map((space) => [space.space_id, space.permissions])),
-    });
+    };
+    setForm(editData);
+    antForm.setFieldsValue({ name: editData.name, description: editData.description, memberIds: editData.memberIds });
   }
 
   function updatePermission(spaceId: string, permission: string, checked: boolean): void {
     setForm((current) => {
-      if (current === null) {
-        return current;
-      }
+      if (current === null) return current;
 
       const currentPermissions = current.permissionsBySpace[spaceId] ?? [];
       const nextPermissions = checked
@@ -116,10 +108,7 @@ function GroupsPage() {
 
       return {
         ...current,
-        permissionsBySpace: {
-          ...current.permissionsBySpace,
-          [spaceId]: nextPermissions,
-        },
+        permissionsBySpace: { ...current.permissionsBySpace, [spaceId]: nextPermissions },
       };
     });
   }
@@ -129,144 +118,128 @@ function GroupsPage() {
     [groups, users],
   );
 
+  const modalTitle = form?.id === undefined ? t('admin.groups.createTitle') : t('admin.groups.editTitle');
+
   return (
     <>
-      <PageHeader
-        title="Groups"
-        description="Create groups, assign members, and bind space permissions."
-        actions={
-          <button className="button button-primary" type="button" onClick={openCreateForm}>
-            Create Group
-          </button>
-        }
-      />
-      <ErrorBanner error={error} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <Typography.Title level={4} style={{ margin: 0 }}>{t('admin.groups.title')}</Typography.Title>
+          <Typography.Text type="secondary">{t('admin.groups.description')}</Typography.Text>
+        </div>
+        <Space>
+          <Button icon={<ReloadOutlined />} onClick={() => { void loadData(); }}>
+            {t('common.action.refresh')}
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateForm}>
+            {t('admin.groups.createButton')}
+          </Button>
+        </Space>
+      </div>
 
       {isLoading ? (
-        <LoadingState />
+        <div style={{ textAlign: 'center', padding: 48 }}><Spin size="large" /></div>
       ) : groups.length === 0 ? (
-        <EmptyState label="No groups have been created yet." />
+        <Empty description={t('admin.groups.emptyList')} />
       ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Description</th>
-                <th>Members</th>
-                <th>Spaces</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {groups.map((group) => (
-                <tr key={group.id}>
-                  <td>
-                    <strong>{group.name}</strong>
-                    <span className="subtle-id">{group.id}</span>
-                  </td>
-                  <td>{group.description ?? 'No description'}</td>
-                  <td>{memberSummary.get(group.id) ?? group.member_count}</td>
-                  <td>
-                    {group.spaces.length > 0
-                      ? group.spaces.map((space) => `${space.space_id}: ${space.permissions.join(', ')}`).join('; ')
-                      : 'No space permissions'}
-                  </td>
-                  <td>
-                    <button className="button button-secondary" type="button" onClick={() => openEditForm(group)}>
-                      Edit
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
+          {groups.map((group) => (
+            <Card
+              key={group.id}
+              title={group.name}
+              extra={
+                <Button icon={<EditOutlined />} size="small" onClick={() => openEditForm(group)}>
+                  {t('common.action.edit')}
+                </Button>
+              }
+            >
+              <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+                {group.description ?? t('admin.groups.noDescription')}
+              </Typography.Paragraph>
+              <Space>
+                <TeamOutlined />
+                <Typography.Text>{memberSummary.get(group.id) ?? group.member_count} {t('admin.groups.columns.members')}</Typography.Text>
+              </Space>
+              <div style={{ marginTop: 8 }}>
+                <Typography.Text type="secondary">
+                  {group.spaces.length > 0
+                    ? group.spaces.map((s) => `${s.space_id}: ${s.permissions.join(', ')}`).join('; ')
+                    : t('admin.groups.noSpacePermissions')}
+                </Typography.Text>
+              </div>
+            </Card>
+          ))}
         </div>
       )}
 
-      {form !== null ? (
-        <Modal title={modalTitle} onClose={() => setForm(null)}>
-          <form
-            className="form-grid"
-            onSubmit={(event) => {
-              void submitGroup(event);
-            }}
-          >
-            <label>
-              Name *
-              <input
-                required
-                type="text"
+      <Modal
+        title={modalTitle}
+        open={form !== null}
+        onCancel={() => setForm(null)}
+        onOk={() => { void submitGroup(); }}
+        confirmLoading={isSaving}
+        okText={isSaving ? t('admin.groups.saving') : t('admin.groups.saveGroup')}
+        cancelText={t('common.action.cancel')}
+        width={640}
+      >
+        {form !== null ? (
+          <Form form={antForm} layout="vertical">
+            <Form.Item name="name" label={t('admin.groups.form.name')} rules={[{ required: true, message: t('admin.groups.form.nameRequired') }]}>
+              <Input
                 value={form.name}
-                onChange={(event) => setForm((current) => (current === null ? current : { ...current, name: event.target.value }))}
+                onChange={(e) => setForm((c) => c === null ? c : { ...c, name: e.target.value })}
               />
-            </label>
-            <label>
-              Description
-              <input
-                type="text"
+            </Form.Item>
+            <Form.Item name="description" label={t('admin.groups.form.description')}>
+              <Input
                 value={form.description}
-                onChange={(event) =>
-                  setForm((current) => (current === null ? current : { ...current, description: event.target.value }))
-                }
+                onChange={(e) => setForm((c) => c === null ? c : { ...c, description: e.target.value })}
               />
-            </label>
-            <label className="span-2">
-              Members
-              <select
-                multiple
+            </Form.Item>
+            <Form.Item name="memberIds" label={t('admin.groups.form.members')}>
+              <Select
+                mode="multiple"
                 value={form.memberIds}
-                onChange={(event) =>
-                  setForm((current) =>
-                    current === null
-                      ? current
-                      : {
-                          ...current,
-                          memberIds: Array.from(event.target.selectedOptions).map((option) => option.value),
-                        },
-                  )
-                }
-              >
-                {users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.email}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="span-2 permission-editor">
-              <h3>Space permissions</h3>
+                onChange={(val: string[]) => setForm((c) => c === null ? c : { ...c, memberIds: val })}
+                placeholder={t('admin.groups.form.members')}
+                optionFilterProp="label"
+                options={users.map((u) => ({ label: u.email, value: u.id }))}
+              />
+            </Form.Item>
+            <div>
+              <Typography.Title level={5}>{t('admin.groups.form.spacePermissions')}</Typography.Title>
               {spaces.length === 0 ? (
-                <p className="muted-copy">Create a space before assigning space permissions.</p>
+                <Typography.Text type="secondary">{t('admin.groups.form.noSpaceHint')}</Typography.Text>
               ) : (
-                spaces.map((space) => (
-                  <fieldset key={space.id}>
-                    <legend>{space.name}</legend>
-                    {SPACE_PERMISSION_OPTIONS.map((permission) => (
-                      <label key={permission} className="checkbox-row">
-                        <input
-                          type="checkbox"
-                          checked={(form.permissionsBySpace[space.id] ?? []).includes(permission)}
-                          onChange={(event) => updatePermission(space.id, permission, event.target.checked)}
-                        />
-                        {permission}
-                      </label>
-                    ))}
-                  </fieldset>
-                ))
+                <Collapse>
+                  {spaces.map((space) => (
+                    <Collapse.Panel key={space.id} header={space.name}>
+                      <Checkbox.Group
+                        value={form.permissionsBySpace[space.id] ?? []}
+                        onChange={(checked) => {
+                          setForm((current) => {
+                            if (current === null) return current;
+                            return {
+                              ...current,
+                              permissionsBySpace: { ...current.permissionsBySpace, [space.id]: checked as string[] },
+                            };
+                          });
+                        }}
+                      >
+                        <Space direction="vertical">
+                          {SPACE_PERMISSION_OPTIONS.map((perm) => (
+                            <Checkbox key={perm} value={perm}>{perm}</Checkbox>
+                          ))}
+                        </Space>
+                      </Checkbox.Group>
+                    </Collapse.Panel>
+                  ))}
+                </Collapse>
               )}
             </div>
-            <div className="form-actions span-2">
-              <button className="button button-secondary" type="button" onClick={() => setForm(null)}>
-                Cancel
-              </button>
-              <button className="button button-primary" type="submit" disabled={isSaving}>
-                {isSaving ? 'Saving...' : 'Save Group'}
-              </button>
-            </div>
-          </form>
-        </Modal>
-      ) : null}
+          </Form>
+        ) : null}
+      </Modal>
     </>
   );
 }
@@ -274,19 +247,11 @@ function GroupsPage() {
 export default requireAdminPage(GroupsPage);
 
 function createEmptyForm(): GroupForm {
-  return {
-    name: '',
-    description: '',
-    memberIds: [],
-    permissionsBySpace: {},
-  };
+  return { name: '', description: '', memberIds: [], permissionsBySpace: {} };
 }
 
 function toSpacePermissions(permissionsBySpace: Record<string, string[]>): Array<{ space_id: string; permissions: string[] }> {
   return Object.entries(permissionsBySpace)
-    .map(([space_id, permissions]) => ({
-      space_id,
-      permissions,
-    }))
+    .map(([space_id, permissions]) => ({ space_id, permissions }))
     .filter((item) => item.permissions.length > 0);
 }

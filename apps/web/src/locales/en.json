@@ -11,10 +11,29 @@
       "delete": "Delete",
       "back": "Back",
       "logout": "Logout",
-      "login": "Login"
+      "login": "Login",
+      "edit": "Edit",
+      "create": "Create",
+      "refresh": "Refresh",
+      "close": "Close",
+      "enable": "Enable",
+      "disable": "Disable",
+      "retry": "Retry",
+      "test": "Test",
+      "search": "Search",
+      "configure": "Configure"
     },
     "state": {
-      "noData": "No data"
+      "noData": "No data",
+      "never": "Never",
+      "none": "None",
+      "global": "Global",
+      "system": "System",
+      "notRecorded": "Not recorded",
+      "operational": "Operational",
+      "notConfigured": "Not configured",
+      "notTested": "Not tested",
+      "unavailable": "Unavailable"
     },
     "role": {
       "owner": "Owner",
@@ -22,6 +41,21 @@
       "editor": "Editor",
       "viewer": "Viewer",
       "unknown": "Unknown"
+    },
+    "status": {
+      "active": "Active",
+      "disabled": "Disabled",
+      "healthy": "Healthy",
+      "degraded": "Degraded",
+      "unhealthy": "Unhealthy",
+      "not_configured": "Not Configured",
+      "pending": "Pending",
+      "running": "Running",
+      "succeeded": "Succeeded",
+      "failed": "Failed",
+      "cancelled": "Cancelled",
+      "cancelling": "Cancelling",
+      "enabled": "Enabled"
     }
   },
   "shell": {
@@ -99,6 +133,312 @@
       "accountLocked": "This account is temporarily locked. Try again later.",
       "accountDisabled": "This account has been disabled.",
       "generic": "Unable to sign in."
+    }
+  },
+  "admin": {
+    "users": {
+      "title": "User Management",
+      "description": "Manage accounts, roles, group membership, and account status.",
+      "createButton": "Create User",
+      "createTitle": "Create User",
+      "editTitle": "Edit User",
+      "creating": "Creating...",
+      "saving": "Saving...",
+      "emptyFilter": "No users match the current filters.",
+      "searchPlaceholder": "Email or name",
+      "columns": {
+        "email": "Email",
+        "name": "Name",
+        "role": "Role",
+        "status": "Status",
+        "groups": "Groups",
+        "lastLogin": "Last Login",
+        "actions": "Actions"
+      },
+      "filter": {
+        "search": "Search",
+        "role": "Role",
+        "allRoles": "All roles",
+        "status": "Status",
+        "allStatuses": "All statuses"
+      },
+      "form": {
+        "email": "Email",
+        "emailRequired": "Please enter an email",
+        "name": "Name",
+        "nameRequired": "Please enter a name",
+        "password": "Password",
+        "passwordRequired": "Please enter a password",
+        "role": "Role",
+        "roleRequired": "Please select a role",
+        "groups": "Groups",
+        "groupsPlaceholder": "Comma-separated group IDs",
+        "displayName": "Display Name",
+        "displayNameRequired": "Please enter a display name"
+      },
+      "confirmDisable": "Are you sure you want to disable this user?",
+      "confirmEnable": "Are you sure you want to enable this user?"
+    },
+    "groups": {
+      "title": "Group Management",
+      "description": "Create groups, assign members, and bind space permissions.",
+      "createButton": "Create Group",
+      "createTitle": "Create Group",
+      "editTitle": "Edit Group",
+      "saving": "Saving...",
+      "saveGroup": "Save Group",
+      "emptyList": "No groups have been created yet.",
+      "columns": {
+        "name": "Name",
+        "description": "Description",
+        "members": "Members",
+        "spaces": "Spaces",
+        "actions": "Actions"
+      },
+      "noDescription": "No description",
+      "noSpacePermissions": "No space permissions",
+      "form": {
+        "name": "Name",
+        "nameRequired": "Please enter a group name",
+        "description": "Description",
+        "members": "Members",
+        "spacePermissions": "Space Permissions",
+        "noSpaceHint": "Create a space before assigning space permissions."
+      }
+    },
+    "spaces": {
+      "title": "Space Management",
+      "description": "Create knowledge spaces and manage their access controls.",
+      "createButton": "Create Space",
+      "createTitle": "Create Space",
+      "creating": "Creating...",
+      "emptyList": "No spaces are available to administer.",
+      "detailLoading": "Loading space details...",
+      "columns": {
+        "name": "Name",
+        "slug": "Slug",
+        "status": "Status",
+        "pages": "Pages",
+        "sources": "Sources",
+        "actions": "Actions"
+      },
+      "detail": {
+        "title": "Space Configuration",
+        "noDescription": "No description",
+        "strictKnowledge": "Strict knowledge only",
+        "strictKnowledgeHelp": "Restrict answers to indexed space knowledge.",
+        "repoPath": "Repository path",
+        "indexStatus": "Index status",
+        "groupPermissions": "Group Permissions",
+        "savePermissions": "Save Permissions",
+        "noGroupHint": "Create a group before assigning permissions."
+      },
+      "form": {
+        "name": "Name",
+        "nameRequired": "Please enter a space name",
+        "slug": "Slug",
+        "slugRequired": "Please enter a space slug",
+        "slugPattern": "Only lowercase letters, numbers, and hyphens allowed",
+        "description": "Description"
+      }
+    },
+    "models": {
+      "title": "Model Management",
+      "description": "Manage model providers, visibility, limits, and connectivity.",
+      "addButton": "Add Model",
+      "addTitle": "Add Model",
+      "editTitle": "Edit Model",
+      "saving": "Saving...",
+      "saveModel": "Save Model",
+      "testing": "Testing...",
+      "emptyList": "No models have been configured.",
+      "columns": {
+        "name": "Name",
+        "provider": "Provider",
+        "type": "Type",
+        "status": "Status",
+        "config": "Config",
+        "test": "Test",
+        "actions": "Actions"
+      },
+      "defaultEndpoint": "Default endpoint",
+      "maxTokens": "{{count}} max tokens",
+      "reachable": "Reachable",
+      "latency": "{{ms}} ms",
+      "form": {
+        "provider": "Provider",
+        "providerRequired": "Please enter a provider",
+        "modelId": "Model ID",
+        "modelIdRequired": "Please enter a model ID",
+        "type": "Type",
+        "displayName": "Display Name",
+        "baseUrl": "Base URL",
+        "apiKeyRef": "API Key Ref",
+        "apiKeyRefPlaceholder": "secret:my-api-key",
+        "visibleGroupIds": "Visible Group IDs",
+        "visibleGroupIdsPlaceholder": "Comma-separated group IDs",
+        "embeddingDim": "Embedding Dim",
+        "maxTokens": "Max Tokens",
+        "rateLimitRpm": "Rate Limit RPM",
+        "enabled": "Enabled"
+      },
+      "confirmDisable": "Are you sure you want to disable this model?",
+      "confirmEnable": "Are you sure you want to enable this model?"
+    },
+    "audit": {
+      "title": "Audit Logs",
+      "description": "Review administrative and security-sensitive activity.",
+      "emptyFilter": "No audit logs match the current filters.",
+      "columns": {
+        "timestamp": "Timestamp",
+        "actor": "Actor",
+        "action": "Action",
+        "resource": "Resource",
+        "space": "Space",
+        "request": "Request"
+      },
+      "filter": {
+        "action": "Action",
+        "actionPlaceholder": "admin.user.update",
+        "actor": "Actor",
+        "actorPlaceholder": "User ID",
+        "space": "Space",
+        "spacePlaceholder": "Space ID",
+        "dateRange": "Date Range"
+      }
+    },
+    "health": {
+      "title": "System Health",
+      "description": "Monitor API dependencies and configured infrastructure.",
+      "unavailable": "System health is unavailable.",
+      "overallStatus": "Overall Status",
+      "apiUptime": "API Uptime",
+      "autoRefresh": "Auto Refresh",
+      "autoRefreshInterval": "Every 30 seconds",
+      "component": {
+        "latency": "Latency",
+        "latencyValue": "{{ms}} ms",
+        "latencyNA": "N/A",
+        "details": "Details"
+      }
+    },
+    "jobs": {
+      "title": "Task Center",
+      "description": "Track ingestion, graph, and maintenance jobs across spaces.",
+      "loading": "Loading jobs...",
+      "emptyFilter": "No jobs match the current filters.",
+      "columns": {
+        "type": "Type",
+        "status": "Status",
+        "space": "Space",
+        "progress": "Progress",
+        "created": "Created",
+        "duration": "Duration"
+      },
+      "filter": {
+        "type": "Type",
+        "allTypes": "All types",
+        "status": "Status",
+        "allStatuses": "All statuses",
+        "space": "Space",
+        "spacePlaceholder": "Space ID"
+      },
+      "pagination": {
+        "showing": "Showing {{from}}-{{to}} of {{total}}",
+        "page": "Page {{current}} of {{total}}"
+      },
+      "duration": {
+        "queued": "Queued",
+        "notStarted": "Not started",
+        "inProgress": "In progress",
+        "unavailable": "Unavailable"
+      },
+      "progress": {
+        "running": "Running",
+        "completed": "Completed"
+      }
+    },
+    "jobDetail": {
+      "title": "Job Detail",
+      "description": "Inspect payloads, progress, and lifecycle events for a background task.",
+      "backToJobs": "Back to Jobs",
+      "cancelJob": "Cancel Job",
+      "cancelling": "Cancelling...",
+      "unavailable": "Job details are unavailable.",
+      "loading": "Loading job details...",
+      "confirmCancel": "Are you sure you want to cancel this job?",
+      "overview": {
+        "title": "Job Overview",
+        "jobId": "Job ID",
+        "type": "Type",
+        "status": "Status",
+        "space": "Space",
+        "createdBy": "Created By",
+        "createdAt": "Created At",
+        "startedAt": "Started At",
+        "completedAt": "Completed At",
+        "cancelRequestedAt": "Cancellation Requested"
+      },
+      "data": {
+        "title": "Job Data",
+        "description": "Payload, result, and error snapshots captured during execution.",
+        "payload": "Payload JSON",
+        "result": "Result JSON",
+        "error": "Error JSON"
+      },
+      "events": {
+        "title": "Event Timeline",
+        "description": "Chronological state transitions and progress updates from the job lifecycle.",
+        "empty": "No job events have been recorded yet."
+      }
+    },
+    "graphify": {
+      "title": "Graphify Admin",
+      "description": "Review graphification runs and quarantine failures across spaces.",
+      "loading": "Loading graphify runs...",
+      "emptyFilter": "No graphify runs match the current filters.",
+      "retrying": "Retrying...",
+      "confirmRetry": "Are you sure you want to retry this graphify run?",
+      "retrySuccess": "Retry submitted",
+      "columns": {
+        "run": "Run",
+        "status": "Status",
+        "space": "Space",
+        "mode": "Mode",
+        "trigger": "Trigger",
+        "timing": "Timing",
+        "stats": "Stats",
+        "actions": "Actions"
+      },
+      "filter": {
+        "status": "Status",
+        "allStatuses": "All",
+        "trigger": "Trigger",
+        "allTriggers": "All triggers",
+        "space": "Space",
+        "spacePlaceholder": "Space ID"
+      },
+      "statusFilter": {
+        "all": "All",
+        "pending": "Pending",
+        "running": "Running",
+        "succeeded": "Succeeded",
+        "failed": "Failed",
+        "cancelled": "Cancelled"
+      },
+      "noReport": "No report yet",
+      "quarantine": "Quarantine",
+      "error": "Error",
+      "created": "Created {{date}}",
+      "pagination": {
+        "showing": "Showing {{from}}-{{to}} of {{total}}",
+        "page": "Page {{current}} of {{total}}"
+      },
+      "stats": {
+        "nodes": "Nodes",
+        "edges": "Edges",
+        "wiki": "Wiki"
+      }
     }
   }
 }

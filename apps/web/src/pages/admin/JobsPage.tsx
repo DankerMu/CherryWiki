@@ -1,18 +1,12 @@
+import { ReloadOutlined } from '@ant-design/icons';
+import { Button, Input, Progress, Select, Space, Table, Tag, Typography, message } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
-import ProgressBar from '../../components/ProgressBar';
-import {
-  EmptyState,
-  ErrorBanner,
-  LoadingState,
-  PageHeader,
-  StatusBadge,
-  formatDate,
-  formatLabel,
-  getErrorMessage,
-} from '../../components/adminUi';
 import { requireAdminPage } from '../../components/RequireAdminPage';
 import { type ApiMeta, api } from '../../lib/api';
+import { formatDate, formatLabel, getErrorMessage } from '../../components/adminUi';
 import {
   ADMIN_JOB_STATUS_OPTIONS,
   ADMIN_JOB_TYPE_FILTER_OPTIONS,
@@ -28,9 +22,17 @@ const DEFAULT_PAGINATION: NonNullable<ApiMeta['pagination']> = {
 };
 
 const JOB_POLL_INTERVAL_MS = 5_000;
-const PER_PAGE_OPTIONS = [10, 20, 50, 100];
+
+function jobStatusColor(status: string): string {
+  if (status === 'succeeded') return 'green';
+  if (status === 'running') return 'blue';
+  if (status === 'failed') return 'red';
+  if (status === 'cancelled' || status === 'cancelling') return 'default';
+  return 'orange';
+}
 
 function JobsPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [jobs, setJobs] = useState<AdminJob[]>([]);
   const [type, setType] = useState('');
@@ -41,14 +43,10 @@ function JobsPage() {
   const [perPage, setPerPage] = useState(DEFAULT_PAGINATION.per_page);
   const [pagination, setPagination] = useState(DEFAULT_PAGINATION);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const loadJobs = useCallback(
     async (background = false) => {
-      if (!background) {
-        setIsLoading(true);
-      }
-      setError(null);
+      if (!background) setIsLoading(true);
 
       try {
         const response = await api.getWrapped<AdminJob[]>('/admin/jobs', {
@@ -69,11 +67,9 @@ function JobsPage() {
           },
         );
       } catch (err) {
-        setError(getErrorMessage(err));
+        void message.error(getErrorMessage(err));
       } finally {
-        if (!background) {
-          setIsLoading(false);
-        }
+        if (!background) setIsLoading(false);
       }
     },
     [deferredSpaceId, page, perPage, status, type],
@@ -86,229 +82,161 @@ function JobsPage() {
   const shouldPoll = status === 'running' || jobs.some((job) => job.status === 'running');
 
   useEffect(() => {
-    if (!shouldPoll) {
-      return;
-    }
+    if (!shouldPoll) return;
 
     const intervalId = window.setInterval(() => {
       void loadJobs(true);
     }, JOB_POLL_INTERVAL_MS);
 
-    return () => {
-      window.clearInterval(intervalId);
-    };
+    return () => { window.clearInterval(intervalId); };
   }, [loadJobs, shouldPoll]);
 
-  const totalPages = useMemo(() => {
-    const computedPages = Math.ceil(pagination.total / Math.max(1, pagination.per_page));
-    return Math.max(page, computedPages, 1);
-  }, [page, pagination.per_page, pagination.total]);
+  const columns: ColumnsType<AdminJob> = [
+    {
+      title: t('admin.jobs.columns.type'),
+      key: 'type',
+      render: (_: unknown, job: AdminJob) => (
+        <div>
+          <Typography.Text strong>{formatLabel(job.type)}</Typography.Text>
+          <br />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>{job.job_id}</Typography.Text>
+        </div>
+      ),
+    },
+    {
+      title: t('admin.jobs.columns.status'),
+      key: 'status',
+      render: (_: unknown, job: AdminJob) => {
+        const displayStatus = getDisplayStatus(job);
+        return <Tag color={jobStatusColor(displayStatus)}>{t(`common.status.${displayStatus}`, displayStatus)}</Tag>;
+      },
+    },
+    {
+      title: t('admin.jobs.columns.space'),
+      dataIndex: 'space_id',
+      key: 'space_id',
+      render: (val: string | null) => val ?? t('common.state.global'),
+    },
+    {
+      title: t('admin.jobs.columns.progress'),
+      key: 'progress',
+      render: (_: unknown, job: AdminJob) => {
+        if (job.progress !== null || job.status === 'running' || job.status === 'succeeded') {
+          const percent = job.progress?.percent ?? (job.status === 'succeeded' ? 100 : 0);
+          const stage = job.progress?.stage ?? getFallbackProgressStage(job.status, t);
+          return (
+            <div style={{ minWidth: 120 }}>
+              <Progress percent={Math.round(percent)} size="small" {...(job.status === 'failed' ? { status: 'exception' as const } : {})} />
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>{stage}</Typography.Text>
+            </div>
+          );
+        }
+        return <Typography.Text type="secondary">{formatLabel(job.status)}</Typography.Text>;
+      },
+    },
+    {
+      title: t('admin.jobs.columns.created'),
+      dataIndex: 'created_at',
+      key: 'created_at',
+      render: (val: string) => formatDate(val),
+      sorter: (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+    },
+    {
+      title: t('admin.jobs.columns.duration'),
+      key: 'duration',
+      render: (_: unknown, job: AdminJob) => formatJobDuration(job, t),
+    },
+  ];
 
   return (
     <>
-      <PageHeader
-        title="Task Center"
-        description="Track ingestion, graph, and maintenance jobs across spaces."
-        actions={
-          <button
-            className="button button-secondary"
-            type="button"
-            onClick={() => {
-              void loadJobs();
-            }}
-          >
-            Refresh
-          </button>
-        }
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <Typography.Title level={4} style={{ margin: 0 }}>{t('admin.jobs.title')}</Typography.Title>
+          <Typography.Text type="secondary">{t('admin.jobs.description')}</Typography.Text>
+        </div>
+        <Button icon={<ReloadOutlined />} onClick={() => { void loadJobs(); }}>
+          {t('common.action.refresh')}
+        </Button>
+      </div>
+
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Select
+          value={type || undefined}
+          onChange={(val) => { setType(val ?? ''); setPage(1); }}
+          placeholder={t('admin.jobs.filter.allTypes')}
+          allowClear
+          style={{ width: 160 }}
+        >
+          {ADMIN_JOB_TYPE_FILTER_OPTIONS.map((jobType) => (
+            <Select.Option key={jobType} value={jobType}>{formatLabel(jobType)}</Select.Option>
+          ))}
+        </Select>
+        <Select
+          value={status || undefined}
+          onChange={(val) => { setStatus(val ?? ''); setPage(1); }}
+          placeholder={t('admin.jobs.filter.allStatuses')}
+          allowClear
+          style={{ width: 160 }}
+        >
+          {ADMIN_JOB_STATUS_OPTIONS.map((jobStatus) => (
+            <Select.Option key={jobStatus} value={jobStatus}>{formatLabel(jobStatus)}</Select.Option>
+          ))}
+        </Select>
+        <Input.Search
+          placeholder={t('admin.jobs.filter.spacePlaceholder')}
+          value={spaceId}
+          onChange={(e) => { setSpaceId(e.target.value); setPage(1); }}
+          allowClear
+          style={{ width: 200 }}
+        />
+      </Space>
+
+      <Table<AdminJob>
+        columns={columns}
+        dataSource={jobs}
+        rowKey="job_id"
+        loading={isLoading}
+        onRow={(job) => ({
+          onClick: () => { void navigate(`/admin/jobs/${job.job_id}`); },
+          style: { cursor: 'pointer' },
+        })}
+        pagination={{
+          current: page,
+          pageSize: perPage,
+          total: pagination.total,
+          showSizeChanger: true,
+          pageSizeOptions: ['10', '20', '50', '100'],
+          onChange: (p, ps) => { setPage(p); setPerPage(ps); },
+          showTotal: (total, range) => t('admin.jobs.pagination.showing', { from: range[0], to: range[1], total }),
+        }}
+        locale={{ emptyText: t('admin.jobs.emptyFilter') }}
+        size="middle"
       />
-
-      <ErrorBanner error={error} />
-
-      <section className="toolbar" aria-label="Job filters">
-        <label>
-          Type
-          <select
-            value={type}
-            onChange={(event) => {
-              setType(event.target.value);
-              setPage(1);
-            }}
-          >
-            <option value="">All types</option>
-            {ADMIN_JOB_TYPE_FILTER_OPTIONS.map((jobType) => (
-              <option key={jobType} value={jobType}>
-                {formatLabel(jobType)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Status
-          <select
-            value={status}
-            onChange={(event) => {
-              setStatus(event.target.value);
-              setPage(1);
-            }}
-          >
-            <option value="">All statuses</option>
-            {ADMIN_JOB_STATUS_OPTIONS.map((jobStatus) => (
-              <option key={jobStatus} value={jobStatus}>
-                {formatLabel(jobStatus)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Space
-          <input
-            type="search"
-            value={spaceId}
-            onChange={(event) => {
-              setSpaceId(event.target.value);
-              setPage(1);
-            }}
-            placeholder="Space ID"
-          />
-        </label>
-        <label>
-          Page
-          <select value={page} onChange={(event) => setPage(Number(event.target.value))}>
-            {Array.from({ length: totalPages }, (_, index) => index + 1).map((pageValue) => (
-              <option key={pageValue} value={pageValue}>
-                Page {pageValue}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Per page
-          <select
-            value={perPage}
-            onChange={(event) => {
-              setPerPage(Number(event.target.value));
-              setPage(1);
-            }}
-          >
-            {PER_PAGE_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
-      </section>
-
-      {isLoading ? (
-        <LoadingState label="Loading jobs..." />
-      ) : jobs.length === 0 ? (
-        <EmptyState label="No jobs match the current filters." />
-      ) : (
-        <>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Type</th>
-                  <th>Status</th>
-                  <th>Space</th>
-                  <th>Progress</th>
-                  <th>Created</th>
-                  <th>Duration</th>
-                </tr>
-              </thead>
-              <tbody>
-                {jobs.map((job) => (
-                  <tr
-                    key={job.job_id}
-                    className="interactive-row"
-                    role="link"
-                    tabIndex={0}
-                    onClick={() => {
-                      void navigate(`/admin/jobs/${job.job_id}`);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        void navigate(`/admin/jobs/${job.job_id}`);
-                      }
-                    }}
-                  >
-                    <td>
-                      <strong>{formatLabel(job.type)}</strong>
-                      <span className="subtle-id">{job.job_id}</span>
-                    </td>
-                    <td>
-                      <StatusBadge status={getDisplayStatus(job)} />
-                    </td>
-                    <td>{job.space_id ?? 'Global'}</td>
-                    <td className="progress-cell">{renderProgressCell(job)}</td>
-                    <td>{formatDate(job.created_at)}</td>
-                    <td>{formatJobDuration(job)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="pagination-bar">
-            <span className="pagination-summary">
-              Showing {getFirstItemIndex(pagination)}-{getLastItemIndex(pagination, jobs.length)} of {pagination.total}
-            </span>
-            <span className="pagination-summary">
-              Page {pagination.page} of {totalPages}
-            </span>
-          </div>
-        </>
-      )}
     </>
   );
 }
 
 export default requireAdminPage(JobsPage);
 
-function renderProgressCell(job: AdminJob) {
-  if (job.progress !== null || job.status === 'running' || job.status === 'succeeded') {
-    return (
-      <ProgressBar
-        percent={job.progress?.percent ?? (job.status === 'succeeded' ? 100 : 0)}
-        stage={job.progress?.stage ?? getFallbackProgressStage(job.status)}
-        size="sm"
-      />
-    );
-  }
-
-  return <span className="muted-copy">{formatLabel(job.status)}</span>;
-}
-
-function getFallbackProgressStage(status: string): string {
-  if (status === 'running') {
-    return 'Running';
-  }
-
-  if (status === 'succeeded') {
-    return 'Completed';
-  }
-
+function getFallbackProgressStage(status: string, t: (key: string) => string): string {
+  if (status === 'running') return t('admin.jobs.progress.running');
+  if (status === 'succeeded') return t('admin.jobs.progress.completed');
   return formatLabel(status);
 }
 
-function formatJobDuration(job: AdminJob): string {
+function formatJobDuration(job: AdminJob, t: (key: string) => string): string {
   if (job.started_at === null) {
-    return job.status === 'pending' ? 'Queued' : 'Not started';
+    return job.status === 'pending' ? t('admin.jobs.duration.queued') : t('admin.jobs.duration.notStarted');
   }
 
   const startedAt = parseTimestamp(job.started_at);
-  if (startedAt === null) {
-    return 'Unavailable';
-  }
+  if (startedAt === null) return t('admin.jobs.duration.unavailable');
 
   const completedAt =
     job.completed_at !== null ? parseTimestamp(job.completed_at) : job.status === 'running' ? Date.now() : null;
 
-  if (completedAt === null) {
-    return 'In progress';
-  }
+  if (completedAt === null) return t('admin.jobs.duration.inProgress');
 
   return formatElapsedTime(completedAt - startedAt);
 }
@@ -319,38 +247,14 @@ function parseTimestamp(value: string): number | null {
 }
 
 function formatElapsedTime(durationMs: number): string {
-  if (durationMs < 1_000) {
-    return '<1s';
-  }
+  if (durationMs < 1_000) return '<1s';
 
   const totalSeconds = Math.floor(durationMs / 1_000);
   const hours = Math.floor(totalSeconds / 3_600);
   const minutes = Math.floor((totalSeconds % 3_600) / 60);
   const seconds = totalSeconds % 60;
 
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  }
-
-  if (minutes > 0) {
-    return `${minutes}m ${seconds}s`;
-  }
-
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
   return `${seconds}s`;
-}
-
-function getFirstItemIndex(pagination: NonNullable<ApiMeta['pagination']>): number {
-  if (pagination.total === 0) {
-    return 0;
-  }
-
-  return (pagination.page - 1) * pagination.per_page + 1;
-}
-
-function getLastItemIndex(pagination: NonNullable<ApiMeta['pagination']>, itemCount: number): number {
-  if (pagination.total === 0) {
-    return 0;
-  }
-
-  return getFirstItemIndex(pagination) + itemCount - 1;
 }

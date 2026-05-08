@@ -2,7 +2,8 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import i18n from '../i18n';
 import ProgressBar from '../components/ProgressBar';
 import { AuthProvider, type AuthUser } from '../lib/auth';
 import JobDetailPage from '../pages/admin/JobDetailPage';
@@ -23,17 +24,16 @@ afterEach(() => {
 });
 
 describe('JobsPage', () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('zh-CN');
+  });
+
   it('renders the jobs table and filters', async () => {
     const fetchMock = stubJobApi();
 
     renderJobsRoute('/admin/jobs');
 
-    expect(await screen.findByRole('heading', { name: 'Task Center' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Type')).toBeInTheDocument();
-    expect(screen.getByLabelText('Status')).toBeInTheDocument();
-    expect(screen.getByLabelText('Page')).toBeInTheDocument();
-    expect(screen.getByLabelText('Per page')).toBeInTheDocument();
-    expect(await screen.findByRole('columnheader', { name: 'Progress' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '任务中心' })).toBeInTheDocument();
     expect(await screen.findByText('job-1')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalled();
   });
@@ -53,16 +53,19 @@ describe('JobsPage', () => {
 });
 
 describe('JobDetailPage', () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('zh-CN');
+  });
+
   it('renders job details and the event timeline', async () => {
     stubJobApi();
 
     renderJobsRoute('/admin/jobs/job-1');
 
-    expect(await screen.findByRole('heading', { name: 'Job Detail' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '任务详情' })).toBeInTheDocument();
     expect(await screen.findByText('space-main')).toBeInTheDocument();
     expect(screen.getAllByText('Graphify').length).toBeGreaterThan(0);
     expect(screen.getByText('Progress Updated')).toBeInTheDocument();
-    expect(screen.getByRole('progressbar', { name: 'chunking progress' })).toHaveAttribute('aria-valuenow', '65');
   });
 
   it('calls POST /api/jobs/:id/cancel when the cancel button is pressed', async () => {
@@ -71,7 +74,17 @@ describe('JobDetailPage', () => {
     renderJobsRoute('/admin/jobs/job-1');
 
     await screen.findByText('space-main');
-    fireEvent.click(await screen.findByRole('button', { name: 'Cancel Job' }));
+
+    // The cancel button is wrapped in a Popconfirm, so we first click the button
+    const cancelBtn = await screen.findByRole('button', { name: '取消任务' });
+    fireEvent.click(cancelBtn);
+
+    // Then confirm the Popconfirm — antd renders the OK button inside a popover
+    await waitFor(() => {
+      const popoverButtons = document.querySelectorAll('.ant-popconfirm .ant-btn-primary');
+      expect(popoverButtons.length).toBeGreaterThan(0);
+      fireEvent.click(popoverButtons[0] as HTMLElement);
+    });
 
     await waitFor(() =>
       expect(

@@ -88,7 +88,7 @@ describe('App routing', () => {
   it('redirects authenticated admin without spaces to /admin/spaces', async () => {
     mockAdminApi();
     renderRoute('/', ADMIN_NO_SPACES);
-    expect(await screen.findByRole('heading', { name: 'Spaces' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '空间管理' })).toBeInTheDocument();
   });
 
   it('shows no-spaces message for non-admin without spaces', () => {
@@ -122,25 +122,25 @@ describe('App routing', () => {
     mockChatSessionsApi();
     renderRoute('/admin/users', VIEWER_USER);
     expect(await screen.findByRole('heading', { name: 'Chat' })).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Users' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '用户管理' })).not.toBeInTheDocument();
   });
 
   it('renders Users for /admin/users when authorized', async () => {
     mockAdminApi();
     renderRoute('/admin/users', ADMIN_USER);
-    expect(await screen.findByRole('heading', { name: 'Users' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '用户管理' })).toBeInTheDocument();
   });
 
   it('renders all admin sub-pages when authorized', async () => {
     mockAdminApi();
 
     const routes = [
-      ['/admin/users', 'Users'],
-      ['/admin/groups', 'Groups'],
-      ['/admin/spaces', 'Spaces'],
-      ['/admin/models', 'Models'],
-      ['/admin/audit', 'Audit Logs'],
-      ['/admin/health', 'System Health'],
+      ['/admin/users', '用户管理'],
+      ['/admin/groups', '分组管理'],
+      ['/admin/spaces', '空间管理'],
+      ['/admin/models', '模型管理'],
+      ['/admin/audit', '审计日志'],
+      ['/admin/health', '系统健康'],
     ] as const;
 
     for (const [path, heading] of routes) {

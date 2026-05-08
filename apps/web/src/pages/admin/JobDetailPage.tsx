@@ -1,30 +1,51 @@
-import { useCallback, useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
-import ProgressBar from '../../components/ProgressBar';
+import { ArrowLeftOutlined } from '@ant-design/icons';
 import {
-  EmptyState,
-  ErrorBanner,
-  LoadingState,
-  PageHeader,
-  StatusBadge,
-  formatDate,
-  formatLabel,
-  getErrorMessage,
-} from '../../components/adminUi';
+  Button,
+  Card,
+  Descriptions,
+  Empty,
+  Popconfirm,
+  Progress,
+  Space,
+  Spin,
+  Tag,
+  Timeline,
+  Typography,
+  message,
+} from 'antd';
+import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useNavigate, useParams } from 'react-router';
 import { requireAdminPage } from '../../components/RequireAdminPage';
 import { api } from '../../lib/api';
+import { formatDate, formatLabel, getErrorMessage } from '../../components/adminUi';
 import { type AdminJob, type CancelJobResponse, type JobEvent, getDisplayStatus } from '../../lib/adminTypes';
 
 const JOB_REFRESH_INTERVAL_MS = 5_000;
 
+function jobStatusColor(status: string): string {
+  if (status === 'succeeded') return 'green';
+  if (status === 'running') return 'blue';
+  if (status === 'failed') return 'red';
+  if (status === 'cancelled' || status === 'cancelling') return 'default';
+  return 'orange';
+}
+
+function timelineColor(event: string): string {
+  if (event.includes('fail') || event.includes('error')) return 'red';
+  if (event.includes('complete') || event.includes('succeed')) return 'green';
+  if (event.includes('start') || event.includes('running')) return 'blue';
+  return 'gray';
+}
+
 function JobDetailPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { jobId = '' } = useParams();
   const [job, setJob] = useState<AdminJob | null>(null);
   const [events, setEvents] = useState<JobEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCancelling, setIsCancelling] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const loadJobDetail = useCallback(
     async (background = false) => {
@@ -35,27 +56,19 @@ function JobDetailPage() {
         return;
       }
 
-      if (!background) {
-        setIsLoading(true);
-      }
-      setError(null);
+      if (!background) setIsLoading(true);
 
       try {
         const [jobResponse, eventResponse] = await Promise.all([
           api.get<AdminJob>(`/jobs/${jobId}`),
-          api.get<JobEvent[]>(`/jobs/${jobId}/events`, {
-            limit: 100,
-            offset: 0,
-          }),
+          api.get<JobEvent[]>(`/jobs/${jobId}/events`, { limit: 100, offset: 0 }),
         ]);
         setJob(jobResponse);
         setEvents(eventResponse);
       } catch (err) {
-        setError(getErrorMessage(err));
+        void message.error(getErrorMessage(err));
       } finally {
-        if (!background) {
-          setIsLoading(false);
-        }
+        if (!background) setIsLoading(false);
       }
     },
     [jobId],
@@ -66,41 +79,30 @@ function JobDetailPage() {
   }, [loadJobDetail]);
 
   useEffect(() => {
-    if (job?.status !== 'running') {
-      return;
-    }
+    if (job?.status !== 'running') return;
 
     const intervalId = window.setInterval(() => {
       void loadJobDetail(true);
     }, JOB_REFRESH_INTERVAL_MS);
 
-    return () => {
-      window.clearInterval(intervalId);
-    };
+    return () => { window.clearInterval(intervalId); };
   }, [job?.status, loadJobDetail]);
 
   async function cancelJob(): Promise<void> {
-    if (job === null) {
-      return;
-    }
+    if (job === null) return;
 
     setIsCancelling(true);
-    setError(null);
 
     try {
       const response = await api.post<CancelJobResponse>(`/jobs/${job.job_id}/cancel`);
       setJob((current) =>
         current === null
           ? current
-          : {
-              ...current,
-              status: response.status,
-              cancel_requested_at: response.cancel_requested_at,
-            },
+          : { ...current, status: response.status, cancel_requested_at: response.cancel_requested_at },
       );
       await loadJobDetail(true);
     } catch (err) {
-      setError(getErrorMessage(err));
+      void message.error(getErrorMessage(err));
     } finally {
       setIsCancelling(false);
     }
@@ -108,152 +110,122 @@ function JobDetailPage() {
 
   const showCancelButton = job !== null && (job.status === 'pending' || job.status === 'running');
   const isCancellationPending = job !== null && job.status === 'running' && job.cancel_requested_at !== null;
-  const cancelButtonLabel = isCancellationPending || isCancelling ? 'Cancelling...' : 'Cancel Job';
+  const cancelButtonLabel = isCancellationPending || isCancelling ? t('admin.jobDetail.cancelling') : t('admin.jobDetail.cancelJob');
 
   return (
     <>
-      <PageHeader
-        title="Job Detail"
-        description="Inspect payloads, progress, and lifecycle events for a background task."
-        actions={
-          <>
-            <button
-              className="button button-secondary"
-              type="button"
-              onClick={() => {
-                void navigate('/admin/jobs');
-              }}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <Typography.Title level={4} style={{ margin: 0 }}>{t('admin.jobDetail.title')}</Typography.Title>
+          <Typography.Text type="secondary">{t('admin.jobDetail.description')}</Typography.Text>
+        </div>
+        <Space>
+          <Button icon={<ArrowLeftOutlined />} onClick={() => { void navigate('/admin/jobs'); }}>
+            {t('admin.jobDetail.backToJobs')}
+          </Button>
+          {showCancelButton ? (
+            <Popconfirm
+              title={t('admin.jobDetail.confirmCancel')}
+              onConfirm={() => { void cancelJob(); }}
+              okText={t('common.action.confirm')}
+              cancelText={t('common.action.cancel')}
             >
-              Back to Jobs
-            </button>
-            {showCancelButton ? (
-              <button
-                className="button button-danger"
-                type="button"
-                disabled={isCancelling || isCancellationPending}
-                onClick={() => {
-                  void cancelJob();
-                }}
-              >
+              <Button danger loading={isCancelling} disabled={isCancellationPending}>
                 {cancelButtonLabel}
-              </button>
-            ) : null}
-          </>
-        }
-      />
-
-      <ErrorBanner error={error} />
+              </Button>
+            </Popconfirm>
+          ) : null}
+        </Space>
+      </div>
 
       {isLoading ? (
-        <LoadingState label="Loading job details..." />
+        <div style={{ textAlign: 'center', padding: 48 }}><Spin size="large" tip={t('admin.jobDetail.loading')} /></div>
       ) : job === null ? (
-        <EmptyState label="Job details are unavailable." />
+        <Empty description={t('admin.jobDetail.unavailable')} />
       ) : (
         <>
-          <section className="detail-panel" aria-label="Job overview">
-            <div className="detail-panel-header">
-              <div>
-                <h2>{formatLabel(job.type)}</h2>
-                <p>{job.job_id}</p>
-              </div>
-              <StatusBadge status={getDisplayStatus(job)} />
-            </div>
-
+          <Card title={t('admin.jobDetail.overview.title')} style={{ marginBottom: 16 }}>
             {job.progress?.percent !== undefined ? (
-              <ProgressBar percent={job.progress.percent} stage={job.progress?.stage ?? (job.status === 'running' ? 'Running' : 'Complete')} size="md" />
+              <Progress
+                percent={Math.round(job.progress.percent)}
+                status={job.status === 'failed' ? 'exception' : job.status === 'succeeded' ? 'success' : 'active'}
+                style={{ marginBottom: 16 }}
+              />
             ) : null}
 
-            <div className="settings-grid">
-              <div>
-                <span className="eyebrow">Job ID</span>
-                <code>{job.job_id}</code>
-              </div>
-              <div>
-                <span className="eyebrow">Type</span>
-                <span className="job-meta-value">{formatLabel(job.type)}</span>
-              </div>
-              <div>
-                <span className="eyebrow">Status</span>
-                <StatusBadge status={getDisplayStatus(job)} />
-              </div>
-              <div>
-                <span className="eyebrow">Space</span>
-                <span className="job-meta-value">{job.space_id ?? 'Global'}</span>
-              </div>
-              <div>
-                <span className="eyebrow">Created by</span>
-                <span className="job-meta-value">{job.created_by ?? 'System'}</span>
-              </div>
-              <div>
-                <span className="eyebrow">Created at</span>
-                <span className="job-meta-value">{formatDate(job.created_at)}</span>
-              </div>
-              <div>
-                <span className="eyebrow">Started at</span>
-                <span className="job-meta-value">{formatDate(job.started_at)}</span>
-              </div>
-              <div>
-                <span className="eyebrow">Completed at</span>
-                <span className="job-meta-value">{formatDate(job.completed_at)}</span>
-              </div>
+            <Descriptions column={{ xs: 1, sm: 2 }} bordered size="small">
+              <Descriptions.Item label={t('admin.jobDetail.overview.jobId')}>
+                <Typography.Text code>{job.job_id}</Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label={t('admin.jobDetail.overview.type')}>
+                {formatLabel(job.type)}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('admin.jobDetail.overview.status')}>
+                <Tag color={jobStatusColor(getDisplayStatus(job))}>{t(`common.status.${getDisplayStatus(job)}`, getDisplayStatus(job))}</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label={t('admin.jobDetail.overview.space')}>
+                {job.space_id ?? t('common.state.global')}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('admin.jobDetail.overview.createdBy')}>
+                {job.created_by ?? t('common.state.system')}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('admin.jobDetail.overview.createdAt')}>
+                {formatDate(job.created_at)}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('admin.jobDetail.overview.startedAt')}>
+                {formatDate(job.started_at)}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('admin.jobDetail.overview.completedAt')}>
+                {formatDate(job.completed_at)}
+              </Descriptions.Item>
               {job.cancel_requested_at !== null ? (
-                <div>
-                  <span className="eyebrow">Cancellation requested</span>
-                  <span className="job-meta-value">{formatDate(job.cancel_requested_at)}</span>
-                </div>
+                <Descriptions.Item label={t('admin.jobDetail.overview.cancelRequestedAt')}>
+                  {formatDate(job.cancel_requested_at)}
+                </Descriptions.Item>
               ) : null}
-            </div>
-          </section>
+            </Descriptions>
+          </Card>
 
-          <section className="detail-panel" aria-label="Job data">
-            <div className="detail-panel-header">
-              <div>
-                <h2>Job Data</h2>
-                <p>Payload, result, and error snapshots captured during execution.</p>
-              </div>
-            </div>
+          <Card title={t('admin.jobDetail.data.title')} style={{ marginBottom: 16 }}>
+            <Typography.Paragraph type="secondary">{t('admin.jobDetail.data.description')}</Typography.Paragraph>
+            <Typography.Title level={5}>{t('admin.jobDetail.data.payload')}</Typography.Title>
+            <pre style={{ background: 'var(--ant-color-bg-layout)', padding: 12, borderRadius: 4, overflow: 'auto', maxHeight: 300 }}>
+              {formatJson(job.payload_json)}
+            </pre>
+            <Typography.Title level={5}>{t('admin.jobDetail.data.result')}</Typography.Title>
+            <pre style={{ background: 'var(--ant-color-bg-layout)', padding: 12, borderRadius: 4, overflow: 'auto', maxHeight: 300 }}>
+              {formatJson(job.result_json)}
+            </pre>
+            <Typography.Title level={5}>{t('admin.jobDetail.data.error')}</Typography.Title>
+            <pre style={{ background: 'var(--ant-color-bg-layout)', padding: 12, borderRadius: 4, overflow: 'auto', maxHeight: 300 }}>
+              {formatJson(job.error_json)}
+            </pre>
+          </Card>
 
-            <details className="job-json-disclosure" open>
-              <summary>Payload JSON</summary>
-              <pre>{formatJson(job.payload_json)}</pre>
-            </details>
-            <details className="job-json-disclosure">
-              <summary>Result JSON</summary>
-              <pre>{formatJson(job.result_json)}</pre>
-            </details>
-            <details className="job-json-disclosure">
-              <summary>Error JSON</summary>
-              <pre>{formatJson(job.error_json)}</pre>
-            </details>
-          </section>
-
-          <section className="detail-panel" aria-label="Job events">
-            <div className="detail-panel-header">
-              <div>
-                <h2>Event Timeline</h2>
-                <p>Chronological state transitions and progress updates from the job lifecycle.</p>
-              </div>
-            </div>
-
+          <Card title={t('admin.jobDetail.events.title')}>
+            <Typography.Paragraph type="secondary">{t('admin.jobDetail.events.description')}</Typography.Paragraph>
             {events.length === 0 ? (
-              <EmptyState label="No job events have been recorded yet." />
+              <Empty description={t('admin.jobDetail.events.empty')} />
             ) : (
-              <ol className="job-timeline">
-                {events.map((event, index) => (
-                  <li key={`${event.timestamp}-${event.event}-${index}`} className="job-timeline-item">
-                    <span className="job-timeline-marker" aria-hidden="true" />
-                    <article className="job-timeline-card">
-                      <div className="job-timeline-header">
-                        <strong>{formatLabel(event.event)}</strong>
-                        <span>{formatDate(event.timestamp)}</span>
-                      </div>
-                      <pre className="timeline-event-detail">{formatJson(event.detail)}</pre>
-                    </article>
-                  </li>
-                ))}
-              </ol>
+              <Timeline
+                items={events.map((event, index) => ({
+                  key: `${event.timestamp}-${event.event}-${index}`,
+                  color: timelineColor(event.event),
+                  children: (
+                    <div>
+                      <Space>
+                        <Typography.Text strong>{formatLabel(event.event)}</Typography.Text>
+                        <Typography.Text type="secondary">{formatDate(event.timestamp)}</Typography.Text>
+                      </Space>
+                      <pre style={{ background: 'var(--ant-color-bg-layout)', padding: 8, borderRadius: 4, marginTop: 4, fontSize: 12, overflow: 'auto', maxHeight: 200 }}>
+                        {formatJson(event.detail)}
+                      </pre>
+                    </div>
+                  ),
+                }))}
+              />
             )}
-          </section>
+          </Card>
         </>
       )}
     </>

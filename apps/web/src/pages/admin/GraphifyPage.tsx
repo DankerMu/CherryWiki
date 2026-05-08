@@ -1,35 +1,28 @@
+import { ReloadOutlined } from '@ant-design/icons';
+import { Button, Input, Popconfirm, Select, Space, Table, Tabs, Tag, Typography, message } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
-import {
-  EmptyState,
-  ErrorBanner,
-  LoadingState,
-  PageHeader,
-  formatDate,
-  formatLabel,
-  getErrorMessage,
-} from '../../components/adminUi.js';
-import { requireAdminPage } from '../../components/RequireAdminPage.js';
-import { type ApiMeta } from '../../lib/api.js';
+import { requireAdminPage } from '../../components/RequireAdminPage';
+import { type ApiMeta } from '../../lib/api';
+import { formatDate, formatLabel, getErrorMessage } from '../../components/adminUi';
 import {
   GRAPHIFY_TRIGGER_TYPES,
   adminListGraphifyRuns,
   adminRetryRun,
   type GraphifyRun,
-} from '../../lib/graphifyApi.js';
+} from '../../lib/graphifyApi';
 import {
   GRAPHIFY_PAGE_SIZE,
-  GraphifyStatusCell,
-  GraphifyStatusTabs,
   formatGraphifyStats,
-  formatJson,
   formatRunDuration,
   getFirstItemIndex,
   getLastItemIndex,
   getQuarantineType,
   isGraphifyRunActive,
   isQuarantined,
-} from '../graphifyUi.js';
+} from '../graphifyUi';
 
 const DEFAULT_PAGINATION: NonNullable<ApiMeta['pagination']> = {
   page: 1,
@@ -39,9 +32,17 @@ const DEFAULT_PAGINATION: NonNullable<ApiMeta['pagination']> = {
 };
 
 const GRAPHIFY_POLL_INTERVAL_MS = 5_000;
-const PER_PAGE_OPTIONS = [10, 20, 50, 100];
+
+function graphifyStatusColor(status: string): string {
+  if (status === 'succeeded') return 'green';
+  if (status === 'running') return 'blue';
+  if (status === 'failed') return 'red';
+  if (status === 'cancelled') return 'default';
+  return 'orange';
+}
 
 function GraphifyPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [runs, setRuns] = useState<GraphifyRun[]>([]);
   const [status, setStatus] = useState('failed');
@@ -53,14 +54,10 @@ function GraphifyPage() {
   const [pagination, setPagination] = useState(DEFAULT_PAGINATION);
   const [retryingRunId, setRetryingRunId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const loadRuns = useCallback(
     async (background = false) => {
-      if (!background) {
-        setIsLoading(true);
-      }
-      setError(null);
+      if (!background) setIsLoading(true);
 
       try {
         const response = await adminListGraphifyRuns({
@@ -81,11 +78,9 @@ function GraphifyPage() {
           },
         );
       } catch (err) {
-        setError(getErrorMessage(err));
+        void message.error(getErrorMessage(err));
       } finally {
-        if (!background) {
-          setIsLoading(false);
-        }
+        if (!background) setIsLoading(false);
       }
     },
     [deferredSpaceId, page, perPage, status, triggerType],
@@ -98,17 +93,13 @@ function GraphifyPage() {
   const shouldPoll = runs.some(isGraphifyRunActive) || status === 'pending' || status === 'running';
 
   useEffect(() => {
-    if (!shouldPoll) {
-      return;
-    }
+    if (!shouldPoll) return;
 
     const intervalId = window.setInterval(() => {
       void loadRuns(true);
     }, GRAPHIFY_POLL_INTERVAL_MS);
 
-    return () => {
-      window.clearInterval(intervalId);
-    };
+    return () => { window.clearInterval(intervalId); };
   }, [loadRuns, shouldPoll]);
 
   const totalPages = useMemo(() => {
@@ -117,18 +108,14 @@ function GraphifyPage() {
   }, [page, pagination.per_page, pagination.total]);
 
   async function retryRun(run: GraphifyRun): Promise<void> {
-    if (!window.confirm(`Retry Graphify run ${run.run_id}?`)) {
-      return;
-    }
-
     setRetryingRunId(run.run_id);
-    setError(null);
 
     try {
       await adminRetryRun(run.run_id);
+      void message.success(t('admin.graphify.retrySuccess'));
       await loadRuns(true);
     } catch (err) {
-      setError(getErrorMessage(err));
+      void message.error(getErrorMessage(err));
     } finally {
       setRetryingRunId(null);
     }
@@ -138,193 +125,180 @@ function GraphifyPage() {
     void navigate(`/spaces/${encodeURIComponent(run.space_id)}/graphify/${encodeURIComponent(run.run_id)}`);
   }
 
+  const statusTabItems = [
+    { key: '', label: t('admin.graphify.statusFilter.all') },
+    { key: 'pending', label: t('admin.graphify.statusFilter.pending') },
+    { key: 'running', label: t('admin.graphify.statusFilter.running') },
+    { key: 'succeeded', label: t('admin.graphify.statusFilter.succeeded') },
+    { key: 'failed', label: t('admin.graphify.statusFilter.failed') },
+    { key: 'cancelled', label: t('admin.graphify.statusFilter.cancelled') },
+  ];
+
+  const columns: ColumnsType<GraphifyRun> = [
+    {
+      title: t('admin.graphify.columns.run'),
+      key: 'run',
+      render: (_: unknown, run: GraphifyRun) => (
+        <div>
+          <Typography.Text strong>{run.run_id}</Typography.Text>
+          <br />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {run.result.report_uri ?? t('admin.graphify.noReport')}
+          </Typography.Text>
+        </div>
+      ),
+    },
+    {
+      title: t('admin.graphify.columns.status'),
+      key: 'status',
+      render: (_: unknown, run: GraphifyRun) => (
+        <Space direction="vertical" size={0}>
+          <Tag color={graphifyStatusColor(run.status)}>
+            {t(`common.status.${run.status}`, run.status)}
+          </Tag>
+          {isQuarantined(run) ? (
+            <Tag color="warning">
+              {t('admin.graphify.quarantine')}: {formatLabel(getQuarantineType(run) ?? 'unknown')}
+            </Tag>
+          ) : null}
+        </Space>
+      ),
+    },
+    {
+      title: t('admin.graphify.columns.space'),
+      dataIndex: 'space_id',
+      key: 'space_id',
+    },
+    {
+      title: t('admin.graphify.columns.mode'),
+      dataIndex: 'mode',
+      key: 'mode',
+      render: (val: string) => formatLabel(val),
+    },
+    {
+      title: t('admin.graphify.columns.trigger'),
+      dataIndex: 'trigger_type',
+      key: 'trigger_type',
+      render: (val: string) => formatLabel(val),
+    },
+    {
+      title: t('admin.graphify.columns.timing'),
+      key: 'timing',
+      render: (_: unknown, run: GraphifyRun) => (
+        <div>
+          <Typography.Text strong>{formatRunDuration(run)}</Typography.Text>
+          <br />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {t('admin.graphify.created', { date: formatDate(run.created_at) })}
+          </Typography.Text>
+        </div>
+      ),
+    },
+    {
+      title: t('admin.graphify.columns.stats'),
+      key: 'stats',
+      render: (_: unknown, run: GraphifyRun) => formatGraphifyStats(run),
+    },
+    {
+      title: t('admin.graphify.columns.actions'),
+      key: 'actions',
+      render: (_: unknown, run: GraphifyRun) => (
+        <Space>
+          {run.status === 'failed' ? (
+            <Popconfirm
+              title={t('admin.graphify.confirmRetry')}
+              onConfirm={(e) => {
+                e?.stopPropagation();
+                void retryRun(run);
+              }}
+              onCancel={(e) => { e?.stopPropagation(); }}
+              okText={t('common.action.confirm')}
+              cancelText={t('common.action.cancel')}
+            >
+              <Button
+                size="small"
+                loading={retryingRunId === run.run_id}
+                onClick={(e) => { e.stopPropagation(); }}
+              >
+                {t('common.action.retry')}
+              </Button>
+            </Popconfirm>
+          ) : null}
+          {run.status === 'failed' && run.error_json ? (
+            <Typography.Text
+              type="danger"
+              style={{ fontSize: 12, cursor: 'pointer' }}
+              onClick={(e) => { e.stopPropagation(); }}
+            >
+              {t('admin.graphify.error')}
+            </Typography.Text>
+          ) : null}
+        </Space>
+      ),
+    },
+  ];
+
   return (
     <>
-      <PageHeader
-        title="Graphify"
-        description="Review graphification runs and quarantine failures across spaces."
-        actions={
-          <button
-            className="button button-secondary"
-            type="button"
-            onClick={() => {
-              void loadRuns();
-            }}
-          >
-            Refresh
-          </button>
-        }
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <Typography.Title level={4} style={{ margin: 0 }}>{t('admin.graphify.title')}</Typography.Title>
+          <Typography.Text type="secondary">{t('admin.graphify.description')}</Typography.Text>
+        </div>
+        <Button icon={<ReloadOutlined />} onClick={() => { void loadRuns(); }}>
+          {t('common.action.refresh')}
+        </Button>
+      </div>
+
+      <Tabs
+        activeKey={status}
+        onChange={(key) => { setStatus(key); setPage(1); }}
+        items={statusTabItems}
+        style={{ marginBottom: 16 }}
       />
 
-      <ErrorBanner error={error} />
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Select
+          value={triggerType || undefined}
+          onChange={(val) => { setTriggerType(val ?? ''); setPage(1); }}
+          placeholder={t('admin.graphify.filter.allTriggers')}
+          allowClear
+          style={{ width: 180 }}
+        >
+          {GRAPHIFY_TRIGGER_TYPES.map((option) => (
+            <Select.Option key={option} value={option}>{formatLabel(option)}</Select.Option>
+          ))}
+        </Select>
+        <Input.Search
+          placeholder={t('admin.graphify.filter.spacePlaceholder')}
+          value={spaceId}
+          onChange={(e) => { setSpaceId(e.target.value); setPage(1); }}
+          allowClear
+          style={{ width: 200 }}
+        />
+      </Space>
 
-      <section className="toolbar" aria-label="Graphify filters">
-        <div className="toolbar-span">
-          <span className="eyebrow">Status</span>
-          <GraphifyStatusTabs
-            status={status}
-            onStatusChange={(nextStatus) => {
-              setStatus(nextStatus);
-              setPage(1);
-            }}
-          />
-        </div>
-        <label>
-          Trigger
-          <select
-            value={triggerType}
-            onChange={(event) => {
-              setTriggerType(event.target.value);
-              setPage(1);
-            }}
-          >
-            <option value="">All triggers</option>
-            {GRAPHIFY_TRIGGER_TYPES.map((option) => (
-              <option key={option} value={option}>
-                {formatLabel(option)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Space
-          <input
-            type="search"
-            value={spaceId}
-            onChange={(event) => {
-              setSpaceId(event.target.value);
-              setPage(1);
-            }}
-            placeholder="Space ID"
-          />
-        </label>
-        <label>
-          Page
-          <select value={page} onChange={(event) => setPage(Number(event.target.value))}>
-            {Array.from({ length: totalPages }, (_, index) => index + 1).map((pageValue) => (
-              <option key={pageValue} value={pageValue}>
-                Page {pageValue}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Per page
-          <select
-            value={perPage}
-            onChange={(event) => {
-              setPerPage(Number(event.target.value));
-              setPage(1);
-            }}
-          >
-            {PER_PAGE_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
-      </section>
-
-      {isLoading ? (
-        <LoadingState label="Loading graphify runs..." />
-      ) : runs.length === 0 ? (
-        <EmptyState label="No graphify runs match the current filters." />
-      ) : (
-        <>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Run</th>
-                  <th>Status</th>
-                  <th>Space</th>
-                  <th>Mode</th>
-                  <th>Trigger</th>
-                  <th>Timing</th>
-                  <th>Stats</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {runs.map((run) => (
-                  <tr
-                    key={run.run_id}
-                    className={isQuarantined(run) ? 'interactive-row graphify-quarantined-row' : 'interactive-row'}
-                    role="link"
-                    tabIndex={0}
-                    onClick={() => openRun(run)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        openRun(run);
-                      }
-                    }}
-                  >
-                    <td>
-                      <strong>{run.run_id}</strong>
-                      <span className="subtle-id">{run.result.report_uri ?? 'No report yet'}</span>
-                    </td>
-                    <td>
-                      <GraphifyStatusCell run={run} />
-                      {isQuarantined(run) ? (
-                        <span className="subtle-id">Quarantine: {formatLabel(getQuarantineType(run) ?? 'unknown')}</span>
-                      ) : null}
-                    </td>
-                    <td>{run.space_id}</td>
-                    <td>{formatLabel(run.mode)}</td>
-                    <td>{formatLabel(run.trigger_type)}</td>
-                    <td>
-                      <strong>{formatRunDuration(run)}</strong>
-                      <span className="subtle-id">Created {formatDate(run.created_at)}</span>
-                    </td>
-                    <td>{formatGraphifyStats(run)}</td>
-                    <td>
-                      <div className="row-actions">
-                        {run.status === 'failed' ? (
-                          <button
-                            className="button button-secondary"
-                            type="button"
-                            disabled={retryingRunId === run.run_id}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void retryRun(run);
-                            }}
-                          >
-                            {retryingRunId === run.run_id ? 'Retrying...' : 'Retry'}
-                          </button>
-                        ) : null}
-                        {run.status === 'failed' ? (
-                          <details
-                            className="graphify-inline-details"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                            }}
-                          >
-                            <summary>Error</summary>
-                            <pre>{formatJson(run.error_json)}</pre>
-                          </details>
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="pagination-bar">
-            <span className="pagination-summary">
-              Showing {getFirstItemIndex(pagination.page, pagination.per_page, pagination.total)}-
-              {getLastItemIndex(pagination.page, pagination.per_page, runs.length, pagination.total)} of{' '}
-              {pagination.total}
-            </span>
-            <span className="pagination-summary">
-              Page {pagination.page} of {totalPages}
-            </span>
-          </div>
-        </>
-      )}
+      <Table<GraphifyRun>
+        columns={columns}
+        dataSource={runs}
+        rowKey="run_id"
+        loading={isLoading}
+        onRow={(run) => ({
+          onClick: () => openRun(run),
+          style: { cursor: 'pointer', ...(isQuarantined(run) ? { background: 'var(--ant-color-warning-bg)' } : {}) },
+        })}
+        pagination={{
+          current: page,
+          pageSize: perPage,
+          total: pagination.total,
+          showSizeChanger: true,
+          pageSizeOptions: ['10', '20', '50', '100'],
+          onChange: (p, ps) => { setPage(p); setPerPage(ps); },
+          showTotal: (total, range) => t('admin.graphify.pagination.showing', { from: range[0], to: range[1], total }),
+        }}
+        locale={{ emptyText: t('admin.graphify.emptyFilter') }}
+        size="middle"
+      />
     </>
   );
 }

@@ -1,16 +1,25 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import {
-  EmptyState,
-  ErrorBanner,
-  LoadingState,
+  Button,
+  Checkbox,
+  Form,
+  Input,
   Modal,
-  PageHeader,
-  StatusBadge,
-  getErrorMessage,
-  parseIdList,
-} from '../../components/adminUi';
+  Popconfirm,
+  Select,
+  Space,
+  Switch,
+  Table,
+  Tag,
+  Typography,
+  message,
+} from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { requireAdminPage } from '../../components/RequireAdminPage';
 import { api } from '../../lib/api';
+import { getErrorMessage, parseIdList } from '../../components/adminUi';
 import { type AdminModel, type ModelConnectivityResult } from '../../lib/adminTypes';
 
 type ModelForm = {
@@ -56,25 +65,31 @@ const EMPTY_MODEL_FORM: ModelForm = {
   visible_group_ids: '',
 };
 
+function statusColor(status: string): string {
+  if (status === 'active') return 'green';
+  if (status === 'disabled') return 'default';
+  return 'orange';
+}
+
 function ModelsPage() {
+  const { t } = useTranslation();
   const [models, setModels] = useState<AdminModel[]>([]);
   const [form, setForm] = useState<ModelForm | null>(null);
   const [testResults, setTestResults] = useState<Record<string, ModelConnectivityResult>>({});
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [antForm] = Form.useForm();
 
   const loadModels = useCallback(async () => {
     setIsLoading(true);
-    setError(null);
 
     try {
       const data = await api.get<AdminModel[]>('/admin/models', { per_page: 100, sort: 'provider' });
       setModels(data);
     } catch (err) {
-      setError(getErrorMessage(err));
+      void message.error(getErrorMessage(err));
     } finally {
       setIsLoading(false);
     }
@@ -84,11 +99,8 @@ function ModelsPage() {
     void loadModels();
   }, [loadModels]);
 
-  async function submitModel(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    if (form === null) {
-      return;
-    }
+  async function submitModel(): Promise<void> {
+    if (form === null) return;
 
     setIsSaving(true);
     setFormError(null);
@@ -104,33 +116,37 @@ function ModelsPage() {
       await loadModels();
     } catch (err) {
       setFormError(getErrorMessage(err));
+      void message.error(getErrorMessage(err));
     } finally {
       setIsSaving(false);
     }
   }
 
   async function toggleModel(model: AdminModel): Promise<void> {
-    setError(null);
     try {
       await api.patch<AdminModel>(`/admin/models/${model.id}`, {
         enabled: model.status !== 'active',
       });
       await loadModels();
     } catch (err) {
-      setError(getErrorMessage(err));
+      void message.error(getErrorMessage(err));
     }
   }
 
   async function testModel(model: AdminModel): Promise<void> {
     setTestingModelId(model.id);
-    setError(null);
     try {
       const result = await api.post<ModelConnectivityResult>(`/admin/models/${model.id}/test`, {
         test_prompt: 'Admin console connectivity test',
       });
       setTestResults((current) => ({ ...current, [model.id]: result }));
+      if (result.reachable) {
+        void message.success(`${t('admin.models.reachable')} (${result.latency_ms} ms)`);
+      } else {
+        void message.warning(result.error ?? 'Failed');
+      }
     } catch (err) {
-      setError(getErrorMessage(err));
+      void message.error(getErrorMessage(err));
     } finally {
       setTestingModelId(null);
     }
@@ -138,7 +154,7 @@ function ModelsPage() {
 
   function openEditForm(model: AdminModel): void {
     setFormError(null);
-    setForm({
+    const editData: ModelForm = {
       id: model.id,
       provider: model.provider,
       model_id: model.model_id,
@@ -151,229 +167,201 @@ function ModelsPage() {
       rate_limit_rpm: model.config.rate_limit_rpm?.toString() ?? '',
       enabled: model.status === 'active',
       visible_group_ids: model.visible_group_ids.join(', '),
-    });
+    };
+    setForm(editData);
+    antForm.setFieldsValue(editData);
   }
+
+  function updateFormField(field: string, value: string | boolean): void {
+    setForm((current) => current === null ? current : { ...current, [field]: value });
+  }
+
+  const columns: ColumnsType<AdminModel> = [
+    {
+      title: t('admin.models.columns.name'),
+      key: 'name',
+      sorter: (a, b) => (a.name ?? a.model_id).localeCompare(b.name ?? b.model_id),
+      render: (_: unknown, model: AdminModel) => (
+        <div>
+          <Typography.Text strong>{model.name ?? model.model_id}</Typography.Text>
+          <br />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>{model.model_id}</Typography.Text>
+        </div>
+      ),
+    },
+    {
+      title: t('admin.models.columns.provider'),
+      dataIndex: 'provider',
+      key: 'provider',
+    },
+    {
+      title: t('admin.models.columns.type'),
+      dataIndex: 'model_type',
+      key: 'model_type',
+      render: (val: string) => <Tag>{val}</Tag>,
+    },
+    {
+      title: t('admin.models.columns.status'),
+      dataIndex: 'status',
+      key: 'status',
+      render: (val: string) => <Tag color={statusColor(val)}>{t(`common.status.${val}`, val)}</Tag>,
+    },
+    {
+      title: t('admin.models.columns.config'),
+      key: 'config',
+      render: (_: unknown, model: AdminModel) => (
+        <Typography.Text type="secondary">
+          {model.config.base_url ?? t('admin.models.defaultEndpoint')}
+          {model.config.max_tokens !== null ? `; ${model.config.max_tokens} max tokens` : ''}
+        </Typography.Text>
+      ),
+    },
+    {
+      title: t('admin.models.columns.test'),
+      key: 'test',
+      render: (_: unknown, model: AdminModel) => {
+        const testResult = testResults[model.id];
+        if (testResult === undefined) {
+          return <Typography.Text type="secondary">{t('common.state.notTested')}</Typography.Text>;
+        }
+        return (
+          <Tag color={testResult.reachable ? 'green' : 'red'}>
+            {testResult.reachable ? t('admin.models.reachable') : (testResult.error ?? 'Failed')} ({testResult.latency_ms} ms)
+          </Tag>
+        );
+      },
+    },
+    {
+      title: t('admin.models.columns.actions'),
+      key: 'actions',
+      render: (_: unknown, model: AdminModel) => (
+        <Space>
+          <Button size="small" onClick={() => openEditForm(model)}>
+            {t('common.action.edit')}
+          </Button>
+          <Button
+            size="small"
+            loading={testingModelId === model.id}
+            onClick={() => { void testModel(model); }}
+          >
+            {t('common.action.test')}
+          </Button>
+          <Popconfirm
+            title={model.status === 'active' ? t('admin.models.confirmDisable') : t('admin.models.confirmEnable')}
+            onConfirm={() => { void toggleModel(model); }}
+            okText={t('common.action.confirm')}
+            cancelText={t('common.action.cancel')}
+          >
+            <Switch
+              checked={model.status === 'active'}
+              checkedChildren={t('common.action.enable')}
+              unCheckedChildren={t('common.action.disable')}
+              size="small"
+            />
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
 
   return (
     <>
-      <PageHeader
-        title="Models"
-        description="Manage model providers, visibility, limits, and connectivity."
-        actions={
-          <button className="button button-primary" type="button" onClick={() => { setFormError(null); setForm({ ...EMPTY_MODEL_FORM }); }}>
-            Add Model
-          </button>
-        }
-      />
-      <ErrorBanner error={error} />
-
-      {isLoading ? (
-        <LoadingState />
-      ) : models.length === 0 ? (
-        <EmptyState label="No models have been configured." />
-      ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Provider</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Config</th>
-                <th>Test</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {models.map((model) => {
-                const testResult = testResults[model.id];
-                return (
-                  <tr key={model.id}>
-                    <td>
-                      <strong>{model.name ?? model.model_id}</strong>
-                      <span className="subtle-id">{model.model_id}</span>
-                    </td>
-                    <td>{model.provider}</td>
-                    <td>{model.model_type}</td>
-                    <td>
-                      <StatusBadge status={model.status} />
-                    </td>
-                    <td>
-                      {model.config.base_url ?? 'Default endpoint'}
-                      {model.config.max_tokens !== null ? `; ${model.config.max_tokens} max tokens` : ''}
-                    </td>
-                    <td>
-                      {testResult === undefined ? (
-                        <span className="muted-copy">Not tested</span>
-                      ) : (
-                        <span className={testResult.reachable ? 'test-ok' : 'test-fail'}>
-                          {testResult.reachable ? 'Reachable' : testResult.error ?? 'Failed'} ({testResult.latency_ms} ms)
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      <div className="row-actions">
-                        <button className="button button-secondary" type="button" onClick={() => openEditForm(model)}>
-                          Edit
-                        </button>
-                        <button
-                          className="button button-secondary"
-                          type="button"
-                          disabled={testingModelId === model.id}
-                          onClick={() => {
-                            void testModel(model);
-                          }}
-                        >
-                          {testingModelId === model.id ? 'Testing...' : 'Test'}
-                        </button>
-                        <button
-                          className="button button-danger"
-                          type="button"
-                          onClick={() => {
-                            void toggleModel(model);
-                          }}
-                        >
-                          {model.status === 'active' ? 'Disable' : 'Enable'}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <Typography.Title level={4} style={{ margin: 0 }}>{t('admin.models.title')}</Typography.Title>
+          <Typography.Text type="secondary">{t('admin.models.description')}</Typography.Text>
         </div>
-      )}
-
-      {form !== null ? (
-        <Modal title={form.id === undefined ? 'Add Model' : 'Edit Model'} onClose={() => { setForm(null); setFormError(null); }}>
-          <ErrorBanner error={formError} />
-          <form
-            className="form-grid"
-            onSubmit={(event) => {
-              void submitModel(event);
+        <Space>
+          <Button icon={<ReloadOutlined />} onClick={() => { void loadModels(); }}>
+            {t('common.action.refresh')}
+          </Button>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => {
+              setFormError(null);
+              const newForm = { ...EMPTY_MODEL_FORM };
+              setForm(newForm);
+              antForm.setFieldsValue(newForm);
             }}
           >
-            <label>
-              Provider *
-              <input
-                required
-                type="text"
-                value={form.provider}
-                onChange={(event) => setForm((current) => (current === null ? current : { ...current, provider: event.target.value }))}
+            {t('admin.models.addButton')}
+          </Button>
+        </Space>
+      </div>
+
+      <Table<AdminModel>
+        columns={columns}
+        dataSource={models}
+        rowKey="id"
+        loading={isLoading}
+        pagination={{ pageSize: 20, showSizeChanger: true }}
+        locale={{ emptyText: t('admin.models.emptyList') }}
+        size="middle"
+      />
+
+      <Modal
+        title={form?.id === undefined ? t('admin.models.addTitle') : t('admin.models.editTitle')}
+        open={form !== null}
+        onCancel={() => { setForm(null); setFormError(null); }}
+        onOk={() => { void submitModel(); }}
+        confirmLoading={isSaving}
+        okText={isSaving ? t('admin.models.saving') : t('admin.models.saveModel')}
+        cancelText={t('common.action.cancel')}
+        width={640}
+      >
+        {form !== null ? (
+          <Form form={antForm} layout="vertical">
+            <Form.Item name="provider" label={t('admin.models.form.provider')} rules={[{ required: true, message: t('admin.models.form.providerRequired') }]}>
+              <Input onChange={(e) => updateFormField('provider', e.target.value)} />
+            </Form.Item>
+            <Form.Item name="model_id" label={t('admin.models.form.modelId')} rules={[{ required: true, message: t('admin.models.form.modelIdRequired') }]}>
+              <Input onChange={(e) => updateFormField('model_id', e.target.value)} />
+            </Form.Item>
+            <Form.Item name="model_type" label={t('admin.models.form.type')}>
+              <Select onChange={(val: string) => updateFormField('model_type', val)}>
+                <Select.Option value="chat">chat</Select.Option>
+                <Select.Option value="embedding">embedding</Select.Option>
+                <Select.Option value="rerank">rerank</Select.Option>
+              </Select>
+            </Form.Item>
+            <Form.Item name="display_name" label={t('admin.models.form.displayName')}>
+              <Input onChange={(e) => updateFormField('display_name', e.target.value)} />
+            </Form.Item>
+            <Form.Item name="base_url" label={t('admin.models.form.baseUrl')}>
+              <Input onChange={(e) => updateFormField('base_url', e.target.value)} />
+            </Form.Item>
+            <Form.Item name="encrypted_api_key_ref" label={t('admin.models.form.apiKeyRef')}>
+              <Input.Password
+                placeholder={t('admin.models.form.apiKeyRefPlaceholder')}
+                onChange={(e) => updateFormField('encrypted_api_key_ref', e.target.value)}
               />
-            </label>
-            <label>
-              Model ID *
-              <input
-                required
-                type="text"
-                value={form.model_id}
-                onChange={(event) => setForm((current) => (current === null ? current : { ...current, model_id: event.target.value }))}
+            </Form.Item>
+            <Form.Item name="visible_group_ids" label={t('admin.models.form.visibleGroupIds')}>
+              <Input
+                placeholder={t('admin.models.form.visibleGroupIdsPlaceholder')}
+                onChange={(e) => updateFormField('visible_group_ids', e.target.value)}
               />
-            </label>
-            <label>
-              Type *
-              <select
-                value={form.model_type}
-                onChange={(event) =>
-                  setForm((current) =>
-                    current === null
-                      ? current
-                      : { ...current, model_type: event.target.value as ModelForm['model_type'] },
-                  )
-                }
-              >
-                <option value="chat">chat</option>
-                <option value="embedding">embedding</option>
-                <option value="rerank">rerank</option>
-              </select>
-            </label>
-            <label>
-              Display name
-              <input
-                type="text"
-                value={form.display_name}
-                onChange={(event) => setForm((current) => (current === null ? current : { ...current, display_name: event.target.value }))}
-              />
-            </label>
-            <label className="span-2">
-              Base URL
-              <input
-                type="url"
-                value={form.base_url}
-                onChange={(event) => setForm((current) => (current === null ? current : { ...current, base_url: event.target.value }))}
-              />
-            </label>
-            <label>
-              API key ref
-              <input
-                type="text"
-                value={form.encrypted_api_key_ref}
-                onChange={(event) =>
-                  setForm((current) => (current === null ? current : { ...current, encrypted_api_key_ref: event.target.value }))
-                }
-                placeholder="secret:my-api-key"
-              />
-            </label>
-            <label>
-              Visible group IDs
-              <input
-                type="text"
-                value={form.visible_group_ids}
-                onChange={(event) =>
-                  setForm((current) => (current === null ? current : { ...current, visible_group_ids: event.target.value }))
-                }
-                placeholder="Comma-separated group IDs"
-              />
-            </label>
-            <label>
-              Embedding dim
-              <input
-                type="number"
-                min="1"
-                value={form.embedding_dim}
-                onChange={(event) => setForm((current) => (current === null ? current : { ...current, embedding_dim: event.target.value }))}
-              />
-            </label>
-            <label>
-              Max tokens
-              <input
-                type="number"
-                min="1"
-                value={form.max_tokens}
-                onChange={(event) => setForm((current) => (current === null ? current : { ...current, max_tokens: event.target.value }))}
-              />
-            </label>
-            <label>
-              Rate limit rpm
-              <input
-                type="number"
-                min="1"
-                value={form.rate_limit_rpm}
-                onChange={(event) => setForm((current) => (current === null ? current : { ...current, rate_limit_rpm: event.target.value }))}
-              />
-            </label>
-            <label className="checkbox-row model-enabled">
-              <input
-                type="checkbox"
-                checked={form.enabled}
-                onChange={(event) => setForm((current) => (current === null ? current : { ...current, enabled: event.target.checked }))}
-              />
-              Enabled
-            </label>
-            <div className="form-actions span-2">
-              <button className="button button-secondary" type="button" onClick={() => setForm(null)}>
-                Cancel
-              </button>
-              <button className="button button-primary" type="submit" disabled={isSaving}>
-                {isSaving ? 'Saving...' : 'Save Model'}
-              </button>
-            </div>
-          </form>
-        </Modal>
-      ) : null}
+            </Form.Item>
+            <Space style={{ width: '100%' }}>
+              <Form.Item name="embedding_dim" label={t('admin.models.form.embeddingDim')}>
+                <Input type="number" min={1} onChange={(e) => updateFormField('embedding_dim', e.target.value)} />
+              </Form.Item>
+              <Form.Item name="max_tokens" label={t('admin.models.form.maxTokens')}>
+                <Input type="number" min={1} onChange={(e) => updateFormField('max_tokens', e.target.value)} />
+              </Form.Item>
+              <Form.Item name="rate_limit_rpm" label={t('admin.models.form.rateLimitRpm')}>
+                <Input type="number" min={1} onChange={(e) => updateFormField('rate_limit_rpm', e.target.value)} />
+              </Form.Item>
+            </Space>
+            <Form.Item name="enabled" valuePropName="checked">
+              <Checkbox onChange={(e) => updateFormField('enabled', e.target.checked)}>
+                {t('admin.models.form.enabled')}
+              </Checkbox>
+            </Form.Item>
+          </Form>
+        ) : null}
+      </Modal>
     </>
   );
 }
@@ -414,9 +402,6 @@ function addOptionalNumber<T extends Record<string, unknown>>(target: T, key: ke
 }
 
 function normalizeModelType(value: string): ModelForm['model_type'] {
-  if (value === 'embedding' || value === 'rerank') {
-    return value;
-  }
-
+  if (value === 'embedding' || value === 'rerank') return value;
   return 'chat';
 }

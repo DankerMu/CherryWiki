@@ -11,10 +11,29 @@
       "delete": "删除",
       "back": "返回",
       "logout": "退出登录",
-      "login": "登录"
+      "login": "登录",
+      "edit": "编辑",
+      "create": "创建",
+      "refresh": "刷新",
+      "close": "关闭",
+      "enable": "启用",
+      "disable": "禁用",
+      "retry": "重试",
+      "test": "测试",
+      "search": "搜索",
+      "configure": "配置"
     },
     "state": {
-      "noData": "暂无数据"
+      "noData": "暂无数据",
+      "never": "从未",
+      "none": "无",
+      "global": "全局",
+      "system": "系统",
+      "notRecorded": "未记录",
+      "operational": "正常运行",
+      "notConfigured": "未配置",
+      "notTested": "未测试",
+      "unavailable": "不可用"
     },
     "role": {
       "owner": "所有者",
@@ -22,6 +41,21 @@
       "editor": "编辑者",
       "viewer": "查看者",
       "unknown": "未知角色"
+    },
+    "status": {
+      "active": "活跃",
+      "disabled": "已禁用",
+      "healthy": "健康",
+      "degraded": "降级",
+      "unhealthy": "异常",
+      "not_configured": "未配置",
+      "pending": "等待中",
+      "running": "运行中",
+      "succeeded": "已成功",
+      "failed": "已失败",
+      "cancelled": "已取消",
+      "cancelling": "取消中",
+      "enabled": "已启用"
     }
   },
   "shell": {
@@ -99,6 +133,312 @@
       "accountLocked": "此账号已被临时锁定，请稍后再试。",
       "accountDisabled": "此账号已被禁用。",
       "generic": "无法登录。"
+    }
+  },
+  "admin": {
+    "users": {
+      "title": "用户管理",
+      "description": "管理账户、角色、分组和账户状态。",
+      "createButton": "创建用户",
+      "createTitle": "创建用户",
+      "editTitle": "编辑用户",
+      "creating": "创建中...",
+      "saving": "保存中...",
+      "emptyFilter": "没有用户匹配当前筛选条件。",
+      "searchPlaceholder": "邮箱或姓名",
+      "columns": {
+        "email": "邮箱",
+        "name": "姓名",
+        "role": "角色",
+        "status": "状态",
+        "groups": "分组",
+        "lastLogin": "最后登录",
+        "actions": "操作"
+      },
+      "filter": {
+        "search": "搜索",
+        "role": "角色",
+        "allRoles": "所有角色",
+        "status": "状态",
+        "allStatuses": "所有状态"
+      },
+      "form": {
+        "email": "邮箱",
+        "emailRequired": "请输入邮箱",
+        "name": "姓名",
+        "nameRequired": "请输入姓名",
+        "password": "密码",
+        "passwordRequired": "请输入密码",
+        "role": "角色",
+        "roleRequired": "请选择角色",
+        "groups": "分组",
+        "groupsPlaceholder": "逗号分隔的分组 ID",
+        "displayName": "显示名称",
+        "displayNameRequired": "请输入显示名称"
+      },
+      "confirmDisable": "确定要禁用此用户吗？",
+      "confirmEnable": "确定要启用此用户吗？"
+    },
+    "groups": {
+      "title": "分组管理",
+      "description": "创建分组、分配成员和绑定空间权限。",
+      "createButton": "创建分组",
+      "createTitle": "创建分组",
+      "editTitle": "编辑分组",
+      "saving": "保存中...",
+      "saveGroup": "保存分组",
+      "emptyList": "尚未创建任何分组。",
+      "columns": {
+        "name": "名称",
+        "description": "描述",
+        "members": "成员",
+        "spaces": "空间",
+        "actions": "操作"
+      },
+      "noDescription": "无描述",
+      "noSpacePermissions": "无空间权限",
+      "form": {
+        "name": "名称",
+        "nameRequired": "请输入分组名称",
+        "description": "描述",
+        "members": "成员",
+        "spacePermissions": "空间权限",
+        "noSpaceHint": "请先创建空间再分配权限。"
+      }
+    },
+    "spaces": {
+      "title": "空间管理",
+      "description": "创建知识空间并管理访问权限。",
+      "createButton": "创建空间",
+      "createTitle": "创建空间",
+      "creating": "创建中...",
+      "emptyList": "暂无可管理的空间。",
+      "detailLoading": "加载空间详情中...",
+      "columns": {
+        "name": "名称",
+        "slug": "标识",
+        "status": "状态",
+        "pages": "页面数",
+        "sources": "资源数",
+        "actions": "操作"
+      },
+      "detail": {
+        "title": "空间配置",
+        "noDescription": "无描述",
+        "strictKnowledge": "仅知识库回答",
+        "strictKnowledgeHelp": "限制回答仅基于已索引的空间知识。",
+        "repoPath": "仓库路径",
+        "indexStatus": "索引状态",
+        "groupPermissions": "分组权限",
+        "savePermissions": "保存权限",
+        "noGroupHint": "请先创建分组再分配权限。"
+      },
+      "form": {
+        "name": "名称",
+        "nameRequired": "请输入空间名称",
+        "slug": "标识",
+        "slugRequired": "请输入空间标识",
+        "slugPattern": "仅允许小写字母、数字和连字符",
+        "description": "描述"
+      }
+    },
+    "models": {
+      "title": "模型管理",
+      "description": "管理模型提供商、可见性、限制和连通性。",
+      "addButton": "添加模型",
+      "addTitle": "添加模型",
+      "editTitle": "编辑模型",
+      "saving": "保存中...",
+      "saveModel": "保存模型",
+      "testing": "测试中...",
+      "emptyList": "尚未配置任何模型。",
+      "columns": {
+        "name": "名称",
+        "provider": "提供商",
+        "type": "类型",
+        "status": "状态",
+        "config": "配置",
+        "test": "测试",
+        "actions": "操作"
+      },
+      "defaultEndpoint": "默认端点",
+      "maxTokens": "{{count}} 最大 tokens",
+      "reachable": "可达",
+      "latency": "{{ms}} ms",
+      "form": {
+        "provider": "提供商",
+        "providerRequired": "请输入提供商",
+        "modelId": "模型 ID",
+        "modelIdRequired": "请输入模型 ID",
+        "type": "类型",
+        "displayName": "显示名称",
+        "baseUrl": "Base URL",
+        "apiKeyRef": "API 密钥引用",
+        "apiKeyRefPlaceholder": "secret:my-api-key",
+        "visibleGroupIds": "可见分组 ID",
+        "visibleGroupIdsPlaceholder": "逗号分隔的分组 ID",
+        "embeddingDim": "嵌入维度",
+        "maxTokens": "最大 tokens",
+        "rateLimitRpm": "速率限制 (RPM)",
+        "enabled": "启用"
+      },
+      "confirmDisable": "确定要禁用此模型吗？",
+      "confirmEnable": "确定要启用此模型吗？"
+    },
+    "audit": {
+      "title": "审计日志",
+      "description": "审查管理和安全敏感活动。",
+      "emptyFilter": "没有审计日志匹配当前筛选条件。",
+      "columns": {
+        "timestamp": "时间",
+        "actor": "操作者",
+        "action": "操作",
+        "resource": "资源",
+        "space": "空间",
+        "request": "请求"
+      },
+      "filter": {
+        "action": "操作",
+        "actionPlaceholder": "admin.user.update",
+        "actor": "操作者",
+        "actorPlaceholder": "用户 ID",
+        "space": "空间",
+        "spacePlaceholder": "空间 ID",
+        "dateRange": "时间范围"
+      }
+    },
+    "health": {
+      "title": "系统健康",
+      "description": "监控 API 依赖和基础设施状态。",
+      "unavailable": "系统健康信息不可用。",
+      "overallStatus": "整体状态",
+      "apiUptime": "API 运行时间",
+      "autoRefresh": "自动刷新",
+      "autoRefreshInterval": "每 30 秒",
+      "component": {
+        "latency": "延迟",
+        "latencyValue": "{{ms}} ms",
+        "latencyNA": "N/A",
+        "details": "详情"
+      }
+    },
+    "jobs": {
+      "title": "任务中心",
+      "description": "跟踪空间中的摄入、图谱和维护任务。",
+      "loading": "加载任务中...",
+      "emptyFilter": "没有任务匹配当前筛选条件。",
+      "columns": {
+        "type": "类型",
+        "status": "状态",
+        "space": "空间",
+        "progress": "进度",
+        "created": "创建时间",
+        "duration": "耗时"
+      },
+      "filter": {
+        "type": "类型",
+        "allTypes": "所有类型",
+        "status": "状态",
+        "allStatuses": "所有状态",
+        "space": "空间",
+        "spacePlaceholder": "空间 ID"
+      },
+      "pagination": {
+        "showing": "显示 {{from}}-{{to}} / 共 {{total}}",
+        "page": "第 {{current}} / {{total}} 页"
+      },
+      "duration": {
+        "queued": "排队中",
+        "notStarted": "未开始",
+        "inProgress": "进行中",
+        "unavailable": "不可用"
+      },
+      "progress": {
+        "running": "运行中",
+        "completed": "已完成"
+      }
+    },
+    "jobDetail": {
+      "title": "任务详情",
+      "description": "检查后台任务的载荷、进度和生命周期事件。",
+      "backToJobs": "返回任务列表",
+      "cancelJob": "取消任务",
+      "cancelling": "取消中...",
+      "unavailable": "任务详情不可用。",
+      "loading": "加载任务详情中...",
+      "confirmCancel": "确定要取消此任务吗？",
+      "overview": {
+        "title": "任务概览",
+        "jobId": "任务 ID",
+        "type": "类型",
+        "status": "状态",
+        "space": "空间",
+        "createdBy": "创建者",
+        "createdAt": "创建时间",
+        "startedAt": "开始时间",
+        "completedAt": "完成时间",
+        "cancelRequestedAt": "取消请求时间"
+      },
+      "data": {
+        "title": "任务数据",
+        "description": "执行期间捕获的载荷、结果和错误快照。",
+        "payload": "载荷 JSON",
+        "result": "结果 JSON",
+        "error": "错误 JSON"
+      },
+      "events": {
+        "title": "事件时间线",
+        "description": "任务生命周期的按时间排列的状态转换和进度更新。",
+        "empty": "尚未记录任何任务事件。"
+      }
+    },
+    "graphify": {
+      "title": "图谱化管理",
+      "description": "审查跨空间的图谱化运行和隔离失败。",
+      "loading": "加载图谱化运行中...",
+      "emptyFilter": "没有图谱化运行匹配当前筛选条件。",
+      "retrying": "重试中...",
+      "confirmRetry": "确定要重试此图谱化运行吗？",
+      "retrySuccess": "重试已提交",
+      "columns": {
+        "run": "运行",
+        "status": "状态",
+        "space": "空间",
+        "mode": "模式",
+        "trigger": "触发方式",
+        "timing": "耗时",
+        "stats": "统计",
+        "actions": "操作"
+      },
+      "filter": {
+        "status": "状态",
+        "allStatuses": "全部",
+        "trigger": "触发方式",
+        "allTriggers": "所有触发方式",
+        "space": "空间",
+        "spacePlaceholder": "空间 ID"
+      },
+      "statusFilter": {
+        "all": "全部",
+        "pending": "等待中",
+        "running": "运行中",
+        "succeeded": "已成功",
+        "failed": "已失败",
+        "cancelled": "已取消"
+      },
+      "noReport": "暂无报告",
+      "quarantine": "隔离",
+      "error": "错误",
+      "created": "创建于 {{date}}",
+      "pagination": {
+        "showing": "显示 {{from}}-{{to}} / 共 {{total}}",
+        "page": "第 {{current}} / {{total}} 页"
+      },
+      "stats": {
+        "nodes": "节点",
+        "edges": "边",
+        "wiki": "Wiki"
+      }
     }
   }
 }
