@@ -82,7 +82,7 @@ describe('App routing', () => {
     mockChatSessionsApi();
     renderRoute('/', ADMIN_USER);
     // Admin with spaces should go to /spaces/space-main/chat
-    expect(await screen.findByRole('heading', { name: 'Chat' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '聊天' })).toBeInTheDocument();
   });
 
   it('redirects authenticated admin without spaces to /admin/spaces', async () => {
@@ -110,7 +110,7 @@ describe('App routing', () => {
   it('renders Chat for /spaces/:spaceId/chat', async () => {
     mockChatSessionsApi();
     renderRoute('/spaces/test-space/chat', ADMIN_USER);
-    expect(await screen.findByRole('heading', { name: 'Chat' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '聊天' })).toBeInTheDocument();
   });
 
   it('redirects unauthenticated admin users to /login', () => {
@@ -121,7 +121,7 @@ describe('App routing', () => {
   it('redirects non-admin from admin routes to /', async () => {
     mockChatSessionsApi();
     renderRoute('/admin/users', VIEWER_USER);
-    expect(await screen.findByRole('heading', { name: 'Chat' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '聊天' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '用户管理' })).not.toBeInTheDocument();
   });
 
@@ -156,7 +156,7 @@ describe('App routing', () => {
 
   it('renders NotFound for /nonexistent', () => {
     renderRoute('/nonexistent');
-    expect(screen.getByRole('heading', { name: '404 — Page Not Found' })).toBeInTheDocument();
+    expect(screen.getByText('页面未找到')).toBeInTheDocument();
   });
 });
 

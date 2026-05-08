@@ -1,3 +1,5 @@
+import { Card } from 'antd';
+import { useTranslation } from 'react-i18next';
 import { ConfidenceBadge, getConfidenceTone } from './ConfidenceBadge.js';
 
 export type GraphPathNode = {
@@ -30,17 +32,22 @@ type GraphPathViewerProps = {
 };
 
 export default function GraphPathViewer({ path }: GraphPathViewerProps) {
+  const { t } = useTranslation();
   const pathConfidence = path.total_confidence ?? path.confidence ?? null;
   const confidenceTone = getConfidenceTone(pathConfidence);
 
   if (path.nodes.length === 0) {
-    return <div className="graph-path-empty">No graph path data</div>;
+    return <div className="graph-path-empty">{t('chat.noGraphPath')}</div>;
   }
 
   return (
-    <div className={`graph-path-viewer confidence-${confidenceTone}`} aria-label="Graph path">
+    <Card
+      size="small"
+      className={`graph-path-viewer confidence-${confidenceTone}`}
+      aria-label="Graph path"
+    >
       <div className="graph-path-meta">
-        <strong>图谱路径</strong>
+        <strong>{t('chat.viewGraphPath')}</strong>
         {pathConfidence !== null ? <span>{formatConfidence(pathConfidence)}</span> : null}
       </div>
       <div className="graph-path-track">
@@ -56,7 +63,7 @@ export default function GraphPathViewer({ path }: GraphPathViewerProps) {
                 <div className={`graph-path-edge confidence-${getConfidenceTone(getEdgeScore(edge))}`}>
                   <span className="graph-path-edge-line" aria-hidden="true" />
                   <span className="graph-path-edge-label">
-                    {edge.relationship ?? 'RELATED'}
+                    {edge.relationship ?? t('chat.relatedEdge')}
                     <ConfidenceBadge label={edge.confidence_label} />
                   </span>
                 </div>
@@ -65,7 +72,7 @@ export default function GraphPathViewer({ path }: GraphPathViewerProps) {
           );
         })}
       </div>
-    </div>
+    </Card>
   );
 }
 

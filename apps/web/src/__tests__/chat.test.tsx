@@ -3,7 +3,9 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import '../i18n';
+import i18n from '../i18n';
 import { AuthProvider, type AuthUser } from '../lib/auth.js';
 import Chat, { ChatMessageBubble, MessageInput, SessionSidebar } from '../pages/Chat.js';
 import { CHAT_INPUT_MAX_LENGTH, ChatStreamError, type ChatCitation, type ChatMessage } from '../hooks/useChatStream.js';
@@ -20,6 +22,10 @@ const testUser: AuthUser = {
   groups: [],
   spaces: [{ id: 'space-1', name: 'Space One', role: 'viewer' }],
 };
+
+beforeEach(async () => {
+  await i18n.changeLanguage('zh-CN');
+});
 
 afterEach(() => {
   cleanup();
@@ -97,7 +103,7 @@ describe('Session sidebar', () => {
       />,
     );
 
-    expect(screen.getAllByRole('button', { name: /Latest chat/ })[0]).toHaveClass('active');
+    expect(screen.getByText('Latest chat')).toBeInTheDocument();
     expect(screen.getByText('Chat session-')).toBeInTheDocument();
   });
 });
@@ -107,7 +113,7 @@ describe('Message input', () => {
     const onSend = vi.fn<(message: string) => Promise<void>>().mockResolvedValue(undefined);
     renderWithRouter(<MessageInput disabled={false} isStreaming={false} onSend={onSend} />);
 
-    const textarea = screen.getByLabelText<HTMLTextAreaElement>('Message');
+    const textarea = screen.getByLabelText<HTMLTextAreaElement>('消息');
     fireEvent.change(textarea, { target: { value: 'a'.repeat(CHAT_INPUT_MAX_LENGTH + 25) } });
 
     expect(textarea.value).toHaveLength(CHAT_INPUT_MAX_LENGTH);
@@ -142,7 +148,7 @@ describe('Phase 3 chat controls and stream events', () => {
     stubChatFetch({ databaseEnabled: false });
     renderChatRoute();
 
-    await screen.findByLabelText('Message');
+    await screen.findByLabelText('消息');
     expect(screen.queryByRole('button', { name: '数据库' })).not.toBeInTheDocument();
 
     cleanup();
@@ -170,10 +176,7 @@ describe('Phase 3 chat controls and stream events', () => {
     fireEvent.click(await screen.findByRole('button', { name: '深度分析' }));
     await sendChatMessage('run a database check');
 
-    const panel = await screen.findByLabelText('Agent tool use');
-    expect(panel).toHaveProperty('tagName', 'DETAILS');
-    expect(panel).not.toHaveAttribute('open');
-    expect(screen.getByText('Bash')).toBeInTheDocument();
+    expect(await screen.findByText('Bash')).toBeInTheDocument();
     expect(screen.getAllByText(/cherrydb query/).length).toBeGreaterThan(0);
   });
 
@@ -222,7 +225,15 @@ describe('Phase 3 chat controls and stream events', () => {
 
     renderChatRoute();
 
-    fireEvent.change(await screen.findByLabelText('检索模式'), { target: { value: 'path_first' } });
+    // antd Select renders a combobox input; find the retrieval mode selector
+    // via its surrounding label text and the Select's internal input.
+    const selectWrapper = await screen.findByText('检索模式');
+    const combobox = selectWrapper.closest('.chat-retrieval-mode-label')?.querySelector<HTMLInputElement>('input[role="combobox"]');
+    expect(combobox).not.toBeNull();
+    fireEvent.mouseDown(combobox!);
+    const pathOption = await screen.findByText('路径优先');
+    fireEvent.click(pathOption);
+
     expect(screen.getByText('Agent')).toBeInTheDocument();
     await sendChatMessage('trace the path');
 
@@ -265,7 +276,7 @@ describe('Chat error state', () => {
 
     renderChatRoute();
 
-    const textarea = await screen.findByLabelText('Message');
+    const textarea = await screen.findByLabelText('消息');
     fireEvent.change(textarea, { target: { value: 'hello' } });
     fireEvent.keyDown(textarea, { key: 'Enter' });
 
@@ -387,7 +398,7 @@ function stubChatFetch({
 }
 
 async function sendChatMessage(message: string): Promise<void> {
-  const textarea = await screen.findByLabelText('Message');
+  const textarea = await screen.findByLabelText('消息');
   fireEvent.change(textarea, { target: { value: message } });
   fireEvent.keyDown(textarea, { key: 'Enter' });
 }

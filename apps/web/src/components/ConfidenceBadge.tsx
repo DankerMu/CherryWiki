@@ -1,14 +1,18 @@
+import { Tag } from 'antd';
+import { useTranslation } from 'react-i18next';
+
 export type ConfidenceLabel = string | null | undefined;
 
 export function ConfidenceBadge({ label }: { label: ConfidenceLabel }) {
+  const { t } = useTranslation();
   const normalized = normalizeConfidenceLabel(label);
 
   if (normalized === 'INFERRED') {
-    return <span className="confidence-badge confidence-inferred">推断</span>;
+    return <Tag color="orange">{t('confidence.inferred')}</Tag>;
   }
 
   if (normalized === 'AMBIGUOUS') {
-    return <span className="confidence-badge confidence-ambiguous">待确认</span>;
+    return <Tag color="red">{t('confidence.ambiguous')}</Tag>;
   }
 
   return null;
