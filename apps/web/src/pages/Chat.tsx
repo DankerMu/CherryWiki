@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import { Navigate, useNavigate, useParams } from 'react-router';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
+import { Alert, Button, Collapse, Empty, List, Popconfirm, Result, Select, Spin, Tag } from 'antd';
+import { CloseOutlined, DeleteOutlined, MenuOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons';
 import ChatChart from '../components/ChatChart.js';
 import { ConfidenceBadge } from '../components/ConfidenceBadge.js';
 import GraphPathViewer, { type GraphPathData, type GraphPathEdge, type GraphPathNode } from '../components/GraphPathViewer.js';
-import SpaceNav from '../components/SpaceNav.js';
-import { EmptyState, ErrorBanner, LoadingState, formatDate, getErrorMessage } from '../components/adminUi.js';
+import { formatDate, getErrorMessage } from '../components/adminUi.js';
 import {
   CHAT_INPUT_MAX_LENGTH,
   DEFAULT_RETRIEVAL_MODE,
@@ -72,14 +74,8 @@ const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   retrievalMode: DEFAULT_RETRIEVAL_MODE,
 };
 
-const RETRIEVAL_MODE_OPTIONS: { value: RetrievalMode; label: string }[] = [
-  { value: 'wiki_only', label: '自动' },
-  { value: 'graph_rag', label: '图谱优先' },
-  { value: 'path_first', label: '路径优先' },
-  { value: 'community_first', label: '社区优先' },
-];
-
 export default function Chat() {
+  const { t } = useTranslation();
   const { spaceId = '' } = useParams();
   const { accessToken, hasSpacePermission, isAuthenticated, user } = useAuth();
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -203,13 +199,11 @@ export default function Chat() {
 
   if (!hasSpacePermission(spaceId, 'chat:use')) {
     return (
-      <main className="forbidden-page">
-        <section className="forbidden-panel">
-          <p className="eyebrow">403</p>
-          <h1>Access denied</h1>
-          <p>{user?.email ?? 'This user'} does not have chat access for this space.</p>
-        </section>
-      </main>
+      <Result
+        status="403"
+        title={t('chat.forbidden.title')}
+        subTitle={t('chat.forbidden.description', { email: user?.email ?? '' })}
+      />
     );
   }
 
@@ -230,11 +224,7 @@ export default function Chat() {
     }
   }
 
-  async function deleteSession(session: ChatSession): Promise<void> {
-    if (!window.confirm(`Delete chat "${getSessionTitle(session)}"?`)) {
-      return;
-    }
-
+  async function executeDeleteSession(session: ChatSession): Promise<void> {
     setSessionsError(null);
 
     try {
@@ -275,23 +265,26 @@ export default function Chat() {
         <button
           className="chat-sidebar-backdrop"
           type="button"
-          aria-label="Close sessions"
+          aria-label={t('chat.closeSessions')}
           onClick={() => setIsMobileSidebarOpen(false)}
         />
       ) : null}
 
-      <aside className={`chat-session-sidebar${isMobileSidebarOpen ? ' open' : ''}`} aria-label="Chat sessions">
+      <aside className={`chat-session-sidebar${isMobileSidebarOpen ? ' open' : ''}`} aria-label={t('chat.title')}>
         <div className="chat-sidebar-header">
           <div>
-            <span className="eyebrow">Space</span>
-            <strong>Cherry Chat</strong>
+            <span className="eyebrow">{t('chat.space')}</span>
+            <strong>{t('chat.brand')}</strong>
           </div>
-          <button className="icon-button chat-sidebar-close" type="button" onClick={() => setIsMobileSidebarOpen(false)}>
-            x
-          </button>
+          <Button
+            type="text"
+            icon={<CloseOutlined />}
+            className="chat-sidebar-close"
+            onClick={() => setIsMobileSidebarOpen(false)}
+            aria-label={t('chat.closeSidebar')}
+          />
         </div>
-        <SpaceNav spaceId={spaceId} />
-        <ErrorBanner error={sessionsError} />
+        {sessionsError !== null ? <Alert type="error" message={sessionsError} showIcon style={{ margin: '0 8px 8px' }} /> : null}
         <SessionSidebar
           sessions={sessions}
           activeSessionId={sessionId}
@@ -301,26 +294,29 @@ export default function Chat() {
             void openSession(nextSessionId);
           }}
           onDeleteSession={(session) => {
-            void deleteSession(session);
+            void executeDeleteSession(session);
           }}
         />
       </aside>
 
       <main className="chat-main">
         <header className="chat-topbar">
-          <button className="button button-secondary chat-mobile-menu" type="button" onClick={() => setIsMobileSidebarOpen(true)}>
-            Menu
-          </button>
+          <Button
+            icon={<MenuOutlined />}
+            className="chat-mobile-menu"
+            onClick={() => setIsMobileSidebarOpen(true)}
+          >
+            {t('chat.menu')}
+          </Button>
           <div>
-            <span className="eyebrow">Knowledge Chat</span>
-            <h1>Chat</h1>
+            <span className="eyebrow">{t('chat.knowledgeChat')}</span>
+            <h1>{t('chat.title')}</h1>
           </div>
-          <SpaceNav spaceId={spaceId} />
         </header>
 
-        <section className="chat-message-list" aria-label="Chat messages">
+        <section className="chat-message-list" aria-label={t('chat.messagesLabel')}>
           {messages.length === 0 ? (
-            <EmptyState label="开始新的对话" />
+            <Empty description={t('chat.emptyConversation')} />
           ) : (
             messages.map((message) => <ChatMessageBubble key={message.id} message={message} spaceId={spaceId} />)
           )}
@@ -331,16 +327,15 @@ export default function Chat() {
           <div className="chat-error-bar" role="alert">
             <span>{chatErrorMessage}</span>
             {streamError?.code !== 'NO_CHAT_MODEL_CONFIGURED' ? (
-              <button
-                className="button button-secondary"
-                type="button"
+              <Button
+                type="default"
                 disabled={isStreaming}
                 onClick={() => {
                   void retry();
                 }}
               >
-                Retry
-              </button>
+                {t('common.action.retry')}
+              </Button>
             ) : null}
           </div>
         ) : null}
@@ -366,11 +361,22 @@ export function MessageInput({
   databaseAvailable = false,
   onSettingsChange,
 }: MessageInputProps) {
+  const { t } = useTranslation();
   const [value, setValue] = useState('');
   const trimmedLength = value.trim().length;
   const isAtLimit = value.length >= CHAT_INPUT_MAX_LENGTH;
   const agentPathSelected =
     settings.enableDeepAnalysis || (databaseAvailable && settings.enableDatabase) || isAgentRetrievalMode(settings.retrievalMode);
+
+  const retrievalModeOptions: { value: RetrievalMode; label: string }[] = useMemo(
+    () => [
+      { value: 'wiki_only', label: t('chat.retrievalAuto') },
+      { value: 'graph_rag', label: t('chat.retrievalGraph') },
+      { value: 'path_first', label: t('chat.retrievalPath') },
+      { value: 'community_first', label: t('chat.retrievalCommunity') },
+    ],
+    [t],
+  );
 
   async function submit(): Promise<void> {
     if (disabled || trimmedLength === 0 || value.length > CHAT_INPUT_MAX_LENGTH) {
@@ -392,6 +398,23 @@ export function MessageInput({
     });
   }
 
+  const deepAnalysisSegmentOptions = useMemo(() => {
+    const opts = [
+      { label: t('chat.deepAnalysis'), value: 'deepAnalysis' },
+    ];
+    if (databaseAvailable) {
+      opts.push({ label: t('chat.database'), value: 'database' });
+    }
+    return opts;
+  }, [t, databaseAvailable]);
+
+  const segmentedValue = useMemo(() => {
+    const active: string[] = [];
+    if (settings.enableDeepAnalysis) active.push('deepAnalysis');
+    if (databaseAvailable && settings.enableDatabase) active.push('database');
+    return active;
+  }, [settings.enableDeepAnalysis, settings.enableDatabase, databaseAvailable]);
+
   return (
     <form
       className="chat-input-panel"
@@ -400,14 +423,14 @@ export function MessageInput({
         void submit();
       }}
     >
-      <label htmlFor="chat-message-input">Message</label>
+      <label htmlFor="chat-message-input">{t('chat.messageLabel')}</label>
       <textarea
         id="chat-message-input"
         value={value}
         maxLength={CHAT_INPUT_MAX_LENGTH}
         rows={3}
         disabled={disabled}
-        placeholder={isStreaming ? 'Streaming response...' : 'Ask about this space'}
+        placeholder={isStreaming ? t('chat.streamingPlaceholder') : t('chat.inputPlaceholder')}
         onChange={(event) => setValue(event.target.value.slice(0, CHAT_INPUT_MAX_LENGTH))}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey) {
@@ -416,52 +439,51 @@ export function MessageInput({
           }
         }}
       />
-      <div className="chat-input-settings" aria-label="Chat settings">
-        <button
-          className={`chat-toggle-chip${settings.enableDeepAnalysis ? ' active' : ''}`}
-          type="button"
-          aria-pressed={settings.enableDeepAnalysis}
-          disabled={disabled}
-          onClick={() => updateSettings({ enableDeepAnalysis: !settings.enableDeepAnalysis })}
-        >
-          深度分析
-        </button>
-        {databaseAvailable ? (
-          <button
-            className={`chat-toggle-chip${settings.enableDatabase ? ' active' : ''}`}
-            type="button"
-            aria-pressed={settings.enableDatabase}
-            disabled={disabled}
-            onClick={() => updateSettings({ enableDatabase: !settings.enableDatabase })}
-          >
-            数据库
-          </button>
-        ) : null}
+      <div className="chat-input-settings" aria-label={t('chat.retrievalModeLabel')}>
+        {deepAnalysisSegmentOptions.map((opt) => {
+          const isActive = segmentedValue.includes(opt.value);
+          return (
+            <button
+              key={opt.value}
+              className={`chat-toggle-chip${isActive ? ' active' : ''}`}
+              type="button"
+              aria-pressed={isActive}
+              disabled={disabled}
+              onClick={() => {
+                if (opt.value === 'deepAnalysis') {
+                  updateSettings({ enableDeepAnalysis: !settings.enableDeepAnalysis });
+                } else {
+                  updateSettings({ enableDatabase: !settings.enableDatabase });
+                }
+              }}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
         <label className="chat-retrieval-mode-label" htmlFor="chat-retrieval-mode">
-          检索模式
-          <select
+          {t('chat.retrievalModeLabel')}
+          <Select
             id="chat-retrieval-mode"
+            size="small"
             value={settings.retrievalMode}
             disabled={disabled}
-            onChange={(event) => updateSettings({ retrievalMode: normalizeRetrievalMode(event.target.value) })}
-          >
-            {RETRIEVAL_MODE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+            options={retrievalModeOptions}
+            onChange={(nextMode) => updateSettings({ retrievalMode: normalizeRetrievalMode(nextMode) })}
+            style={{ minWidth: 120 }}
+            popupMatchSelectWidth={false}
+          />
         </label>
-        {agentPathSelected ? <span className="chat-agent-path-label">Agent</span> : null}
+        {agentPathSelected ? <Tag color="blue">{t('chat.agentLabel')}</Tag> : null}
       </div>
       <div className="chat-input-footer">
         <span className={`chat-character-count${isAtLimit ? ' warning' : ''}`}>
           {value.length}/{CHAT_INPUT_MAX_LENGTH}
         </span>
-        {isStreaming ? <span className="chat-stream-label">Streaming...</span> : null}
-        <button className="button button-primary" type="submit" disabled={disabled || trimmedLength === 0}>
-          Send
-        </button>
+        {isStreaming ? <span className="chat-stream-label">{t('chat.streaming')}</span> : null}
+        <Button type="primary" htmlType="submit" disabled={disabled || trimmedLength === 0} icon={<SendOutlined />}>
+          {t('chat.send')}
+        </Button>
       </div>
     </form>
   );
@@ -475,47 +497,68 @@ export function SessionSidebar({
   onSelectSession,
   onDeleteSession,
 }: SessionSidebarProps) {
+  const { t } = useTranslation();
+
   return (
     <div className="chat-session-list-panel">
-      <button className="button button-primary chat-new-button" type="button" onClick={onNewChat}>
-        New Chat
-      </button>
+      <Button type="primary" icon={<PlusOutlined />} className="chat-new-button" block onClick={onNewChat}>
+        {t('chat.newChat')}
+      </Button>
       {isLoading ? (
-        <LoadingState label="Loading sessions..." />
+        <div style={{ textAlign: 'center', padding: 24 }}>
+          <Spin tip={t('chat.loadingSessions')} />
+        </div>
       ) : sessions.length === 0 ? (
-        <EmptyState label="开始新的对话" />
+        <Empty description={t('chat.emptyConversation')} />
       ) : (
-        <ol className="chat-session-list">
-          {sessions.map((session) => {
+        <List
+          className="chat-session-list"
+          dataSource={sessions}
+          renderItem={(session) => {
             const title = getSessionTitle(session);
             return (
-              <li key={session.id}>
-                <button
-                  className={`chat-session-item${session.id === activeSessionId ? ' active' : ''}`}
-                  type="button"
-                  onClick={() => onSelectSession(session.id)}
-                >
-                  <strong>{title}</strong>
-                  <span>{formatDate(session.updated_at)}</span>
-                </button>
-                <button
-                  className="icon-button chat-session-delete"
-                  type="button"
-                  aria-label={`Delete ${title}`}
-                  onClick={() => onDeleteSession(session)}
-                >
-                  x
-                </button>
-              </li>
+              <List.Item
+                className={`chat-session-item${session.id === activeSessionId ? ' active' : ''}`}
+                onClick={() => onSelectSession(session.id)}
+                actions={[
+                  <Popconfirm
+                    key="delete"
+                    title={t('chat.deleteConfirm', { title })}
+                    onConfirm={(e) => {
+                      e?.stopPropagation();
+                      onDeleteSession(session);
+                    }}
+                    onCancel={(e) => e?.stopPropagation()}
+                    okText={t('common.action.confirm')}
+                    cancelText={t('common.action.cancel')}
+                  >
+                    <Button
+                      type="text"
+                      danger
+                      size="small"
+                      icon={<DeleteOutlined />}
+                      aria-label={`${t('common.action.delete')} ${title}`}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </Popconfirm>,
+                ]}
+              >
+                <List.Item.Meta
+                  title={title}
+                  description={formatDate(session.updated_at)}
+                />
+              </List.Item>
             );
-          })}
-        </ol>
+          }}
+        />
       )}
     </div>
   );
 }
 
 export function ChatMessageBubble({ message, spaceId }: ChatMessageBubbleProps) {
+  const { t } = useTranslation();
+
   return (
     <article className={`chat-message-row ${message.role}`} aria-label={`${message.role} message`}>
       <div className={`chat-message-bubble ${message.role}`}>
@@ -537,7 +580,7 @@ export function ChatMessageBubble({ message, spaceId }: ChatMessageBubbleProps) 
         ) : (
           <p className="chat-user-content">{message.content}</p>
         )}
-        {message.status === 'error' ? <p className="chat-message-error">{message.error ?? '响应中断，请重试'}</p> : null}
+        {message.status === 'error' ? <p className="chat-message-error">{message.error ?? t('chat.responseInterrupted')}</p> : null}
       </div>
     </article>
   );
@@ -593,49 +636,69 @@ function AssistantMarkdown({ content, citations, spaceId }: { content: string; c
 }
 
 function CitationPanel({ citations, spaceId }: { citations: ChatCitation[]; spaceId: string }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
   if (citations.length === 0) {
     return null;
   }
 
+  const collapseItems = [
+    {
+      key: 'citations',
+      label: t('chat.citations', { count: citations.length }),
+      children: (
+        <ol className="chat-citation-ol">
+          {citations.map((citation) => {
+            const graphEdgeIds = getCitationStringArray(citation, 'graph_edge_ids');
+            const graphPath = getCitationGraphPath(citation);
+            return (
+              <li key={`${citation.index}-${citation.chunk_id || citation.wiki_page_pk}`}>
+                <div className="chat-citation-entry">
+                  <button
+                    className="chat-citation-card"
+                    type="button"
+                    onClick={() => {
+                      void navigate(buildCitationPath(spaceId, citation));
+                    }}
+                  >
+                    <span className="chat-citation-index">[{citation.index}]</span>
+                    <span>
+                      <strong>{citation.page_title}</strong>
+                      <small>{citation.section_title ?? t('chat.noSection')}</small>
+                    </span>
+                    <ConfidenceBadge label={getCitationConfidenceLabel(citation)} />
+                    <Tag>{formatCitationScore(citation.relevance_score)}</Tag>
+                  </button>
+                  {graphEdgeIds.length > 0 || graphPath !== null ? (
+                    <Collapse
+                      size="small"
+                      className="chat-source-chain"
+                      items={[
+                        {
+                          key: 'graphPath',
+                          label: t('chat.viewGraphPath'),
+                          children: <SourceChainDetails citation={citation} graphPath={graphPath} />,
+                        },
+                      ]}
+                    />
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      ),
+    },
+  ];
+
   return (
-    <details className="chat-citations" open>
-      <summary>Citations ({citations.length})</summary>
-      <ol>
-        {citations.map((citation) => {
-          const graphEdgeIds = getCitationStringArray(citation, 'graph_edge_ids');
-          const graphPath = getCitationGraphPath(citation);
-          return (
-            <li key={`${citation.index}-${citation.chunk_id || citation.wiki_page_pk}`}>
-              <div className="chat-citation-entry">
-                <button
-                  className="chat-citation-card"
-                  type="button"
-                  onClick={() => {
-                    void navigate(buildCitationPath(spaceId, citation));
-                  }}
-                >
-                  <span className="chat-citation-index">[{citation.index}]</span>
-                  <span>
-                    <strong>{citation.page_title}</strong>
-                    <small>{citation.section_title ?? 'No section'}</small>
-                  </span>
-                  <ConfidenceBadge label={getCitationConfidenceLabel(citation)} />
-                  <span className="status-badge status-neutral">{formatCitationScore(citation.relevance_score)}</span>
-                </button>
-                {graphEdgeIds.length > 0 || graphPath !== null ? (
-                  <details className="chat-source-chain">
-                    <summary>查看图谱路径</summary>
-                    <SourceChainDetails citation={citation} graphPath={graphPath} />
-                  </details>
-                ) : null}
-              </div>
-            </li>
-          );
-        })}
-      </ol>
-    </details>
+    <Collapse
+      className="chat-citations"
+      defaultActiveKey={['citations']}
+      size="small"
+      items={collapseItems}
+    />
   );
 }
 
@@ -658,33 +721,47 @@ function ChatMessageParts({ parts }: { parts: ChatMessagePart[] }) {
 }
 
 function ToolUsePanel({ part }: { part: ChatToolUsePart }) {
+  const { t } = useTranslation();
   const command = formatToolInput(part.input);
 
   return (
-    <details className="chat-tool-use" aria-label="Agent tool use">
-      <summary>
-        <span>{part.name}</span>
-        <code>{command}</code>
-      </summary>
-      <pre>{command}</pre>
-    </details>
+    <Collapse
+      className="chat-tool-use"
+      size="small"
+      items={[
+        {
+          key: 'toolUse',
+          label: (
+            <span>
+              <span>{part.name}</span>{' '}
+              <code>{command}</code>
+            </span>
+          ),
+          children: <pre>{command}</pre>,
+        },
+      ]}
+      aria-label={t('chat.toolUseLabel')}
+    />
   );
 }
 
 function CompletionIndicator({ message }: { message: ChatMessage }) {
+  const { t } = useTranslation();
+
   if (message.role !== 'assistant' || message.status !== 'complete' || message.completedAt === null) {
     return null;
   }
 
   return (
     <div className="chat-completion-indicator" aria-label="Message complete">
-      <span>完成</span>
+      <span>{t('chat.completed')}</span>
       {message.latencyMs !== null ? <span>{formatLatency(message.latencyMs)}</span> : null}
     </div>
   );
 }
 
 function SourceChainDetails({ citation, graphPath }: { citation: ChatCitation; graphPath: GraphPathData | null }) {
+  const { t } = useTranslation();
   const sourceDocumentIds = getCitationStringArray(citation, 'source_document_ids');
   const graphNodeIds = getCitationStringArray(citation, 'graph_node_ids');
   const graphEdgeIds = getCitationStringArray(citation, 'graph_edge_ids');
@@ -695,25 +772,25 @@ function SourceChainDetails({ citation, graphPath }: { citation: ChatCitation; g
       <div className="chat-source-chain-grid">
         {sourceDocumentIds.length > 0 ? (
           <>
-            <span>source_document_ids</span>
+            <span>{t('chat.sourceDocIds')}</span>
             <code>{sourceDocumentIds.join(', ')}</code>
           </>
         ) : null}
         {graphNodeIds.length > 0 ? (
           <>
-            <span>graph_node_ids</span>
+            <span>{t('chat.graphNodeIds')}</span>
             <code>{graphNodeIds.join(' -> ')}</code>
           </>
         ) : null}
         {graphEdgeIds.length > 0 ? (
           <>
-            <span>graph_edge_ids</span>
+            <span>{t('chat.graphEdgeIds')}</span>
             <code>{graphEdgeIds.join(' -> ')}</code>
           </>
         ) : null}
         {chainConfidence !== null ? (
           <>
-            <span>chain_confidence</span>
+            <span>{t('chat.chainConfidence')}</span>
             <code>{formatCitationScore(chainConfidence)}</code>
           </>
         ) : null}
@@ -725,9 +802,11 @@ function SourceChainDetails({ citation, graphPath }: { citation: ChatCitation; g
 }
 
 function AgentThinkingIndicator() {
+  const { t } = useTranslation();
+
   return (
-    <div className="chat-agent-thinking" aria-label="Agent is thinking">
-      <span>Agent 思考中</span>
+    <div className="chat-agent-thinking" aria-label={t('chat.agentThinking')}>
+      <span>{t('chat.agentThinking')}</span>
       <span className="chat-thinking-dots" aria-hidden="true">
         <i />
         <i />
@@ -748,7 +827,8 @@ function TypingIndicator() {
 }
 
 function normalizeRetrievalMode(value: string): RetrievalMode {
-  return RETRIEVAL_MODE_OPTIONS.some((option) => option.value === value) ? (value as RetrievalMode) : DEFAULT_RETRIEVAL_MODE;
+  const validValues: RetrievalMode[] = ['wiki_only', 'graph_rag', 'path_first', 'community_first'];
+  return validValues.includes(value as RetrievalMode) ? (value as RetrievalMode) : DEFAULT_RETRIEVAL_MODE;
 }
 
 function loadChatSettings(spaceId: string): ChatSettings {

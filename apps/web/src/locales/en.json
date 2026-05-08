@@ -718,5 +718,57 @@
       },
       "quarantined": "Quarantined"
     }
+  },
+  "chat": {
+    "title": "Chat",
+    "space": "Space",
+    "brand": "Cherry Chat",
+    "closeSessions": "Close sessions",
+    "closeSidebar": "Close",
+    "newChat": "New Chat",
+    "loadingSessions": "Loading sessions...",
+    "emptyConversation": "Start a new conversation",
+    "menu": "Menu",
+    "knowledgeChat": "Knowledge Chat",
+    "messagesLabel": "Chat messages",
+    "send": "Send",
+    "messageLabel": "Message",
+    "streamingPlaceholder": "Streaming response...",
+    "inputPlaceholder": "Ask about this space",
+    "deepAnalysis": "Deep Analysis",
+    "database": "Database",
+    "retrievalModeLabel": "Retrieval mode",
+    "retrievalAuto": "Auto",
+    "retrievalGraph": "Graph first",
+    "retrievalPath": "Path first",
+    "retrievalCommunity": "Community first",
+    "agentLabel": "Agent",
+    "streaming": "Streaming...",
+    "agentThinking": "Agent is thinking",
+    "completed": "Completed",
+    "responseInterrupted": "Response interrupted, please retry",
+    "forbidden": {
+      "code": "403",
+      "title": "Access Denied",
+      "description": "{{email}} does not have chat access for this space."
+    },
+    "deleteConfirm": "Delete chat \"{{title}}\"?",
+    "citations": "Citations ({{count}})",
+    "noSection": "No section",
+    "viewGraphPath": "View graph path",
+    "sourceDocIds": "source_document_ids",
+    "graphNodeIds": "graph_node_ids",
+    "graphEdgeIds": "graph_edge_ids",
+    "chainConfidence": "chain_confidence",
+    "toolUseLabel": "Agent tool use"
+  },
+  "notFound": {
+    "title": "Page Not Found",
+    "subtitle": "The page you are looking for does not exist or has been removed.",
+    "backHome": "Back to Home"
+  },
+  "confidence": {
+    "inferred": "Inferred",
+    "ambiguous": "Ambiguous"
   }
 }

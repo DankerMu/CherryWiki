@@ -1,3 +1,5 @@
+import { Card } from 'antd';
+import { useTranslation } from 'react-i18next';
 import { ConfidenceBadge, getConfidenceTone } from './ConfidenceBadge.js';
 
 export type GraphPathNode = {
@@ -30,6 +32,7 @@ type GraphPathViewerProps = {
 };
 
 export default function GraphPathViewer({ path }: GraphPathViewerProps) {
+  const { t } = useTranslation();
   const pathConfidence = path.total_confidence ?? path.confidence ?? null;
   const confidenceTone = getConfidenceTone(pathConfidence);
 
@@ -38,9 +41,13 @@ export default function GraphPathViewer({ path }: GraphPathViewerProps) {
   }
 
   return (
-    <div className={`graph-path-viewer confidence-${confidenceTone}`} aria-label="Graph path">
+    <Card
+      size="small"
+      className={`graph-path-viewer confidence-${confidenceTone}`}
+      aria-label="Graph path"
+    >
       <div className="graph-path-meta">
-        <strong>图谱路径</strong>
+        <strong>{t('chat.viewGraphPath')}</strong>
         {pathConfidence !== null ? <span>{formatConfidence(pathConfidence)}</span> : null}
       </div>
       <div className="graph-path-track">
@@ -65,7 +72,7 @@ export default function GraphPathViewer({ path }: GraphPathViewerProps) {
           );
         })}
       </div>
-    </div>
+    </Card>
   );
 }
 

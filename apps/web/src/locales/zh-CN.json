@@ -718,5 +718,57 @@
       },
       "quarantined": "已隔离"
     }
+  },
+  "chat": {
+    "title": "聊天",
+    "space": "空间",
+    "brand": "Cherry Chat",
+    "closeSessions": "关闭会话列表",
+    "closeSidebar": "关闭",
+    "newChat": "新建对话",
+    "loadingSessions": "加载会话中...",
+    "emptyConversation": "开始新的对话",
+    "menu": "菜单",
+    "knowledgeChat": "知识聊天",
+    "messagesLabel": "聊天消息",
+    "send": "发送",
+    "messageLabel": "消息",
+    "streamingPlaceholder": "正在流式响应...",
+    "inputPlaceholder": "询问关于此空间的问题",
+    "deepAnalysis": "深度分析",
+    "database": "数据库",
+    "retrievalModeLabel": "检索模式",
+    "retrievalAuto": "自动",
+    "retrievalGraph": "图谱优先",
+    "retrievalPath": "路径优先",
+    "retrievalCommunity": "社区优先",
+    "agentLabel": "Agent",
+    "streaming": "正在输出...",
+    "agentThinking": "Agent 思考中",
+    "completed": "完成",
+    "responseInterrupted": "响应中断，请重试",
+    "forbidden": {
+      "code": "403",
+      "title": "无权访问",
+      "description": "{{email}} 没有此空间的聊天权限。"
+    },
+    "deleteConfirm": "确定删除对话「{{title}}」吗？",
+    "citations": "引用 ({{count}})",
+    "noSection": "无章节",
+    "viewGraphPath": "查看图谱路径",
+    "sourceDocIds": "源文档 ID",
+    "graphNodeIds": "图谱节点",
+    "graphEdgeIds": "图谱边",
+    "chainConfidence": "链路置信度",
+    "toolUseLabel": "Agent 工具调用"
+  },
+  "notFound": {
+    "title": "页面未找到",
+    "subtitle": "您访问的页面不存在或已被移除。",
+    "backHome": "返回首页"
+  },
+  "confidence": {
+    "inferred": "推断",
+    "ambiguous": "待确认"
   }
 }
