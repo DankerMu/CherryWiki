@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 const rootDir = fileURLToPath(new URL('.', import.meta.url));
 
@@ -20,7 +20,7 @@ export default defineConfig({
   },
   test: {
     include: ['packages/**/src/**/*.test.ts', 'apps/**/src/**/*.test.ts', 'apps/**/src/**/*.test.tsx', 'tests/**/*.test.ts'],
-    exclude: ['apps/web/**'],
+    exclude: [...configDefaults.exclude, 'apps/web/**'],
     passWithNoTests: true,
     coverage: {
       provider: 'v8',
