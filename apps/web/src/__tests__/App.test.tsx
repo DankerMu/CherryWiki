@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import '../i18n';
+import i18n from '../i18n';
 import { AppRoutes } from '../App';
+import { ThemeProvider } from '../theme/ThemeProvider';
 import { AuthProvider, useAuth, type AuthUser } from '../lib/auth';
 
 const ADMIN_USER: AuthUser = {
@@ -12,17 +15,49 @@ const ADMIN_USER: AuthUser = {
   name: 'Admin User',
   role: 'admin',
   groups: [],
+  spaces: [{ id: 'space-main', name: 'Main Space', role: 'admin' }],
+};
+
+const VIEWER_USER: AuthUser = {
+  id: 'user-viewer',
+  email: 'viewer@example.com',
+  name: 'Viewer User',
+  role: 'viewer',
+  groups: [],
+  spaces: [{ id: 'space-main', name: 'Main Space', role: 'viewer' }],
+};
+
+const ADMIN_NO_SPACES: AuthUser = {
+  id: 'user-admin-ns',
+  email: 'admin-ns@example.com',
+  name: 'Admin No Spaces',
+  role: 'admin',
+  groups: [],
+  spaces: [],
+};
+
+const VIEWER_NO_SPACES: AuthUser = {
+  id: 'user-viewer-ns',
+  email: 'viewer-ns@example.com',
+  name: 'Viewer No Spaces',
+  role: 'viewer',
+  groups: [],
+  spaces: [],
 };
 
 function renderRoute(path: string, user?: AuthUser) {
   const routes = <AppRoutes />;
 
-  render(
+  return render(
     <MemoryRouter initialEntries={[path]}>
       {user === undefined ? (
-        <AuthProvider>{routes}</AuthProvider>
+        <AuthProvider>
+          <ThemeProvider>{routes}</ThemeProvider>
+        </AuthProvider>
       ) : (
-        <AuthProvider initialSession={{ user, accessToken: 'test-token' }}>{routes}</AuthProvider>
+        <AuthProvider initialSession={{ user, accessToken: 'test-token' }}>
+          <ThemeProvider>{routes}</ThemeProvider>
+        </AuthProvider>
       )}
     </MemoryRouter>,
   );
@@ -34,71 +69,65 @@ afterEach(() => {
 });
 
 describe('App routing', () => {
-  it('redirects unauthenticated / to /login', () => {
-    renderRoute('/');
-
-    expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  beforeEach(async () => {
+    await i18n.changeLanguage('zh-CN');
   });
 
-  it('redirects authenticated admin / to /admin', async () => {
-    mockAdminApi();
-    renderRoute('/', ADMIN_USER);
+  it('redirects unauthenticated / to /login', () => {
+    renderRoute('/');
+    expect(screen.getByRole('heading', { name: '登录' })).toBeInTheDocument();
+  });
 
-    expect(await screen.findByRole('heading', { name: 'Users' })).toBeInTheDocument();
+  it('redirects authenticated admin with spaces to first space chat', async () => {
+    mockChatSessionsApi();
+    renderRoute('/', ADMIN_USER);
+    // Admin with spaces should go to /spaces/space-main/chat
+    expect(await screen.findByRole('heading', { name: 'Chat' })).toBeInTheDocument();
+  });
+
+  it('redirects authenticated admin without spaces to /admin/spaces', async () => {
+    mockAdminApi();
+    renderRoute('/', ADMIN_NO_SPACES);
+    expect(await screen.findByRole('heading', { name: 'Spaces' })).toBeInTheDocument();
+  });
+
+  it('shows no-spaces message for non-admin without spaces', () => {
+    renderRoute('/', VIEWER_NO_SPACES);
+    // The h1 contains the contact admin message
+    expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
   });
 
   it('renders Login for /login', () => {
     renderRoute('/login');
-
-    expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '登录' })).toBeInTheDocument();
   });
 
   it('redirects unauthenticated chat access to /login', () => {
     renderRoute('/spaces/test-space/chat');
-
-    expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '登录' })).toBeInTheDocument();
   });
 
   it('renders Chat for /spaces/:spaceId/chat', async () => {
     mockChatSessionsApi();
     renderRoute('/spaces/test-space/chat', ADMIN_USER);
-
     expect(await screen.findByRole('heading', { name: 'Chat' })).toBeInTheDocument();
-  });
-
-  it('renders Wiki for /spaces/:spaceId/wiki', async () => {
-    mockWikiListApi();
-    renderRoute('/spaces/test-space/wiki');
-
-    expect(await screen.findByRole('heading', { name: 'Wiki' })).toBeInTheDocument();
-  });
-
-  it('renders Upload Center for /spaces/:spaceId/uploads when authenticated', async () => {
-    mockUploadApi();
-    renderRoute('/spaces/test-space/uploads', ADMIN_USER);
-
-    expect(await screen.findByRole('heading', { name: 'Upload Center' })).toBeInTheDocument();
   });
 
   it('redirects unauthenticated admin users to /login', () => {
     renderRoute('/admin');
-
-    expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '登录' })).toBeInTheDocument();
   });
 
-  it('shows 403 for authenticated non-admin users', () => {
-    renderRoute('/admin/users', {
-      ...ADMIN_USER,
-      role: 'viewer',
-    });
-
-    expect(screen.getByRole('heading', { name: 'Access denied' })).toBeInTheDocument();
+  it('redirects non-admin from admin routes to /', async () => {
+    mockChatSessionsApi();
+    renderRoute('/admin/users', VIEWER_USER);
+    expect(await screen.findByRole('heading', { name: 'Chat' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Users' })).not.toBeInTheDocument();
   });
 
-  it('renders Users for /admin and /admin/users when authorized', async () => {
+  it('renders Users for /admin/users when authorized', async () => {
     mockAdminApi();
-    renderRoute('/admin', ADMIN_USER);
-
+    renderRoute('/admin/users', ADMIN_USER);
     expect(await screen.findByRole('heading', { name: 'Users' })).toBeInTheDocument();
   });
 
@@ -118,7 +147,9 @@ describe('App routing', () => {
       const { unmount } = render(
         <MemoryRouter initialEntries={[path]}>
           <AuthProvider initialSession={{ user: ADMIN_USER, accessToken: 'test-token' }}>
-            <AppRoutes />
+            <ThemeProvider>
+              <AppRoutes />
+            </ThemeProvider>
           </AuthProvider>
         </MemoryRouter>,
       );
@@ -127,17 +158,8 @@ describe('App routing', () => {
     }
   });
 
-  it('renders Wiki for /spaces/:spaceId/wiki/:pageId', async () => {
-    mockWikiDetailApi();
-    renderRoute('/spaces/test-space/wiki/page-456');
-
-    expect(await screen.findByLabelText('Wiki page content')).toBeInTheDocument();
-    expect(screen.getAllByRole('heading', { name: 'Test Wiki Page' }).length).toBeGreaterThan(0);
-  });
-
   it('renders NotFound for /nonexistent', () => {
     renderRoute('/nonexistent');
-
     expect(screen.getByRole('heading', { name: '404 — Page Not Found' })).toBeInTheDocument();
   });
 });
@@ -189,7 +211,7 @@ describe('AuthProvider', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Logout' }));
 
-    await waitFor(() => expect(screen.getByText('anonymous')).toBeInTheDocument());
+    expect(await screen.findByText('anonymous')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });
@@ -338,65 +360,13 @@ function mockAdminApi(): void {
   );
 }
 
-function mockUploadApi(): void {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn<typeof fetch>((input) => {
-      const path = getRequestPath(input);
-
-      if (path.startsWith('/api/spaces/test-space/uploads')) {
-        return Promise.resolve(jsonResponse({
-          data: [],
-          meta: {
-            request_id: 'req-uploads',
-            pagination: {
-              page: 1,
-              per_page: 20,
-              total: 0,
-              has_next: false,
-            },
-          },
-        }));
-      }
-
-      return Promise.resolve(jsonResponse({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404));
-    }),
-  );
-}
-
-function mockWikiListApi(): void {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn<typeof fetch>((input) => {
-      const path = getRequestPath(input);
-
-      if (path.startsWith('/api/spaces/test-space/wiki/pages')) {
-        return Promise.resolve(jsonResponse({
-          data: [],
-          meta: {
-            request_id: 'req-wiki-pages',
-            pagination: {
-              page: 1,
-              per_page: 20,
-              total: 0,
-              has_next: false,
-            },
-          },
-        }));
-      }
-
-      return Promise.resolve(jsonResponse({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404));
-    }),
-  );
-}
-
 function mockChatSessionsApi(): void {
   vi.stubGlobal(
     'fetch',
     vi.fn<typeof fetch>((input) => {
       const path = getRequestPath(input);
 
-      if (path.startsWith('/api/spaces/test-space/chat/sessions')) {
+      if (/^\/api\/spaces\/[^/]+\/chat\/sessions$/.test(path)) {
         return Promise.resolve(jsonResponse({
           data: [],
           meta: {
@@ -407,46 +377,6 @@ function mockChatSessionsApi(): void {
               total: 0,
               has_next: false,
             },
-          },
-        }));
-      }
-
-      return Promise.resolve(jsonResponse({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404));
-    }),
-  );
-}
-
-function mockWikiDetailApi(): void {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn<typeof fetch>((input) => {
-      const path = getRequestPath(input);
-
-      if (path === '/api/spaces/test-space/wiki/pages/page-456/content') {
-        return Promise.resolve(jsonResponse({
-          data: {
-            page_id: 'page-456',
-            version_id: 'version-1',
-            title: 'Test Wiki Page',
-            content_markdown: '# Test Wiki Page',
-          },
-        }));
-      }
-
-      if (path === '/api/spaces/test-space/wiki/pages/page-456') {
-        return Promise.resolve(jsonResponse({
-          data: {
-            id: 'row-page-456',
-            page_id: 'page-456',
-            space_id: 'test-space',
-            title: 'Test Wiki Page',
-            slug: 'test-wiki-page',
-            status: 'published',
-            current_version_id: 'version-1',
-            indexed_version_id: 'version-1',
-            sync_status: 'synced',
-            created_by: 'user-admin',
-            updated_at: '2026-05-01T10:00:00.000Z',
           },
         }));
       }

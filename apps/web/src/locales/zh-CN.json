@@ -1,0 +1,104 @@
+{
+  "common": {
+    "app": {
+      "name": "CherryWiki"
+    },
+    "action": {
+      "loading": "加载中...",
+      "save": "保存",
+      "cancel": "取消",
+      "confirm": "确认",
+      "delete": "删除",
+      "back": "返回",
+      "logout": "退出登录",
+      "login": "登录"
+    },
+    "state": {
+      "noData": "暂无数据"
+    },
+    "role": {
+      "owner": "所有者",
+      "admin": "管理员",
+      "editor": "编辑者",
+      "viewer": "查看者",
+      "unknown": "未知角色"
+    }
+  },
+  "shell": {
+    "brand": {
+      "adminConsole": "管理控制台"
+    },
+    "space": {
+      "selectorLabel": "空间",
+      "empty": "暂无可用空间"
+    },
+    "sidebar": {
+      "chat": "聊天",
+      "wiki": "知识库",
+      "uploads": "上传",
+      "graphify": "图谱化"
+    },
+    "admin": {
+      "section": "管理",
+      "users": "用户",
+      "groups": "分组",
+      "spaces": "空间",
+      "models": "模型",
+      "audit": "审计",
+      "health": "健康",
+      "jobs": "任务",
+      "graphify": "图谱管理"
+    },
+    "control": {
+      "language": {
+        "label": "语言",
+        "zh": "中文",
+        "en": "EN"
+      },
+      "theme": {
+        "label": "主题",
+        "light": "浅色模式",
+        "dark": "深色模式"
+      },
+      "collapse": "收起侧边栏",
+      "expand": "展开侧边栏"
+    },
+    "header": {
+      "breadcrumb": {
+        "home": "首页",
+        "admin": "管理",
+        "detail": "详情"
+      }
+    },
+    "user": {
+      "profile": "用户信息"
+    }
+  },
+  "home": {
+    "noSpaces": {
+      "title": "暂无可用空间",
+      "description": "请联系管理员为你开通空间访问权限。"
+    }
+  },
+  "login": {
+    "page": {
+      "title": "登录",
+      "subtitle": "使用有权访问此工作区的账号登录。"
+    },
+    "form": {
+      "email": "邮箱",
+      "emailRequired": "请输入邮箱。",
+      "emailInvalid": "请输入有效的邮箱地址。",
+      "password": "密码",
+      "passwordRequired": "请输入密码。",
+      "submit": "登录",
+      "submitting": "登录中..."
+    },
+    "error": {
+      "invalidCredentials": "邮箱或密码不正确。",
+      "accountLocked": "此账号已被临时锁定，请稍后再试。",
+      "accountDisabled": "此账号已被禁用。",
+      "generic": "无法登录。"
+    }
+  }
+}

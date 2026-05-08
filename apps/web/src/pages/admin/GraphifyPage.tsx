@@ -9,6 +9,7 @@ import {
   formatLabel,
   getErrorMessage,
 } from '../../components/adminUi.js';
+import { requireAdminPage } from '../../components/RequireAdminPage.js';
 import { type ApiMeta } from '../../lib/api.js';
 import {
   GRAPHIFY_TRIGGER_TYPES,
@@ -40,7 +41,7 @@ const DEFAULT_PAGINATION: NonNullable<ApiMeta['pagination']> = {
 const GRAPHIFY_POLL_INTERVAL_MS = 5_000;
 const PER_PAGE_OPTIONS = [10, 20, 50, 100];
 
-export default function GraphifyPage() {
+function GraphifyPage() {
   const navigate = useNavigate();
   const [runs, setRuns] = useState<GraphifyRun[]>([]);
   const [status, setStatus] = useState('failed');
@@ -327,3 +328,5 @@ export default function GraphifyPage() {
     </>
   );
 }
+
+export default requireAdminPage(GraphifyPage);

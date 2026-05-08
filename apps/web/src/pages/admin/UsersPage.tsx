@@ -10,6 +10,7 @@ import {
   getErrorMessage,
   parseIdList,
 } from '../../components/adminUi';
+import { requireAdminPage } from '../../components/RequireAdminPage';
 import { api } from '../../lib/api';
 import { ROLE_OPTIONS, type AdminUser } from '../../lib/adminTypes';
 
@@ -35,7 +36,7 @@ const EMPTY_CREATE_FORM: CreateUserForm = {
   groups: '',
 };
 
-export default function UsersPage() {
+function UsersPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [search, setSearch] = useState('');
   const [role, setRole] = useState('');
@@ -352,3 +353,5 @@ export default function UsersPage() {
     </>
   );
 }
+
+export default requireAdminPage(UsersPage);

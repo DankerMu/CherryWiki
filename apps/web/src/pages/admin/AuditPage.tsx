@@ -7,10 +7,11 @@ import {
   formatDate,
   getErrorMessage,
 } from '../../components/adminUi';
+import { requireAdminPage } from '../../components/RequireAdminPage';
 import { api } from '../../lib/api';
 import { type AuditLog } from '../../lib/adminTypes';
 
-export default function AuditPage() {
+function AuditPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [action, setAction] = useState('');
   const [actor, setActor] = useState('');
@@ -128,3 +129,5 @@ export default function AuditPage() {
     </>
   );
 }
+
+export default requireAdminPage(AuditPage);

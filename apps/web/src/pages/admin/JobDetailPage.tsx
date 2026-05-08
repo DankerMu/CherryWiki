@@ -11,12 +11,13 @@ import {
   formatLabel,
   getErrorMessage,
 } from '../../components/adminUi';
+import { requireAdminPage } from '../../components/RequireAdminPage';
 import { api } from '../../lib/api';
 import { type AdminJob, type CancelJobResponse, type JobEvent, getDisplayStatus } from '../../lib/adminTypes';
 
 const JOB_REFRESH_INTERVAL_MS = 5_000;
 
-export default function JobDetailPage() {
+function JobDetailPage() {
   const navigate = useNavigate();
   const { jobId = '' } = useParams();
   const [job, setJob] = useState<AdminJob | null>(null);
@@ -258,6 +259,8 @@ export default function JobDetailPage() {
     </>
   );
 }
+
+export default requireAdminPage(JobDetailPage);
 
 function formatJson(value: unknown): string {
   return JSON.stringify(value ?? null, null, 2);

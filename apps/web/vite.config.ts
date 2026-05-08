@@ -12,9 +12,13 @@ export default defineConfig({
       },
     },
   },
+  optimizeDeps: {
+    include: ['antd', '@ant-design/icons', 'i18next', 'react-i18next'],
+  },
   test: {
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],
+    setupFiles: ['src/__tests__/setup.ts'],
     passWithNoTests: true,
   },
 });

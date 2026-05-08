@@ -9,6 +9,7 @@ import {
   getErrorMessage,
   parseIdList,
 } from '../../components/adminUi';
+import { requireAdminPage } from '../../components/RequireAdminPage';
 import { api } from '../../lib/api';
 import { type AdminModel, type ModelConnectivityResult } from '../../lib/adminTypes';
 
@@ -55,7 +56,7 @@ const EMPTY_MODEL_FORM: ModelForm = {
   visible_group_ids: '',
 };
 
-export default function ModelsPage() {
+function ModelsPage() {
   const [models, setModels] = useState<AdminModel[]>([]);
   const [form, setForm] = useState<ModelForm | null>(null);
   const [testResults, setTestResults] = useState<Record<string, ModelConnectivityResult>>({});
@@ -376,6 +377,8 @@ export default function ModelsPage() {
     </>
   );
 }
+
+export default requireAdminPage(ModelsPage);
 
 function toModelRequest(form: ModelForm): ModelRequest {
   const body: ModelRequest = {

@@ -1,0 +1,104 @@
+{
+  "common": {
+    "app": {
+      "name": "CherryWiki"
+    },
+    "action": {
+      "loading": "Loading...",
+      "save": "Save",
+      "cancel": "Cancel",
+      "confirm": "Confirm",
+      "delete": "Delete",
+      "back": "Back",
+      "logout": "Logout",
+      "login": "Login"
+    },
+    "state": {
+      "noData": "No data"
+    },
+    "role": {
+      "owner": "Owner",
+      "admin": "Admin",
+      "editor": "Editor",
+      "viewer": "Viewer",
+      "unknown": "Unknown"
+    }
+  },
+  "shell": {
+    "brand": {
+      "adminConsole": "Admin Console"
+    },
+    "space": {
+      "selectorLabel": "Space",
+      "empty": "No spaces available"
+    },
+    "sidebar": {
+      "chat": "Chat",
+      "wiki": "Wiki",
+      "uploads": "Uploads",
+      "graphify": "Graphify"
+    },
+    "admin": {
+      "section": "Admin",
+      "users": "Users",
+      "groups": "Groups",
+      "spaces": "Spaces",
+      "models": "Models",
+      "audit": "Audit",
+      "health": "Health",
+      "jobs": "Jobs",
+      "graphify": "Graphify Admin"
+    },
+    "control": {
+      "language": {
+        "label": "Language",
+        "zh": "中文",
+        "en": "EN"
+      },
+      "theme": {
+        "label": "Theme",
+        "light": "Light mode",
+        "dark": "Dark mode"
+      },
+      "collapse": "Collapse sidebar",
+      "expand": "Expand sidebar"
+    },
+    "header": {
+      "breadcrumb": {
+        "home": "Home",
+        "admin": "Admin",
+        "detail": "Detail"
+      }
+    },
+    "user": {
+      "profile": "Profile"
+    }
+  },
+  "home": {
+    "noSpaces": {
+      "title": "No spaces available",
+      "description": "Contact an administrator to request access to a space."
+    }
+  },
+  "login": {
+    "page": {
+      "title": "Login",
+      "subtitle": "Sign in with an account that has access to this workspace."
+    },
+    "form": {
+      "email": "Email",
+      "emailRequired": "Enter your email.",
+      "emailInvalid": "Enter a valid email address.",
+      "password": "Password",
+      "passwordRequired": "Enter your password.",
+      "submit": "Sign in",
+      "submitting": "Signing in..."
+    },
+    "error": {
+      "invalidCredentials": "Email or password is incorrect.",
+      "accountLocked": "This account is temporarily locked. Try again later.",
+      "accountDisabled": "This account has been disabled.",
+      "generic": "Unable to sign in."
+    }
+  }
+}
