@@ -12,8 +12,8 @@ export type PersistentParserCallbacks = {
 
 @Injectable()
 export class PersistentStreamParser {
-  private activeTurn?: TurnEventQueue;
-  private lines?: Interface;
+  private activeTurn: TurnEventQueue | undefined = undefined;
+  private lines: Interface | undefined = undefined;
   private stopped = false;
 
   startReading(stdout: Readable, callbacks: PersistentParserCallbacks = {}): void {
@@ -29,6 +29,10 @@ export class PersistentStreamParser {
   createTurn(): TurnEventQueue {
     if (this.activeTurn !== undefined) {
       throw new Error('A turn is already active for this persistent parser');
+    }
+
+    if (this.lines === undefined || this.stopped) {
+      throw new Error('No active reader — call startReading() before creating a turn');
     }
 
     const queue = new TurnEventQueue();

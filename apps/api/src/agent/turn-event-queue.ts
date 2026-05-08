@@ -7,10 +7,11 @@ type PendingWait = {
 
 export class TurnEventQueue implements AsyncIterable<AgentEvent> {
   private readonly buffer: AgentEvent[] = [];
-  private pending?: PendingWait;
+  private pending: PendingWait | undefined = undefined;
   private done = false;
   private disposed = false;
-  private failure?: Error;
+  private failure: Error | undefined = undefined;
+  private iterating = false;
 
   push(event: AgentEvent): void {
     if (this.done || this.disposed || this.failure !== undefined) {
@@ -49,29 +50,42 @@ export class TurnEventQueue implements AsyncIterable<AgentEvent> {
     }
   }
 
-  async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
-    while (true) {
-      const buffered = this.buffer.shift();
-      if (buffered !== undefined) {
-        yield buffered;
-        continue;
-      }
+  [Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+    if (this.iterating) {
+      throw new Error('TurnEventQueue supports only one concurrent consumer');
+    }
 
-      if (this.failure !== undefined) {
-        throw this.failure;
-      }
+    this.iterating = true;
+    return this.iterate();
+  }
 
-      if (this.done || this.disposed) {
-        return;
-      }
+  private async *iterate(): AsyncGenerator<AgentEvent> {
+    try {
+      while (true) {
+        const buffered = this.buffer.shift();
+        if (buffered !== undefined) {
+          yield buffered;
+          continue;
+        }
 
-      const next = await new Promise<AgentEvent | undefined>((resolve, reject) => {
-        this.pending = { resolve, reject };
-      });
+        if (this.failure !== undefined) {
+          throw this.failure;
+        }
 
-      if (next !== undefined) {
-        yield next;
+        if (this.done || this.disposed) {
+          return;
+        }
+
+        const next = await new Promise<AgentEvent | undefined>((resolve, reject) => {
+          this.pending = { resolve, reject };
+        });
+
+        if (next !== undefined) {
+          yield next;
+        }
       }
+    } finally {
+      this.iterating = false;
     }
   }
 

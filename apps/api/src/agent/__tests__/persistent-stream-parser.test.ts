@@ -134,6 +134,11 @@ describe('PersistentStreamParser', () => {
     expect(() => parser.createTurn()).toThrow('A turn is already active');
   });
 
+  it('throws when creating a turn without an active reader', () => {
+    const parser = createParser();
+    expect(() => parser.createTurn()).toThrow('No active reader');
+  });
+
   it('forwards result error events to the turn queue', async () => {
     const proc = createMockProcess();
     const parser = createParser();
