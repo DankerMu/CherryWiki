@@ -2,7 +2,8 @@ import { HttpException, HttpStatus, Inject, Injectable, type OnModuleDestroy } f
 import { modelUsageLogs } from '@cherrygraph/shared';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { chown, chmod, mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { chown, chmod, mkdir, open, rename, rm, writeFile } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
 import { join } from 'node:path';
 import type { Readable } from 'node:stream';
 
@@ -406,6 +407,7 @@ export class AgentService implements OnModuleDestroy {
     let turn: TurnEventQueue | undefined;
     let turnStreamFinished = false;
     let terminalEventSeen = false;
+    let firstTurnAttempted = false;
 
     try {
       if (!isLiveProcess(session.child) || !this.persistentParsers.has(session.conversationId)) {
@@ -429,6 +431,7 @@ export class AgentService implements OnModuleDestroy {
       this.timings.set(session.conversationId, timing);
       let firstForwardedEventSeen = false;
 
+      firstTurnAttempted = true;
       await writePersistentTurn(proc.stdin, userMessage);
 
       for await (const event of turn) {
@@ -464,6 +467,18 @@ export class AgentService implements OnModuleDestroy {
       const proc = session.child;
       if (isLiveProcess(proc)) {
         await this.sessionManager.markIdle(session.conversationId);
+      } else if (
+        !firstTurnAttempted &&
+        getNonEmptyString(session.providerSessionId) !== undefined
+      ) {
+        try {
+          await this.recoverFromPersistentResumeFailure(session);
+          await this.spawnPersistentProcess(session);
+          yield* this.sendTurnToPersistentProcessLocked(session, userMessage);
+          return;
+        } catch {
+          await this.sessionManager.markFailed(session.conversationId);
+        }
       } else {
         await this.sessionManager.markFailed(session.conversationId);
       }
@@ -812,27 +827,10 @@ export class AgentService implements OnModuleDestroy {
       ...(session.options.databaseConfig !== undefined ? { databaseConfig: session.options.databaseConfig } : {}),
     };
 
-    // Write to .tmp then atomically rename to prevent symlink attacks.
-    // The agent user owns workDir, so without this pattern they could
-    // replace CLAUDE.md / settings.json with a symlink before writeFile
-    // follows it as root.
     const claudeMdPath = join(session.workDir, 'CLAUDE.md');
     const settingsPath = join(session.workDir, 'settings.json');
-    const claudeMdTmp = `${claudeMdPath}.tmp`;
-    const settingsTmp = `${settingsPath}.tmp`;
-
-    await writeFile(claudeMdTmp, this.claudeMdGenerator.generate(claudeMdInput), 'utf8');
-    await writeFile(settingsTmp, `${JSON.stringify(this.settingsGenerator.generate(), null, 2)}\n`, 'utf8');
-    if (AGENT_UID > 0) {
-      await Promise.all([
-        chown(claudeMdTmp, AGENT_UID, AGENT_GID || AGENT_UID),
-        chown(settingsTmp, AGENT_UID, AGENT_GID || AGENT_UID),
-      ]);
-    }
-    await Promise.all([
-      rename(claudeMdTmp, claudeMdPath),
-      rename(settingsTmp, settingsPath),
-    ]);
+    await writeFileExclusive(claudeMdPath, this.claudeMdGenerator.generate(claudeMdInput), AGENT_UID, AGENT_GID);
+    await writeFileExclusive(settingsPath, `${JSON.stringify(this.settingsGenerator.generate(), null, 2)}\n`, AGENT_UID, AGENT_GID);
   }
 
   private async recordModelUsage(
@@ -1130,6 +1128,18 @@ function isString(value: unknown): value is string {
 
 function getNonEmptyString(value: string | undefined): string | undefined {
   return value !== undefined && value.length > 0 ? value : undefined;
+}
+
+async function writeFileExclusive(targetPath: string, content: string, uid: number, gid: number): Promise<void> {
+  const tmpPath = `${targetPath}.${randomUUID()}.tmp`;
+  const fh = await open(tmpPath, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL, 0o644);
+  try {
+    await fh.writeFile(content, 'utf8');
+    if (uid > 0) await fh.chown(uid, gid || uid);
+  } finally {
+    await fh.close();
+  }
+  await rename(tmpPath, targetPath);
 }
 
 function readPositiveIntegerEnv(name: string, fallback: number): number {
