@@ -16,13 +16,17 @@ import type {
   AgentSessionRecord,
   AgentSpawnOptions,
   AgentTiming,
+  PersistentAgentSession,
 } from './dto/agent.dto.js';
+import { PersistentStreamParser } from './persistent-stream-parser.js';
+import { SessionMutex } from './session-mutex.js';
 import { SessionManager } from './session-manager.js';
 import { SettingsGenerator } from './settings-generator.js';
 import { StreamParser } from './stream-parser.js';
 
 const DEFAULT_MAX_CONCURRENT_AGENTS = 20;
 const DEFAULT_PROCESS_TIMEOUT_MS = 60 * 60_000;
+const DEFAULT_PROCESS_STARTUP_TIMEOUT_MS = 30_000;
 const HARD_KILL_GRACE_MS = 5_000;
 const MAX_QUEUE_SIZE = 50;
 const DEFAULT_MAX_BUDGET_USD = 2;
@@ -35,6 +39,9 @@ export class AgentService implements OnModuleDestroy {
   private readonly timings = new Map<string, AgentTiming>();
   private activeAgents = 0;
   private readonly queue: Array<() => void> = [];
+  private readonly persistentParsers = new Map<string, PersistentStreamParser>();
+  private readonly persistentSlotHolders = new Set<string>();
+  private readonly turnMutex = new SessionMutex();
 
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDatabase,
@@ -155,23 +162,12 @@ export class AgentService implements OnModuleDestroy {
     const workDir = join(process.env.CHERRY_AGENT_TMP_ROOT ?? DEFAULT_AGENT_ROOT, sanitizePathSegment(conversationId));
     const agentHome = join(workDir, '.home');
     const tmpDir = join(workDir, 'tmp');
-    const settingsPath = join(workDir, 'settings.json');
 
     await mkdir(workDir, { recursive: true, mode: 0o700 });
     await chmod(workDir, 0o700);
     await mkdir(agentHome, { recursive: true, mode: 0o700 });
     await mkdir(tmpDir, { recursive: true, mode: 0o700 });
     await Promise.all([chmod(agentHome, 0o700), chmod(tmpDir, 0o700)]);
-    const claudeMdInput = {
-      spaceId,
-      ...(options.allowedSpaces !== undefined ? { allowedSpaces: options.allowedSpaces } : {}),
-      ...(options.graphBasePath !== undefined ? { graphBasePath: options.graphBasePath } : {}),
-      ...(options.enableDatabase !== undefined ? { enableDatabase: options.enableDatabase } : {}),
-      ...(options.databaseConfig !== undefined ? { databaseConfig: options.databaseConfig } : {}),
-    };
-
-    await writeFile(join(workDir, 'CLAUDE.md'), this.claudeMdGenerator.generate(claudeMdInput), 'utf8');
-    await writeFile(settingsPath, `${JSON.stringify(this.settingsGenerator.generate(), null, 2)}\n`, 'utf8');
 
     const session: AgentSessionRecord = {
       conversationId,
@@ -182,9 +178,170 @@ export class AgentService implements OnModuleDestroy {
       lastActivityAt: Date.now(),
       options,
     };
+    await this.writeRuntimeFiles(session);
     this.sessionManager.setSession(session);
 
     return session;
+  }
+
+  async spawnPersistentProcess(session: PersistentAgentSession): Promise<void> {
+    const existing = session.child;
+    if (isLiveProcess(existing) && this.persistentParsers.has(session.conversationId)) {
+      return;
+    }
+
+    await this.acquireSlot(session.options.maxConcurrentAgents ?? DEFAULT_MAX_CONCURRENT_AGENTS);
+    this.persistentSlotHolders.add(session.conversationId);
+
+    let proc: ChildProcess | undefined;
+    let processAttached = false;
+    try {
+      await this.writeRuntimeFiles(session);
+      const args = buildPersistentClaudeArgs(session);
+      const env = buildAgentEnv(session);
+      proc = spawn(session.options.command ?? DEFAULT_COMMAND, args, {
+        cwd: session.workDir,
+        env,
+      });
+      const processExitPromise = waitForProcessExit(proc);
+
+      if (!isReadable(proc.stdout)) {
+        throw new AgentProcessError('Claude process did not expose stdout');
+      }
+
+      if (!isWritable(proc.stdin)) {
+        throw new AgentProcessError('Claude process did not expose stdin');
+      }
+
+      const parser = new PersistentStreamParser();
+      let resolveInit!: () => void;
+      const initPromise = new Promise<void>((resolve) => {
+        resolveInit = resolve;
+      });
+      const auditContext = buildAuditContext(session);
+      const auditPromise = isReadable(proc.stderr)
+        ? this.auditCapture.capture(proc.stderr, auditContext)
+        : Promise.resolve();
+
+      await this.sessionManager.attachProcess(session.conversationId, proc);
+      processAttached = true;
+      session.child = proc;
+      session.status = 'running';
+      session.lastActivityAt = Date.now();
+
+      parser.startReading(proc.stdout, {
+        onSessionId: (providerSessionId) => {
+          session.providerSessionId = providerSessionId;
+          this.sessionManager.setSessionId(session.conversationId, providerSessionId);
+          resolveInit();
+        },
+      });
+      this.persistentParsers.set(session.conversationId, parser);
+
+      const exitPromise = this.trackPersistentExit(session.conversationId, processExitPromise, parser, auditPromise);
+
+      await this.waitForPersistentStartup(session, initPromise, exitPromise);
+    } catch (err) {
+      this.persistentParsers.delete(session.conversationId);
+
+      if (!processAttached) {
+        this.releasePersistentSlot(session.conversationId);
+        await this.sessionManager.markFailed(session.conversationId);
+      }
+
+      if (proc !== undefined && proc.exitCode === null) {
+        proc.kill('SIGTERM');
+      }
+
+      throw err;
+    }
+  }
+
+  async *sendTurnToPersistentProcess(
+    session: PersistentAgentSession,
+    userMessage: string,
+  ): AsyncGenerator<AgentEvent> {
+    const releaseTurn = this.turnMutex.tryAcquire(session.conversationId);
+    if (releaseTurn === null) {
+      yield {
+        type: 'message.error',
+        code: 'agent_session_busy',
+        message: 'Agent session is already running',
+      };
+      return;
+    }
+
+    const usageWrites: Array<Promise<void>> = [];
+    let terminalEventSeen = false;
+
+    try {
+      if (!isLiveProcess(session.child) || !this.persistentParsers.has(session.conversationId)) {
+        await this.spawnPersistentProcess(session);
+      }
+
+      const parser = this.persistentParsers.get(session.conversationId);
+      const proc = session.child;
+      if (parser === undefined || !isLiveProcess(proc) || !isWritable(proc.stdin)) {
+        throw new AgentProcessError('Claude persistent process is not available');
+      }
+
+      const timing: AgentTiming = { spawn_at: new Date() };
+      this.timings.set(session.conversationId, timing);
+      let firstForwardedEventSeen = false;
+
+      const turn = parser.createTurn();
+      await writePersistentTurn(proc.stdin, userMessage);
+
+      for await (const event of turn) {
+        if (!firstForwardedEventSeen) {
+          firstForwardedEventSeen = true;
+          timing.first_sse_at = new Date();
+          this.timings.set(session.conversationId, timing);
+        }
+
+        if (event.type === 'message.completed') {
+          terminalEventSeen = true;
+          const completedAt = new Date();
+          timing.completed_at = completedAt;
+          event.latency_ms = completedAt.getTime() - timing.spawn_at.getTime();
+
+          if (timing.first_sse_at !== undefined) {
+            event.first_sse_latency_ms = timing.first_sse_at.getTime() - timing.spawn_at.getTime();
+          }
+
+          usageWrites.push(this.recordModelUsage(session, event).catch(() => undefined));
+        } else if (event.type === 'message.error') {
+          terminalEventSeen = true;
+        }
+
+        yield event;
+      }
+
+      if (terminalEventSeen && isLiveProcess(session.child)) {
+        await this.sessionManager.markIdle(session.conversationId);
+        session.status = 'idle';
+        session.lastActivityAt = Date.now();
+        this.sessionManager.touch(session.conversationId, session.lastActivityAt);
+      } else if (!terminalEventSeen && !isLiveProcess(session.child)) {
+        yield {
+          type: 'message.error',
+          code: 'process_exited',
+          message: 'Claude process exited before completing the turn',
+        };
+      }
+    } catch (err) {
+      const proc = session.child;
+      if (isLiveProcess(proc)) {
+        await this.sessionManager.markIdle(session.conversationId);
+      } else {
+        await this.sessionManager.markFailed(session.conversationId);
+      }
+
+      yield toAgentErrorEvent(err);
+    } finally {
+      releaseTurn();
+      await Promise.all(usageWrites);
+    }
   }
 
   private async *runClaudeProcess(
@@ -317,6 +474,92 @@ export class AgentService implements OnModuleDestroy {
     }
   }
 
+  private releasePersistentSlot(conversationId: string): void {
+    if (!this.persistentSlotHolders.delete(conversationId)) {
+      return;
+    }
+
+    this.releaseSlot();
+  }
+
+  private trackPersistentExit(
+    conversationId: string,
+    processExitPromise: Promise<ProcessExit>,
+    parser: PersistentStreamParser,
+    auditPromise: Promise<void>,
+  ): Promise<ProcessExit> {
+    return processExitPromise
+      .then(async (exit) => {
+        parser.stop();
+        this.persistentParsers.delete(conversationId);
+
+        if (exit.error !== undefined || exit.code !== 0) {
+          await this.sessionManager.markFailed(conversationId);
+        } else {
+          await this.sessionManager.markStopped(conversationId);
+        }
+
+        this.releasePersistentSlot(conversationId);
+        await auditPromise.catch(() => undefined);
+        return exit;
+      })
+      .catch(async (err: unknown) => {
+        parser.stop();
+        this.persistentParsers.delete(conversationId);
+        await this.sessionManager.markFailed(conversationId);
+        this.releasePersistentSlot(conversationId);
+        await auditPromise.catch(() => undefined);
+        return { code: null, signal: null, error: toError(err) };
+      });
+  }
+
+  private async waitForPersistentStartup(
+    session: PersistentAgentSession,
+    initPromise: Promise<void>,
+    exitPromise: Promise<ProcessExit>,
+  ): Promise<void> {
+    const timeoutMs = session.options.timeoutMs ?? DEFAULT_PROCESS_STARTUP_TIMEOUT_MS;
+    let startupTimer: NodeJS.Timeout | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      startupTimer = setTimeout(() => {
+        reject(new AgentProcessError('Claude process did not send system/init before startup timeout'));
+      }, timeoutMs);
+    });
+
+    try {
+      await Promise.race([
+        initPromise,
+        exitPromise.then((exit) => {
+          if (exit.error !== undefined) {
+            throw new AgentProcessError(exit.error.message);
+          }
+
+          throw new AgentProcessError(`Claude process exited before system/init with code ${exit.code ?? 'unknown'}`);
+        }),
+        timeoutPromise,
+      ]);
+    } finally {
+      if (startupTimer !== undefined) {
+        clearTimeout(startupTimer);
+      }
+    }
+  }
+
+  private async writeRuntimeFiles(
+    session: Pick<AgentSessionRecord, 'workDir' | 'spaceId' | 'options'>,
+  ): Promise<void> {
+    const claudeMdInput = {
+      spaceId: session.spaceId,
+      ...(session.options.allowedSpaces !== undefined ? { allowedSpaces: session.options.allowedSpaces } : {}),
+      ...(session.options.graphBasePath !== undefined ? { graphBasePath: session.options.graphBasePath } : {}),
+      ...(session.options.enableDatabase !== undefined ? { enableDatabase: session.options.enableDatabase } : {}),
+      ...(session.options.databaseConfig !== undefined ? { databaseConfig: session.options.databaseConfig } : {}),
+    };
+
+    await writeFile(join(session.workDir, 'CLAUDE.md'), this.claudeMdGenerator.generate(claudeMdInput), 'utf8');
+    await writeFile(join(session.workDir, 'settings.json'), `${JSON.stringify(this.settingsGenerator.generate(), null, 2)}\n`, 'utf8');
+  }
+
   private async recordModelUsage(
     session: AgentSessionRecord,
     event: Extract<AgentEvent, { type: 'message.completed' }>,
@@ -390,6 +633,34 @@ function buildClaudeArgs(session: AgentSessionRecord, userMessage: string, resum
   return args;
 }
 
+function buildPersistentClaudeArgs(session: PersistentAgentSession): string[] {
+  const args = [
+    '-p',
+    '--input-format',
+    'stream-json',
+    '--output-format',
+    'stream-json',
+    '--verbose',
+    '--include-partial-messages',
+    '--tools',
+    'Bash,Read',
+    '--permission-mode',
+    'bypassPermissions',
+    '--settings',
+    join(session.workDir, 'settings.json'),
+    '--max-budget-usd',
+    String(session.options.maxBudgetUsd ?? DEFAULT_MAX_BUDGET_USD),
+  ];
+
+  if (session.providerSessionId !== undefined && session.providerSessionId.length > 0) {
+    args.push('--resume', session.providerSessionId);
+  } else {
+    args.push('--session-id', session.sessionId);
+  }
+
+  return args;
+}
+
 function buildAgentEnv(session: AgentSessionRecord): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH ?? '',
@@ -438,7 +709,22 @@ function buildAgentEnv(session: AgentSessionRecord): NodeJS.ProcessEnv {
   return env;
 }
 
-function waitForProcessExit(proc: ChildProcess): Promise<{ code: number | null; signal: NodeJS.Signals | null; error?: Error }> {
+function buildAuditContext(session: Pick<PersistentAgentSession, 'conversationId' | 'spaceId' | 'options'>) {
+  return {
+    tenantId: session.options.tenantId ?? '',
+    spaceId: session.spaceId,
+    conversationId: session.conversationId,
+    ...(session.options.userId !== undefined ? { userId: session.options.userId } : {}),
+  };
+}
+
+type ProcessExit = {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  error?: Error;
+};
+
+function waitForProcessExit(proc: ChildProcess): Promise<ProcessExit> {
   return new Promise((resolve) => {
     let settled = false;
     const onError = (error: Error): void => {
@@ -455,6 +741,29 @@ function waitForProcessExit(proc: ChildProcess): Promise<{ code: number | null; 
     };
     proc.once('error', onError);
     proc.once('close', onClose);
+  });
+}
+
+function isLiveProcess(proc: ChildProcess | undefined): proc is ChildProcess {
+  return proc !== undefined && proc.exitCode === null;
+}
+
+function isWritable(stream: ChildProcess['stdin']): stream is NonNullable<ChildProcess['stdin']> {
+  return stream !== null && !stream.destroyed;
+}
+
+function writePersistentTurn(stdin: NonNullable<ChildProcess['stdin']>, userMessage: string): Promise<void> {
+  const line = `${JSON.stringify({ type: 'user', message: { role: 'user', content: userMessage } })}\n`;
+
+  return new Promise((resolve, reject) => {
+    stdin.write(line, 'utf8', (err?: Error | null) => {
+      if (err !== undefined && err !== null) {
+        reject(err);
+        return;
+      }
+
+      resolve();
+    });
   });
 }
 
@@ -520,6 +829,10 @@ function toAgentErrorEvent(err: unknown): Extract<AgentEvent, { type: 'message.e
     code: err instanceof AgentProcessError ? 'process_error' : 'internal_error',
     message: err instanceof Error ? err.message : String(err),
   };
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }
 
 function sanitizePathSegment(value: string): string {
