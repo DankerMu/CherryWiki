@@ -72,6 +72,8 @@ export type OptionsFingerprint = {
   databaseDsn: string | undefined;
   model: string | undefined;
   maxBudgetUsd: number | undefined;
+  settingsVersion: number;
+  toolVersion: number;
 };
 
 export type PersistentAgentSession = {

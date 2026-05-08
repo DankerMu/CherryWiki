@@ -221,6 +221,39 @@ describe('AgentService sendTurn dispatch', () => {
 
     proc.close(0);
   });
+
+  it('escalates SSE disconnect cancellation to SIGKILL after the SIGINT grace timeout', async () => {
+    process.env.AGENT_SIGINT_GRACE_MS = '1';
+    const proc = createMockProcess();
+    const stdinChunks = captureStdin(proc);
+    spawnMock.mockReturnValue(proc as never);
+    const { service, manager } = createService();
+    const conversationId = uniqueConversationId();
+    const iterator = service.sendTurn(conversationId, 'space-1', 'stuck turn', {
+      tenantId: 'tenant-1',
+      userId: 'user-1',
+    });
+
+    const firstEvent = iterator.next();
+    await waitForSpawn();
+    writeJsonLine(proc, { type: 'system', subtype: 'init', session_id: 'provider-sigkill' });
+    await vi.waitFor(() => expect(stdinChunks.join('')).toContain('stuck turn'));
+    writeJsonLine(proc, {
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: 'partial' }] },
+    });
+    await expect(firstEvent).resolves.toEqual({
+      done: false,
+      value: { type: 'message.delta', delta: 'partial' },
+    });
+
+    await iterator.return(undefined);
+
+    expect(proc.kill).toHaveBeenCalledWith('SIGINT');
+    expect(proc.kill).toHaveBeenCalledWith('SIGKILL');
+    const saved = await manager.getOrCreateSession(conversationId, 'space-1', 'tenant-1', 'user-1');
+    expect(saved.status).toBe('failed');
+  });
 });
 
 function createService(): {

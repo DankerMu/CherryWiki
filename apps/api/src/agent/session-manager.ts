@@ -2,7 +2,7 @@ import { Inject, Injectable, Optional, type OnModuleDestroy } from '@nestjs/comm
 import type { ChildProcess } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, type Dirent } from 'node:fs';
-import { chmod, mkdir, readdir, rm } from 'node:fs/promises';
+import { chmod, mkdir, readdir, rename, rm } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
@@ -21,9 +21,11 @@ import type {
 
 const DEFAULT_AGENT_ROOT = '/tmp/cherry-agent';
 const DEFAULT_IDLE_TIMEOUT_MS = 24 * 60 * 60_000;
-const DEFAULT_MAX_RESIDENT_PROCESSES = 20;
+const DEFAULT_MAX_RESIDENT_PROCESSES = 5;
 const DEFAULT_SIGNAL_GRACE_MS = 5_000;
 const DEFAULT_RETENTION_DAYS = 7;
+const SETTINGS_FINGERPRINT_VERSION = 1;
+const TOOL_FINGERPRINT_VERSION = 1;
 
 export const SESSION_MANAGER_CONFIG = Symbol('SESSION_MANAGER_CONFIG');
 
@@ -78,7 +80,6 @@ export class SessionManager implements OnModuleDestroy {
     const existing = this.sessions.get(conversationId);
     if (existing !== undefined) {
       existing.options = { ...existing.options, ...options };
-      existing.optionsFingerprint = this.computeOptionsFingerprint(existing.options);
       return clonePersistentSession(existing);
     }
 
@@ -303,6 +304,8 @@ export class SessionManager implements OnModuleDestroy {
       databaseDsn: options.databaseConfig?.dsn,
       model: options.model,
       maxBudgetUsd: options.maxBudgetUsd,
+      settingsVersion: SETTINGS_FINGERPRINT_VERSION,
+      toolVersion: TOOL_FINGERPRINT_VERSION,
     };
 
     return createHash('sha256').update(JSON.stringify(fingerprint)).digest('hex');
@@ -330,6 +333,65 @@ export class SessionManager implements OnModuleDestroy {
 
     this.persistedSessionIds.add(conversationId);
     return true;
+  }
+
+  async updateRuntimeConfig(
+    conversationId: string,
+    options: AgentSpawnOptions,
+    optionsFingerprint: string,
+  ): Promise<PersistentAgentSession | undefined> {
+    const session = this.sessions.get(conversationId);
+    if (session === undefined) {
+      return undefined;
+    }
+
+    session.options = { ...options };
+    session.optionsFingerprint = optionsFingerprint;
+    session.lastActivityAt = Date.now();
+    await this.persistStatus(session);
+    return clonePersistentSession(session);
+  }
+
+  async resetAfterResumeFailure(
+    conversationId: string,
+    failedAt = Date.now(),
+  ): Promise<PersistentAgentSession | undefined> {
+    const session = this.sessions.get(conversationId);
+    if (session === undefined) {
+      return undefined;
+    }
+
+    this.clearIdleKillTimer(session);
+    const oldWorkDir = session.workDir;
+    const oldAgentHome = session.agentHome;
+    const failedWorkDir = `${oldWorkDir}.failed.${failedAt}`;
+
+    if (isLiveChild(session.child)) {
+      await terminateChild(session.child, 'SIGTERM', this.sigintGraceMs);
+    }
+
+    session.child = undefined;
+
+    try {
+      await rename(oldWorkDir, failedWorkDir);
+    } catch (err) {
+      if (!isNodeErrorCode(err, 'ENOENT')) {
+        throw err;
+      }
+    }
+
+    session.sessionId = randomUUID();
+    session.providerSessionId = undefined;
+    session.workDir = oldWorkDir;
+    session.agentHome = oldAgentHome;
+    session.status = 'starting';
+    session.optionsFingerprint = this.computeOptionsFingerprint(session.options);
+    session.ownedByInstance = this.instanceId;
+    session.lastActivityAt = failedAt;
+
+    await prepareSessionDirectories(session.workDir, session.agentHome);
+    await this.upsertSession(session);
+    return clonePersistentSession(session);
   }
 
   size(): number {
@@ -477,7 +539,7 @@ export class SessionManager implements OnModuleDestroy {
       agentHome: row.agent_home,
       status: restoredStatus,
       child: undefined,
-      optionsFingerprint: this.computeOptionsFingerprint(options),
+      optionsFingerprint: row.options_hash ?? this.computeOptionsFingerprint(options),
       ownedByInstance: this.instanceId,
       lastActivityAt: row.last_activity_at.getTime(),
       idleKillTimer: undefined,
@@ -723,6 +785,10 @@ function sanitizePathSegment(input: string): string {
 
 function isNonEmptyString(value: string | undefined): value is string {
   return value !== undefined && value.length > 0;
+}
+
+function isNodeErrorCode(value: unknown, code: string): boolean {
+  return value instanceof Error && 'code' in value && value.code === code;
 }
 
 async function deleteFailedSiblingDirectories(workDir: string): Promise<void> {
