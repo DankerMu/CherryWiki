@@ -35,10 +35,8 @@ describe('AgentService persistent runner', () => {
     const { service, manager } = createService();
     const session = await createSession(manager, { maxBudgetUsd: 3 });
 
-    const spawnPromise = service.spawnPersistentProcess(session);
-    await waitForSpawn();
-    writeJsonLine(proc, { type: 'system', subtype: 'init', session_id: 'provider-args' });
-    await spawnPromise;
+    await service.spawnPersistentProcess(session);
+    expect(spawnMock).toHaveBeenCalledTimes(1);
 
     const args = spawnMock.mock.calls[0]?.[1];
     expect(args).toEqual(
@@ -72,17 +70,14 @@ describe('AgentService persistent runner', () => {
     const { service, manager } = createService();
     const session = await createSession(manager);
 
-    const firstSpawn = service.spawnPersistentProcess(session);
-    await waitForSpawn(1);
+    await service.spawnPersistentProcess(session);
+    // system/init is now received asynchronously via the onSessionId callback
     writeJsonLine(first, { type: 'system', subtype: 'init', session_id: 'provider-resume' });
-    await firstSpawn;
+    await vi.waitFor(() => expect(session.providerSessionId).toBe('provider-resume'));
     first.close(0);
     await vi.waitFor(() => expect(service.getActiveAgentCount()).toBe(0));
 
-    const secondSpawn = service.spawnPersistentProcess(session);
-    await waitForSpawn(2);
-    writeJsonLine(resumed, { type: 'system', subtype: 'init', session_id: 'provider-resume' });
-    await secondSpawn;
+    await service.spawnPersistentProcess(session);
 
     expect(spawnMock.mock.calls[0]?.[1]).toEqual(expect.arrayContaining(['--session-id', session.sessionId]));
     expect(spawnMock.mock.calls[1]?.[1]).toEqual(expect.arrayContaining(['--resume', 'provider-resume']));
@@ -115,14 +110,13 @@ describe('AgentService persistent runner', () => {
     const { service, manager } = createService();
     const session = await createSession(manager);
 
-    const spawnPromise = service.spawnPersistentProcess(session);
-    await waitForSpawn();
+    await service.spawnPersistentProcess(session);
+    // system/init arrives asynchronously after spawn
     writeJsonLine(proc, { type: 'system', subtype: 'init', session_id: 'provider-captured' });
-    await spawnPromise;
+    await vi.waitFor(() => expect(session.providerSessionId).toBe('provider-captured'));
 
     const saved = await manager.getOrCreateSession(session.conversationId, session.spaceId, session.tenantId, session.userId);
     expect(saved.providerSessionId).toBe('provider-captured');
-    expect(session.providerSessionId).toBe('provider-captured');
 
     proc.close(0);
   });
@@ -269,10 +263,9 @@ async function createStartedSession(
   options: PersistentAgentSession['options'] = {},
 ): Promise<PersistentAgentSession> {
   const session = await createSession(manager, options);
-  const spawnPromise = service.spawnPersistentProcess(session);
-  await waitForSpawn();
+  await service.spawnPersistentProcess(session);
   writeJsonLine(proc, { type: 'system', subtype: 'init', session_id: providerSessionId });
-  await spawnPromise;
+  await vi.waitFor(() => expect(session.providerSessionId).toBe(providerSessionId));
   return session;
 }
 

@@ -195,8 +195,12 @@ describe('AgentService config refresh and persistent resume', () => {
     expect(spawnMock.mock.calls[1]?.[1]).toEqual(expect.arrayContaining(['--session-id', session.sessionId]));
     expect(spawnMock.mock.calls[1]?.[1]).not.toContain('--resume');
 
+    // providerSessionId is set asynchronously via onSessionId callback
+    await vi.waitFor(async () => {
+      const saved = await manager.getOrCreateSession(session.conversationId, session.spaceId, session.tenantId, session.userId);
+      expect(saved.providerSessionId).toBe('provider-fresh');
+    });
     const saved = await manager.getOrCreateSession(session.conversationId, session.spaceId, session.tenantId, session.userId);
-    expect(saved.providerSessionId).toBe('provider-fresh');
     expect(saved.workDir).toBe(session.workDir);
 
     fresh.close(0);

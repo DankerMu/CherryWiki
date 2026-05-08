@@ -1,8 +1,8 @@
 import { HttpException, HttpStatus, Inject, Injectable, type OnModuleDestroy } from '@nestjs/common';
 import { modelUsageLogs } from '@cherrygraph/shared';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { chown, chmod, mkdir, rm, writeFile } from 'node:fs/promises';
+import { chown, chmod, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Readable } from 'node:stream';
 
@@ -27,7 +27,6 @@ import type { TurnEventQueue } from './turn-event-queue.js';
 
 const DEFAULT_MAX_CONCURRENT_AGENTS = 20;
 const DEFAULT_PROCESS_TIMEOUT_MS = 60 * 60_000;
-const DEFAULT_PROCESS_STARTUP_TIMEOUT_MS = 30_000;
 const HARD_KILL_GRACE_MS = 5_000;
 const MAX_QUEUE_SIZE = 50;
 const DEFAULT_MAX_BUDGET_USD = 2;
@@ -36,6 +35,18 @@ const DEFAULT_INTERNAL_API_URL = 'http://127.0.0.1:3000';
 const DEFAULT_AGENT_ROOT = '/tmp/cherry-agent';
 const AGENT_UID = readPositiveIntegerEnv('AGENT_SPAWN_UID', process.getuid?.() === 0 ? 10001 : 0);
 const AGENT_GID = readPositiveIntegerEnv('AGENT_SPAWN_GID', process.getuid?.() === 0 ? 10001 : 0);
+
+if (AGENT_UID > 0) {
+  try {
+    execFileSync('which', ['setpriv'], { stdio: 'ignore' });
+  } catch {
+    console.error(
+      `[AgentService] FATAL: setpriv is required when AGENT_SPAWN_UID (${AGENT_UID}) > 0 but was not found on PATH. ` +
+      'Install util-linux or equivalent package.',
+    );
+    process.exit(1);
+  }
+}
 
 type HasSessionOptions = {
   includePersisted: true;
@@ -207,11 +218,11 @@ export class AgentService implements OnModuleDestroy {
     return session;
   }
 
-  async spawnPersistentProcess(session: PersistentAgentSession, initialMessage?: string): Promise<void> {
+  async spawnPersistentProcess(session: PersistentAgentSession): Promise<void> {
     const attemptedResumeSessionId = getNonEmptyString(session.providerSessionId);
 
     try {
-      await this.spawnPersistentProcessOnce(session, initialMessage);
+      await this.spawnPersistentProcessOnce(session);
       return;
     } catch (err) {
       if (attemptedResumeSessionId === undefined) {
@@ -219,11 +230,11 @@ export class AgentService implements OnModuleDestroy {
       }
 
       await this.recoverFromPersistentResumeFailure(session);
-      await this.spawnPersistentProcessOnce(session, initialMessage);
+      await this.spawnPersistentProcessOnce(session);
     }
   }
 
-  private async spawnPersistentProcessOnce(session: PersistentAgentSession, initialMessage?: string): Promise<void> {
+  private async spawnPersistentProcessOnce(session: PersistentAgentSession): Promise<void> {
     const existing = session.child;
     if (isLiveProcess(existing) && this.persistentParsers.has(session.conversationId)) {
       return;
@@ -241,7 +252,7 @@ export class AgentService implements OnModuleDestroy {
       const command = session.options.command ?? DEFAULT_COMMAND;
       const spawnCmd = AGENT_UID > 0 ? 'setpriv' : command;
       const spawnArgs = AGENT_UID > 0
-        ? [`--reuid=${AGENT_UID}`, `--regid=${AGENT_GID || AGENT_UID}`, '--init-groups', command, ...args]
+        ? [`--reuid=${AGENT_UID}`, `--regid=${AGENT_GID || AGENT_UID}`, '--clear-groups', command, ...args]
         : args;
       proc = spawn(spawnCmd, spawnArgs, {
         cwd: session.workDir,
@@ -258,10 +269,6 @@ export class AgentService implements OnModuleDestroy {
       }
 
       const parser = new PersistentStreamParser();
-      let resolveInit!: () => void;
-      const initPromise = new Promise<void>((resolve) => {
-        resolveInit = resolve;
-      });
       const auditContext = buildAuditContext(session);
       const auditPromise = isReadable(proc.stderr)
         ? this.auditCapture.capture(proc.stderr, auditContext)
@@ -276,18 +283,15 @@ export class AgentService implements OnModuleDestroy {
         onSessionId: (providerSessionId) => {
           session.providerSessionId = providerSessionId;
           this.sessionManager.setSessionId(session.conversationId, providerSessionId);
-          resolveInit();
         },
       });
       this.persistentParsers.set(session.conversationId, parser);
 
       trackedExitPromise = this.trackPersistentExit(session.conversationId, processExitPromise, parser, auditPromise);
 
-      if (initialMessage !== undefined && isWritable(proc.stdin)) {
-        await writePersistentTurn(proc.stdin, initialMessage);
-      }
-
-      await this.waitForPersistentStartup(session, initPromise, trackedExitPromise);
+      // Give the event loop a short grace window so an immediate process
+      // exit (e.g. a stale --resume session) propagates before we return.
+      await this.checkEarlyProcessExit(proc, processExitPromise);
     } catch (err) {
       this.persistentParsers.get(session.conversationId)?.stop();
       this.persistentParsers.delete(session.conversationId);
@@ -307,6 +311,32 @@ export class AgentService implements OnModuleDestroy {
       await this.sessionManager.markFailed(session.conversationId);
 
       throw err;
+    }
+  }
+
+  private async checkEarlyProcessExit(
+    proc: ChildProcess,
+    exitPromise: Promise<ProcessExit>,
+  ): Promise<void> {
+    // Race the exit promise against a short grace period.
+    // If the process dies immediately (e.g. a stale --resume session),
+    // the exit promise wins and we throw, allowing resume-failure recovery.
+    const graceMs = readPositiveIntegerEnv(
+      'AGENT_EARLY_EXIT_GRACE_MS',
+      50,
+    );
+    const result = await Promise.race([
+      exitPromise.then((exit) => ({ type: 'exit' as const, exit })),
+      delay(graceMs).then(() => ({ type: 'alive' as const })),
+    ]);
+    if (result.type === 'exit') {
+      const { exit } = result;
+      if (exit.error !== undefined) {
+        throw new AgentProcessError(exit.error.message);
+      }
+      throw new AgentProcessError(
+        `Claude process exited immediately with code ${exit.code ?? 'unknown'}`,
+      );
     }
   }
 
@@ -338,10 +368,10 @@ export class AgentService implements OnModuleDestroy {
         refreshedSession.status === 'failed';
 
       if (needsSpawn) {
-        await this.spawnPersistentProcess(refreshedSession, userMessage);
+        await this.spawnPersistentProcess(refreshedSession);
       }
 
-      yield* this.sendTurnToPersistentProcessLocked(refreshedSession, userMessage, needsSpawn);
+      yield* this.sendTurnToPersistentProcessLocked(refreshedSession, userMessage);
     } finally {
       releaseTurn();
     }
@@ -371,7 +401,6 @@ export class AgentService implements OnModuleDestroy {
   private async *sendTurnToPersistentProcessLocked(
     session: PersistentAgentSession,
     userMessage: string,
-    alreadyWrittenToStdin = false,
   ): AsyncGenerator<AgentEvent> {
     const usageWrites: Array<Promise<void>> = [];
     let turn: TurnEventQueue | undefined;
@@ -380,8 +409,7 @@ export class AgentService implements OnModuleDestroy {
 
     try {
       if (!isLiveProcess(session.child) || !this.persistentParsers.has(session.conversationId)) {
-        await this.spawnPersistentProcess(session, alreadyWrittenToStdin ? undefined : userMessage);
-        alreadyWrittenToStdin = true;
+        await this.spawnPersistentProcess(session);
       }
 
       const parser = this.persistentParsers.get(session.conversationId);
@@ -390,6 +418,8 @@ export class AgentService implements OnModuleDestroy {
         throw new AgentProcessError('Claude persistent process is not available');
       }
 
+      // Create the turn queue BEFORE writing to stdin so that events
+      // emitted immediately (including system/init) are captured.
       turn = parser.createTurn();
       await this.sessionManager.attachProcess(session.conversationId, proc);
       session.status = 'running';
@@ -399,9 +429,7 @@ export class AgentService implements OnModuleDestroy {
       this.timings.set(session.conversationId, timing);
       let firstForwardedEventSeen = false;
 
-      if (!alreadyWrittenToStdin) {
-        await writePersistentTurn(proc.stdin, userMessage);
-      }
+      await writePersistentTurn(proc.stdin, userMessage);
 
       for await (const event of turn) {
         if (!firstForwardedEventSeen) {
@@ -607,7 +635,7 @@ export class AgentService implements OnModuleDestroy {
     const legacyCmd = session.options.command ?? DEFAULT_COMMAND;
     const legacySpawnCmd = AGENT_UID > 0 ? 'setpriv' : legacyCmd;
     const legacySpawnArgs = AGENT_UID > 0
-      ? [`--reuid=${AGENT_UID}`, `--regid=${AGENT_GID || AGENT_UID}`, '--init-groups', legacyCmd, ...args]
+      ? [`--reuid=${AGENT_UID}`, `--regid=${AGENT_GID || AGENT_UID}`, '--clear-groups', legacyCmd, ...args]
       : args;
     const proc = spawn(legacySpawnCmd, legacySpawnArgs, {
       cwd: session.workDir,
@@ -773,38 +801,6 @@ export class AgentService implements OnModuleDestroy {
       });
   }
 
-  private async waitForPersistentStartup(
-    session: PersistentAgentSession,
-    initPromise: Promise<void>,
-    exitPromise: Promise<ProcessExit>,
-  ): Promise<void> {
-    const timeoutMs = session.options.timeoutMs ?? DEFAULT_PROCESS_STARTUP_TIMEOUT_MS;
-    let startupTimer: NodeJS.Timeout | undefined;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      startupTimer = setTimeout(() => {
-        reject(new AgentProcessError('Claude process did not send system/init before startup timeout'));
-      }, timeoutMs);
-    });
-
-    try {
-      await Promise.race([
-        initPromise,
-        exitPromise.then((exit) => {
-          if (exit.error !== undefined) {
-            throw new AgentProcessError(exit.error.message);
-          }
-
-          throw new AgentProcessError(`Claude process exited before system/init with code ${exit.code ?? 'unknown'}`);
-        }),
-        timeoutPromise,
-      ]);
-    } finally {
-      if (startupTimer !== undefined) {
-        clearTimeout(startupTimer);
-      }
-    }
-  }
-
   private async writeRuntimeFiles(
     session: Pick<AgentSessionRecord, 'workDir' | 'spaceId' | 'options'>,
   ): Promise<void> {
@@ -816,14 +812,27 @@ export class AgentService implements OnModuleDestroy {
       ...(session.options.databaseConfig !== undefined ? { databaseConfig: session.options.databaseConfig } : {}),
     };
 
-    await writeFile(join(session.workDir, 'CLAUDE.md'), this.claudeMdGenerator.generate(claudeMdInput), 'utf8');
-    await writeFile(join(session.workDir, 'settings.json'), `${JSON.stringify(this.settingsGenerator.generate(), null, 2)}\n`, 'utf8');
+    // Write to .tmp then atomically rename to prevent symlink attacks.
+    // The agent user owns workDir, so without this pattern they could
+    // replace CLAUDE.md / settings.json with a symlink before writeFile
+    // follows it as root.
+    const claudeMdPath = join(session.workDir, 'CLAUDE.md');
+    const settingsPath = join(session.workDir, 'settings.json');
+    const claudeMdTmp = `${claudeMdPath}.tmp`;
+    const settingsTmp = `${settingsPath}.tmp`;
+
+    await writeFile(claudeMdTmp, this.claudeMdGenerator.generate(claudeMdInput), 'utf8');
+    await writeFile(settingsTmp, `${JSON.stringify(this.settingsGenerator.generate(), null, 2)}\n`, 'utf8');
     if (AGENT_UID > 0) {
       await Promise.all([
-        chown(join(session.workDir, 'CLAUDE.md'), AGENT_UID, AGENT_GID || AGENT_UID),
-        chown(join(session.workDir, 'settings.json'), AGENT_UID, AGENT_GID || AGENT_UID),
+        chown(claudeMdTmp, AGENT_UID, AGENT_GID || AGENT_UID),
+        chown(settingsTmp, AGENT_UID, AGENT_GID || AGENT_UID),
       ]);
     }
+    await Promise.all([
+      rename(claudeMdTmp, claudeMdPath),
+      rename(settingsTmp, settingsPath),
+    ]);
   }
 
   private async recordModelUsage(

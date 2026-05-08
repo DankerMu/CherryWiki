@@ -718,7 +718,7 @@ async function prepareSessionDirectories(workDir: string, agentHome: string): Pr
   await Promise.all([chmod(workDir, 0o700), chmod(agentHome, 0o700), chmod(tmpDir, 0o700)]);
   const uid = readPositiveIntegerEnv('AGENT_SPAWN_UID', process.getuid?.() === 0 ? 10001 : 0);
   if (uid > 0) {
-    const gid = readPositiveIntegerEnv('AGENT_SPAWN_GID', uid);
+    const gid = readPositiveIntegerEnv('AGENT_SPAWN_GID', process.getuid?.() === 0 ? 10001 : 0);
     await Promise.all([chown(workDir, uid, gid), chown(agentHome, uid, gid), chown(tmpDir, uid, gid)]);
   }
 }

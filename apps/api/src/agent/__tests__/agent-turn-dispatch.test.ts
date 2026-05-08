@@ -287,10 +287,9 @@ async function createStartedSession(
     tenantId: 'tenant-1',
     userId: 'user-1',
   });
-  const spawnPromise = service.spawnPersistentProcess(session);
-  await waitForSpawn();
+  await service.spawnPersistentProcess(session);
   writeJsonLine(proc, { type: 'system', subtype: 'init', session_id: providerSessionId });
-  await spawnPromise;
+  await vi.waitFor(() => expect(session.providerSessionId).toBe(providerSessionId));
   return session;
 }
 
