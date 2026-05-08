@@ -715,7 +715,8 @@
         "notStarted": "Not started",
         "unavailable": "Unavailable",
         "inProgress": "In progress"
-      }
+      },
+      "quarantined": "Quarantined"
     }
   }
 }

@@ -31,11 +31,12 @@ function graphifyStatusColor(status: string): string {
 }
 
 export function GraphifyStatusCell({ run }: { run: GraphifyRun }) {
+  const { t } = useTranslation();
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
       <Tag color={graphifyStatusColor(run.status)}>{formatLabel(run.status)}</Tag>
       {isQuarantined(run) && (
-        <ExclamationCircleOutlined style={{ color: '#faad14' }} title="Quarantined" />
+        <ExclamationCircleOutlined style={{ color: '#faad14' }} title={t('graphify.space.quarantined')} />
       )}
     </span>
   );
@@ -141,15 +142,6 @@ export function formatGraphifyStatsWithT(
   ].join(' / ');
 }
 
-// Keep backward-compatible export for any remaining references
-export function formatGraphifyStats(run: GraphifyRun): string {
-  return [
-    `Nodes ${formatCount(getGraphifyStat(run, 'node_count'))}`,
-    `Edges ${formatCount(getGraphifyStat(run, 'edge_count'))}`,
-    `Wiki ${formatCount(getGraphifyStat(run, 'wiki_page_count'))}`,
-  ].join(' / ');
-}
-
 export function getGraphifyStat(
   run: GraphifyRun,
   stat: 'node_count' | 'edge_count' | 'wiki_page_count' | 'community_count',
@@ -198,27 +190,6 @@ export function formatRunDurationWithT(
 
   if (completedAt === null) {
     return t('graphify.space.timing.inProgress');
-  }
-
-  return formatElapsedTime(completedAt - startedAt);
-}
-
-// Keep backward-compatible export
-export function formatRunDuration(run: GraphifyRun): string {
-  if (run.started_at === null) {
-    return run.status === 'pending' ? 'Queued' : 'Not started';
-  }
-
-  const startedAt = parseTimestamp(run.started_at);
-  if (startedAt === null) {
-    return 'Unavailable';
-  }
-
-  const completedAt =
-    run.completed_at !== null ? parseTimestamp(run.completed_at) : run.status === 'running' ? Date.now() : null;
-
-  if (completedAt === null) {
-    return 'In progress';
   }
 
   return formatElapsedTime(completedAt - startedAt);

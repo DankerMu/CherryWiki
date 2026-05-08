@@ -715,7 +715,8 @@
         "notStarted": "未开始",
         "unavailable": "不可用",
         "inProgress": "进行中"
-      }
+      },
+      "quarantined": "已隔离"
     }
   }
 }
