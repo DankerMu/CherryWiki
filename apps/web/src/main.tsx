@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import 'antd/dist/reset.css';
 import './i18n';
 import App from './App';
-import './styles.css';
+import './overrides.css';
 
 const rootElement = document.getElementById('root');
 
