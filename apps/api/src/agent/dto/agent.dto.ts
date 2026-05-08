@@ -61,6 +61,49 @@ export type AgentSpawnOptions = {
   maxConcurrentAgents?: number;
 };
 
+export type AgentRuntimeStatus = 'starting' | 'running' | 'idle' | 'stopping' | 'stopped' | 'failed';
+
+export type AgentTurnStatus = 'active' | 'completed' | 'cancelled' | 'error';
+
+export type OptionsFingerprint = {
+  allowedSpaces: string[];
+  graphPaths: string[];
+  databaseEnabled: boolean;
+  databaseDsn: string | undefined;
+  model: string | undefined;
+  maxBudgetUsd: number | undefined;
+};
+
+export type PersistentAgentSession = {
+  conversationId: string;
+  tenantId: string;
+  spaceId: string;
+  userId: string;
+  sessionId: string;
+  providerSessionId: string | undefined;
+  workDir: string;
+  agentHome: string;
+  status: AgentRuntimeStatus;
+  child: ChildProcess | undefined;
+  optionsFingerprint: string;
+  ownedByInstance: string;
+  lastActivityAt: number;
+  idleKillTimer: NodeJS.Timeout | undefined;
+  options: AgentSpawnOptions;
+};
+
+export type AgentTurn = {
+  turnId: string;
+  conversationId: string;
+  userMessage: string;
+  status: AgentTurnStatus;
+  startedAt: number;
+  completedAt: number | undefined;
+  eventQueue: AsyncIterable<AgentEvent>;
+  completedPromise: Promise<void>;
+  abortController: AbortController;
+};
+
 export type AgentSessionRecord = {
   conversationId: string;
   spaceId: string;
