@@ -592,10 +592,12 @@ export class SessionManager implements OnModuleDestroy {
   private scheduleIdleKillTimer(session: PersistentAgentSession): void {
     this.clearIdleKillTimer(session);
     const remainingMs = Math.max(0, this.idleTimeoutMs - (Date.now() - session.lastActivityAt));
-    session.idleKillTimer = setTimeout(() => {
+    const timer = setTimeout(() => {
       session.idleKillTimer = undefined;
       void this.sweepIdleSessions().catch(() => undefined);
     }, remainingMs);
+    timer.unref();
+    session.idleKillTimer = timer;
   }
 
   private clearIdleKillTimer(session: PersistentAgentSession): void {
