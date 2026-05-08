@@ -136,7 +136,7 @@ function AuditPage() {
         />
         <DatePicker.RangePicker
           showTime
-          onChange={(dates) => handleDateRangeChange(dates as [Dayjs | null, Dayjs | null] | null)}
+          onChange={(dates) => handleDateRangeChange(dates)}
           placeholder={[t('admin.audit.filter.dateRange'), t('admin.audit.filter.dateRange')]}
         />
       </Space>

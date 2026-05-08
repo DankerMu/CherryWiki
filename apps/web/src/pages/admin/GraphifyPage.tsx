@@ -1,7 +1,7 @@
 import { ReloadOutlined } from '@ant-design/icons';
 import { Button, Input, Popconfirm, Select, Space, Table, Tabs, Tag, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { requireAdminPage } from '../../components/RequireAdminPage';
@@ -16,9 +16,7 @@ import {
 import {
   GRAPHIFY_PAGE_SIZE,
   formatCount,
-  getFirstItemIndex,
   getGraphifyStat,
-  getLastItemIndex,
   getQuarantineType,
   isGraphifyRunActive,
   isQuarantined,
@@ -101,11 +99,6 @@ function GraphifyPage() {
 
     return () => { window.clearInterval(intervalId); };
   }, [loadRuns, shouldPoll]);
-
-  const totalPages = useMemo(() => {
-    const computedPages = Math.ceil(pagination.total / Math.max(1, pagination.per_page));
-    return Math.max(page, computedPages, 1);
-  }, [page, pagination.per_page, pagination.total]);
 
   async function retryRun(run: GraphifyRun): Promise<void> {
     setRetryingRunId(run.run_id);

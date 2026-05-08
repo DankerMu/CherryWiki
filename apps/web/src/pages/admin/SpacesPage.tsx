@@ -21,7 +21,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { requireAdminPage } from '../../components/RequireAdminPage';
 import { api } from '../../lib/api';
-import { formatDate, getErrorMessage } from '../../components/adminUi';
+import { getErrorMessage } from '../../components/adminUi';
 import {
   SPACE_PERMISSION_OPTIONS,
   type AdminGroup,
@@ -281,7 +281,7 @@ function SpacesPage() {
                         onChange={(checked) => {
                           setPermissionsByGroup((current) => ({
                             ...current,
-                            [group.id]: checked as string[],
+                            [group.id]: checked,
                           }));
                         }}
                       >

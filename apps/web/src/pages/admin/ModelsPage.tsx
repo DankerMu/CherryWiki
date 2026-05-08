@@ -79,7 +79,7 @@ function ModelsPage() {
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
+
   const [antForm] = Form.useForm();
 
   const loadModels = useCallback(async () => {
@@ -103,7 +103,7 @@ function ModelsPage() {
     if (form === null) return;
 
     setIsSaving(true);
-    setFormError(null);
+    
     try {
       const body = toModelRequest(form);
       if (form.id === undefined) {
@@ -112,10 +112,10 @@ function ModelsPage() {
         await api.patch<AdminModel>(`/admin/models/${form.id}`, body);
       }
       setForm(null);
-      setFormError(null);
+      
       await loadModels();
     } catch (err) {
-      setFormError(getErrorMessage(err));
+      
       void message.error(getErrorMessage(err));
     } finally {
       setIsSaving(false);
@@ -153,7 +153,7 @@ function ModelsPage() {
   }
 
   function openEditForm(model: AdminModel): void {
-    setFormError(null);
+    
     const editData: ModelForm = {
       id: model.id,
       provider: model.provider,
@@ -279,7 +279,7 @@ function ModelsPage() {
             type="primary"
             icon={<PlusOutlined />}
             onClick={() => {
-              setFormError(null);
+              
               const newForm = { ...EMPTY_MODEL_FORM };
               setForm(newForm);
               antForm.setFieldsValue(newForm);
@@ -303,7 +303,7 @@ function ModelsPage() {
       <Modal
         title={form?.id === undefined ? t('admin.models.addTitle') : t('admin.models.editTitle')}
         open={form !== null}
-        onCancel={() => { setForm(null); setFormError(null); }}
+        onCancel={() => { setForm(null); }}
         onOk={() => { void submitModel(); }}
         confirmLoading={isSaving}
         okText={isSaving ? t('admin.models.saving') : t('admin.models.saveModel')}

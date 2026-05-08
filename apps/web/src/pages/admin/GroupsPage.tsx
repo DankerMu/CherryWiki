@@ -97,22 +97,6 @@ function GroupsPage() {
     antForm.setFieldsValue({ name: editData.name, description: editData.description, memberIds: editData.memberIds });
   }
 
-  function updatePermission(spaceId: string, permission: string, checked: boolean): void {
-    setForm((current) => {
-      if (current === null) return current;
-
-      const currentPermissions = current.permissionsBySpace[spaceId] ?? [];
-      const nextPermissions = checked
-        ? [...new Set([...currentPermissions, permission])]
-        : currentPermissions.filter((item) => item !== permission);
-
-      return {
-        ...current,
-        permissionsBySpace: { ...current.permissionsBySpace, [spaceId]: nextPermissions },
-      };
-    });
-  }
-
   const memberSummary = useMemo(
     () => new Map(groups.map((group) => [group.id, users.filter((user) => user.groups.includes(group.id)).length])),
     [groups, users],
@@ -221,7 +205,7 @@ function GroupsPage() {
                             if (current === null) return current;
                             return {
                               ...current,
-                              permissionsBySpace: { ...current.permissionsBySpace, [space.id]: checked as string[] },
+                              permissionsBySpace: { ...current.permissionsBySpace, [space.id]: checked },
                             };
                           });
                         }}
