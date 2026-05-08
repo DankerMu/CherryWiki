@@ -4,8 +4,18 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import ProgressBar from '../components/ProgressBar';
+import { AuthProvider, type AuthUser } from '../lib/auth';
 import JobDetailPage from '../pages/admin/JobDetailPage';
 import JobsPage from '../pages/admin/JobsPage';
+
+const ADMIN_USER: AuthUser = {
+  id: 'user-admin',
+  email: 'admin@example.com',
+  name: 'Admin User',
+  role: 'admin',
+  groups: [],
+  spaces: [{ id: 'space-main', name: 'Main Space', role: 'admin' }],
+};
 
 afterEach(() => {
   cleanup();
@@ -86,10 +96,12 @@ describe('ProgressBar', () => {
 function renderJobsRoute(path: string): void {
   render(
     <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route path="/admin/jobs" element={<JobsPage />} />
-        <Route path="/admin/jobs/:jobId" element={<JobDetailPage />} />
-      </Routes>
+      <AuthProvider initialSession={{ user: ADMIN_USER, accessToken: 'test-token' }}>
+        <Routes>
+          <Route path="/admin/jobs" element={<JobsPage />} />
+          <Route path="/admin/jobs/:jobId" element={<JobDetailPage />} />
+        </Routes>
+      </AuthProvider>
     </MemoryRouter>,
   );
 }

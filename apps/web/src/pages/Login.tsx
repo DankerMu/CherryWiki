@@ -1,33 +1,38 @@
-import { useState, type FormEvent } from 'react';
+import { LockOutlined, MailOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, Form, Input, Typography } from 'antd';
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router';
 import { ApiError } from '../lib/api';
-import { isAdminRole, useAuth } from '../lib/auth';
+import { useAuth } from '../lib/auth';
 
 type LocationState = {
   from?: string;
 };
 
+type LoginFormValues = {
+  email: string;
+  password: string;
+};
+
 export default function Login() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const { login } = useAuth();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  async function submitLogin(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
+  async function submitLogin(values: LoginFormValues): Promise<void> {
     setIsSubmitting(true);
     setError(null);
 
     try {
-      const user = await login(email, password);
-      const locationState = location.state as LocationState | null;
-      const fallbackPath = isAdminRole(user.role) ? '/admin' : '/';
-      void navigate(locationState?.from ?? fallbackPath, { replace: true });
+      await login(values.email, values.password);
+      const state = location.state as LocationState | null;
+      void navigate(state?.from ?? '/', { replace: true });
     } catch (err) {
-      setError(getLoginErrorMessage(err));
+      setError(getLoginErrorMessage(err, t));
     } finally {
       setIsSubmitting(false);
     }
@@ -35,66 +40,62 @@ export default function Login() {
 
   return (
     <main className="login-page">
-      <section className="login-panel">
-        <div>
-          <p className="eyebrow">CherryWiki</p>
-          <h1>Login</h1>
-          <p className="login-copy">Sign in with an account that has access to this workspace.</p>
-        </div>
+      <Card className="login-panel">
+        <Typography.Text className="eyebrow">{t('common.app.name')}</Typography.Text>
+        <Typography.Title level={1}>{t('login.page.title')}</Typography.Title>
+        <Typography.Paragraph className="login-copy">{t('login.page.subtitle')}</Typography.Paragraph>
 
         {error !== null ? (
-          <div className="alert alert-error" role="alert">
-            {error}
-          </div>
+          <Alert className="login-error" message={error} role="alert" showIcon type="error" />
         ) : null}
 
-        <form
+        <Form<LoginFormValues>
           className="login-form"
-          onSubmit={(event) => {
-            void submitLogin(event);
+          layout="vertical"
+          onFinish={(values) => {
+            void submitLogin(values);
           }}
         >
-          <label>
-            Email
-            <input
-              required
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-          </label>
-          <label>
-            Password
-            <input
-              required
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-          </label>
-          <button className="button button-primary login-submit" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? 'Signing in...' : 'Sign in'}
-          </button>
-        </form>
-      </section>
+          <Form.Item
+            label={t('login.form.email')}
+            name="email"
+            rules={[
+              { required: true, message: t('login.form.emailRequired') },
+              { type: 'email', message: t('login.form.emailInvalid') },
+            ]}
+          >
+            <Input autoComplete="email" prefix={<MailOutlined />} type="email" />
+          </Form.Item>
+
+          <Form.Item
+            label={t('login.form.password')}
+            name="password"
+            rules={[{ required: true, message: t('login.form.passwordRequired') }]}
+          >
+            <Input.Password autoComplete="current-password" prefix={<LockOutlined />} />
+          </Form.Item>
+
+          <Button block htmlType="submit" loading={isSubmitting} type="primary">
+            {isSubmitting ? t('login.form.submitting') : t('login.form.submit')}
+          </Button>
+        </Form>
+      </Card>
     </main>
   );
 }
 
-function getLoginErrorMessage(error: unknown): string {
+function getLoginErrorMessage(error: unknown, t: (key: string) => string): string {
   if (error instanceof ApiError) {
     if (error.code === 'INVALID_CREDENTIALS') {
-      return 'Email or password is incorrect.';
+      return t('login.error.invalidCredentials');
     }
 
     if (error.code === 'ACCOUNT_LOCKED') {
-      return 'This account is temporarily locked. Try again later.';
+      return t('login.error.accountLocked');
     }
 
     if (error.code === 'ACCOUNT_DISABLED') {
-      return 'This account has been disabled.';
+      return t('login.error.accountDisabled');
     }
 
     return error.message;
@@ -104,5 +105,5 @@ function getLoginErrorMessage(error: unknown): string {
     return error.message;
   }
 
-  return 'Unable to sign in.';
+  return t('login.error.generic');
 }

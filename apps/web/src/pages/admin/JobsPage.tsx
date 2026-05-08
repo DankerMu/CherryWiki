@@ -11,6 +11,7 @@ import {
   formatLabel,
   getErrorMessage,
 } from '../../components/adminUi';
+import { requireAdminPage } from '../../components/RequireAdminPage';
 import { type ApiMeta, api } from '../../lib/api';
 import {
   ADMIN_JOB_STATUS_OPTIONS,
@@ -29,7 +30,7 @@ const DEFAULT_PAGINATION: NonNullable<ApiMeta['pagination']> = {
 const JOB_POLL_INTERVAL_MS = 5_000;
 const PER_PAGE_OPTIONS = [10, 20, 50, 100];
 
-export default function JobsPage() {
+function JobsPage() {
   const navigate = useNavigate();
   const [jobs, setJobs] = useState<AdminJob[]>([]);
   const [type, setType] = useState('');
@@ -263,6 +264,8 @@ export default function JobsPage() {
     </>
   );
 }
+
+export default requireAdminPage(JobsPage);
 
 function renderProgressCell(job: AdminJob) {
   if (job.progress !== null || job.status === 'running' || job.status === 'succeeded') {

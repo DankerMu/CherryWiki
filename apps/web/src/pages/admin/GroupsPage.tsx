@@ -7,6 +7,7 @@ import {
   PageHeader,
   getErrorMessage,
 } from '../../components/adminUi';
+import { requireAdminPage } from '../../components/RequireAdminPage';
 import { api } from '../../lib/api';
 import {
   SPACE_PERMISSION_OPTIONS,
@@ -23,7 +24,7 @@ type GroupForm = {
   permissionsBySpace: Record<string, string[]>;
 };
 
-export default function GroupsPage() {
+function GroupsPage() {
   const [groups, setGroups] = useState<AdminGroup[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [spaces, setSpaces] = useState<AdminSpace[]>([]);
@@ -269,6 +270,8 @@ export default function GroupsPage() {
     </>
   );
 }
+
+export default requireAdminPage(GroupsPage);
 
 function createEmptyForm(): GroupForm {
   return {

@@ -8,6 +8,7 @@ import {
   StatusBadge,
   getErrorMessage,
 } from '../../components/adminUi';
+import { requireAdminPage } from '../../components/RequireAdminPage';
 import { api } from '../../lib/api';
 import {
   SPACE_PERMISSION_OPTIONS,
@@ -29,7 +30,7 @@ const EMPTY_SPACE_FORM: CreateSpaceForm = {
   description: '',
 };
 
-export default function SpacesPage() {
+function SpacesPage() {
   const [spaces, setSpaces] = useState<AdminSpace[]>([]);
   const [groups, setGroups] = useState<AdminGroup[]>([]);
   const [selectedSpace, setSelectedSpace] = useState<AdminSpaceDetail | null>(null);
@@ -347,3 +348,5 @@ export default function SpacesPage() {
     </>
   );
 }
+
+export default requireAdminPage(SpacesPage);

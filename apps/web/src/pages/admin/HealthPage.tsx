@@ -8,12 +8,13 @@ import {
   formatLabel,
   getErrorMessage,
 } from '../../components/adminUi';
+import { requireAdminPage } from '../../components/RequireAdminPage';
 import { api } from '../../lib/api';
 import { type SystemHealth } from '../../lib/adminTypes';
 
 const REFRESH_INTERVAL_MS = 30_000;
 
-export default function HealthPage() {
+function HealthPage() {
   const [health, setHealth] = useState<SystemHealth | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -107,6 +108,8 @@ export default function HealthPage() {
     </>
   );
 }
+
+export default requireAdminPage(HealthPage);
 
 function formatUptime(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
