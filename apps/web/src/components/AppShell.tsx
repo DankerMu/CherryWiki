@@ -92,11 +92,18 @@ export default function AppShell() {
     const spaceItems =
       selectedSpaceId === undefined
         ? []
-        : SPACE_FUNCTIONS.map((item) => ({
-            key: item.key,
-            icon: item.icon,
-            label: t(item.translationKey),
-          }));
+        : [
+            {
+              key: 'space-functions',
+              type: 'group' as const,
+              label: t('shell.sidebar.spaceFunctions'),
+              children: SPACE_FUNCTIONS.map((item) => ({
+                key: item.key,
+                icon: item.icon,
+                label: t(item.translationKey),
+              })),
+            },
+          ];
 
     const adminItems = isAdmin
       ? [

@@ -73,6 +73,18 @@
   border-inline-end: 0 !important;
 }
 
+.app-shell-menu .ant-menu-item-group-title {
+  padding: 10px 24px 4px;
+  color: var(--color-text-2, #667085);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.app-shell-collapsed .app-shell-menu .ant-menu-item-group-title {
+  display: none;
+}
+
 .app-shell-bottom {
   display: grid;
   gap: 10px;

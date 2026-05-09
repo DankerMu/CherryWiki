@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { cleanup, render, screen, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest';
 import '../i18n';
 import i18n from '../i18n';
@@ -245,6 +245,36 @@ describe('AppShell', () => {
     expect(screen.getAllByText('Chat').length).toBeGreaterThan(0);
     expect(screen.getByText('Wiki')).toBeInTheDocument();
     expect(screen.getByText('Uploads')).toBeInTheDocument();
+  });
+
+  it.each([
+    ['Chat', 'Chat Harness'],
+    ['Wiki', 'Wiki Harness'],
+  ])('navigates to %s from an admin route', async (menuLabel, targetHeading) => {
+    render(
+      <MemoryRouter initialEntries={['/admin/users']}>
+        <AuthProvider initialSession={{ user: ADMIN_USER, accessToken: 'test-token' }}>
+          <ThemeProvider>
+            <Routes>
+              <Route element={<AppShell />}>
+                <Route path="/admin/users" element={<h1>Users Harness</h1>} />
+                <Route path="/spaces/:spaceId/chat" element={<h1>Chat Harness</h1>} />
+                <Route path="/spaces/:spaceId/wiki" element={<h1>Wiki Harness</h1>} />
+              </Route>
+            </Routes>
+          </ThemeProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Space Functions')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Users Harness' })).toBeInTheDocument();
+
+    const menuItem = screen.getByText(menuLabel).closest('[role="menuitem"]');
+    expect(menuItem).not.toBeNull();
+    fireEvent.click(menuItem!);
+
+    expect(await screen.findByRole('heading', { name: targetHeading })).toBeInTheDocument();
   });
 
   it('shows user name in header', () => {
