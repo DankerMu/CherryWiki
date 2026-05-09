@@ -132,7 +132,7 @@ export default function WikiPageDetail({ spaceId, pageId, versionId }: WikiPageD
       {isLoading ? (
         <Spin tip={t('wiki.detail.loadingPage')}><div style={{ minHeight: 200 }} /></Spin>
       ) : page !== null && content !== null ? (
-        <div style={{ background: 'var(--ant-color-bg-container, #fff)', padding: 24, borderRadius: 8 }}>
+        <div style={{ background: 'var(--ant-color-bg-container, #fff)', color: 'var(--ant-color-text, #1f2933)', padding: 24, borderRadius: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <WikiStatusBadge status={page.status} />
             <Typography.Text type="secondary">
