@@ -242,8 +242,8 @@ describe('SpaceService', () => {
         resource_id: TEST_SPACE_ID,
         space_id: TEST_SPACE_ID,
         metadata_json: {
-          spaceId: TEST_SPACE_ID,
-          spaceName: 'Knowledge',
+          space_id: TEST_SPACE_ID,
+          space_name: 'Knowledge',
         },
       }),
     );

@@ -303,9 +303,9 @@ describe('GroupService', () => {
         resource_type: 'group',
         resource_id: TEST_GROUP_ID,
         metadata_json: {
-          groupId: TEST_GROUP_ID,
-          groupName: 'Editors',
-          memberCount: 2,
+          group_id: TEST_GROUP_ID,
+          group_name: 'Editors',
+          member_count: 2,
         },
       }),
     );
@@ -332,9 +332,9 @@ describe('GroupService', () => {
         action: AUDIT_EVENTS.ADMIN_GROUP_DELETE,
         resource_id: TEST_GROUP_ID,
         metadata_json: {
-          groupId: TEST_GROUP_ID,
-          groupName: 'Editors',
-          memberCount: 0,
+          group_id: TEST_GROUP_ID,
+          group_name: 'Editors',
+          member_count: 0,
         },
       }),
     );

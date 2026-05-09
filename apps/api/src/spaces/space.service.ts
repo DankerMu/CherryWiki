@@ -394,8 +394,8 @@ export class SpaceService {
       resource_id: spaceId,
       space_id: spaceId,
       metadata_json: {
-        spaceId,
-        spaceName: existing.name,
+        space_id: spaceId,
+        space_name: existing.name,
       },
     });
   }

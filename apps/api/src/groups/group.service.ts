@@ -425,9 +425,9 @@ export class GroupService {
       resource_type: 'group',
       resource_id: groupId,
       metadata_json: {
-        groupId,
-        groupName: existing.name,
-        memberCount: memberIds.length,
+        group_id: groupId,
+        group_name: existing.name,
+        member_count: memberIds.length,
       },
     });
   }
