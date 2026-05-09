@@ -1,6 +1,7 @@
 import { HttpException } from '@nestjs/common';
 import type { AuthenticatedRequestUser } from '@cherrygraph/auth-core';
 import { sessions, users } from '@cherrygraph/shared';
+import type { SQL } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { vi } from 'vitest';
 
@@ -23,6 +24,7 @@ export class FakeDb {
   readonly inserts: unknown[] = [];
   readonly updates: unknown[] = [];
   readonly selectFields: unknown[] = [];
+  readonly whereCalls: SQL[] = [];
   readonly selectResults: unknown[][] = [];
   readonly insertResults: unknown[][] = [];
   readonly updateResults: unknown[][] = [];
@@ -49,7 +51,7 @@ export class FakeDb {
 
   select(fields?: unknown): FakeQueryBuilder {
     this.selectFields.push(fields);
-    return new FakeQueryBuilder(this.selectResults.shift() ?? []);
+    return new FakeQueryBuilder(this.selectResults.shift() ?? [], this);
   }
 
   insert(): { values: (value: unknown) => FakeInsertReturningBuilder } {
@@ -67,14 +69,17 @@ export class FakeDb {
     return {
       set: (value: unknown) => {
         this.updates.push(value);
-        return new FakeQueryBuilder(this.updateResults.shift() ?? []);
+        return new FakeQueryBuilder(this.updateResults.shift() ?? [], this);
       },
     };
   }
 }
 
 class FakeQueryBuilder implements PromiseLike<unknown[]> {
-  constructor(private readonly result: unknown[]) {}
+  constructor(
+    private readonly result: unknown[],
+    private readonly db: FakeDb,
+  ) {}
 
   from(): this {
     return this;
@@ -84,7 +89,8 @@ class FakeQueryBuilder implements PromiseLike<unknown[]> {
     return this;
   }
 
-  where(): this {
+  where(where: SQL): this {
+    this.db.whereCalls.push(where);
     return this;
   }
 

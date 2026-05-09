@@ -347,7 +347,7 @@ export class AuthService {
       name: row.display_name,
       role: row.role,
       groups: await this.getUserGroups(user.tenant_id, row.id),
-      spaces: await this.getUserSpaceRoles(user.tenant_id, row.id),
+      spaces: await this.getUserSpaceRoles(user.tenant_id, row.id, row.role),
     };
   }
 
@@ -535,8 +535,18 @@ export class AuthService {
   private async getUserSpaceRoles(
     tenantId: string,
     userId: string,
+    role: string,
     db: AuthDatabase = this.db,
   ): Promise<CurrentUserResponse['spaces']> {
+    if (role === 'admin' || role === 'owner') {
+      const adminSpaces = await db
+        .select({ id: spaces.id, name: spaces.name })
+        .from(spaces)
+        .where(and(eq(spaces.tenant_id, tenantId), eq(spaces.status, 'active')));
+
+      return adminSpaces.map((space) => ({ id: space.id, name: space.name, role: 'admin' as const }));
+    }
+
     const rows = await db
       .select({
         id: spaces.id,

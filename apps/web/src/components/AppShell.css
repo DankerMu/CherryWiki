@@ -118,11 +118,6 @@
   background: rgba(26, 26, 46, 0.72);
 }
 
-.app-shell-header-user {
-  min-width: 0;
-  color: var(--color-text-2, #667085);
-}
-
 .app-shell-content {
   min-height: calc(100vh - 64px);
   padding: 24px;
