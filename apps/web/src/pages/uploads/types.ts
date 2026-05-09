@@ -39,6 +39,7 @@ export type UploadResponse = {
   job_id: string | null;
   status: string;
   created: boolean;
+  duplicate?: boolean;
   error_code?: string;
 };
 

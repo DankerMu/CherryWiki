@@ -1,5 +1,5 @@
 import { ReloadOutlined } from '@ant-design/icons';
-import { Alert, Button, Spin, Typography } from 'antd';
+import { Alert, Button, Select, Spin, Typography, message } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Navigate, useParams } from 'react-router';
@@ -23,19 +23,20 @@ const DEFAULT_PAGINATION: NonNullable<ApiMeta['pagination']> = {
 export default function UploadCenter() {
   const { t } = useTranslation();
   const { spaceId = '' } = useParams();
-  const { accessToken, isAuthenticated } = useAuth();
+  const { accessToken, isAuthenticated, user } = useAuth();
   const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [page, setPage] = useState(DEFAULT_PAGINATION.page);
   const [statusFilter, setStatusFilter] = useState('');
   const [pagination, setPagination] = useState(DEFAULT_PAGINATION);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [uploadSpaceId, setUploadSpaceId] = useState(spaceId);
   const [selectedUploadId, setSelectedUploadId] = useState<string | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<UploadStatus | null>(null);
 
   const loadUploads = useCallback(
     async (background = false) => {
-      if (spaceId.length === 0) {
+      if (uploadSpaceId.length === 0) {
         setUploads([]);
         setPagination(DEFAULT_PAGINATION);
         setIsLoading(false);
@@ -48,7 +49,7 @@ export default function UploadCenter() {
       setError(null);
 
       try {
-        const response = await api.getWrapped<UploadItem[]>(`/spaces/${encodeURIComponent(spaceId)}/uploads`, {
+        const response = await api.getWrapped<UploadItem[]>(`/spaces/${encodeURIComponent(uploadSpaceId)}/uploads`, {
           page,
           per_page: UPLOAD_PAGE_SIZE,
           status: statusFilter,
@@ -71,7 +72,7 @@ export default function UploadCenter() {
         }
       }
     },
-    [page, spaceId, statusFilter],
+    [page, uploadSpaceId, statusFilter],
   );
 
   useEffect(() => {
@@ -79,10 +80,14 @@ export default function UploadCenter() {
   }, [loadUploads]);
 
   useEffect(() => {
+    setUploadSpaceId(spaceId);
+  }, [spaceId]);
+
+  useEffect(() => {
     setSelectedUploadId(null);
     setSelectedStatus(null);
     setPage(1);
-  }, [spaceId]);
+  }, [uploadSpaceId]);
 
   const mergeStatuses = useCallback((statuses: UploadStatus[]) => {
     setUploads((current) =>
@@ -130,6 +135,12 @@ export default function UploadCenter() {
   }, []);
 
   function addOptimisticUpload(response: UploadResponse, input: { filename: string; sourceType: string; sizeBytes: number | null }): void {
+    if (response.duplicate === true) {
+      void message.warning(t('upload.duplicateWarning', { name: input.filename }));
+    } else {
+      void message.success(t('upload.uploadSuccess', { name: input.filename }));
+    }
+
     const now = new Date().toISOString();
     const upload: UploadItem = {
       id: response.source_document_id,
@@ -141,7 +152,7 @@ export default function UploadCenter() {
       classification: null,
       status: response.status,
       uploader_id: null,
-      space_id: spaceId,
+      space_id: uploadSpaceId,
       metadata_json: {},
       created_at: now,
       updated_at: now,
@@ -176,13 +187,25 @@ export default function UploadCenter() {
         </Button>
       </div>
 
+      <div style={{ marginBottom: 16 }}>
+        <Typography.Text style={{ marginRight: 8 }}>{t('upload.spaceSelectorLabel')}</Typography.Text>
+        <Select
+          value={uploadSpaceId}
+          onChange={(value: string) => setUploadSpaceId(value)}
+          options={user?.spaces?.map((s) => ({ value: s.id, label: s.name })) ?? []}
+          disabled={!user?.spaces?.length}
+          style={{ width: 200 }}
+          placeholder={t('upload.spaceSelector')}
+        />
+      </div>
+
       {error !== null && (
         <Alert message={error} type="error" showIcon closable style={{ marginBottom: 16 }} onClose={() => setError(null)} />
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
         <FileUploadZone
-          spaceId={spaceId}
+          spaceId={uploadSpaceId}
           accessToken={accessToken}
           onUploaded={(response, file) =>
             addOptimisticUpload(response, {
@@ -193,7 +216,7 @@ export default function UploadCenter() {
           }
         />
         <UrlUploadForm
-          spaceId={spaceId}
+          spaceId={uploadSpaceId}
           onUploaded={(response, url) =>
             addOptimisticUpload(response, {
               filename: url,
