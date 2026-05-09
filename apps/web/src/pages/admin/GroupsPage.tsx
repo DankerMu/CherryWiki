@@ -1,5 +1,5 @@
-import { EditOutlined, PlusOutlined, ReloadOutlined, TeamOutlined } from '@ant-design/icons';
-import { Button, Card, Checkbox, Collapse, Empty, Form, Input, Modal, Select, Space, Spin, Typography, message } from 'antd';
+import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined, TeamOutlined } from '@ant-design/icons';
+import { Button, Card, Checkbox, Collapse, Empty, Form, Input, Modal, Popconfirm, Select, Space, Spin, Typography, message } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { requireAdminPage } from '../../components/RequireAdminPage';
@@ -79,6 +79,17 @@ function GroupsPage() {
     }
   }
 
+  async function deleteGroup(group: AdminGroup): Promise<void> {
+    try {
+      await api.delete(`/admin/groups/${group.id}`);
+      void message.success(t('admin.groups.deleteSuccess'));
+      await loadData();
+    } catch (err) {
+      void message.error(getErrorMessage(err));
+      throw err;
+    }
+  }
+
   function openCreateForm(): void {
     const newForm = createEmptyForm();
     setForm(newForm);
@@ -132,9 +143,24 @@ function GroupsPage() {
               key={group.id}
               title={group.name}
               extra={
-                <Button icon={<EditOutlined />} size="small" onClick={() => openEditForm(group)}>
-                  {t('common.action.edit')}
-                </Button>
+                <Space>
+                  <Button icon={<EditOutlined />} size="small" onClick={() => openEditForm(group)}>
+                    {t('common.action.edit')}
+                  </Button>
+                  <Popconfirm
+                    title={t('admin.groups.deleteConfirm', {
+                      name: group.name,
+                      count: memberSummary.get(group.id) ?? group.member_count,
+                    })}
+                    onConfirm={() => deleteGroup(group)}
+                    okText={t('common.action.confirm')}
+                    cancelText={t('common.action.cancel')}
+                  >
+                    <Button icon={<DeleteOutlined />} size="small" danger>
+                      {t('admin.groups.deleteButton')}
+                    </Button>
+                  </Popconfirm>
+                </Space>
               }
             >
               <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
