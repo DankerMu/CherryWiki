@@ -87,6 +87,7 @@ describe('UploadsService', () => {
       job_id: null,
       status: 'archived',
       created: false,
+      duplicate: true,
     });
     expect(storage.uploadToQuarantine).not.toHaveBeenCalled();
     expect(jobs.created).toHaveLength(0);

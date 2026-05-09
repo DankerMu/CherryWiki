@@ -464,6 +464,10 @@
     "title": "上传中心",
     "description": "上传文件和 URL，跟踪此空间的处理状态。",
     "loading": "加载上传记录中...",
+    "spaceSelector": "目标空间",
+    "spaceSelectorLabel": "上传到空间",
+    "duplicateWarning": "文件「{{name}}」已存在于该空间，已自动关联。",
+    "uploadSuccess": "文件「{{name}}」上传成功。",
     "file": {
       "title": "文件",
       "description": "拖放文件至此处或从磁盘选择。",

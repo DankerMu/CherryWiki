@@ -184,13 +184,7 @@ export class UploadsService {
 
     if (!sourceDocument.created) {
       await this.storageService.deleteQuarantineFile(quarantine.key);
-      return {
-        source_document_id: sourceDocument.row.id,
-        file_blob_id: sourceDocument.row.file_blob_id,
-        job_id: null,
-        status: sourceDocument.row.status,
-        created: false,
-      };
+      return toUploadResponse(sourceDocument.row, null, false, undefined, true);
     }
 
     const priority = priorityForSize(input.file.size);
@@ -682,7 +676,7 @@ export class UploadsService {
     );
 
     if (existingSource !== undefined) {
-      return toUploadResponse(existingSource, null, false);
+      return toUploadResponse(existingSource, null, false, undefined, true);
     }
 
     const isArchivedBlob = isArchiveStorageUri(input.blob.storage_uri);
@@ -718,7 +712,7 @@ export class UploadsService {
     });
 
     if (!sourceDocument.created) {
-      return toUploadResponse(sourceDocument.row, null, false);
+      return toUploadResponse(sourceDocument.row, null, false, undefined, true);
     }
 
     if (!isArchivedBlob) {
@@ -1036,6 +1030,7 @@ function toUploadResponse(
   job: JobRow | null,
   created: boolean,
   errorCode?: ErrorCode,
+  duplicate?: boolean,
 ): UploadResponseDto {
   return {
     source_document_id: document.id,
@@ -1043,6 +1038,7 @@ function toUploadResponse(
     job_id: job?.id ?? null,
     status: document.status,
     created,
+    ...(duplicate === true ? { duplicate: true } : {}),
     ...(errorCode !== undefined ? { error_code: errorCode } : {}),
   };
 }

@@ -76,6 +76,7 @@ export type UploadResponseDto = {
   job_id: string | null;
   status: string;
   created: boolean;
+  duplicate?: boolean;
   error_code?: ErrorCode;
 };
 

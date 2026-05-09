@@ -464,6 +464,10 @@
     "title": "Upload Center",
     "description": "Upload files and URLs, then track processing status for this space.",
     "loading": "Loading uploads...",
+    "spaceSelector": "Target space",
+    "spaceSelectorLabel": "Upload to space",
+    "duplicateWarning": "File \"{{name}}\" already exists in this space and has been linked.",
+    "uploadSuccess": "File \"{{name}}\" uploaded successfully.",
     "file": {
       "title": "Files",
       "description": "Drop files here or choose them from disk.",
