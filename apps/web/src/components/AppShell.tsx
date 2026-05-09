@@ -2,7 +2,6 @@ import {
   ApartmentOutlined,
   AuditOutlined,
   BookOutlined,
-  BulbOutlined,
   CloudUploadOutlined,
   DatabaseOutlined,
   HeartOutlined,
@@ -320,11 +319,6 @@ export default function AppShell() {
       <Layout>
         <Layout.Header className="app-shell-header">
           <Breadcrumb items={breadcrumbItems} />
-          <Space className="app-shell-header-user" size="small">
-            <BulbOutlined />
-            <span>{user?.name ?? user?.email ?? t('shell.user.profile')}</span>
-            <Typography.Text type="secondary">{getRoleLabel(user, t)}</Typography.Text>
-          </Space>
         </Layout.Header>
         <Layout.Content className="app-shell-content">
           <Outlet />

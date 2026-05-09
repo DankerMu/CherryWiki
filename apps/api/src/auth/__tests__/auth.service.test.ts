@@ -6,6 +6,7 @@ import {
   verifyToken,
 } from '@cherrygraph/auth-core';
 import { ErrorCode } from '@cherrygraph/shared';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@cherrygraph/auth-core', async (importOriginal) => {
@@ -35,6 +36,7 @@ import {
 } from './auth-test-utils.js';
 
 const originalDefaultTenantId = process.env.DEFAULT_TENANT_ID;
+const dialect = new PgDialect();
 
 describe('AuthService', () => {
   beforeEach(() => {
@@ -359,27 +361,173 @@ describe('AuthService', () => {
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.PASSWORD_TOO_WEAK);
   });
 
-  it('returns the current user with groups and highest space roles', async () => {
-    const passwordHash = await hashPassword('Correct1!');
-    const { service, db } = createServiceContext();
-    db.queueSelect([createUser(passwordHash)]);
-    db.queueSelect([{ id: 'group-1', name: 'Editors' }]);
-    db.queueSelect([
-      { id: 'space-1', name: 'Space One', permission: 'space:view' },
-      { id: 'space-1', name: 'Space One', permission: 'space:edit' },
-      { id: 'space-2', name: 'Space Two', permission: 'space:admin' },
-    ]);
+  describe('getCurrentUser - space roles', () => {
+    it('returns all active spaces as admin roles for admin users', async () => {
+      const { service, db } = createServiceContext();
+      db.queueSelect([
+        createUser('password-hash', {
+          id: 'admin-user',
+          email: 'admin@example.com',
+          display_name: 'Admin User',
+          role: 'admin',
+        }),
+      ]);
+      db.queueSelect([]);
+      db.queueSelect([
+        { id: 'space-active-1', name: 'Active One' },
+        { id: 'space-active-2', name: 'Active Two' },
+      ]);
 
-    await expect(service.getCurrentUser(createAuthenticatedUser())).resolves.toEqual({
-      id: TEST_USER_ID,
-      email: TEST_EMAIL,
-      name: 'Test User',
-      role: 'editor',
-      groups: [{ id: 'group-1', name: 'Editors' }],
-      spaces: [
-        { id: 'space-1', name: 'Space One', role: 'editor' },
-        { id: 'space-2', name: 'Space Two', role: 'admin' },
-      ],
+      await expect(
+        service.getCurrentUser(
+          createAuthenticatedUser({
+            sub: 'admin-user',
+            email: 'admin@example.com',
+            role: 'admin',
+            group_ids: [],
+          }),
+        ),
+      ).resolves.toEqual({
+        id: 'admin-user',
+        email: 'admin@example.com',
+        name: 'Admin User',
+        role: 'admin',
+        groups: [],
+        spaces: [
+          { id: 'space-active-1', name: 'Active One', role: 'admin' },
+          { id: 'space-active-2', name: 'Active Two', role: 'admin' },
+        ],
+      });
+      expect(requireRecord(db.selectFields[2])).not.toHaveProperty('permission');
+    });
+
+    it('filters archived spaces from the admin space query', async () => {
+      const { service, db } = createServiceContext();
+      const archivedSpace = { id: 'space-archived', name: 'Archived Space' };
+      db.queueSelect([
+        createUser('password-hash', {
+          id: 'admin-user',
+          email: 'admin@example.com',
+          display_name: 'Admin User',
+          role: 'admin',
+        }),
+      ]);
+      db.queueSelect([]);
+      db.queueSelect([{ id: 'space-active', name: 'Active Space' }]);
+
+      const result = await service.getCurrentUser(
+        createAuthenticatedUser({
+          sub: 'admin-user',
+          email: 'admin@example.com',
+          role: 'admin',
+          group_ids: [],
+        }),
+      );
+
+      expect(result.spaces).toEqual([{ id: 'space-active', name: 'Active Space', role: 'admin' }]);
+      expect(result.spaces).not.toContainEqual(expect.objectContaining({ id: archivedSpace.id }));
+      const adminSpaceWhere = getWhereQuery(db, 2);
+      expect(adminSpaceWhere.sql).toContain('"spaces"."status" =');
+      expect(adminSpaceWhere.params).toEqual([TEST_TENANT_ID, 'active']);
+    });
+
+    it('returns all active spaces for admin users without group memberships', async () => {
+      const { service, db } = createServiceContext();
+      db.queueSelect([
+        createUser('password-hash', {
+          id: 'admin-user',
+          email: 'admin@example.com',
+          display_name: 'Admin User',
+          role: 'admin',
+        }),
+      ]);
+      db.queueSelect([]);
+      db.queueSelect([
+        { id: 'space-active-1', name: 'Active One' },
+        { id: 'space-active-2', name: 'Active Two' },
+      ]);
+
+      const result = await service.getCurrentUser(
+        createAuthenticatedUser({
+          sub: 'admin-user',
+          email: 'admin@example.com',
+          role: 'admin',
+          group_ids: [],
+        }),
+      );
+
+      expect(result.groups).toEqual([]);
+      expect(result.spaces).toEqual([
+        { id: 'space-active-1', name: 'Active One', role: 'admin' },
+        { id: 'space-active-2', name: 'Active Two', role: 'admin' },
+      ]);
+    });
+
+    it('returns an empty space list for admin users when no active spaces exist', async () => {
+      const { service, db } = createServiceContext();
+      db.queueSelect([
+        createUser('password-hash', {
+          id: 'admin-user',
+          email: 'admin@example.com',
+          display_name: 'Admin User',
+          role: 'admin',
+        }),
+      ]);
+      db.queueSelect([]);
+      db.queueSelect([]);
+
+      const result = await service.getCurrentUser(
+        createAuthenticatedUser({
+          sub: 'admin-user',
+          email: 'admin@example.com',
+          role: 'admin',
+          group_ids: [],
+        }),
+      );
+
+      expect(result.spaces).toEqual([]);
+    });
+
+    it('returns only group-authorized spaces for non-admin users', async () => {
+      const { service, db } = createServiceContext();
+      const unauthorizedSpace = { id: 'space-unauthorized', name: 'Unauthorized Space' };
+      db.queueSelect([
+        createUser('password-hash', {
+          id: 'editor-user',
+          email: 'editor@example.com',
+          display_name: 'Editor User',
+          role: 'editor',
+        }),
+      ]);
+      db.queueSelect([{ id: 'group-editors', name: 'Editors' }]);
+      db.queueSelect([
+        { id: 'space-1', name: 'Space One', permission: 'space:view' },
+        { id: 'space-1', name: 'Space One', permission: 'space:edit' },
+        { id: 'space-2', name: 'Space Two', permission: 'space:admin' },
+      ]);
+
+      const result = await service.getCurrentUser(
+        createAuthenticatedUser({
+          sub: 'editor-user',
+          email: 'editor@example.com',
+          role: 'editor',
+          group_ids: ['group-editors'],
+        }),
+      );
+
+      expect(result).toEqual({
+        id: 'editor-user',
+        email: 'editor@example.com',
+        name: 'Editor User',
+        role: 'editor',
+        groups: [{ id: 'group-editors', name: 'Editors' }],
+        spaces: [
+          { id: 'space-1', name: 'Space One', role: 'editor' },
+          { id: 'space-2', name: 'Space Two', role: 'admin' },
+        ],
+      });
+      expect(result.spaces).not.toContainEqual(expect.objectContaining({ id: unauthorizedSpace.id }));
+      expect(requireRecord(db.selectFields[2])).toHaveProperty('permission');
     });
   });
 });
@@ -423,4 +571,17 @@ function restoreDefaultTenantId(): void {
   }
 
   process.env.DEFAULT_TENANT_ID = originalDefaultTenantId;
+}
+
+function getWhereQuery(db: FakeDb, index: number): { sql: string; params: unknown[] } {
+  const where = db.whereCalls[index];
+  if (where === undefined) {
+    throw new Error(`Expected where clause at index ${index}`);
+  }
+
+  const query = dialect.sqlToQuery(where);
+  return {
+    sql: query.sql,
+    params: query.params,
+  };
 }
