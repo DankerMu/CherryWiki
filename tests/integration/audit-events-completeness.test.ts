@@ -12,6 +12,7 @@ const REQUIRED_AUDIT_EVENTS = [
   'admin.user.create',
   'admin.user.update',
   'admin.user.disable',
+  'admin.user.delete',
   'admin.group.create',
   'user.group_change',
   'space.create',
@@ -24,11 +25,11 @@ const REQUIRED_AUDIT_EVENTS = [
 ] as const;
 
 describe('audit event completeness', () => {
-  it('defines all 18 required audit events', () => {
+  it('defines all 19 required audit events', () => {
     const definedEvents = Object.values(AUDIT_EVENTS);
 
-    expect(definedEvents).toHaveLength(18);
-    expect(new Set(definedEvents).size).toBe(18);
+    expect(definedEvents).toHaveLength(19);
+    expect(new Set(definedEvents).size).toBe(19);
     expect(new Set(definedEvents)).toEqual(new Set(REQUIRED_AUDIT_EVENTS));
   });
 });

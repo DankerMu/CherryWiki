@@ -1,6 +1,6 @@
 import { HttpException, HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import { ROLES, hashPassword, normalizeRole, type Role } from '@cherrygraph/auth-core';
-import { ErrorCode, group_members, groups, tenants, users } from '@cherrygraph/shared';
+import { ErrorCode, group_members, groups, sessions, tenants, users } from '@cherrygraph/shared';
 import { and, asc, count, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { randomUUID } from 'node:crypto';
@@ -73,7 +73,7 @@ type UserSortField = keyof Pick<
 const DEFAULT_PAGE = 1;
 const DEFAULT_PER_PAGE = 20;
 const MAX_PER_PAGE = 100;
-const VALID_STATUSES = new Set(['active', 'disabled']);
+const VALID_STATUSES = new Set(['active', 'disabled', 'deleted']);
 const ROLE_RANK: Record<Role, number> = {
   [ROLES.OWNER]: 6,
   [ROLES.ADMIN]: 5,
@@ -297,6 +297,64 @@ export class UserService {
     return toAdminUserResponse(updatedUser, groupsByUser.get(userId) ?? []);
   }
 
+  async deleteUser(userId: string, context: AdminContext = {}): Promise<void> {
+    const tenantId = await this.resolveTenantId(context);
+    const existing = await findUserById(this.db, tenantId, userId);
+    if (existing === undefined || existing.status === 'deleted') {
+      throwApiError(ErrorCode.USER_NOT_FOUND, 'User not found', HttpStatus.NOT_FOUND);
+    }
+
+    if (userId === context.actorUserId) {
+      throwApiError(ErrorCode.PERMISSION_DENIED, 'Cannot delete yourself', HttpStatus.FORBIDDEN);
+    }
+
+    if (existing.role === ROLES.OWNER) {
+      throwApiError(ErrorCode.PERMISSION_DENIED, 'Cannot delete owner', HttpStatus.FORBIDDEN);
+    }
+
+    const now = new Date();
+    await this.db.transaction(async (tx) => {
+      const txDb = tx as UserDatabase;
+      const [deleted] = await txDb
+        .update(users)
+        .set({
+          status: 'deleted',
+          permission_version: sql<number>`${users.permission_version} + 1`,
+          updated_at: now,
+        })
+        .where(and(eq(users.tenant_id, tenantId), eq(users.id, userId), sql`${users.status} != 'deleted'`))
+        .returning();
+
+      if (deleted === undefined) {
+        throwApiError(ErrorCode.USER_NOT_FOUND, 'User not found', HttpStatus.NOT_FOUND);
+      }
+
+      await txDb
+        .delete(group_members)
+        .where(and(eq(group_members.tenant_id, tenantId), eq(group_members.user_id, userId)));
+
+      await txDb
+        .delete(sessions)
+        .where(and(eq(sessions.tenant_id, tenantId), eq(sessions.user_id, userId)));
+    });
+
+    await this.publishUserPermissionChanged(tenantId, userId);
+
+    this.auditService.push({
+      tenant_id: tenantId,
+      ...(context.actorUserId !== undefined ? { actor_user_id: context.actorUserId } : {}),
+      action: AUDIT_EVENTS.ADMIN_USER_DELETE,
+      resource_type: 'user',
+      resource_id: userId,
+      metadata_json: {
+        old_status: existing.status,
+        new_status: 'deleted',
+        role: existing.role,
+        email: existing.email,
+      },
+    });
+  }
+
   private async getUserGroupIds(tenantId: string, userIds: string[]): Promise<Map<string, string[]>> {
     const groupsByUser = new Map<string, string[]>();
     if (userIds.length === 0) {
@@ -357,6 +415,8 @@ function buildUserWhere(tenantId: string, input: ListUsersInput): SQL {
 
   if (input.status !== undefined && input.status.trim().length > 0) {
     conditions.push(eq(users.status, normalizeStatusOrThrow(input.status)));
+  } else {
+    conditions.push(sql`${users.status} != 'deleted'`);
   }
 
   if (input.search !== undefined && input.search.trim().length > 0) {

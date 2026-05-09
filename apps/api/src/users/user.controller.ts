@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpException, HttpStatus, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpException, HttpStatus, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { Permissions, type AuthenticatedRequestUser } from '@cherrygraph/auth-core';
 import { ErrorCode } from '@cherrygraph/shared';
 import {
@@ -71,7 +71,7 @@ class UpdateUserDto {
   role?: string;
 
   @IsOptional()
-  @IsIn(['active', 'disabled'])
+  @IsIn(['active', 'disabled', 'deleted'])
   status?: string;
 }
 
@@ -118,6 +118,20 @@ export class UserController {
   ): Promise<AdminUserResponse> {
     const user = getAuthenticatedUser(request);
     return this.userService.updateUser(userId, body, {
+      tenantId: user.tenant_id,
+      actorUserId: user.sub,
+      actorRole: user.role,
+    });
+  }
+
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Delete(':user_id')
+  async deleteUser(
+    @Param('user_id') userId: string,
+    @Req() request: RequestWithAuth,
+  ): Promise<void> {
+    const user = getAuthenticatedUser(request);
+    await this.userService.deleteUser(userId, {
       tenantId: user.tenant_id,
       actorUserId: user.sub,
       actorRole: user.role,

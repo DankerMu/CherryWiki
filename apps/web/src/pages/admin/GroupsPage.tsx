@@ -198,6 +198,39 @@ function GroupsPage() {
                 <Collapse>
                   {spaces.map((space) => (
                     <Collapse.Panel key={space.id} header={space.name}>
+                      <Space style={{ marginBottom: 8 }}>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            setForm((current) => {
+                              if (current === null) return current;
+                              return {
+                                ...current,
+                                permissionsBySpace: {
+                                  ...current.permissionsBySpace,
+                                  [space.id]: [...SPACE_PERMISSION_OPTIONS],
+                                },
+                              };
+                            });
+                          }}
+                        >
+                          {t('admin.permissions.selectAll')}
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            setForm((current) => {
+                              if (current === null) return current;
+                              return {
+                                ...current,
+                                permissionsBySpace: { ...current.permissionsBySpace, [space.id]: [] },
+                              };
+                            });
+                          }}
+                        >
+                          {t('admin.permissions.deselectAll')}
+                        </Button>
+                      </Space>
                       <Checkbox.Group
                         value={form.permissionsBySpace[space.id] ?? []}
                         onChange={(checked) => {

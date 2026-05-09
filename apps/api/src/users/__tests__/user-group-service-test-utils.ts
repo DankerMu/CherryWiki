@@ -41,6 +41,7 @@ export class ScriptedDb {
   readonly updates: OperationRecord[] = [];
   readonly deletes: OperationRecord[] = [];
   readonly selectFields: unknown[] = [];
+  readonly whereClauses: unknown[] = [];
   readonly limitCalls: number[] = [];
   readonly offsetCalls: number[] = [];
   readonly selectResults: unknown[][] = [];
@@ -138,7 +139,8 @@ export class ScriptedQueryBuilder implements PromiseLike<unknown[]> {
     return this;
   }
 
-  where(): this {
+  where(condition?: unknown): this {
+    this.db.whereClauses.push(condition);
     return this;
   }
 

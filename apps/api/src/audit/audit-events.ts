@@ -8,6 +8,7 @@ export const AUDIT_EVENTS = {
   ADMIN_USER_CREATE: 'admin.user.create',
   ADMIN_USER_UPDATE: 'admin.user.update',
   ADMIN_USER_DISABLE: 'admin.user.disable',
+  ADMIN_USER_DELETE: 'admin.user.delete',
   ADMIN_GROUP_CREATE: 'admin.group.create',
   USER_GROUP_CHANGE: 'user.group_change',
   SPACE_CREATE: 'space.create',

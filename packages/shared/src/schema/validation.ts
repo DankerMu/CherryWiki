@@ -15,7 +15,7 @@ import {
 } from './core.js';
 
 export const userRoleSchema = z.enum(['owner', 'admin', 'space_admin', 'editor', 'viewer', 'auditor']);
-export const userStatusSchema = z.enum(['active', 'disabled']);
+export const userStatusSchema = z.enum(['active', 'disabled', 'deleted']);
 export const spaceStatusSchema = z.enum(['active', 'archived']);
 export const modelTypeSchema = z.enum(['chat', 'embedding', 'rerank']);
 export const sourceDocumentSourceTypeSchema = z.enum(['upload', 'url']);

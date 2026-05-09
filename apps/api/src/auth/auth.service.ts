@@ -161,7 +161,7 @@ export class AuthService {
       throwAuthError(ErrorCode.INVALID_CREDENTIALS, 'Invalid email or password');
     }
 
-    if (user.status === 'disabled') {
+    if (user.status !== 'active') {
       throwAuthError(ErrorCode.ACCOUNT_DISABLED, 'Account is disabled');
     }
 
@@ -252,7 +252,7 @@ export class AuthService {
         throwAuthError(ErrorCode.INVALID_REFRESH_TOKEN, 'Invalid refresh token');
       }
 
-      if (user.status === 'disabled') {
+      if (user.status !== 'active') {
         throwAuthError(ErrorCode.ACCOUNT_DISABLED, 'Account is disabled');
       }
 
