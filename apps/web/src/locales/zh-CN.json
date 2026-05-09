@@ -68,6 +68,7 @@
       "empty": "暂无可用空间"
     },
     "sidebar": {
+      "spaceFunctions": "空间功能",
       "chat": "聊天",
       "wiki": "知识库",
       "uploads": "上传",

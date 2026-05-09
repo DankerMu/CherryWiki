@@ -68,6 +68,7 @@
       "empty": "No spaces available"
     },
     "sidebar": {
+      "spaceFunctions": "Space Functions",
       "chat": "Chat",
       "wiki": "Wiki",
       "uploads": "Uploads",
