@@ -210,7 +210,7 @@ function SpacesPage() {
           <Popconfirm
             title={t('admin.spaces.archiveConfirm', { name: space.name })}
             description={t('admin.spaces.archiveWarning')}
-            onConfirm={() => archiveSpace(space)}
+            onConfirm={() => { void archiveSpace(space); }}
             okText={t('common.action.confirm')}
             cancelText={t('common.action.cancel')}
           >

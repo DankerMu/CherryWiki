@@ -152,7 +152,7 @@ function GroupsPage() {
                       name: group.name,
                       count: memberSummary.get(group.id) ?? group.member_count,
                     })}
-                    onConfirm={() => deleteGroup(group)}
+                    onConfirm={() => { void deleteGroup(group); }}
                     okText={t('common.action.confirm')}
                     cancelText={t('common.action.cancel')}
                   >
