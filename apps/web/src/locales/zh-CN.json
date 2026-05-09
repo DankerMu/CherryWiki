@@ -205,6 +205,9 @@
       },
       "noDescription": "无描述",
       "noSpacePermissions": "无空间权限",
+      "deleteButton": "删除",
+      "deleteConfirm": "确定要删除分组“{{name}}”吗？将移除 {{count}} 名成员及其所有关联权限。",
+      "deleteSuccess": "分组已删除",
       "form": {
         "name": "名称",
         "nameRequired": "请输入分组名称",
@@ -222,6 +225,10 @@
       "creating": "创建中...",
       "emptyList": "暂无可管理的空间。",
       "detailLoading": "加载空间详情中...",
+      "archiveButton": "归档",
+      "archiveConfirm": "确定要归档空间“{{name}}”吗？",
+      "archiveWarning": "归档后该空间将对所有用户不可见。",
+      "archiveSuccess": "空间已归档",
       "columns": {
         "name": "名称",
         "slug": "标识",

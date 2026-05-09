@@ -205,6 +205,9 @@
       },
       "noDescription": "No description",
       "noSpacePermissions": "No space permissions",
+      "deleteButton": "Delete",
+      "deleteConfirm": "Are you sure you want to delete group \"{{name}}\"? This will remove {{count}} member(s) and all associated permissions.",
+      "deleteSuccess": "Group deleted successfully",
       "form": {
         "name": "Name",
         "nameRequired": "Please enter a group name",
@@ -222,6 +225,10 @@
       "creating": "Creating...",
       "emptyList": "No spaces are available to administer.",
       "detailLoading": "Loading space details...",
+      "archiveButton": "Archive",
+      "archiveConfirm": "Are you sure you want to archive space \"{{name}}\"?",
+      "archiveWarning": "After archiving, this space will be invisible to all users.",
+      "archiveSuccess": "Space archived successfully",
       "columns": {
         "name": "Name",
         "slug": "Slug",

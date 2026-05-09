@@ -1,4 +1,4 @@
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { DeleteOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import {
   Button,
   Checkbox,
@@ -9,6 +9,7 @@ import {
   Form,
   Input,
   Modal,
+  Popconfirm,
   Space,
   Switch,
   Table,
@@ -151,6 +152,17 @@ function SpacesPage() {
     }
   }
 
+  async function archiveSpace(space: AdminSpace): Promise<void> {
+    try {
+      await api.delete(`/spaces/${space.id}`);
+      void message.success(t('admin.spaces.archiveSuccess'));
+      await loadSpaces();
+    } catch (err) {
+      void message.error(getErrorMessage(err));
+      throw err;
+    }
+  }
+
   const columns: ColumnsType<AdminSpace> = [
     {
       title: t('admin.spaces.columns.name'),
@@ -191,9 +203,22 @@ function SpacesPage() {
       title: t('admin.spaces.columns.actions'),
       key: 'actions',
       render: (_: unknown, space: AdminSpace) => (
-        <Button size="small" loading={isDetailLoading} onClick={() => { void openDetails(space); }}>
-          {t('common.action.configure')}
-        </Button>
+        <Space>
+          <Button size="small" loading={isDetailLoading} onClick={() => { void openDetails(space); }}>
+            {t('common.action.configure')}
+          </Button>
+          <Popconfirm
+            title={t('admin.spaces.archiveConfirm', { name: space.name })}
+            description={t('admin.spaces.archiveWarning')}
+            onConfirm={() => archiveSpace(space)}
+            okText={t('common.action.confirm')}
+            cancelText={t('common.action.cancel')}
+          >
+            <Button icon={<DeleteOutlined />} size="small" danger>
+              {t('admin.spaces.archiveButton')}
+            </Button>
+          </Popconfirm>
+        </Space>
       ),
     },
   ];
