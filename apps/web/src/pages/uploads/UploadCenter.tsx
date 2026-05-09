@@ -203,7 +203,7 @@ export default function UploadCenter() {
         <Alert message={error} type="error" showIcon closable style={{ marginBottom: 16 }} onClose={() => setError(null)} />
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16, ...(uploadSpaceId.length === 0 ? { opacity: 0.5, pointerEvents: 'none' } : {}) }}>
         <FileUploadZone
           spaceId={uploadSpaceId}
           accessToken={accessToken}

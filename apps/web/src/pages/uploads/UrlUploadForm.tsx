@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Input, Typography, message } from 'antd';
+import { Alert, Button, Card, Input, Typography } from 'antd';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getErrorMessage } from '../../components/adminUi';
@@ -33,7 +33,6 @@ export default function UrlUploadForm({ spaceId, onUploaded }: UrlUploadFormProp
       });
       onUploaded(response, trimmedUrl);
       setUrl('');
-      void message.success(t('upload.url.success', { id: response.source_document_id }));
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
