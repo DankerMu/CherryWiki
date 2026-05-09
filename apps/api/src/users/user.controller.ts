@@ -71,7 +71,7 @@ class UpdateUserDto {
   role?: string;
 
   @IsOptional()
-  @IsIn(['active', 'disabled', 'deleted'])
+  @IsIn(['active', 'disabled'])
   status?: string;
 }
 

@@ -200,7 +200,7 @@ export class UserService {
   ): Promise<AdminUserResponse> {
     const tenantId = await this.resolveTenantId(context);
     const existing = await findUserById(this.db, tenantId, userId);
-    if (existing === undefined) {
+    if (existing === undefined || existing.status === 'deleted') {
       throwApiError(ErrorCode.USER_NOT_FOUND, 'User not found', HttpStatus.NOT_FOUND);
     }
 
