@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpException,
@@ -197,6 +198,22 @@ export class SpaceController {
   ): Promise<SpaceDetail> {
     const user = getAuthenticatedUser(request);
     return this.spaceService.updateSpace(spaceId, body, {
+      tenantId: user.tenant_id,
+      actorUserId: user.sub,
+      actorRole: user.role,
+      userId: user.sub,
+    });
+  }
+
+  @Permissions('admin:user_manage')
+  @Delete(':space_id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async archiveSpace(
+    @Param('space_id') spaceId: string,
+    @Req() request: RequestWithAuth,
+  ): Promise<void> {
+    const user = getAuthenticatedUser(request);
+    await this.spaceService.archiveSpace(spaceId, {
       tenantId: user.tenant_id,
       actorUserId: user.sub,
       actorRole: user.role,

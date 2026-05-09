@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpException, HttpStatus, Param, Post, Put, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpException, HttpStatus, Param, Post, Put, Query, Req } from '@nestjs/common';
 import { Permissions, type AuthenticatedRequestUser } from '@cherrygraph/auth-core';
 import { ErrorCode } from '@cherrygraph/shared';
 import {
@@ -128,6 +128,19 @@ export class GroupController {
   ): Promise<AdminGroupResponse> {
     const user = getAuthenticatedUser(request);
     return this.groupService.updateGroup(groupId, body, {
+      tenantId: user.tenant_id,
+      actorUserId: user.sub,
+    });
+  }
+
+  @Delete(':group_id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteGroup(
+    @Param('group_id') groupId: string,
+    @Req() request: RequestWithAuth,
+  ): Promise<void> {
+    const user = getAuthenticatedUser(request);
+    await this.groupService.deleteGroup(groupId, {
       tenantId: user.tenant_id,
       actorUserId: user.sub,
     });
