@@ -1,4 +1,5 @@
-import { ErrorCode } from '@cherrygraph/shared';
+import { group_members, ErrorCode, sessions, users } from '@cherrygraph/shared';
+import { inspect } from 'node:util';
 import { describe, expect, it } from 'vitest';
 
 import { AUDIT_EVENTS } from '../../audit/audit-events.js';
@@ -42,6 +43,17 @@ describe('UserService', () => {
       }),
     ]);
     expect(result.pagination).toMatchObject({ page: 1, per_page: 10, total: 1, has_next: false });
+  });
+
+  it('excludes deleted users from default list filters', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([]);
+    db.queueSelect([{ total: 0 }]);
+
+    await service.listUsers({}, createContext());
+
+    expect(sqlDebug(db.whereClauses[0])).toContain("!= 'deleted'");
+    expect(sqlDebug(db.whereClauses[1])).toContain("!= 'deleted'");
   });
 
   it('creates a user with groups and records admin.user.create', async () => {
@@ -251,6 +263,78 @@ describe('UserService', () => {
     expect(err.getStatus()).toBe(404);
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.USER_NOT_FOUND);
   });
+
+  it('deletes a user, clears groups and sessions, publishes Redis, and records admin.user.delete', async () => {
+    const { service, db, audit, redis } = createServiceContext();
+    db.queueSelect([createUserRow({ status: 'active' })]);
+    db.queueUpdate([createUserRow({ status: 'deleted', permission_version: 2 })]);
+
+    await service.deleteUser(TEST_USER_ID, createContext());
+
+    expect(db.updates[0]?.table).toBe(users);
+    expect(requireRecord(db.updates[0]?.value)).toMatchObject({ status: 'deleted' });
+    expect(hasPermissionVersionIncrement(db.updates[0]?.value)).toBe(true);
+    expect(db.deletes.map((operation) => operation.table)).toEqual([group_members, sessions]);
+    expect(redis.publish).toHaveBeenCalledWith(
+      `user_permission_changed:${TEST_USER_ID}`,
+      JSON.stringify({ tenant_id: TEST_TENANT_ID }),
+    );
+    expect(audit.push).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AUDIT_EVENTS.ADMIN_USER_DELETE,
+        tenant_id: TEST_TENANT_ID,
+        actor_user_id: TEST_ACTOR_ID,
+        resource_type: 'user',
+        resource_id: TEST_USER_ID,
+      }),
+    );
+  });
+
+  it('denies deleting yourself', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createUserRow({ id: TEST_ACTOR_ID })]);
+
+    const err = await getRejectedHttpException(
+      service.deleteUser(TEST_ACTOR_ID, createContext({ actorUserId: TEST_ACTOR_ID })),
+    );
+
+    expect(err.getStatus()).toBe(403);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.PERMISSION_DENIED);
+    expect(db.updates).toHaveLength(0);
+  });
+
+  it('denies deleting owner users', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createUserRow({ role: 'owner' })]);
+
+    const err = await getRejectedHttpException(service.deleteUser(TEST_USER_ID, createContext()));
+
+    expect(err.getStatus()).toBe(403);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.PERMISSION_DENIED);
+    expect(db.updates).toHaveLength(0);
+  });
+
+  it('returns USER_NOT_FOUND when deleting a missing user', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([]);
+
+    const err = await getRejectedHttpException(service.deleteUser('missing-user', createContext()));
+
+    expect(err.getStatus()).toBe(404);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.USER_NOT_FOUND);
+    expect(db.updates).toHaveLength(0);
+  });
+
+  it('returns USER_NOT_FOUND when deleting an already deleted user', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createUserRow({ status: 'deleted' })]);
+
+    const err = await getRejectedHttpException(service.deleteUser(TEST_USER_ID, createContext()));
+
+    expect(err.getStatus()).toBe(404);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.USER_NOT_FOUND);
+    expect(db.updates).toHaveLength(0);
+  });
 });
 
 function createServiceContext(): {
@@ -282,4 +366,8 @@ function createContext(
 
 function hasPermissionVersionIncrement(value: unknown): boolean {
   return 'permission_version' in requireRecord(value);
+}
+
+function sqlDebug(value: unknown): string {
+  return inspect(value, { depth: 12 });
 }

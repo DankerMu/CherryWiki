@@ -12,6 +12,7 @@ const EXPECTED_AUDIT_EVENTS = [
   'admin.user.create',
   'admin.user.update',
   'admin.user.disable',
+  'admin.user.delete',
   'admin.group.create',
   'user.group_change',
   'space.create',
@@ -24,11 +25,11 @@ const EXPECTED_AUDIT_EVENTS = [
 ] as const;
 
 describe('AUDIT_EVENTS', () => {
-  it('defines all 18 mandatory audit events', () => {
+  it('defines all 19 mandatory audit events', () => {
     const values = Object.values(AUDIT_EVENTS);
 
-    expect(values).toHaveLength(18);
-    expect(new Set(values).size).toBe(18);
+    expect(values).toHaveLength(19);
+    expect(new Set(values).size).toBe(19);
   });
 
   it('matches the expected event strings', () => {

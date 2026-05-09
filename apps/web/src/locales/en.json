@@ -45,6 +45,7 @@
     "status": {
       "active": "Active",
       "disabled": "Disabled",
+      "deleted": "Deleted",
       "healthy": "Healthy",
       "degraded": "Degraded",
       "unhealthy": "Unhealthy",
@@ -177,7 +178,13 @@
         "displayNameRequired": "Please enter a display name"
       },
       "confirmDisable": "Are you sure you want to disable this user?",
-      "confirmEnable": "Are you sure you want to enable this user?"
+      "confirmEnable": "Are you sure you want to enable this user?",
+      "confirmDelete": "Are you sure you want to delete this user?",
+      "deleteSuccess": "User deleted successfully"
+    },
+    "permissions": {
+      "selectAll": "Select All",
+      "deselectAll": "Deselect All"
     },
     "groups": {
       "title": "Group Management",

@@ -45,6 +45,7 @@
     "status": {
       "active": "活跃",
       "disabled": "已禁用",
+      "deleted": "已删除",
       "healthy": "健康",
       "degraded": "降级",
       "unhealthy": "异常",
@@ -177,7 +178,13 @@
         "displayNameRequired": "请输入显示名称"
       },
       "confirmDisable": "确定要禁用此用户吗？",
-      "confirmEnable": "确定要启用此用户吗？"
+      "confirmEnable": "确定要启用此用户吗？",
+      "confirmDelete": "确定要删除该用户吗？",
+      "deleteSuccess": "用户已删除"
+    },
+    "permissions": {
+      "selectAll": "全选",
+      "deselectAll": "全不选"
     },
     "groups": {
       "title": "分组管理",

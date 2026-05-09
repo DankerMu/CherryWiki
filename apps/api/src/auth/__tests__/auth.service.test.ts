@@ -153,6 +153,19 @@ describe('AuthService', () => {
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.ACCOUNT_DISABLED);
   });
 
+  it('rejects deleted accounts with ACCOUNT_DISABLED', async () => {
+    const passwordHash = await hashPassword('Correct1!');
+    const { service, db } = createServiceContext();
+    db.queueSelect([createUser(passwordHash, { status: 'deleted' })]);
+
+    const err = await getRejectedHttpException(
+      service.login({ email: TEST_EMAIL, password: 'Correct1!' }),
+    );
+
+    expect(err.getStatus()).toBe(401);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.ACCOUNT_DISABLED);
+  });
+
   it('returns INVALID_CREDENTIALS on the fifth failed login attempt and ACCOUNT_LOCKED on the sixth', async () => {
     const passwordHash = await hashPassword('Correct1!');
     const { service, redis, db } = createServiceContext();

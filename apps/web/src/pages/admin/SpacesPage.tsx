@@ -276,6 +276,30 @@ function SpacesPage() {
                 <Collapse>
                   {groups.map((group) => (
                     <Collapse.Panel key={group.id} header={group.name}>
+                      <Space style={{ marginBottom: 8 }}>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            setPermissionsByGroup((current) => ({
+                              ...current,
+                              [group.id]: [...SPACE_PERMISSION_OPTIONS],
+                            }));
+                          }}
+                        >
+                          {t('admin.permissions.selectAll')}
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            setPermissionsByGroup((current) => ({
+                              ...current,
+                              [group.id]: [],
+                            }));
+                          }}
+                        >
+                          {t('admin.permissions.deselectAll')}
+                        </Button>
+                      </Space>
                       <Checkbox.Group
                         value={permissionsByGroup[group.id] ?? []}
                         onChange={(checked) => {

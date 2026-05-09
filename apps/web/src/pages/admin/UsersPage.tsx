@@ -7,6 +7,7 @@ import { requireAdminPage } from '../../components/RequireAdminPage';
 import { api } from '../../lib/api';
 import { formatDate, getErrorMessage, parseIdList } from '../../components/adminUi';
 import { ROLE_OPTIONS, type AdminUser } from '../../lib/adminTypes';
+import { useAuth } from '../../lib/auth';
 
 type CreateUserForm = {
   email: string;
@@ -38,6 +39,7 @@ function statusColor(status: string): string {
 
 function UsersPage() {
   const { t } = useTranslation();
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [search, setSearch] = useState('');
   const [role, setRole] = useState('');
@@ -128,6 +130,16 @@ function UsersPage() {
     }
   }
 
+  async function deleteUser(user: AdminUser): Promise<void> {
+    try {
+      await api.delete(`/admin/users/${user.id}`);
+      void message.success(t('admin.users.deleteSuccess'));
+      await loadUsers();
+    } catch (err) {
+      void message.error(getErrorMessage(err));
+    }
+  }
+
   const columns: ColumnsType<AdminUser> = [
     {
       title: t('admin.users.columns.email'),
@@ -197,6 +209,16 @@ function UsersPage() {
               size="small"
             />
           </Popconfirm>
+          {user.id !== currentUser?.id && user.role !== 'owner' ? (
+            <Popconfirm
+              title={t('admin.users.confirmDelete')}
+              onConfirm={() => { void deleteUser(user); }}
+              okText={t('common.action.confirm')}
+              cancelText={t('common.action.cancel')}
+            >
+              <Button size="small" danger>{t('common.action.delete')}</Button>
+            </Popconfirm>
+          ) : null}
         </Space>
       ),
     },
