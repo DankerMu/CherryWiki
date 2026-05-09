@@ -1,17 +1,18 @@
-import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import { ROLES, normalizeRole } from '@cherrygraph/auth-core';
 import {
   ErrorCode,
   graphEdges,
   graphNodes,
   group_members,
+  permission_versions,
   source_documents,
   space_permissions,
   spaces,
   tenants,
   wikiPages,
 } from '@cherrygraph/shared';
-import { and, asc, count, desc, eq, ilike, inArray, ne, or, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, inArray, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { randomUUID } from 'node:crypto';
 
@@ -23,6 +24,8 @@ import {
   parseSortField,
   type PaginatedResponse,
 } from '../common/dto/pagination.dto.js';
+import { getApiLogger } from '../common/logger/logger.module.js';
+import { REDIS_CLIENT } from '../common/redis/redis.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import {
   databaseConfigStorageValue,
@@ -34,6 +37,10 @@ import {
 type SpaceDatabase = NodePgDatabase;
 type SpaceRow = typeof spaces.$inferSelect;
 type JsonRecord = Record<string, unknown>;
+
+type RedisPublisher = {
+  publish: (channel: string, message: string) => Promise<number>;
+};
 
 export type SpaceContext = {
   tenantId?: string;
@@ -116,6 +123,7 @@ export class SpaceService {
   constructor(
     @Inject(DRIZZLE) private readonly db: SpaceDatabase,
     private readonly auditService: AuditService,
+    @Optional() @Inject(REDIS_CLIENT) private readonly redis?: RedisPublisher,
   ) {}
 
   async listSpaces(
@@ -322,6 +330,76 @@ export class SpaceService {
     }
   }
 
+  async archiveSpace(spaceId: string, context: SpaceContext = {}): Promise<void> {
+    const tenantId = await this.resolveTenantId(context);
+    const existing = await findSpaceById(this.db, tenantId, spaceId);
+    if (existing === undefined) {
+      throwSpaceNotFound();
+    }
+
+    if (existing.status === 'archived') {
+      throwApiError(ErrorCode.CONFLICT, 'Space already archived', HttpStatus.CONFLICT);
+    }
+
+    const permissionsByGroup = await getSpacePermissionMap(this.db, tenantId, spaceId);
+    const now = new Date();
+
+    await this.db.transaction(async (tx) => {
+      const txDb = tx as SpaceDatabase;
+      const [archived] = await txDb
+        .update(spaces)
+        .set({
+          status: 'archived',
+          permission_version: sql<number>`${spaces.permission_version} + 1`,
+          updated_at: now,
+        })
+        .where(
+          and(
+            eq(spaces.tenant_id, tenantId),
+            eq(spaces.id, spaceId),
+            ne(spaces.status, 'archived'),
+          ),
+        )
+        .returning();
+
+      if (archived === undefined) {
+        throwApiError(ErrorCode.CONFLICT, 'Space already archived', HttpStatus.CONFLICT);
+      }
+
+      await txDb
+        .delete(space_permissions)
+        .where(and(eq(space_permissions.tenant_id, tenantId), eq(space_permissions.space_id, spaceId)));
+
+      for (const [groupId, oldPermissions] of permissionsByGroup) {
+        await insertPermissionVersion(txDb, {
+          tenantId,
+          spaceId,
+          ...(context.actorUserId !== undefined ? { actorUserId: context.actorUserId } : {}),
+          changeType: 'space_archived',
+          groupId,
+          oldPermissions,
+          newPermissions: [],
+          reason: 'space.archive',
+        });
+      }
+    });
+
+    await this.publishSpacePermissionChanged(tenantId, spaceId);
+
+    this.auditService.push({
+      tenant_id: tenantId,
+      ...(context.actorUserId !== undefined ? { actor_user_id: context.actorUserId } : {}),
+      action: AUDIT_EVENTS.SPACE_ARCHIVE,
+      resource_type: 'space',
+      resource_id: spaceId,
+      space_id: spaceId,
+      metadata_json: {
+        spaceId,
+        spaceName: existing.name,
+      },
+    });
+  }
+
   async getStats(spaceId: string, context: SpaceContext = {}): Promise<SpaceStatsResponse> {
     const tenantId = await this.resolveTenantId(context);
     const space = await findSpaceById(this.db, tenantId, spaceId);
@@ -501,6 +579,18 @@ export class SpaceService {
 
     return tenant.id;
   }
+
+  private async publishSpacePermissionChanged(tenantId: string, spaceId: string): Promise<void> {
+    await this.publishRedisEvent(`permission_changed:${spaceId}`, JSON.stringify({ tenant_id: tenantId }));
+  }
+
+  private async publishRedisEvent(channel: string, message: string): Promise<void> {
+    try {
+      await this.redis?.publish(channel, message);
+    } catch (err) {
+      getApiLogger().warn({ err, redis_channel: channel }, 'Redis publish failed');
+    }
+  }
 }
 
 function buildSpaceOrder(sort: string): SQL {
@@ -555,6 +645,65 @@ async function findSpaceBySlug(
     .limit(1);
 
   return space;
+}
+
+async function getSpacePermissionMap(
+  db: SpaceDatabase,
+  tenantId: string,
+  spaceId: string,
+): Promise<Map<string, string[]>> {
+  const rows = await db
+    .select({
+      group_id: space_permissions.group_id,
+      permission: space_permissions.permission,
+    })
+    .from(space_permissions)
+    .where(and(eq(space_permissions.tenant_id, tenantId), eq(space_permissions.space_id, spaceId)));
+
+  const map = new Map<string, string[]>();
+  for (const row of rows) {
+    const permissions = map.get(row.group_id) ?? [];
+    permissions.push(row.permission);
+    map.set(row.group_id, permissions);
+  }
+
+  return normalizePermissionMap(map);
+}
+
+async function insertPermissionVersion(
+  db: SpaceDatabase,
+  input: {
+    tenantId: string;
+    spaceId: string;
+    actorUserId?: string;
+    changeType: string;
+    groupId: string;
+    oldPermissions: string[];
+    newPermissions: string[];
+    reason: string;
+  },
+): Promise<void> {
+  await db.insert(permission_versions).values({
+    id: randomUUID(),
+    tenant_id: input.tenantId,
+    space_id: input.spaceId,
+    ...(input.actorUserId !== undefined ? { actor_user_id: input.actorUserId } : {}),
+    change_type: input.changeType,
+    subject_type: 'group',
+    subject_id: input.groupId,
+    old_permissions_json: input.oldPermissions,
+    new_permissions_json: input.newPermissions,
+    reason: input.reason,
+  });
+}
+
+function normalizePermissionMap(input: Map<string, string[]>): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  for (const [id, permissions] of input) {
+    map.set(id, [...new Set(permissions)].sort());
+  }
+
+  return map;
 }
 
 function hasImplicitSpaceAccess(role: string | undefined): boolean {

@@ -1,14 +1,16 @@
-import { ErrorCode } from '@cherrygraph/shared';
+import { ErrorCode, space_permissions } from '@cherrygraph/shared';
 import { describe, expect, it } from 'vitest';
 
 import { AUDIT_EVENTS } from '../../audit/audit-events.js';
 import {
   TEST_ACTOR_ID,
+  TEST_GROUP_ID,
   TEST_SPACE_ID,
   TEST_TENANT_ID,
   TEST_USER_ID,
   ScriptedDb,
   createAuditMock,
+  createRedisMock,
   createSpaceRow,
   getHttpExceptionCode,
   getRejectedHttpException,
@@ -197,6 +199,105 @@ describe('SpaceService', () => {
     );
   });
 
+  it('archives a space, clears space permissions, publishes Redis event, and records audit', async () => {
+    const { service, db, audit, redis } = createServiceContext();
+    db.queueSelect([createSpaceRow()]);
+    db.queueSelect([
+      { group_id: TEST_GROUP_ID, permission: 'space:admin' },
+      { group_id: TEST_GROUP_ID, permission: 'space:view' },
+      { group_id: 'group-2', permission: 'space:view' },
+    ]);
+    db.queueUpdate([createSpaceRow({ status: 'archived' })]);
+
+    await service.archiveSpace(TEST_SPACE_ID, createAdminContext());
+
+    const updateValue = getUpdateValue(db, 0);
+    expect(updateValue.status).toBe('archived');
+    expect(hasPermissionVersionIncrement(updateValue)).toBe(true);
+    expect(db.deletes.map((operation) => operation.table)).toEqual([space_permissions]);
+    expect(findInsertedPermissionVersions(db)).toEqual([
+      expect.objectContaining({
+        change_type: 'space_archived',
+        space_id: TEST_SPACE_ID,
+        subject_id: TEST_GROUP_ID,
+        old_permissions_json: ['space:admin', 'space:view'],
+        new_permissions_json: [],
+      }),
+      expect.objectContaining({
+        change_type: 'space_archived',
+        space_id: TEST_SPACE_ID,
+        subject_id: 'group-2',
+        old_permissions_json: ['space:view'],
+        new_permissions_json: [],
+      }),
+    ]);
+    expect(redis.publish).toHaveBeenCalledWith(
+      `permission_changed:${TEST_SPACE_ID}`,
+      JSON.stringify({ tenant_id: TEST_TENANT_ID }),
+    );
+    expect(audit.push).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AUDIT_EVENTS.SPACE_ARCHIVE,
+        resource_type: 'space',
+        resource_id: TEST_SPACE_ID,
+        space_id: TEST_SPACE_ID,
+        metadata_json: {
+          spaceId: TEST_SPACE_ID,
+          spaceName: 'Knowledge',
+        },
+      }),
+    );
+  });
+
+  it('archives a space with 0 permissions', async () => {
+    const { service, db, audit, redis } = createServiceContext();
+    db.queueSelect([createSpaceRow()]);
+    db.queueSelect([]);
+    db.queueUpdate([createSpaceRow({ status: 'archived' })]);
+
+    await service.archiveSpace(TEST_SPACE_ID, createAdminContext());
+
+    expect(getUpdateValue(db, 0).status).toBe('archived');
+    expect(db.deletes.map((operation) => operation.table)).toEqual([space_permissions]);
+    expect(findInsertedPermissionVersions(db)).toEqual([]);
+    expect(redis.publish).toHaveBeenCalledWith(
+      `permission_changed:${TEST_SPACE_ID}`,
+      JSON.stringify({ tenant_id: TEST_TENANT_ID }),
+    );
+    expect(audit.push).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AUDIT_EVENTS.SPACE_ARCHIVE,
+        resource_id: TEST_SPACE_ID,
+      }),
+    );
+  });
+
+  it('throws 404 when archiving a space that does not exist', async () => {
+    const { service, db, audit } = createServiceContext();
+    db.queueSelect([]);
+
+    const err = await getRejectedHttpException(service.archiveSpace('missing-space', createAdminContext()));
+
+    expect(err.getStatus()).toBe(404);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.SPACE_NOT_FOUND);
+    expect(db.updates).toHaveLength(0);
+    expect(db.deletes).toHaveLength(0);
+    expect(audit.push).not.toHaveBeenCalled();
+  });
+
+  it('throws 409 when archiving a space that is already archived', async () => {
+    const { service, db, audit } = createServiceContext();
+    db.queueSelect([createSpaceRow({ status: 'archived' })]);
+
+    const err = await getRejectedHttpException(service.archiveSpace(TEST_SPACE_ID, createAdminContext()));
+
+    expect(err.getStatus()).toBe(409);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.CONFLICT);
+    expect(db.updates).toHaveLength(0);
+    expect(db.deletes).toHaveLength(0);
+    expect(audit.push).not.toHaveBeenCalled();
+  });
+
   it('gets placeholder stats', async () => {
     const { service, db } = createServiceContext();
     db.queueSelect([createSpaceRow({ index_consistency_status: 'stale' })]);
@@ -217,12 +318,14 @@ function createServiceContext(): {
   service: SpaceService;
   db: ScriptedDb;
   audit: ReturnType<typeof createAuditMock>;
+  redis: ReturnType<typeof createRedisMock>;
 } {
   const db = new ScriptedDb();
   const audit = createAuditMock();
-  const service = new SpaceService(db.asDrizzle(), audit.service);
+  const redis = createRedisMock();
+  const service = new SpaceService(db.asDrizzle(), audit.service, redis);
 
-  return { service, db, audit };
+  return { service, db, audit, redis };
 }
 
 function createViewerContext(overrides: Partial<SpaceContext> = {}): SpaceContext {
@@ -260,4 +363,20 @@ function getUpdateValue(db: ScriptedDb, index: number): Record<string, unknown> 
   }
 
   return requireRecord(operation.value);
+}
+
+function hasPermissionVersionIncrement(value: unknown): boolean {
+  return 'permission_version' in requireRecord(value);
+}
+
+function findInsertedPermissionVersions(db: ScriptedDb): Record<string, unknown>[] {
+  return db.inserts
+    .map((operation) => operation.value)
+    .filter((value): value is Record<string, unknown> => (
+      isRecord(value) && typeof value.change_type === 'string'
+    ));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }

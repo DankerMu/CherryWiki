@@ -1,4 +1,4 @@
-import { ErrorCode } from '@cherrygraph/shared';
+import { ErrorCode, group_members, groups, space_permissions } from '@cherrygraph/shared';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AUDIT_EVENTS } from '../../audit/audit-events.js';
@@ -247,6 +247,111 @@ describe('GroupService', () => {
     );
   });
 
+  it('deletes a group, clears members and space permissions, publishes Redis events, and records audit', async () => {
+    const { service, db, audit, redis } = createServiceContext();
+    db.queueSelect([createGroupRow()]);
+    db.queueSelect([{ user_id: TEST_USER_ID }, { user_id: 'user-2' }]);
+    db.queueSelect([
+      { space_id: TEST_SPACE_ID, permission: 'space:edit' },
+      { space_id: TEST_SPACE_ID, permission: 'space:view' },
+      { space_id: 'space-2', permission: 'space:view' },
+    ]);
+
+    await service.deleteGroup(TEST_GROUP_ID, createContext());
+
+    expect(db.deletes.map((operation) => operation.table)).toEqual([
+      group_members,
+      space_permissions,
+      groups,
+    ]);
+    expect(db.updates.filter((operation) => hasPermissionVersionIncrement(operation.value))).toHaveLength(3);
+    expect(findInsertedPermissionVersions(db)).toEqual([
+      expect.objectContaining({
+        change_type: 'group_deleted',
+        space_id: TEST_SPACE_ID,
+        subject_id: TEST_GROUP_ID,
+        old_permissions_json: ['space:edit', 'space:view'],
+        new_permissions_json: [],
+      }),
+      expect.objectContaining({
+        change_type: 'group_deleted',
+        space_id: 'space-2',
+        subject_id: TEST_GROUP_ID,
+        old_permissions_json: ['space:view'],
+        new_permissions_json: [],
+      }),
+    ]);
+    expect(redis.publish).toHaveBeenCalledWith(
+      `permission_changed:${TEST_SPACE_ID}`,
+      JSON.stringify({ tenant_id: TEST_TENANT_ID }),
+    );
+    expect(redis.publish).toHaveBeenCalledWith(
+      'permission_changed:space-2',
+      JSON.stringify({ tenant_id: TEST_TENANT_ID }),
+    );
+    expect(redis.publish).toHaveBeenCalledWith(
+      `user_permission_changed:${TEST_USER_ID}`,
+      JSON.stringify({ tenant_id: TEST_TENANT_ID }),
+    );
+    expect(redis.publish).toHaveBeenCalledWith(
+      'user_permission_changed:user-2',
+      JSON.stringify({ tenant_id: TEST_TENANT_ID }),
+    );
+    expect(audit.push).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AUDIT_EVENTS.ADMIN_GROUP_DELETE,
+        resource_type: 'group',
+        resource_id: TEST_GROUP_ID,
+        metadata_json: {
+          groupId: TEST_GROUP_ID,
+          groupName: 'Editors',
+          memberCount: 2,
+        },
+      }),
+    );
+  });
+
+  it('deletes an empty group with 0 members and 0 permissions', async () => {
+    const { service, db, audit, redis } = createServiceContext();
+    db.queueSelect([createGroupRow()]);
+    db.queueSelect([]);
+    db.queueSelect([]);
+
+    await service.deleteGroup(TEST_GROUP_ID, createContext());
+
+    expect(db.deletes.map((operation) => operation.table)).toEqual([
+      group_members,
+      space_permissions,
+      groups,
+    ]);
+    expect(db.updates).toHaveLength(0);
+    expect(findInsertedPermissionVersions(db)).toEqual([]);
+    expect(redis.publish).not.toHaveBeenCalled();
+    expect(audit.push).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AUDIT_EVENTS.ADMIN_GROUP_DELETE,
+        resource_id: TEST_GROUP_ID,
+        metadata_json: {
+          groupId: TEST_GROUP_ID,
+          groupName: 'Editors',
+          memberCount: 0,
+        },
+      }),
+    );
+  });
+
+  it('throws 404 when deleting a group that does not exist', async () => {
+    const { service, db, audit } = createServiceContext();
+    db.queueSelect([]);
+
+    const err = await getRejectedHttpException(service.deleteGroup('missing-group', createContext()));
+
+    expect(err.getStatus()).toBe(404);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.GROUP_NOT_FOUND);
+    expect(db.deletes).toHaveLength(0);
+    expect(audit.push).not.toHaveBeenCalled();
+  });
+
   it('returns GROUP_NOT_FOUND when updating a missing group', async () => {
     const { service, db } = createServiceContext();
     db.queueSelect([]);
@@ -286,13 +391,15 @@ function hasPermissionVersionIncrement(value: unknown): boolean {
 }
 
 function findInsertedPermissionVersion(db: ScriptedDb): Record<string, unknown> | undefined {
-  for (const operation of db.inserts) {
-    if (isRecord(operation.value) && typeof operation.value.change_type === 'string') {
-      return operation.value;
-    }
-  }
+  return findInsertedPermissionVersions(db)[0];
+}
 
-  return undefined;
+function findInsertedPermissionVersions(db: ScriptedDb): Record<string, unknown>[] {
+  return db.inserts
+    .map((operation) => operation.value)
+    .filter((value): value is Record<string, unknown> => (
+      isRecord(value) && typeof value.change_type === 'string'
+    ));
 }
 
 function findAuditMetadata(

@@ -366,6 +366,72 @@ export class GroupService {
     return this.getGroupResponse(tenantId, groupId);
   }
 
+  async deleteGroup(groupId: string, context: AdminContext = {}): Promise<void> {
+    const tenantId = await this.resolveTenantId(context);
+    const existing = await findGroupById(this.db, tenantId, groupId);
+    if (existing === undefined) {
+      throwApiError(ErrorCode.GROUP_NOT_FOUND, 'Group not found', HttpStatus.NOT_FOUND);
+    }
+
+    const memberIds = await getGroupMemberIds(this.db, tenantId, groupId);
+    const permissionsBySpace = await getGroupSpacePermissionMap(this.db, tenantId, groupId);
+    const affectedSpaceIds = [...permissionsBySpace.keys()];
+    const now = new Date();
+
+    await this.db.transaction(async (tx) => {
+      const txDb = tx as GroupDatabase;
+
+      await txDb
+        .delete(group_members)
+        .where(and(eq(group_members.tenant_id, tenantId), eq(group_members.group_id, groupId)));
+
+      await txDb
+        .delete(space_permissions)
+        .where(and(eq(space_permissions.tenant_id, tenantId), eq(space_permissions.group_id, groupId)));
+
+      await txDb
+        .delete(groups)
+        .where(and(eq(groups.tenant_id, tenantId), eq(groups.id, groupId)));
+
+      await incrementUsersPermissionVersion(txDb, tenantId, memberIds, now);
+
+      for (const spaceId of affectedSpaceIds) {
+        await incrementSpacePermissionVersion(txDb, tenantId, spaceId, now);
+        await insertPermissionVersion(txDb, {
+          tenantId,
+          spaceId,
+          ...(context.actorUserId !== undefined ? { actorUserId: context.actorUserId } : {}),
+          changeType: 'group_deleted',
+          groupId,
+          oldPermissions: permissionsBySpace.get(spaceId) ?? [],
+          newPermissions: [],
+          reason: 'group.delete',
+        });
+      }
+    });
+
+    for (const spaceId of affectedSpaceIds) {
+      await this.publishSpacePermissionChanged(tenantId, spaceId);
+    }
+
+    for (const memberId of memberIds) {
+      await this.publishUserPermissionChanged(tenantId, memberId);
+    }
+
+    this.auditService.push({
+      tenant_id: tenantId,
+      ...(context.actorUserId !== undefined ? { actor_user_id: context.actorUserId } : {}),
+      action: AUDIT_EVENTS.ADMIN_GROUP_DELETE,
+      resource_type: 'group',
+      resource_id: groupId,
+      metadata_json: {
+        groupId,
+        groupName: existing.name,
+        memberCount: memberIds.length,
+      },
+    });
+  }
+
   async listSpacePermissions(
     spaceId: string,
     context: AdminContext = {},
