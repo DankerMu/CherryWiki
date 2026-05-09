@@ -488,6 +488,37 @@ describe('AuthService', () => {
       expect(result.spaces).toEqual([]);
     });
 
+    it('returns all active spaces for owner users (same as admin)', async () => {
+      const { service, db } = createServiceContext();
+      db.queueSelect([
+        createUser('password-hash', {
+          id: 'owner-user',
+          email: 'owner@example.com',
+          display_name: 'Owner User',
+          role: 'owner',
+        }),
+      ]);
+      db.queueSelect([]);
+      db.queueSelect([
+        { id: 'space-active-1', name: 'Active One' },
+        { id: 'space-active-2', name: 'Active Two' },
+      ]);
+
+      const result = await service.getCurrentUser(
+        createAuthenticatedUser({
+          sub: 'owner-user',
+          email: 'owner@example.com',
+          role: 'owner',
+          group_ids: [],
+        }),
+      );
+
+      expect(result.spaces).toEqual([
+        { id: 'space-active-1', name: 'Active One', role: 'admin' },
+        { id: 'space-active-2', name: 'Active Two', role: 'admin' },
+      ]);
+    });
+
     it('returns only group-authorized spaces for non-admin users', async () => {
       const { service, db } = createServiceContext();
       const unauthorizedSpace = { id: 'space-unauthorized', name: 'Unauthorized Space' };

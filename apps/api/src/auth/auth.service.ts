@@ -538,7 +538,7 @@ export class AuthService {
     role: string,
     db: AuthDatabase = this.db,
   ): Promise<CurrentUserResponse['spaces']> {
-    if (role === 'admin') {
+    if (role === 'admin' || role === 'owner') {
       const adminSpaces = await db
         .select({ id: spaces.id, name: spaces.name })
         .from(spaces)
