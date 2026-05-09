@@ -366,6 +366,76 @@ export class ChatService {
     return created;
   }
 
+  private async generateSessionTitle(
+    tenantId: string,
+    sessionId: string,
+    userMessage: string,
+    assistantReply: string,
+  ): Promise<void> {
+    try {
+      const chatModel = await this.resolveEnabledModel(tenantId, 'chat', ErrorCode.NO_CHAT_MODEL_CONFIGURED);
+      const provider = this.chatProviderFactory(toChatProviderConfig(chatModel));
+      let title = '';
+
+      for await (const chunk of provider.streamCompletion({
+        model: chatModel.model_id,
+        messages: [
+          { role: 'user', content: userMessage },
+          { role: 'assistant', content: assistantReply.slice(0, 500) },
+        ],
+        systemPrompt: '用不超过15个字概括这段对话的主题，只输出标题文本，不要加引号或标点。',
+        max_tokens: 50,
+        temperature: 0.3,
+      })) {
+        if (chunk.type === 'content') {
+          title += chunk.delta;
+        }
+
+        if (chunk.type === 'done') {
+          break;
+        }
+
+        if (chunk.type === 'error') {
+          return;
+        }
+      }
+
+      title = title.trim().replace(/^["'""'']+|["'""'']+$/g, '').slice(0, 30);
+      if (title.length > 0) {
+        await this.db.update(chatSessions).set({ title, updated_at: new Date() }).where(eq(chatSessions.id, sessionId));
+      }
+    } catch {
+      // fire-and-forget: failure does not affect chat
+    }
+  }
+
+  private async maybeGenerateTitle(
+    prepared: PreparedCompletion,
+    userMessage: string,
+    assistantReply: string,
+  ): Promise<void> {
+    try {
+      const session = await this.findSessionById(prepared.tenantId, prepared.session.id);
+      if (session === undefined || session.title !== null) return;
+
+      const messageCount = await this.countSessionMessages(prepared.session.id);
+      if (messageCount !== 2) return;
+
+      void this.generateSessionTitle(prepared.tenantId, prepared.session.id, userMessage, assistantReply);
+    } catch {
+      // ignore
+    }
+  }
+
+  private async countSessionMessages(sessionId: string): Promise<number> {
+    const [result] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(chatMessages)
+      .where(eq(chatMessages.session_id, sessionId));
+
+    return result?.count ?? 0;
+  }
+
   async streamCompletion(input: StreamCompletionInput): Promise<AsyncIterable<ChatStreamEvent>> {
     const space = await this.requireSpace(input.tenantId, input.spaceId);
     const chatModel = await this.resolveEnabledModel(input.tenantId, 'chat', ErrorCode.NO_CHAT_MODEL_CONFIGURED);
@@ -542,6 +612,7 @@ export class ChatService {
             source: 'agent',
           });
           yield { type: 'usage', usage };
+          void this.maybeGenerateTitle(prepared, input.message, assistantText);
           yield { type: 'message.completed' };
           this.auditCompletion(prepared, usage, 0, false, assistant.id);
           return;
@@ -601,6 +672,7 @@ export class ChatService {
         yield { type: 'content', delta: NO_HIT_MESSAGE };
         yield { type: 'citations', citations: [] };
         yield { type: 'usage', usage };
+        void this.maybeGenerateTitle(prepared, input.message, NO_HIT_MESSAGE);
         yield { type: 'message.completed' };
         this.auditCompletion(prepared, usage, retrievalResults.length, false, assistant.id);
         return;
@@ -673,6 +745,7 @@ export class ChatService {
 
       yield { type: 'citations', citations };
       yield { type: 'usage', usage };
+      void this.maybeGenerateTitle(prepared, input.message, assistantText);
       yield { type: 'message.completed' };
       this.auditCompletion(prepared, usage, retrievalResults.length, citations.length > 0, assistant.id);
     } catch {
