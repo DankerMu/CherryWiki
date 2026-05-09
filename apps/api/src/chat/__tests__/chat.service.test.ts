@@ -342,6 +342,156 @@ describe('ChatService streamCompletion', () => {
     expect(err.getStatus()).toBe(422);
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.NO_CHAT_MODEL_CONFIGURED);
   });
+
+  it('generates title after first round of chat', async () => {
+    const chatProvider = new ScriptedChatProvider([
+      { type: 'content', delta: 'SSO配置' },
+      { type: 'done', finish_reason: 'stop', usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 } },
+    ]);
+    const { service, db, chatFactory } = createServiceContext({ chatProvider });
+    queuePreparedCompletion(db, { space: createSpaceRow({ strict_knowledge_only: true }) });
+    db.queueSelect([]);
+    db.queueInsert([createMessageRow({ id: 'assistant-no-hit', role: 'assistant', content: NO_HIT_MESSAGE })]);
+    db.queueSelect([createSessionRow({ title: null })]);
+    db.queueSelect([{ count: 2 }]);
+    db.queueSelect([createModelRow({ model_type: 'chat' })]);
+
+    const events = await collectEvents(
+      await service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: TEST_SPACE_ID,
+        userId: TEST_USER_ID,
+        userGroupIds: [],
+        message: 'How is SSO configured?',
+      }),
+    );
+    await flushAsyncTasks();
+
+    expect(events[events.length - 1]).toEqual({ type: 'message.completed' });
+    expect(chatFactory).toHaveBeenCalledTimes(1);
+    expect(chatProvider.lastParams).toMatchObject({
+      model: 'gpt-test',
+      messages: [
+        { role: 'user', content: 'How is SSO configured?' },
+        { role: 'assistant', content: NO_HIT_MESSAGE },
+      ],
+      systemPrompt: '用不超过15个字概括这段对话的主题，只输出标题文本，不要加引号或标点。',
+      max_tokens: 50,
+      temperature: 0.3,
+    });
+    expect(findTitleUpdate(db)?.title).toBe('SSO配置');
+  });
+
+  it('does not generate title when title already exists', async () => {
+    const chatProvider = new ScriptedChatProvider([
+      { type: 'content', delta: '新标题' },
+      { type: 'done', finish_reason: 'stop', usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 } },
+    ]);
+    const { service, db, chatFactory } = createServiceContext({ chatProvider });
+    queuePreparedCompletion(db, { space: createSpaceRow({ strict_knowledge_only: true }) });
+    db.queueSelect([]);
+    db.queueInsert([createMessageRow({ id: 'assistant-no-hit', role: 'assistant', content: NO_HIT_MESSAGE })]);
+    db.queueSelect([createSessionRow({ title: 'Existing title' })]);
+
+    await collectEvents(
+      await service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: TEST_SPACE_ID,
+        userId: TEST_USER_ID,
+        userGroupIds: [],
+        message: 'missing topic',
+      }),
+    );
+    await flushAsyncTasks();
+
+    expect(chatFactory).not.toHaveBeenCalled();
+    expect(findTitleUpdate(db)).toBeUndefined();
+  });
+
+  it('does not generate title when message count is not 2', async () => {
+    const chatProvider = new ScriptedChatProvider([
+      { type: 'content', delta: '新标题' },
+      { type: 'done', finish_reason: 'stop', usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 } },
+    ]);
+    const { service, db, chatFactory } = createServiceContext({ chatProvider });
+    queuePreparedCompletion(db, { space: createSpaceRow({ strict_knowledge_only: true }) });
+    db.queueSelect([]);
+    db.queueInsert([createMessageRow({ id: 'assistant-no-hit', role: 'assistant', content: NO_HIT_MESSAGE })]);
+    db.queueSelect([createSessionRow({ title: null })]);
+    db.queueSelect([{ count: 3 }]);
+
+    await collectEvents(
+      await service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: TEST_SPACE_ID,
+        userId: TEST_USER_ID,
+        userGroupIds: [],
+        message: 'missing topic',
+      }),
+    );
+    await flushAsyncTasks();
+
+    expect(chatFactory).not.toHaveBeenCalled();
+    expect(findTitleUpdate(db)).toBeUndefined();
+  });
+
+  it('handles LLM failure gracefully without affecting chat', async () => {
+    const chatProvider = new ScriptedChatProvider([{ type: 'error', error: 'title failed' }]);
+    const { service, db } = createServiceContext({ chatProvider });
+    queuePreparedCompletion(db, { space: createSpaceRow({ strict_knowledge_only: true }) });
+    db.queueSelect([]);
+    db.queueInsert([createMessageRow({ id: 'assistant-no-hit', role: 'assistant', content: NO_HIT_MESSAGE })]);
+    db.queueSelect([createSessionRow({ title: null })]);
+    db.queueSelect([{ count: 2 }]);
+    db.queueSelect([createModelRow({ model_type: 'chat' })]);
+
+    const events = await collectEvents(
+      await service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: TEST_SPACE_ID,
+        userId: TEST_USER_ID,
+        userGroupIds: [],
+        message: 'missing topic',
+      }),
+    );
+    await flushAsyncTasks();
+
+    expect(events).toEqual([
+      { type: 'session', session_id: 'session-1' },
+      { type: 'content', delta: NO_HIT_MESSAGE },
+      { type: 'citations', citations: [] },
+      { type: 'usage', usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } },
+      { type: 'message.completed' },
+    ]);
+    expect(findTitleUpdate(db)).toBeUndefined();
+  });
+
+  it('truncates title to 30 characters and strips quotes', async () => {
+    const chatProvider = new ScriptedChatProvider([
+      { type: 'content', delta: '"12345678901234567890123456789012345"' },
+      { type: 'done', finish_reason: 'stop', usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 } },
+    ]);
+    const { service, db } = createServiceContext({ chatProvider });
+    queuePreparedCompletion(db, { space: createSpaceRow({ strict_knowledge_only: true }) });
+    db.queueSelect([]);
+    db.queueInsert([createMessageRow({ id: 'assistant-no-hit', role: 'assistant', content: NO_HIT_MESSAGE })]);
+    db.queueSelect([createSessionRow({ title: null })]);
+    db.queueSelect([{ count: 2 }]);
+    db.queueSelect([createModelRow({ model_type: 'chat' })]);
+
+    await collectEvents(
+      await service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: TEST_SPACE_ID,
+        userId: TEST_USER_ID,
+        userGroupIds: [],
+        message: 'missing topic',
+      }),
+    );
+    await flushAsyncTasks();
+
+    expect(findTitleUpdate(db)?.title).toBe('123456789012345678901234567890');
+  });
 });
 
 describe('ChatController', () => {
@@ -415,16 +565,27 @@ const NO_HIT_MESSAGE = '未找到相关知识，请尝试不同的提问方式';
 
 class ScriptedChatProvider implements ChatProvider {
   lastParams: ChatCompletionParams | undefined;
+  readonly calls: ChatCompletionParams[] = [];
+  private readonly chunkBatches: ChatChunk[][];
 
-  constructor(private readonly chunks: ChatChunk[]) {}
+  constructor(chunks: ChatChunk[] | ChatChunk[][]) {
+    this.chunkBatches = isChunkBatchList(chunks) ? chunks.map((batch) => [...batch]) : [[...chunks]];
+  }
 
   async *streamCompletion(params: ChatCompletionParams): AsyncIterable<ChatChunk> {
     this.lastParams = params;
+    this.calls.push(params);
     await Promise.resolve();
-    for (const chunk of this.chunks) {
+    const chunks = this.chunkBatches.length > 1 ? (this.chunkBatches.shift() ?? []) : (this.chunkBatches[0] ?? []);
+
+    for (const chunk of chunks) {
       yield chunk;
     }
   }
+}
+
+function isChunkBatchList(chunks: ChatChunk[] | ChatChunk[][]): chunks is ChatChunk[][] {
+  return Array.isArray(chunks[0]);
 }
 
 class ScriptedEmbeddingProvider implements EmbeddingProvider {
@@ -752,6 +913,25 @@ async function collectEvents(events: AsyncIterable<ChatStreamEvent>): Promise<Ch
   }
 
   return collected;
+}
+
+async function flushAsyncTasks(): Promise<void> {
+  for (let index = 0; index < 20; index += 1) {
+    await Promise.resolve();
+  }
+}
+
+function findTitleUpdate(db: ScriptedChatDb): { title: unknown } | undefined {
+  for (let index = db.updates.length - 1; index >= 0; index -= 1) {
+    const update = db.updates[index];
+    const value = update?.value;
+
+    if (update?.table === chatSessions && typeof value === 'object' && value !== null && 'title' in value) {
+      return value;
+    }
+  }
+
+  return undefined;
 }
 
 async function* toAsyncIterable<T>(items: T[]): AsyncIterable<T> {
