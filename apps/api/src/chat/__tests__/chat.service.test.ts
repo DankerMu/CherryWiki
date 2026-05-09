@@ -921,13 +921,13 @@ async function flushAsyncTasks(): Promise<void> {
   }
 }
 
-function findTitleUpdate(db: ScriptedChatDb): Record<string, unknown> | undefined {
+function findTitleUpdate(db: ScriptedChatDb): { title: unknown } | undefined {
   for (let index = db.updates.length - 1; index >= 0; index -= 1) {
     const update = db.updates[index];
     const value = update?.value;
 
     if (update?.table === chatSessions && typeof value === 'object' && value !== null && 'title' in value) {
-      return value as Record<string, unknown>;
+      return value;
     }
   }
 
