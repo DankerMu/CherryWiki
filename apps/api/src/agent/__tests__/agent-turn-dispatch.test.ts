@@ -185,6 +185,31 @@ describe('AgentService sendTurn dispatch', () => {
     proc.close(0);
   });
 
+  it('does not spawn when the conversation is owned by another tenant or user', async () => {
+    const { service, manager } = createService();
+    const conversationId = uniqueConversationId();
+    await manager.getOrCreateSession(conversationId, 'space-1', 'tenant-a', 'user-a', {
+      tenantId: 'tenant-a',
+      userId: 'user-a',
+    });
+
+    const events = await collectAsync(
+      service.sendTurn(conversationId, 'space-2', 'cross-scope turn', {
+        tenantId: 'tenant-b',
+        userId: 'user-b',
+      }),
+    );
+
+    expect(events).toEqual([
+      {
+        type: 'message.error',
+        code: 'agent_session_scope_mismatch',
+        message: 'Agent session is not available for this tenant or user',
+      },
+    ]);
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
   it('sends SIGINT on SSE disconnect and keeps the process alive if Claude returns to idle', async () => {
     const proc = createMockProcess();
     const stdinChunks = captureStdin(proc);
@@ -214,7 +239,9 @@ describe('AgentService sendTurn dispatch', () => {
     writeJsonLine(proc, { type: 'result', subtype: 'success', session_id: 'provider-cancel' });
     await returnPromise;
 
-    const saved = await manager.getOrCreateSession(conversationId, 'space-1', 'tenant-1', 'user-1');
+    const saved = expectDefined(
+      await manager.getOrCreateSession(conversationId, 'space-1', 'tenant-1', 'user-1'),
+    );
     expect(saved.status).toBe('idle');
     expect(saved.child).toBe(proc);
     expect(proc.kill).not.toHaveBeenCalledWith('SIGKILL');
@@ -251,7 +278,9 @@ describe('AgentService sendTurn dispatch', () => {
 
     expect(proc.kill).toHaveBeenCalledWith('SIGINT');
     expect(proc.kill).toHaveBeenCalledWith('SIGKILL');
-    const saved = await manager.getOrCreateSession(conversationId, 'space-1', 'tenant-1', 'user-1');
+    const saved = expectDefined(
+      await manager.getOrCreateSession(conversationId, 'space-1', 'tenant-1', 'user-1'),
+    );
     expect(saved.status).toBe('failed');
   });
 });
@@ -283,14 +312,21 @@ async function createStartedSession(
   proc: MockAgentProcess,
   providerSessionId: string,
 ): Promise<PersistentAgentSession> {
-  const session = await manager.getOrCreateSession(uniqueConversationId(), 'space-1', 'tenant-1', 'user-1', {
-    tenantId: 'tenant-1',
-    userId: 'user-1',
-  });
+  const session = expectDefined(
+    await manager.getOrCreateSession(uniqueConversationId(), 'space-1', 'tenant-1', 'user-1', {
+      tenantId: 'tenant-1',
+      userId: 'user-1',
+    }),
+  );
   await service.spawnPersistentProcess(session);
   writeJsonLine(proc, { type: 'system', subtype: 'init', session_id: providerSessionId });
   await vi.waitFor(() => expect(session.providerSessionId).toBe(providerSessionId));
   return session;
+}
+
+function expectDefined<T>(value: T | undefined): T {
+  expect(value).toBeDefined();
+  return value as T;
 }
 
 function captureStdin(proc: MockAgentProcess): string[] {

@@ -197,10 +197,14 @@ describe('AgentService config refresh and persistent resume', () => {
 
     // providerSessionId is set asynchronously via onSessionId callback
     await vi.waitFor(async () => {
-      const saved = await manager.getOrCreateSession(session.conversationId, session.spaceId, session.tenantId, session.userId);
+      const saved = expectDefined(
+        await manager.getOrCreateSession(session.conversationId, session.spaceId, session.tenantId, session.userId),
+      );
       expect(saved.providerSessionId).toBe('provider-fresh');
     });
-    const saved = await manager.getOrCreateSession(session.conversationId, session.spaceId, session.tenantId, session.userId);
+    const saved = expectDefined(
+      await manager.getOrCreateSession(session.conversationId, session.spaceId, session.tenantId, session.userId),
+    );
     expect(saved.workDir).toBe(session.workDir);
 
     fresh.close(0);
@@ -238,10 +242,17 @@ async function createService(config: { idleTimeoutMs?: number } = {}): Promise<{
 }
 
 async function createPersistentSession(manager: SessionManager): Promise<PersistentAgentSession> {
-  return manager.getOrCreateSession(uniqueConversationId(), 'space-1', 'tenant-1', 'user-1', {
-    tenantId: 'tenant-1',
-    userId: 'user-1',
-  });
+  return expectDefined(
+    await manager.getOrCreateSession(uniqueConversationId(), 'space-1', 'tenant-1', 'user-1', {
+      tenantId: 'tenant-1',
+      userId: 'user-1',
+    }),
+  );
+}
+
+function expectDefined<T>(value: T | undefined): T {
+  expect(value).toBeDefined();
+  return value as T;
 }
 
 function createClosingOnKillProcess(): MockAgentProcess {

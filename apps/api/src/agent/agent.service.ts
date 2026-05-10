@@ -360,6 +360,15 @@ export class AgentService implements OnModuleDestroy {
         options.userId ?? '',
         options,
       );
+      if (session === undefined) {
+        yield {
+          type: 'message.error',
+          code: 'agent_session_scope_mismatch',
+          message: 'Agent session is not available for this tenant or user',
+        };
+        return;
+      }
+
       const refreshedSession = await this.refreshConfigIfNeeded(session, options);
 
       const needsSpawn =

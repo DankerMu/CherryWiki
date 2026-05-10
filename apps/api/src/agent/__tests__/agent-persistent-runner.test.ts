@@ -115,7 +115,9 @@ describe('AgentService persistent runner', () => {
     writeJsonLine(proc, { type: 'system', subtype: 'init', session_id: 'provider-captured' });
     await vi.waitFor(() => expect(session.providerSessionId).toBe('provider-captured'));
 
-    const saved = await manager.getOrCreateSession(session.conversationId, session.spaceId, session.tenantId, session.userId);
+    const saved = expectDefined(
+      await manager.getOrCreateSession(session.conversationId, session.spaceId, session.tenantId, session.userId),
+    );
     expect(saved.providerSessionId).toBe('provider-captured');
 
     proc.close(0);
@@ -140,7 +142,9 @@ describe('AgentService persistent runner', () => {
       usage: { input_tokens: 5, output_tokens: 2 },
     });
     const events = await eventsPromise;
-    const saved = await manager.getOrCreateSession(session.conversationId, session.spaceId, session.tenantId, session.userId);
+    const saved = expectDefined(
+      await manager.getOrCreateSession(session.conversationId, session.spaceId, session.tenantId, session.userId),
+    );
 
     expect(events.map((event) => event.type)).toEqual(['message.delta', 'message.completed']);
     expect(saved.status).toBe('idle');
@@ -165,7 +169,9 @@ describe('AgentService persistent runner', () => {
       error: 'tool failed',
     });
     const events = await eventsPromise;
-    const saved = await manager.getOrCreateSession(session.conversationId, session.spaceId, session.tenantId, session.userId);
+    const saved = expectDefined(
+      await manager.getOrCreateSession(session.conversationId, session.spaceId, session.tenantId, session.userId),
+    );
 
     expect(events).toEqual([{ type: 'message.error', code: 'error_during_execution', message: 'tool failed' }]);
     expect(saved.status).toBe('idle');
@@ -184,7 +190,9 @@ describe('AgentService persistent runner', () => {
     proc.close(1);
 
     await vi.waitFor(async () => {
-      const saved = await manager.getOrCreateSession(session.conversationId, session.spaceId, session.tenantId, session.userId);
+      const saved = expectDefined(
+        await manager.getOrCreateSession(session.conversationId, session.spaceId, session.tenantId, session.userId),
+      );
       expect(saved.status).toBe('failed');
     });
     expect(service.getActiveAgentCount()).toBe(0);
@@ -248,11 +256,18 @@ async function createSession(
   options: PersistentAgentSession['options'] = {},
 ): Promise<PersistentAgentSession> {
   const conversationId = `conversation-persistent-${randomUUID()}`;
-  return manager.getOrCreateSession(conversationId, 'space-1', 'tenant-1', 'user-1', {
-    tenantId: 'tenant-1',
-    userId: 'user-1',
-    ...options,
-  });
+  return expectDefined(
+    await manager.getOrCreateSession(conversationId, 'space-1', 'tenant-1', 'user-1', {
+      tenantId: 'tenant-1',
+      userId: 'user-1',
+      ...options,
+    }),
+  );
+}
+
+function expectDefined<T>(value: T | undefined): T {
+  expect(value).toBeDefined();
+  return value as T;
 }
 
 async function createStartedSession(
@@ -276,4 +291,3 @@ function captureStdin(proc: MockAgentProcess): string[] {
   });
   return chunks;
 }
-

@@ -70,15 +70,22 @@ export class SessionManager implements OnModuleDestroy {
     this.instanceId = config.instanceId ?? this.generateInstanceId();
   }
 
+  /**
+   * Returns undefined when the conversation id is already owned by another tenant/user scope.
+   */
   async getOrCreateSession(
     conversationId: string,
     spaceId: string,
     tenantId: string,
     userId: string,
     options: AgentSpawnOptions = {},
-  ): Promise<PersistentAgentSession> {
+  ): Promise<PersistentAgentSession | undefined> {
     const existing = this.sessions.get(conversationId);
     if (existing !== undefined) {
+      if (existing.tenantId !== tenantId || existing.userId !== userId) {
+        return undefined;
+      }
+
       existing.options = { ...existing.options, ...options };
       return clonePersistentSession(existing);
     }
@@ -90,6 +97,11 @@ export class SessionManager implements OnModuleDestroy {
       this.sessions.set(conversationId, restored);
       await this.upsertSession(restored);
       return clonePersistentSession(restored);
+    }
+
+    const existingRow = await this.repository?.findByConversationId(conversationId);
+    if (existingRow !== undefined) {
+      return undefined;
     }
 
     const session = await this.createFreshSession(conversationId, spaceId, tenantId, userId, options);
