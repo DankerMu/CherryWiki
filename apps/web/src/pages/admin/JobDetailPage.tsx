@@ -144,6 +144,14 @@ function JobDetailPage() {
         <Empty description={t('admin.jobDetail.unavailable')} />
       ) : (
         <>
+          <div style={{ marginBottom: 16 }}>
+            <Typography.Title level={3} style={{ margin: 0 }}>
+              {job.display_name ?? formatLabel(job.type)}
+            </Typography.Title>
+            <Typography.Text type="secondary">
+              {job.display_name ? `${formatLabel(job.type)} · ${job.job_id}` : job.job_id}
+            </Typography.Text>
+          </div>
           <Card title={t('admin.jobDetail.overview.title')} style={{ marginBottom: 16 }}>
             {job.progress?.percent !== undefined ? (
               <Progress

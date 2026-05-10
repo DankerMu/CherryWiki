@@ -118,9 +118,11 @@ function JobsPage() {
       key: 'type',
       render: (_: unknown, job: AdminJob) => (
         <div>
-          <Typography.Text strong>{formatLabel(job.type)}</Typography.Text>
+          <Typography.Text strong>{job.display_name ?? formatLabel(job.type)}</Typography.Text>
           <br />
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>{job.job_id}</Typography.Text>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {job.display_name ? `${formatLabel(job.type)} · ${job.job_id}` : job.job_id}
+          </Typography.Text>
         </div>
       ),
     },

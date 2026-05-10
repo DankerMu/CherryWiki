@@ -17,6 +17,30 @@ const ADMIN_USER: AuthUser = {
   spaces: [{ id: 'space-main', name: 'Main Space', role: 'admin' }],
 };
 
+type JobStub = {
+  job_id: string;
+  type: string;
+  display_name: string | null;
+  status: string;
+  space_id: string;
+  progress: {
+    percent: number;
+    stage: string;
+  };
+  created_by: string;
+  payload_json: {
+    source_id: string;
+  };
+  result_json: null;
+  error_json: null;
+  cancel_requested_at: string | null;
+  attempt_count: number;
+  max_attempts: number;
+  created_at: string;
+  started_at: string;
+  completed_at: string | null;
+};
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -33,8 +57,27 @@ describe('JobsPage', () => {
     renderJobsRoute('/admin/jobs');
 
     expect(await screen.findByRole('heading', { name: '任务中心' })).toBeInTheDocument();
-    expect(await screen.findByText('job-1')).toBeInTheDocument();
+    expect(await screen.findByText('readme.md')).toBeInTheDocument();
+    expect(await screen.findByText('Graphify · job-1')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it('shows display_name as primary label when available', async () => {
+    stubJobApi();
+
+    renderJobsRoute('/admin/jobs');
+
+    expect(await screen.findByText('readme.md')).toBeInTheDocument();
+    expect(screen.getByText('Graphify · job-1')).toBeInTheDocument();
+  });
+
+  it('falls back to type label when display_name is null', async () => {
+    stubJobApi({ job: { display_name: null } });
+
+    renderJobsRoute('/admin/jobs');
+
+    expect(await screen.findByText('Graphify')).toBeInTheDocument();
+    expect(screen.getByText('job-1')).toBeInTheDocument();
   });
 
   it('fetches the jobs list from /api/admin/jobs', async () => {
@@ -117,7 +160,7 @@ describe('JobsPage', () => {
 
     renderJobsRoute('/admin/jobs');
 
-    expect(await screen.findByText('job-1')).toBeInTheDocument();
+    expect(await screen.findByText('readme.md')).toBeInTheDocument();
 
     await waitFor(() => {
       expect(getSpaceSelectContainer()).toHaveClass('ant-select-status-error');
@@ -183,7 +226,13 @@ function renderJobsRoute(path: string): void {
   );
 }
 
-function stubJobApi(options: { failSpaces?: boolean; spaces?: { id: string; name: string }[] } = {}) {
+function stubJobApi(
+  options: {
+    failSpaces?: boolean;
+    spaces?: { id: string; name: string }[];
+    job?: Partial<JobStub>;
+  } = {},
+) {
   let cancelRequestedAt: string | null = null;
   const spaces = options.spaces ?? [{ id: 'space-main', name: 'Main Space' }];
 
@@ -213,7 +262,7 @@ function stubJobApi(options: { failSpaces?: boolean; spaces?: { id: string; name
     if (path === '/api/admin/jobs') {
       return Promise.resolve(
         jsonResponse({
-          data: [buildJob(cancelRequestedAt)],
+          data: [buildJob(cancelRequestedAt, options.job)],
           meta: {
             request_id: 'req-admin-jobs',
             pagination: {
@@ -230,7 +279,7 @@ function stubJobApi(options: { failSpaces?: boolean; spaces?: { id: string; name
     if (path === '/api/jobs/job-1' && init?.method !== 'POST') {
       return Promise.resolve(
         jsonResponse({
-          data: buildJob(cancelRequestedAt),
+          data: buildJob(cancelRequestedAt, options.job),
           meta: { request_id: 'req-job-detail' },
         }),
       );
@@ -322,10 +371,11 @@ function getSpaceCombobox(): HTMLElement {
   return combobox;
 }
 
-function buildJob(cancelRequestedAt: string | null = null) {
+function buildJob(cancelRequestedAt: string | null = null, overrides: Partial<JobStub> = {}): JobStub {
   return {
     job_id: 'job-1',
     type: 'graphify',
+    display_name: 'readme.md',
     status: 'running',
     space_id: 'space-main',
     progress: {
@@ -344,6 +394,7 @@ function buildJob(cancelRequestedAt: string | null = null) {
     created_at: '2026-04-29T10:00:00.000Z',
     started_at: '2026-04-29T10:01:00.000Z',
     completed_at: null,
+    ...overrides,
   };
 }
 

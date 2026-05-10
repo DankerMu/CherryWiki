@@ -48,6 +48,7 @@ export class JobDto {
   job_id!: string;
   tenant_id!: string;
   type!: string;
+  display_name!: string | null;
   status!: string;
   space_id!: string | null;
   progress!: JobProgressDto | null;
