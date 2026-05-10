@@ -20,9 +20,7 @@ export class AgentSessionRepository {
       .onConflictDoUpdate({
         target: agentSessions.conversation_id,
         set: {
-          tenant_id: values.tenant_id,
           space_id: values.space_id,
-          user_id: values.user_id,
           provider: values.provider,
           provider_session_id: values.provider_session_id,
           work_dir: values.work_dir,
@@ -50,6 +48,26 @@ export class AgentSessionRepository {
       .select()
       .from(agentSessions)
       .where(eq(agentSessions.conversation_id, conversationId))
+      .limit(1);
+
+    return row;
+  }
+
+  async findByConversationScope(
+    conversationId: string,
+    tenantId: string,
+    userId: string,
+  ): Promise<AgentSessionRow | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(agentSessions)
+      .where(
+        and(
+          eq(agentSessions.conversation_id, conversationId),
+          eq(agentSessions.tenant_id, tenantId),
+          eq(agentSessions.user_id, userId),
+        ),
+      )
       .limit(1);
 
     return row;

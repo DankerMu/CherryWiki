@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import type { SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 
 import type { DrizzleDatabase } from '../../database/drizzle.module.js';
 import {
@@ -12,6 +14,8 @@ import {
   type AgentSessionRow,
   type NewAgentSession,
 } from '../agent-session.repository.js';
+
+const dialect = new PgDialect();
 
 describe('AgentSessionRepository', () => {
   it('upserts a new agent session row', async () => {
@@ -57,10 +61,10 @@ describe('AgentSessionRepository', () => {
     expect(set).toMatchObject({
       status: 'running',
       provider_session_id: 'claude-session-2',
-      tenant_id: TEST_TENANT_ID,
       space_id: TEST_SPACE_ID,
-      user_id: TEST_USER_ID,
     });
+    expect(set).not.toHaveProperty('tenant_id');
+    expect(set).not.toHaveProperty('user_id');
     expect(set).not.toHaveProperty('created_at');
   });
 
@@ -76,6 +80,62 @@ describe('AgentSessionRepository', () => {
 
     expect(db.selects).toHaveLength(2);
     expect(db.selects[0]?.limit).toBe(1);
+  });
+
+  it('findByConversationScope returns row when all three fields match', async () => {
+    const db = new ScriptedAgentSessionDb();
+    const repository = new AgentSessionRepository(db.asDrizzle());
+    const matching = createAgentSessionRow();
+    db.seedRows([
+      createAgentSessionRow({
+        tenant_id: 'tenant-other',
+        user_id: 'user-other',
+        space_id: 'space-other',
+      }),
+      matching,
+    ]);
+
+    await expect(
+      repository.findByConversationScope('conversation-1', TEST_TENANT_ID, TEST_USER_ID),
+    ).resolves.toEqual(matching);
+
+    expect(db.selects).toHaveLength(1);
+    expect(db.selects[0]?.limit).toBe(1);
+    const where = getWhereQuery(db);
+    expect(where.sql).toContain('"agent_sessions"."conversation_id" =');
+    expect(where.sql).toContain('"agent_sessions"."tenant_id" =');
+    expect(where.sql).toContain('"agent_sessions"."user_id" =');
+    expect(where.params).toEqual(['conversation-1', TEST_TENANT_ID, TEST_USER_ID]);
+  });
+
+  it('findByConversationScope returns undefined for tenant mismatch', async () => {
+    const db = new ScriptedAgentSessionDb();
+    const repository = new AgentSessionRepository(db.asDrizzle());
+    db.seedRows([createAgentSessionRow()]);
+
+    await expect(
+      repository.findByConversationScope('conversation-1', 'tenant-other', TEST_USER_ID),
+    ).resolves.toBeUndefined();
+  });
+
+  it('findByConversationScope returns undefined for user mismatch', async () => {
+    const db = new ScriptedAgentSessionDb();
+    const repository = new AgentSessionRepository(db.asDrizzle());
+    db.seedRows([createAgentSessionRow()]);
+
+    await expect(
+      repository.findByConversationScope('conversation-1', TEST_TENANT_ID, 'user-other'),
+    ).resolves.toBeUndefined();
+  });
+
+  it('findByConversationScope returns undefined for both tenant and user mismatch', async () => {
+    const db = new ScriptedAgentSessionDb();
+    const repository = new AgentSessionRepository(db.asDrizzle());
+    db.seedRows([createAgentSessionRow()]);
+
+    await expect(
+      repository.findByConversationScope('conversation-1', 'tenant-other', 'user-other'),
+    ).resolves.toBeUndefined();
   });
 
   it('updates the provider session id and updated timestamp', async () => {
@@ -235,6 +295,7 @@ class ScriptedAgentSessionDb {
   readonly deletes: OperationRecord[] = [];
   readonly selectResults: unknown[][] = [];
   readonly insertResults: unknown[][] = [];
+  private readonly seededRows: AgentSessionRow[] = [];
 
   asDrizzle(): DrizzleDatabase {
     return this as unknown as DrizzleDatabase;
@@ -244,6 +305,10 @@ class ScriptedAgentSessionDb {
     this.selectResults.push(result);
   }
 
+  seedRows(rows: AgentSessionRow[]): void {
+    this.seededRows.push(...rows);
+  }
+
   queueInsert(result: unknown[]): void {
     this.insertResults.push(result);
   }
@@ -251,7 +316,7 @@ class ScriptedAgentSessionDb {
   select(fields?: unknown): ScriptedSelectBuilder {
     const operation: OperationRecord = { fields };
     this.selects.push(operation);
-    return new ScriptedSelectBuilder(this.selectResults.shift() ?? [], operation);
+    return new ScriptedSelectBuilder(this.selectResults.shift(), operation, this.seededRows);
   }
 
   insert(table?: unknown): { values: (value: unknown) => ScriptedInsertBuilder } {
@@ -287,8 +352,9 @@ class ScriptedAgentSessionDb {
 
 class ScriptedSelectBuilder implements PromiseLike<unknown[]> {
   constructor(
-    private readonly result: unknown[],
+    private readonly result: unknown[] | undefined,
     private readonly operation: OperationRecord,
+    private readonly seededRows: AgentSessionRow[],
   ) {}
 
   from(table?: unknown): this {
@@ -310,7 +376,38 @@ class ScriptedSelectBuilder implements PromiseLike<unknown[]> {
     onfulfilled?: ((value: unknown[]) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
   ): Promise<TResult1 | TResult2> {
-    return Promise.resolve(this.result).then(onfulfilled ?? undefined, onrejected ?? undefined);
+    return Promise.resolve(this.resolveResult()).then(onfulfilled ?? undefined, onrejected ?? undefined);
+  }
+
+  private resolveResult(): unknown[] {
+    if (this.result !== undefined) {
+      return this.result;
+    }
+
+    if (this.seededRows.length === 0) {
+      return [];
+    }
+
+    const where = this.operation.where?.[0] as SQL | undefined;
+    if (where === undefined) {
+      return this.seededRows.slice(0, this.operation.limit);
+    }
+
+    const [conversationId, tenantId, userId] = dialect.sqlToQuery(where).params;
+    return this.seededRows
+      .filter((row) => {
+        if (conversationId !== undefined && row.conversation_id !== conversationId) {
+          return false;
+        }
+        if (tenantId !== undefined && row.tenant_id !== tenantId) {
+          return false;
+        }
+        if (userId !== undefined && row.user_id !== userId) {
+          return false;
+        }
+        return true;
+      })
+      .slice(0, this.operation.limit);
   }
 }
 
@@ -360,4 +457,17 @@ class ScriptedDeleteBuilder implements PromiseLike<unknown[]> {
   ): Promise<TResult1 | TResult2> {
     return Promise.resolve([]).then(onfulfilled ?? undefined, onrejected ?? undefined);
   }
+}
+
+function getWhereQuery(db: ScriptedAgentSessionDb): { sql: string; params: unknown[] } {
+  const where = db.selects[0]?.where?.[0] as SQL | undefined;
+  if (where === undefined) {
+    throw new Error('Expected where clause');
+  }
+
+  const query = dialect.sqlToQuery(where);
+  return {
+    sql: query.sql,
+    params: query.params,
+  };
 }

@@ -30,12 +30,14 @@ describe('SessionManager', () => {
     const repository = createRepository();
     const manager = await createManager(repository.instance);
 
-    const session = await manager.getOrCreateSession(
-      'conversation-fresh',
-      'space-1',
-      'tenant-1',
-      'user-1',
-      { allowedSpaces: [{ id: 'space-1', graphPath: '/graphs/space-1' }], model: 'sonnet' },
+    const session = expectDefined(
+      await manager.getOrCreateSession(
+        'conversation-fresh',
+        'space-1',
+        'tenant-1',
+        'user-1',
+        { allowedSpaces: [{ id: 'space-1', graphPath: '/graphs/space-1' }], model: 'sonnet' },
+      ),
     );
 
     expect(session).toMatchObject({
@@ -48,6 +50,11 @@ describe('SessionManager', () => {
       ownedByInstance: 'instance-local',
     });
     expect(session.optionsFingerprint).toHaveLength(64);
+    expect(repository.findByConversationScope).toHaveBeenCalledWith(
+      'conversation-fresh',
+      'tenant-1',
+      'user-1',
+    );
     expect(repository.findByConversationId).toHaveBeenCalledWith('conversation-fresh');
     expect(repository.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -61,7 +68,7 @@ describe('SessionManager', () => {
     await expect(stat(session.agentHome)).resolves.toBeTruthy();
   });
 
-  it('restores DB metadata into memory when the in-memory registry misses', async () => {
+  it('getOrCreateSession restores persisted session when tenant and user match', async () => {
     const row = createAgentSessionRow({
       conversation_id: 'conversation-restore',
       provider_session_id: 'claude-session-restore',
@@ -76,11 +83,17 @@ describe('SessionManager', () => {
     const session = await manager.getOrCreateSession(
       'conversation-restore',
       'ignored-space',
-      'ignored-tenant',
-      'ignored-user',
+      row.tenant_id,
+      row.user_id,
       {},
     );
 
+    expect(repository.findByConversationScope).toHaveBeenCalledWith(
+      'conversation-restore',
+      row.tenant_id,
+      row.user_id,
+    );
+    expect(repository.findByConversationId).not.toHaveBeenCalled();
     expect(session).toMatchObject({
       conversationId: 'conversation-restore',
       tenantId: row.tenant_id,
@@ -102,6 +115,117 @@ describe('SessionManager', () => {
     );
   });
 
+  it('getOrCreateSession returns undefined without mutating when persisted row has wrong tenant', async () => {
+    const agentRoot = await createTempDir('wrong-tenant-root');
+    const row = createAgentSessionRow({
+      conversation_id: 'conversation-wrong-tenant',
+      tenant_id: 'tenant-original',
+      user_id: 'user-1',
+      provider_session_id: 'claude-session-original',
+      status: 'idle',
+      work_dir: await createWorkDir('wrong-tenant'),
+    });
+    row.agent_home = join(row.work_dir, '.home');
+    const repository = createRepository([row]);
+    const manager = await createManager(repository.instance, { agentRoot });
+
+    const session = await manager.getOrCreateSession(
+      'conversation-wrong-tenant',
+      'space-request',
+      'tenant-request',
+      'user-1',
+      {},
+    );
+
+    expect(repository.findByConversationScope).toHaveBeenCalledWith(
+      'conversation-wrong-tenant',
+      'tenant-request',
+      'user-1',
+    );
+    expect(repository.findByConversationId).toHaveBeenCalledWith('conversation-wrong-tenant');
+    expect(session).toBeUndefined();
+    expect(manager.size()).toBe(0);
+    expect(repository.upsert).not.toHaveBeenCalled();
+    expect(repository.updateStatus).not.toHaveBeenCalled();
+    expect(repository.updateProviderSessionId).not.toHaveBeenCalled();
+    expect(repository.touchActivity).not.toHaveBeenCalled();
+    await expect(stat(join(agentRoot, 'conversation-wrong-tenant'))).rejects.toThrow();
+  });
+
+  it('getOrCreateSession returns undefined without mutating when persisted row has wrong user', async () => {
+    const agentRoot = await createTempDir('wrong-user-root');
+    const row = createAgentSessionRow({
+      conversation_id: 'conversation-wrong-user',
+      tenant_id: 'tenant-1',
+      user_id: 'user-original',
+      provider_session_id: 'claude-session-original',
+      status: 'idle',
+      work_dir: await createWorkDir('wrong-user'),
+    });
+    row.agent_home = join(row.work_dir, '.home');
+    const repository = createRepository([row]);
+    const manager = await createManager(repository.instance, { agentRoot });
+
+    const session = await manager.getOrCreateSession(
+      'conversation-wrong-user',
+      'space-request',
+      'tenant-1',
+      'user-request',
+      {},
+    );
+
+    expect(repository.findByConversationScope).toHaveBeenCalledWith(
+      'conversation-wrong-user',
+      'tenant-1',
+      'user-request',
+    );
+    expect(repository.findByConversationId).toHaveBeenCalledWith('conversation-wrong-user');
+    expect(session).toBeUndefined();
+    expect(manager.size()).toBe(0);
+    expect(repository.upsert).not.toHaveBeenCalled();
+    expect(repository.updateStatus).not.toHaveBeenCalled();
+    expect(repository.updateProviderSessionId).not.toHaveBeenCalled();
+    expect(repository.touchActivity).not.toHaveBeenCalled();
+    await expect(stat(join(agentRoot, 'conversation-wrong-user'))).rejects.toThrow();
+  });
+
+  it('getOrCreateSession does not return in-memory sessions to a different tenant or user', async () => {
+    const repository = createRepository();
+    const manager = await createManager(repository.instance);
+    const original = await manager.getOrCreateSession(
+      'conversation-memory-scope',
+      'space-1',
+      'tenant-a',
+      'user-a',
+    );
+    vi.clearAllMocks();
+
+    const mismatched = await manager.getOrCreateSession(
+      'conversation-memory-scope',
+      'space-2',
+      'tenant-b',
+      'user-b',
+    );
+
+    expect(mismatched).toBeUndefined();
+    expect(repository.findByConversationScope).not.toHaveBeenCalled();
+    expect(repository.findByConversationId).not.toHaveBeenCalled();
+    expect(repository.upsert).not.toHaveBeenCalled();
+    expect(manager.size()).toBe(1);
+
+    const matching = await manager.getOrCreateSession(
+      'conversation-memory-scope',
+      'space-1',
+      'tenant-a',
+      'user-a',
+    );
+    expect(matching).toMatchObject({
+      conversationId: original?.conversationId,
+      tenantId: 'tenant-a',
+      userId: 'user-a',
+    });
+  });
+
   it('marks sessions owned by a different instance as stopped and claims ownership', async () => {
     const row = createAgentSessionRow({
       conversation_id: 'conversation-remote',
@@ -113,12 +237,14 @@ describe('SessionManager', () => {
     const repository = createRepository([row]);
     const manager = await createManager(repository.instance);
 
-    const session = await manager.getOrCreateSession(
-      'conversation-remote',
-      'space-1',
-      'tenant-1',
-      'user-1',
-      {},
+    const session = expectDefined(
+      await manager.getOrCreateSession(
+        'conversation-remote',
+        'space-1',
+        'tenant-1',
+        'user-1',
+        {},
+      ),
     );
 
     expect(session.status).toBe('stopped');
@@ -139,7 +265,9 @@ describe('SessionManager', () => {
     const proc = createClosingProcess();
 
     await manager.attachProcess('conversation-attach', proc as unknown as ChildProcess);
-    const session = await manager.getOrCreateSession('conversation-attach', 'space-1', 'tenant-1', 'user-1');
+    const session = expectDefined(
+      await manager.getOrCreateSession('conversation-attach', 'space-1', 'tenant-1', 'user-1'),
+    );
 
     expect(session.status).toBe('running');
     expect(session.child).toBe(proc);
@@ -160,7 +288,9 @@ describe('SessionManager', () => {
     await manager.attachProcess('conversation-idle', createClosingProcess() as unknown as ChildProcess);
 
     await manager.markIdle('conversation-idle');
-    const session = await manager.getOrCreateSession('conversation-idle', 'space-1', 'tenant-1', 'user-1');
+    const session = expectDefined(
+      await manager.getOrCreateSession('conversation-idle', 'space-1', 'tenant-1', 'user-1'),
+    );
 
     expect(session.status).toBe('idle');
     expect(session.idleKillTimer).toBeDefined();
@@ -180,7 +310,9 @@ describe('SessionManager', () => {
     await manager.markIdle('conversation-stopped');
 
     await manager.markStopped('conversation-stopped');
-    const session = await manager.getOrCreateSession('conversation-stopped', 'space-1', 'tenant-1', 'user-1');
+    const session = expectDefined(
+      await manager.getOrCreateSession('conversation-stopped', 'space-1', 'tenant-1', 'user-1'),
+    );
 
     expect(session.status).toBe('stopped');
     expect(session.child).toBeUndefined();
@@ -195,7 +327,9 @@ describe('SessionManager', () => {
     await manager.markIdle('conversation-touch');
 
     manager.touch('conversation-touch', 12_345);
-    const session = await manager.getOrCreateSession('conversation-touch', 'space-1', 'tenant-1', 'user-1');
+    const session = expectDefined(
+      await manager.getOrCreateSession('conversation-touch', 'space-1', 'tenant-1', 'user-1'),
+    );
 
     expect(session.lastActivityAt).toBe(12_345);
     expect(repository.updateStatus).toHaveBeenLastCalledWith(
@@ -208,7 +342,9 @@ describe('SessionManager', () => {
   it('close explicitly terminates with SIGTERM, deletes workDir, and removes DB metadata', async () => {
     const repository = createRepository();
     const manager = await createManager(repository.instance);
-    const session = await manager.getOrCreateSession('conversation-close', 'space-1', 'tenant-1', 'user-1');
+    const session = expectDefined(
+      await manager.getOrCreateSession('conversation-close', 'space-1', 'tenant-1', 'user-1'),
+    );
     const proc = createClosingProcess();
     await manager.attachProcess('conversation-close', proc as unknown as ChildProcess);
 
@@ -225,7 +361,9 @@ describe('SessionManager', () => {
     vi.setSystemTime(1_000);
     const repository = createRepository();
     const manager = await createManager(repository.instance, { idleTimeoutMs: 1_000 });
-    const session = await manager.getOrCreateSession('conversation-sweep', 'space-1', 'tenant-1', 'user-1');
+    const session = expectDefined(
+      await manager.getOrCreateSession('conversation-sweep', 'space-1', 'tenant-1', 'user-1'),
+    );
     const proc = createClosingProcess();
     await manager.attachProcess('conversation-sweep', proc as unknown as ChildProcess);
     await manager.markIdle('conversation-sweep');
@@ -253,8 +391,12 @@ describe('SessionManager', () => {
     const newProc = createClosingProcess();
     await manager.attachProcess('conversation-new', newProc as unknown as ChildProcess);
 
-    const oldSession = await manager.getOrCreateSession('conversation-old', 'space-1', 'tenant-1', 'user-1');
-    const newSession = await manager.getOrCreateSession('conversation-new', 'space-1', 'tenant-1', 'user-1');
+    const oldSession = expectDefined(
+      await manager.getOrCreateSession('conversation-old', 'space-1', 'tenant-1', 'user-1'),
+    );
+    const newSession = expectDefined(
+      await manager.getOrCreateSession('conversation-new', 'space-1', 'tenant-1', 'user-1'),
+    );
     expect(oldProc.kill).toHaveBeenCalledWith('SIGTERM');
     expect(newProc.kill).not.toHaveBeenCalled();
     expect(oldSession.status).toBe('stopped');
@@ -322,7 +464,9 @@ describe('SessionManager', () => {
   it('shutdown terminates live processes without deleting workDir', async () => {
     const repository = createRepository();
     const manager = await createManager(repository.instance);
-    const session = await manager.getOrCreateSession('conversation-shutdown', 'space-1', 'tenant-1', 'user-1');
+    const session = expectDefined(
+      await manager.getOrCreateSession('conversation-shutdown', 'space-1', 'tenant-1', 'user-1'),
+    );
     const proc = createClosingProcess();
     await manager.attachProcess('conversation-shutdown', proc as unknown as ChildProcess);
 
@@ -370,6 +514,11 @@ function createClosingProcess(): ReturnType<typeof createMockProcess> {
   return proc;
 }
 
+function expectDefined<T>(value: T | undefined): T {
+  expect(value).toBeDefined();
+  return value as T;
+}
+
 function createRepository(initialRows: AgentSessionRow[] = []): MockAgentSessionRepository {
   const rows = new Map(initialRows.map((row) => [row.conversation_id, { ...row }]));
 
@@ -395,6 +544,13 @@ function createRepository(initialRows: AgentSessionRow[] = []): MockAgentSession
       return Promise.resolve(row);
     }),
     findByConversationId: vi.fn((conversationId: string) => Promise.resolve(rows.get(conversationId))),
+    findByConversationScope: vi.fn((conversationId: string, tenantId: string, userId: string) => {
+      const row = rows.get(conversationId);
+      if (row?.tenant_id !== tenantId || row.user_id !== userId) {
+        return Promise.resolve(undefined);
+      }
+      return Promise.resolve(row);
+    }),
     updateProviderSessionId: vi.fn((conversationId: string, providerSessionId: string) => {
       const row = rows.get(conversationId);
       if (row !== undefined) {
@@ -473,6 +629,9 @@ type MockAgentSessionRepository = {
   rows: Map<string, AgentSessionRow>;
   upsert: Mock<(data: NewAgentSession) => Promise<AgentSessionRow>>;
   findByConversationId: Mock<(conversationId: string) => Promise<AgentSessionRow | undefined>>;
+  findByConversationScope: Mock<
+    (conversationId: string, tenantId: string, userId: string) => Promise<AgentSessionRow | undefined>
+  >;
   updateProviderSessionId: Mock<(conversationId: string, providerSessionId: string) => Promise<void>>;
   updateStatus: Mock<(conversationId: string, status: string, extra?: Partial<AgentSessionRow>) => Promise<void>>;
   updateOwnedByInstance: Mock<(conversationId: string, instanceId: string) => Promise<void>>;
