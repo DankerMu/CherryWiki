@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '../i18n';
 import { AuthProvider, type AuthUser } from '../lib/auth';
+import type { SystemHealth } from '../lib/adminTypes';
 import HealthPage from '../pages/admin/HealthPage';
 
 const ADMIN_USER: AuthUser = {
@@ -39,6 +40,46 @@ describe('HealthPage', () => {
       expect(fetchMock).toHaveBeenCalled();
     });
   });
+
+  it('renders dependent stores as unhealthy when the database health check fails', async () => {
+    stubHealthApi({
+      status: 'unhealthy',
+      uptime: 42,
+      components: {
+        database: { status: 'unhealthy', error: 'db down' },
+        vector_store: {
+          status: 'unhealthy',
+          error: 'Depends on database health check',
+          details: 'Postgres-backed vector store',
+        },
+        graph_store: {
+          status: 'unhealthy',
+          error: 'Depends on database health check',
+          details: 'Postgres-backed graph store',
+        },
+        docmost_bridge: { status: 'not_configured', details: 'Optional integration' },
+      },
+    });
+
+    renderHealthRoute();
+
+    expect(await screen.findByRole('heading', { name: 'System Health' })).toBeInTheDocument();
+
+    const databaseCard = getComponentCard('Database');
+    expect(within(databaseCard).getByText('Unhealthy')).toBeInTheDocument();
+
+    const vectorStoreCard = getComponentCard('Vector Store');
+    expect(within(vectorStoreCard).getByText('Unhealthy')).toBeInTheDocument();
+    expect(vectorStoreCard).toHaveTextContent('Depends on database health check');
+    expect(vectorStoreCard).toHaveTextContent('Postgres-backed vector store');
+
+    const graphStoreCard = getComponentCard('Graph Store');
+    expect(within(graphStoreCard).getByText('Unhealthy')).toBeInTheDocument();
+    expect(graphStoreCard).toHaveTextContent('Depends on database health check');
+    expect(graphStoreCard).toHaveTextContent('Postgres-backed graph store');
+
+    expect(getComponentCard('Docmost Bridge')).toHaveTextContent('Optional integration');
+  });
 });
 
 function renderHealthRoute(): void {
@@ -53,23 +94,23 @@ function renderHealthRoute(): void {
   );
 }
 
-function stubHealthApi() {
+function stubHealthApi(health: SystemHealth = {
+  status: 'healthy',
+  uptime: 42,
+  components: {
+    database: { status: 'healthy', latency_ms: 5 },
+    redis: { status: 'healthy', latency_ms: 2 },
+    minio: { status: 'healthy', latency_ms: 12 },
+    vector_store: { status: 'healthy', latency_ms: 5, details: 'Postgres-backed vector store' },
+    graph_store: { status: 'healthy', latency_ms: 5, details: 'Postgres-backed graph store' },
+    docmost_bridge: { status: 'not_configured', details: 'Optional integration' },
+  },
+}) {
   const fetchMock = vi.fn<typeof fetch>((input) => {
     if (getRequestPath(input) === '/api/admin/system/health') {
       return Promise.resolve(
         jsonResponse({
-          data: {
-            status: 'healthy',
-            uptime: 42,
-            components: {
-              database: { status: 'healthy', latency_ms: 5 },
-              redis: { status: 'healthy', latency_ms: 2 },
-              minio: { status: 'healthy', latency_ms: 12 },
-              vector_store: { status: 'healthy', latency_ms: 5, details: 'Postgres-backed vector store' },
-              graph_store: { status: 'healthy', latency_ms: 5, details: 'Postgres-backed graph store' },
-              docmost_bridge: { status: 'not_configured', details: 'Optional integration' },
-            },
-          },
+          data: health,
         }),
       );
     }
@@ -98,4 +139,11 @@ function getRequestPath(input: RequestInfo | URL): string {
   }
 
   return input.url.split('?')[0] ?? '';
+}
+
+function getComponentCard(label: string): HTMLElement {
+  const title = screen.getByText(label);
+  const card = title.closest('.ant-card');
+  expect(card).not.toBeNull();
+  return card as HTMLElement;
 }
