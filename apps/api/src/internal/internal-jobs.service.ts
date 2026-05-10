@@ -218,7 +218,7 @@ export class InternalJobsService {
           return failedJob;
         }
 
-        const nextRunAt = new Date(Date.now() + getRetryDelaySeconds(nextAttemptCount) * 1_000);
+        const nextRunAt = new Date(Date.now() + getRetryDelaySeconds() * 1_000);
         const retriedJob = await JobStateMachine.transition(txDb, job.id, JobStatus.FAILED, JobStatus.PENDING, {
           next_run_at: nextRunAt,
           started_at: null,
@@ -435,7 +435,7 @@ export class InternalJobsService {
         });
 
         if (willRetry) {
-          const nextRunAt = new Date(failedAt.getTime() + getRetryDelaySeconds(nextAttemptCount) * 1_000);
+          const nextRunAt = new Date(failedAt.getTime() + getRetryDelaySeconds() * 1_000);
 
           await JobStateMachine.transition(txDb, job.id, JobStatus.FAILED, JobStatus.PENDING, {
             next_run_at: nextRunAt,
@@ -822,7 +822,7 @@ function throwApiError(code: ErrorCode, message: string, status: HttpStatus): ne
   throw new HttpException({ code, message }, status);
 }
 
-function getRetryDelaySeconds(_nextAttemptCount: number): number {
+function getRetryDelaySeconds(): number {
   return 0;
 }
 
