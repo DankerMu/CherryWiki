@@ -1,11 +1,9 @@
 import { ArrowLeftOutlined, HistoryOutlined } from '@ant-design/icons';
 import { Alert, Button, Spin, Tag, Typography } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
-import rehypeHighlight from 'rehype-highlight';
-import remarkGfm from 'remark-gfm';
+import TiptapRenderer from '../../components/TiptapRenderer';
 import { formatDate, getErrorMessage } from '../../components/adminUi';
 import { ApiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
@@ -142,15 +140,7 @@ export default function WikiPageDetail({ spaceId, pageId, versionId }: WikiPageD
               <Tag>{t('wiki.detail.version', { id: content.version_id })}</Tag>
             )}
           </div>
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeHighlight]}
-            components={{
-              img: (props) => <img {...props} referrerPolicy="no-referrer" loading="lazy" />,
-            }}
-          >
-            {content.content_markdown}
-          </ReactMarkdown>
+          <TiptapRenderer markdown={content.content_markdown} />
         </div>
       ) : (
         <Typography.Text type="secondary">{t('wiki.detail.unavailable')}</Typography.Text>

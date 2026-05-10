@@ -19,6 +19,16 @@ const apiMocks = vi.hoisted(() => ({
   post: vi.fn<PostMock>(),
 }));
 
+vi.mock('../components/TiptapRenderer', () => ({
+  default: ({ markdown }: { markdown: string }) => <div data-testid="tiptap-renderer" dangerouslySetInnerHTML={{ __html: markdown
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    .replace(/^- \[x\] (.+)$/gm, '<p>$1</p>')
+    .replace(/\| ([^|]+) \| ([^|]+) \|/g, '<table><tbody><tr><td>$1</td><td>$2</td></tr></tbody></table>')
+    .replace(/\| [-\s|]*/g, '')
+    .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="hljs">$2</code></pre>')
+    .replace(/\n/g, '') }} />,
+}));
+
 vi.mock('../lib/api.js', () => {
   class ApiError extends Error {
     readonly status: number;
