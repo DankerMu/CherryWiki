@@ -16,7 +16,7 @@ import { convertMarkdownToTiptapJSON } from '../lib/markdownToTiptap';
 
 const lowlight = createLowlight(common);
 const extensions = [
-  StarterKit.configure({ codeBlock: false }),
+  StarterKit.configure({ codeBlock: false, link: false }),
   CodeBlockLowlight.configure({ lowlight }),
   Table,
   TableRow,
