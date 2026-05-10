@@ -107,6 +107,7 @@ export type HealthComponent = {
   status: HealthComponentStatus;
   latency_ms?: number;
   error?: string;
+  details?: string;
 };
 
 export type SystemHealth = {
