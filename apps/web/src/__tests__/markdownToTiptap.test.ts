@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import StarterKit from '@tiptap/starter-kit';
 import { Table } from '@tiptap/extension-table';
 import TableRow from '@tiptap/extension-table-row';
@@ -73,13 +73,11 @@ describe('convertMarkdownToTiptapJSON', () => {
     expect(result?.content?.some((n) => n.type === 'taskList')).toBe(true);
   });
 
+  afterEach(() => { vi.restoreAllMocks(); });
+
   it('returns null for malformed input that causes parse error', () => {
-    const origParse = marked.parse;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (marked as any).parse = () => { throw new Error('simulated parse error'); };
+    vi.spyOn(marked, 'parse').mockImplementation(() => { throw new Error('simulated parse error'); });
     const result = convertMarkdownToTiptapJSON('# test', extensions);
     expect(result).toBeNull();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (marked as any).parse = origParse;
   });
 });
