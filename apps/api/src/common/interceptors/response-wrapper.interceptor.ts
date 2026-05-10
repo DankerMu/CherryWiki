@@ -25,7 +25,7 @@ type RequestLike = {
 export class ResponseWrapperInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const request = context.switchToHttp().getRequest<RequestLike>();
-    if (isHealthRequest(request) || isChatCompletionStreamRequest(request)) {
+    if (isHealthRequest(request) || isChatCompletionStreamRequest(request) || isInternalRequest(request)) {
       return next.handle();
     }
 
@@ -69,4 +69,10 @@ function isChatCompletionStreamRequest(request: RequestLike): boolean {
     path === '/api/chat/completions' ||
     path === '/api/chat/completions/'
   );
+}
+
+function isInternalRequest(request: RequestLike): boolean {
+  const url = request.url ?? request.raw?.url ?? '';
+  const path = url.split('?')[0] ?? '';
+  return path.startsWith('/internal/') || path.startsWith('/api/internal/');
 }

@@ -24,8 +24,16 @@ class WrapperTestController {
   }
 }
 
+@Controller('internal')
+class InternalTestController {
+  @Get('wrapper-test')
+  getValue(): { results: unknown[] } {
+    return { results: [] };
+  }
+}
+
 @Module({
-  controllers: [WrapperTestController],
+  controllers: [WrapperTestController, InternalTestController],
 })
 class WrapperTestModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
@@ -75,6 +83,17 @@ describe('ResponseWrapperInterceptor', () => {
         },
       },
     });
+  });
+
+  it('does not wrap internal endpoint responses', async () => {
+    app = await createTestApp();
+
+    const response = await request(app.getHttpAdapter().getInstance().server)
+      .get('/api/internal/wrapper-test')
+      .set('X-Request-Id', REQUEST_ID)
+      .expect(200);
+
+    expect(parseJsonObject(response.text)).toEqual({ results: [] });
   });
 });
 
