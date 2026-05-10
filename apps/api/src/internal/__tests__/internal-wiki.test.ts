@@ -55,6 +55,14 @@ describe('AgentTokenGuard', () => {
     }
   });
 
+  it('rejects a bearer token header with extra content', () => {
+    process.env.CHERRY_AGENT_TOKEN = 'agent-secret';
+    const guard = new AgentTokenGuard();
+    const { context } = createGuardContext('Bearer agent-secret extra');
+
+    expect(() => guard.canActivate(context)).toThrowError(HttpException);
+  });
+
   it('accepts a valid bearer token and attaches Agent context', () => {
     process.env.CHERRY_AGENT_TOKEN = 'agent-secret';
     const guard = new AgentTokenGuard();

@@ -107,18 +107,23 @@ export class InternalWikiController {
     const topK = normalizePositiveInt(query.top_k, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
     const spaceFilter = spaceIds.length > 0 ? sql`AND wc.space_id = ANY(${toPgTextArray(spaceIds)})` : sql``;
     const result = await this.db.execute<InternalSearchRow>(sql`
-      SELECT wp.page_id,
+      SELECT wc.id,
+             wc.content,
+             wc.wiki_page_pk,
+             wp.page_id,
+             wc.section_id,
              wc.space_id,
              wp.title,
-             ws.section_id,
              ws.heading AS section_title,
-             wc.content,
+             ws.section_id AS section_slug,
              ts_rank_cd(to_tsvector('simple', wc.content), to_tsquery('simple', ${tsQuery})) AS score
       FROM wiki_chunks wc
-      JOIN wiki_pages wp ON wp.id = wc.wiki_page_pk
+      JOIN spaces s ON s.id = wc.space_id AND s.tenant_id = wc.tenant_id
+      LEFT JOIN wiki_pages wp ON wp.id = wc.wiki_page_pk
       LEFT JOIN wiki_sections ws ON ws.id = wc.section_id
       WHERE wc.tenant_id = ${tenantId}
-        AND wp.tenant_id = ${tenantId}
+        AND wc.index_snapshot_id = s.active_index_snapshot_id
+        AND wc.index_status = 'indexed'
         AND wp.status = 'published'
         ${spaceFilter}
         AND to_tsvector('simple', wc.content) @@ to_tsquery('simple', ${tsQuery})

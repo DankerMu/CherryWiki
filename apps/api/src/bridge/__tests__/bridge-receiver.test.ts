@@ -252,11 +252,11 @@ function createPayload(
 
 function getResponseData(response: Response): TestResponseData {
   const body = parseResponseBody(response);
-  if (!isRecord(body.data)) {
-    throw new Error('Expected response body to include data object');
+  if (body.accepted !== true || typeof body.event_id !== 'string' || typeof body.deduplicated !== 'boolean') {
+    throw new Error('Expected raw bridge response body');
   }
 
-  return body.data as TestResponseData;
+  return body as TestResponseData;
 }
 
 function getErrorCode(response: Response): unknown {

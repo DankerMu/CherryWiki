@@ -104,12 +104,12 @@ function parseBearerToken(authorization: string | undefined): string | undefined
     return undefined;
   }
 
-  const [scheme, token] = authorization.split(/\s+/, 2);
-  if (scheme?.toLowerCase() !== 'bearer' || token === undefined || token.length === 0) {
+  const match = /^Bearer\s+(\S+)$/i.exec(authorization);
+  if (match === null) {
     return undefined;
   }
 
-  return token;
+  return match[1];
 }
 
 function hasMatchingAgentToken(expectedToken: string, providedToken: string | undefined): boolean {
