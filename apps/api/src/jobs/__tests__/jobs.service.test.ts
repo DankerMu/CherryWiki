@@ -12,7 +12,7 @@ import {
   requireRecord,
 } from '../../users/__tests__/user-group-service-test-utils.js';
 import { AdminJobListQueryDto, JobEventsQueryDto } from '../jobs.dto.js';
-import { JobsService, type JobContext } from '../jobs.service.js';
+import { JobsService, deriveDisplayName, type JobContext } from '../jobs.service.js';
 
 describe('JobsService', () => {
   afterEach(() => {
@@ -325,6 +325,33 @@ describe('JobsService', () => {
       total: 1,
       has_next: false,
     });
+  });
+});
+
+describe('deriveDisplayName', () => {
+  it('uses a payload filename', () => {
+    expect(deriveDisplayName(createJobRow({ payload_json: { filename: ' readme.md ' } }))).toBe('readme.md');
+  });
+
+  it('uses a result title when payload has no display metadata', () => {
+    expect(deriveDisplayName(createJobRow({ payload_json: {}, result_json: { title: 'Graph Report' } }))).toBe(
+      'Graph Report',
+    );
+  });
+
+  it('uses a result metadata filename when top-level fields are unavailable', () => {
+    expect(
+      deriveDisplayName(
+        createJobRow({
+          payload_json: { source_document_id: 'doc-1' },
+          result_json: { metadata: { filename: 'report.pdf', original_filename: 'report.pdf' } },
+        }),
+      ),
+    ).toBe('report.pdf');
+  });
+
+  it('returns null when no display metadata is available', () => {
+    expect(deriveDisplayName(createJobRow())).toBeNull();
   });
 });
 

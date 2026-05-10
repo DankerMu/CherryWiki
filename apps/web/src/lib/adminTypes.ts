@@ -128,6 +128,7 @@ export type JobProgress = {
 export type AdminJob = {
   job_id: string;
   type: string;
+  display_name: string | null;
   status: string;
   space_id: string | null;
   progress: JobProgress | null;

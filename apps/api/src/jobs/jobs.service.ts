@@ -427,11 +427,60 @@ function isJobSortField(field: string): field is JobSortField {
   return JOB_SORT_FIELD_SET.has(field);
 }
 
+export function deriveDisplayName(job: JobRow): string | null {
+  const candidates = [job.payload_json, job.result_json];
+  const fields = [
+    'display_name',
+    'name',
+    'title',
+    'filename',
+    'file_name',
+    'source_document_filename',
+    'original_filename',
+  ];
+
+  for (const source of candidates) {
+    if (typeof source !== 'object' || source === null) {
+      continue;
+    }
+
+    const record = source as Record<string, unknown>;
+    for (const field of fields) {
+      const value = readDisplayNameValue(record[field]);
+      if (value !== null) {
+        return value;
+      }
+    }
+
+    if (typeof record.metadata === 'object' && record.metadata !== null) {
+      const metadata = record.metadata as Record<string, unknown>;
+      for (const field of fields) {
+        const value = readDisplayNameValue(metadata[field]);
+        if (value !== null) {
+          return value;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function readDisplayNameValue(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function toJobDto(job: JobRow, progress: JobProgressDto | null): JobDto {
   return {
     job_id: job.id,
     tenant_id: job.tenant_id,
     type: job.type,
+    display_name: deriveDisplayName(job),
     status: job.status,
     space_id: job.space_id,
     progress,

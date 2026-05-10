@@ -23,6 +23,8 @@ import { getApiLogger } from '../common/logger/logger.module.js';
 import { REDIS_CLIENT, type OptionalRedisClient } from '../common/redis/redis.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { GraphifyService } from '../graphify/graphify.service.js';
+import { deriveDisplayName } from '../jobs/jobs.service.js';
+import type { JobDto, JobProgressDto } from '../jobs/jobs.dto.js';
 import { UploadsService } from '../uploads/uploads.service.js';
 import type {
   JobCompletionDto,
@@ -32,7 +34,6 @@ import type {
   WorkerHeartbeatDto,
   WorkerHeartbeatResponseDto,
 } from './internal.dto.js';
-import type { JobDto, JobProgressDto } from '../jobs/jobs.dto.js';
 
 type JobsDatabase = NodePgDatabase;
 type InternalRedisClient = {
@@ -789,6 +790,7 @@ function toJobDto(job: JobRow, progress: JobProgressDto | null = null): JobDto {
     job_id: job.id,
     tenant_id: job.tenant_id,
     type: job.type,
+    display_name: deriveDisplayName(job),
     status: job.status,
     space_id: job.space_id,
     progress,
