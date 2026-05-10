@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
+import { normalizeGraphReadPath, normalizeWorkDirReadPath } from './agent-graph-paths.js';
+
 export type ClaudeSettings = {
   tools: string[];
   skipDangerousModePermissionPrompt: boolean;
@@ -9,11 +11,18 @@ export type ClaudeSettings = {
   };
 };
 
+export type GenerateOptions = {
+  workDir: string;
+  graphPaths: string[];
+};
+
 const ALLOWED_TOOLS = ['Bash', 'Read'] as const;
 
 @Injectable()
 export class SettingsGenerator {
-  generate(): ClaudeSettings {
+  generate(options: GenerateOptions): ClaudeSettings {
+    const readScopes = this.buildReadScopes(options);
+
     return {
       tools: [...ALLOWED_TOOLS],
       skipDangerousModePermissionPrompt: true,
@@ -22,7 +31,7 @@ export class SettingsGenerator {
           'Bash(cherrywiki *)',
           'Bash(graphify *)',
           'Bash(cherrydb *)',
-          'Read(*)',
+          ...readScopes,
         ],
         deny: [
           'Write',
@@ -47,5 +56,23 @@ export class SettingsGenerator {
         ],
       },
     };
+  }
+
+  private buildReadScopes(options: GenerateOptions): string[] {
+    const paths = new Set<string>();
+    const workDir = normalizeWorkDirReadPath(options.workDir);
+
+    if (workDir !== undefined) {
+      paths.add(workDir);
+    }
+
+    for (const graphPath of options.graphPaths ?? []) {
+      const validated = normalizeGraphReadPath(graphPath);
+      if (validated !== undefined) {
+        paths.add(validated);
+      }
+    }
+
+    return [...paths].sort().map((path) => `Read(${path})`);
   }
 }
