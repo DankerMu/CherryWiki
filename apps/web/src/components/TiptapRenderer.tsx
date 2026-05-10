@@ -21,7 +21,7 @@ import './TiptapRenderer.css';
 const lowlight = createLowlight(common);
 
 const extensions = [
-  StarterKit.configure({ codeBlock: false }),
+  StarterKit.configure({ codeBlock: false, link: false }),
   CodeBlockLowlight.configure({ lowlight }),
   Table.configure({ resizable: false }),
   TableRow,
@@ -63,15 +63,17 @@ export default function TiptapRenderer({ markdown }: TiptapRendererProps) {
 
   if (content === null) {
     return (
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
-        components={{
-          img: (props) => <img {...props} referrerPolicy="no-referrer" loading="lazy" />,
-        }}
-      >
-        {markdown}
-      </ReactMarkdown>
+      <div className="cherrywiki-tiptap-content">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          rehypePlugins={[rehypeHighlight]}
+          components={{
+            img: (props) => <img {...props} referrerPolicy="no-referrer" loading="lazy" />,
+          }}
+        >
+          {markdown}
+        </ReactMarkdown>
+      </div>
     );
   }
 

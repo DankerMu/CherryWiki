@@ -1,5 +1,3 @@
-@import 'highlight.js/styles/github.css';
-
 .cherrywiki-tiptap-content {
   color: var(--ant-color-text);
   background: var(--ant-color-bg-container);
