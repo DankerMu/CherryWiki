@@ -78,6 +78,52 @@ describe('MimeValidator', () => {
     });
   });
 
+  it('passes .md with application/octet-stream declared MIME', async () => {
+    const result = await new MimeValidator().validate({
+      filename: 'readme.md',
+      declaredMimeType: 'application/octet-stream',
+      buffer: Buffer.from('# Hello\nThis is a markdown file.\n'),
+    });
+
+    expect(result).toMatchObject({
+      pass: true,
+      details: {
+        extension: '.md',
+      },
+    });
+  });
+
+  it('passes .txt with application/octet-stream declared MIME', async () => {
+    const result = await new MimeValidator().validate({
+      filename: 'notes.txt',
+      declaredMimeType: 'application/octet-stream',
+      buffer: Buffer.from('Plain text content for notes.\n'),
+    });
+
+    expect(result).toMatchObject({
+      pass: true,
+      details: {
+        extension: '.txt',
+      },
+    });
+  });
+
+  it('still rejects dangerous files even with application/octet-stream', async () => {
+    const result = await new MimeValidator().validate({
+      filename: 'notes.txt',
+      declaredMimeType: 'application/octet-stream',
+      buffer: Buffer.from('#!/bin/sh\necho owned\n'),
+    });
+
+    expect(result).toMatchObject({
+      pass: false,
+      code: ErrorCode.MIME_MISMATCH,
+      details: {
+        signal: 'shebang',
+      },
+    });
+  });
+
   it('allows plain markdown without magic bytes', async () => {
     const result = await new MimeValidator().validate({
       filename: 'readme.md',

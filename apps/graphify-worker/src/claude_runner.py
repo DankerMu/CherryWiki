@@ -523,6 +523,7 @@ async def _run_stream_loop(
                     proc=proc,
                     session_id=session_id,
                 )
+            _log_and_remove_stderr(proc)
             return {
                 "status": "failed",
                 "state": RunState.FAILED.value,
@@ -558,6 +559,7 @@ async def _run_stream_loop(
         if event["type"] == "error":
             _request_terminate(proc)
             await _wait_for_process_exit(proc, 10)
+            _log_and_remove_stderr(proc)
             return {
                 "status": "failed",
                 "state": RunState.FAILED.value,
@@ -571,6 +573,7 @@ async def _run_stream_loop(
             if event.get("is_error"):
                 _request_terminate(proc)
                 await _wait_for_process_exit(proc, 10)
+                _log_and_remove_stderr(proc)
                 return {
                     "status": "failed",
                     "state": RunState.FAILED.value,
@@ -589,9 +592,7 @@ async def _run_stream_loop(
             )
             await _wait_for_process_exit(proc, 10)
             if result.get("status") != "success":
-                stderr_tail = _read_and_remove_claude_stderr_tail(proc)
-                if stderr_tail:
-                    _LOGGER.error("claude stderr: %s", stderr_tail)
+                _log_and_remove_stderr(proc)
             return result
 
         if state == RunState.FAILED:
@@ -611,6 +612,7 @@ async def _terminate_for_timeout(proc: subprocess.Popen[str]) -> dict[str, Any]:
     except TimeoutError:
         _request_kill(proc)
         await _wait_for_process_exit(proc, 10)
+    _log_and_remove_stderr(proc)
     return {
         "status": "failed",
         "state": RunState.FAILED.value,
@@ -685,6 +687,12 @@ def _read_stdout_line(proc: subprocess.Popen[str]) -> str:
     if proc.stdout is None:
         return ""
     return proc.stdout.readline()
+
+
+def _log_and_remove_stderr(proc: subprocess.Popen[str]) -> None:
+    stderr_tail = _read_and_remove_claude_stderr_tail(proc)
+    if stderr_tail:
+        _LOGGER.error("claude stderr: %s", stderr_tail)
 
 
 def _read_and_remove_claude_stderr_tail(

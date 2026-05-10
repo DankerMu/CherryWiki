@@ -49,7 +49,6 @@ const DEAD_WORKER_SCAN_INTERVAL_MS = 30_000;
 const DEAD_WORKER_THRESHOLD_MS = 90_000;
 const DEFAULT_LOCK_TTL_SECONDS = 600;
 const HEARTBEAT_TTL_SECONDS = 180;
-const MAX_RETRY_DELAY_SECONDS = 1_800;
 
 @Injectable()
 export class InternalJobsService {
