@@ -1,0 +1,379 @@
+.cherrywiki-tiptap-content {
+  color: var(--ant-color-text);
+  background: var(--ant-color-bg-container);
+  width: 100%;
+}
+
+.cherrywiki-tiptap-content .tiptap,
+.cherrywiki-tiptap-content .ProseMirror {
+  color: var(--ant-color-text);
+  background: var(--ant-color-bg-container);
+  font-size: 1rem;
+  line-height: 1.75;
+  font-weight: 400;
+  width: 100%;
+  word-break: break-word;
+}
+
+.cherrywiki-tiptap-content .tiptap:focus,
+.cherrywiki-tiptap-content .ProseMirror:focus {
+  outline: none;
+}
+
+.cherrywiki-tiptap-content .tiptap > * + *,
+.cherrywiki-tiptap-content .ProseMirror > * + * {
+  margin-top: 0.75em;
+}
+
+.cherrywiki-tiptap-content .tiptap p,
+.cherrywiki-tiptap-content .ProseMirror p {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+.cherrywiki-tiptap-content .tiptap ul,
+.cherrywiki-tiptap-content .tiptap ol,
+.cherrywiki-tiptap-content .ProseMirror ul,
+.cherrywiki-tiptap-content .ProseMirror ol {
+  padding: 0 1rem;
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.cherrywiki-tiptap-content .tiptap ul p,
+.cherrywiki-tiptap-content .tiptap ol p,
+.cherrywiki-tiptap-content .ProseMirror ul p,
+.cherrywiki-tiptap-content .ProseMirror ol p {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.cherrywiki-tiptap-content .tiptap h1,
+.cherrywiki-tiptap-content .tiptap h2,
+.cherrywiki-tiptap-content .tiptap h3,
+.cherrywiki-tiptap-content .ProseMirror h1,
+.cherrywiki-tiptap-content .ProseMirror h2,
+.cherrywiki-tiptap-content .ProseMirror h3 {
+  line-height: 1.2;
+  font-weight: 600;
+  margin-bottom: 0;
+}
+
+.cherrywiki-tiptap-content .tiptap h1 strong,
+.cherrywiki-tiptap-content .tiptap h2 strong,
+.cherrywiki-tiptap-content .tiptap h3 strong,
+.cherrywiki-tiptap-content .ProseMirror h1 strong,
+.cherrywiki-tiptap-content .ProseMirror h2 strong,
+.cherrywiki-tiptap-content .ProseMirror h3 strong {
+  font-weight: 600;
+}
+
+.cherrywiki-tiptap-content .tiptap h1,
+.cherrywiki-tiptap-content .ProseMirror h1 {
+  font-size: 1.875rem;
+  margin-top: 1.875rem;
+}
+
+.cherrywiki-tiptap-content .tiptap h2,
+.cherrywiki-tiptap-content .ProseMirror h2 {
+  font-size: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.cherrywiki-tiptap-content .tiptap h3,
+.cherrywiki-tiptap-content .ProseMirror h3 {
+  font-size: 1.25rem;
+  margin-top: 1.25rem;
+}
+
+.cherrywiki-tiptap-content .tiptap h4,
+.cherrywiki-tiptap-content .tiptap h5,
+.cherrywiki-tiptap-content .tiptap h6,
+.cherrywiki-tiptap-content .ProseMirror h4,
+.cherrywiki-tiptap-content .ProseMirror h5,
+.cherrywiki-tiptap-content .ProseMirror h6 {
+  line-height: 1.1;
+  margin-bottom: 10px;
+}
+
+.cherrywiki-tiptap-content .tiptap a,
+.cherrywiki-tiptap-content .ProseMirror a {
+  color: var(--ant-color-text);
+  border-bottom: 0.07em solid var(--ant-color-border);
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.cherrywiki-tiptap-content .tiptap blockquote,
+.cherrywiki-tiptap-content .ProseMirror blockquote {
+  padding-left: 1rem;
+  border-left: 3px solid var(--ant-color-border);
+  margin: 0;
+}
+
+.cherrywiki-tiptap-content .tiptap hr,
+.cherrywiki-tiptap-content .ProseMirror hr {
+  border: none;
+  border-top: 1px solid var(--ant-color-border);
+}
+
+.cherrywiki-tiptap-content .tiptap img,
+.cherrywiki-tiptap-content .ProseMirror img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.cherrywiki-tiptap-content .tiptap .selection,
+.cherrywiki-tiptap-content .ProseMirror .selection,
+.cherrywiki-tiptap-content .tiptap *::selection,
+.cherrywiki-tiptap-content .ProseMirror *::selection {
+  background-color: var(--ant-color-bg-layout);
+}
+
+.cherrywiki-tiptap-content .tableWrapper {
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+  overflow-x: auto;
+}
+
+.cherrywiki-tiptap-content .tableWrapper table {
+  overflow-x: hidden;
+  min-width: 700px !important;
+}
+
+.cherrywiki-tiptap-content .tiptap table,
+.cherrywiki-tiptap-content .ProseMirror table {
+  border-collapse: collapse;
+  margin: 0;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.cherrywiki-tiptap-content .tiptap table td,
+.cherrywiki-tiptap-content .tiptap table th,
+.cherrywiki-tiptap-content .ProseMirror table td,
+.cherrywiki-tiptap-content .ProseMirror table th {
+  border: 1px solid var(--ant-color-border);
+  box-sizing: border-box;
+  min-width: 1em;
+  padding: 3px 5px;
+  position: relative;
+  vertical-align: top;
+}
+
+.cherrywiki-tiptap-content .tiptap table td:first-of-type:not(a),
+.cherrywiki-tiptap-content .tiptap table th:first-of-type:not(a),
+.cherrywiki-tiptap-content .ProseMirror table td:first-of-type:not(a),
+.cherrywiki-tiptap-content .ProseMirror table th:first-of-type:not(a) {
+  margin-top: 0;
+}
+
+.cherrywiki-tiptap-content .tiptap table td p,
+.cherrywiki-tiptap-content .tiptap table th p,
+.cherrywiki-tiptap-content .ProseMirror table td p,
+.cherrywiki-tiptap-content .ProseMirror table th p {
+  margin: 0;
+}
+
+.cherrywiki-tiptap-content .tiptap table td p + p,
+.cherrywiki-tiptap-content .tiptap table th p + p,
+.cherrywiki-tiptap-content .ProseMirror table td p + p,
+.cherrywiki-tiptap-content .ProseMirror table th p + p {
+  margin-top: 0.75rem;
+}
+
+.cherrywiki-tiptap-content .tiptap table th,
+.cherrywiki-tiptap-content .ProseMirror table th {
+  background-color: color-mix(in srgb, var(--ant-color-bg-layout, #f5f5f5) 88%, var(--ant-color-text) 12%);
+  font-weight: 700;
+  text-align: left;
+}
+
+.cherrywiki-tiptap-content .tiptap table .column-resize-handle,
+.cherrywiki-tiptap-content .ProseMirror table .column-resize-handle {
+  background-color: var(--ant-color-border);
+  bottom: -1px;
+  position: absolute;
+  right: -2px;
+  pointer-events: none;
+  top: 0;
+  width: 4px;
+}
+
+.cherrywiki-tiptap-content .tiptap table .selectedCell::after,
+.cherrywiki-tiptap-content .ProseMirror table .selectedCell::after {
+  background: rgba(200, 200, 255, 0.4);
+  content: "";
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 2;
+}
+
+.cherrywiki-tiptap-content .tiptap .codeBlock,
+.cherrywiki-tiptap-content .ProseMirror .codeBlock {
+  padding: 4px;
+  border-radius: 6px;
+  background-color: var(--ant-color-bg-layout, #f5f5f5);
+}
+
+.cherrywiki-tiptap-content .tiptap pre,
+.cherrywiki-tiptap-content .ProseMirror pre {
+  padding: 0.5rem 1rem;
+  margin: 4px 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  border-radius: 6px;
+  tab-size: 4;
+  background-color: var(--ant-color-bg-layout, #f5f5f5);
+  color: var(--ant-color-text);
+  overflow-x: auto;
+}
+
+.cherrywiki-tiptap-content .tiptap pre code,
+.cherrywiki-tiptap-content .ProseMirror pre code {
+  color: inherit;
+  padding: 0;
+  background: none;
+  font-size: 0.875rem;
+}
+
+.cherrywiki-tiptap-content .tiptap :not(pre) > code,
+.cherrywiki-tiptap-content .ProseMirror :not(pre) > code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  line-height: 1.5;
+  padding: 2px 0.25rem;
+  border-radius: 4px;
+  margin: 0;
+  background-color: var(--ant-color-bg-layout, #f5f5f5);
+  color: var(--ant-color-text);
+}
+
+.cherrywiki-tiptap-content ul[data-type="taskList"] {
+  list-style: none;
+  padding: 0;
+}
+
+.cherrywiki-tiptap-content ul[data-type="taskList"] p {
+  margin: 0;
+}
+
+.cherrywiki-tiptap-content ul[data-type="taskList"] li {
+  display: flex;
+}
+
+.cherrywiki-tiptap-content ul[data-type="taskList"] li > label {
+  padding-top: 0.2rem;
+  flex: 0 0 auto;
+  margin-right: 0.5rem;
+  user-select: none;
+}
+
+.cherrywiki-tiptap-content ul[data-type="taskList"] li > div {
+  flex: 1 1 auto;
+}
+
+.cherrywiki-tiptap-content ul[data-type="taskList"] li ul li,
+.cherrywiki-tiptap-content ul[data-type="taskList"] li ol li {
+  display: list-item;
+}
+
+.cherrywiki-tiptap-content ul[data-type="taskList"] li ul[data-type="taskList"] > li {
+  display: flex;
+}
+
+.cherrywiki-tiptap-content ul[data-type="taskList"] li > label input[type="checkbox"] {
+  width: 1em;
+  height: 1em;
+  cursor: pointer;
+}
+
+.cherrywiki-tiptap-content ol,
+.cherrywiki-tiptap-content ol ol ol ol,
+.cherrywiki-tiptap-content ol ol ol ol ol ol ol,
+.cherrywiki-tiptap-content ol ol ol ol ol ol ol ol ol ol {
+  list-style-type: decimal;
+}
+
+.cherrywiki-tiptap-content ol ol,
+.cherrywiki-tiptap-content ol ol ol ol ol,
+.cherrywiki-tiptap-content ol ol ol ol ol ol ol ol,
+.cherrywiki-tiptap-content ol ol ol ol ol ol ol ol ol ol ol {
+  list-style-type: lower-alpha;
+}
+
+.cherrywiki-tiptap-content ol ol ol,
+.cherrywiki-tiptap-content ol ol ol ol ol ol,
+.cherrywiki-tiptap-content ol ol ol ol ol ol ol ol ol,
+.cherrywiki-tiptap-content ol ol ol ol ol ol ol ol ol ol ol ol {
+  list-style-type: lower-roman;
+}
+
+.cherrywiki-tiptap-content ol {
+  list-style-position: outside;
+  margin-left: 0.25rem;
+}
+
+.cherrywiki-tiptap-content ol ol,
+.cherrywiki-tiptap-content ol ul,
+.cherrywiki-tiptap-content ul ol {
+  margin-top: 0.1rem;
+  margin-bottom: 0.1rem;
+}
+
+.cherrywiki-tiptap-content .tiptap mark,
+.cherrywiki-tiptap-content .ProseMirror mark {
+  background-color: rgb(254 249 195);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+.cherrywiki-tiptap-content .tiptap mark[data-color="#98d8f2"],
+.cherrywiki-tiptap-content .ProseMirror mark[data-color="#98d8f2"] {
+  background-color: rgb(224 242 254) !important;
+}
+
+.cherrywiki-tiptap-content .tiptap mark[data-color="#7edb6c"],
+.cherrywiki-tiptap-content .ProseMirror mark[data-color="#7edb6c"] {
+  background-color: rgb(220 252 231) !important;
+}
+
+.cherrywiki-tiptap-content .tiptap mark[data-color="#e0d6ed"],
+.cherrywiki-tiptap-content .ProseMirror mark[data-color="#e0d6ed"] {
+  background-color: rgb(243 232 255) !important;
+}
+
+.cherrywiki-tiptap-content .tiptap mark[data-color="#ffc6c2"],
+.cherrywiki-tiptap-content .ProseMirror mark[data-color="#ffc6c2"] {
+  background-color: rgb(255 228 230) !important;
+}
+
+.cherrywiki-tiptap-content .tiptap mark[data-color="#faf594"],
+.cherrywiki-tiptap-content .ProseMirror mark[data-color="#faf594"] {
+  background-color: rgb(254 249 195) !important;
+}
+
+.cherrywiki-tiptap-content .tiptap mark[data-color="#f5c8a9"],
+.cherrywiki-tiptap-content .ProseMirror mark[data-color="#f5c8a9"] {
+  background-color: rgb(251 236 221) !important;
+}
+
+.cherrywiki-tiptap-content .tiptap mark[data-color="#f5cfe0"],
+.cherrywiki-tiptap-content .ProseMirror mark[data-color="#f5cfe0"] {
+  background-color: rgb(252 241 246) !important;
+}
+
+.cherrywiki-tiptap-content .tiptap mark[data-color="#dfdfd7"],
+.cherrywiki-tiptap-content .ProseMirror mark[data-color="#dfdfd7"] {
+  background-color: rgb(238 238 235) !important;
+}
+
+.cherrywiki-tiptap-content .tiptap mark[data-color="#d7c4b7"],
+.cherrywiki-tiptap-content .ProseMirror mark[data-color="#d7c4b7"] {
+  background-color: rgb(215 196 183) !important;
+}
