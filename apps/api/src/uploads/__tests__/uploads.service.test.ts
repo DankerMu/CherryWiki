@@ -183,6 +183,72 @@ describe('UploadsService', () => {
     });
   });
 
+  it('re-uploading a security-rejected quarantined blob creates a retry validation job and clears rejection metadata', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_714_492_800_000);
+    const { service, db, fileBlobs, sourceDocuments, jobs } = createServiceContext();
+    const buffer = Buffer.from('medium');
+    const blob = fileBlobs.seed(
+      createFileBlobRow({
+        sha256: sha256Hex(buffer),
+        storage_uri: 's3://cherrywiki-uploads/quarantine/tenant-1/space-1/upload-1_medium.pdf',
+      }),
+    );
+    sourceDocuments.seed(
+      createSourceDocumentRow({
+        file_blob_id: blob.id,
+        status: 'security_rejected',
+        metadata_json: {
+          processing_strategy: 'immediate',
+          rejection_reason: ErrorCode.MIME_MISMATCH,
+          rejection_details: { code: ErrorCode.MIME_MISMATCH },
+          security_validation: { passed: false },
+        },
+      }),
+    );
+    jobs.seed(
+      createJobRow({
+        id: 'job-old',
+        queue_name: 'validation',
+        type: 'validation',
+        status: 'failed',
+        idempotency_key: 'validation:source-1',
+      }),
+    );
+    db.queueSelect([{ id: TEST_SPACE_ID }]);
+
+    const result = await service.uploadFile(
+      {
+        spaceId: TEST_SPACE_ID,
+        file: createUploadedFile(buffer, {
+          size: 25 * 1024 * 1024,
+          originalname: 'medium.pdf',
+        }),
+      },
+      createAdminContext(),
+    );
+
+    expect(result).toMatchObject({
+      source_document_id: 'source-1',
+      job_id: 'job-2',
+      status: 'validating',
+      created: true,
+    });
+    expect(jobs.created).toHaveLength(1);
+    expect(jobs.created[0]).toMatchObject({
+      queue_name: 'validation',
+      type: 'validation',
+      idempotency_key: 'validation:source-1:retry-1714492800000',
+    });
+    expect(sourceDocuments.rows[0]?.metadata_json).toMatchObject({
+      processing_strategy: 'immediate',
+      quarantine_uri: 's3://cherrywiki-uploads/quarantine/tenant-1/space-1/upload-1_medium.pdf',
+      quarantine_key: 'quarantine/tenant-1/space-1/upload-1_medium.pdf',
+    });
+    expect(sourceDocuments.rows[0]?.metadata_json).not.toHaveProperty('rejection_reason');
+    expect(sourceDocuments.rows[0]?.metadata_json).not.toHaveProperty('rejection_details');
+    expect(sourceDocuments.rows[0]?.metadata_json).not.toHaveProperty('security_validation');
+  });
+
   it('rejects files larger than 200MB before storage writes', async () => {
     const { service, db, storage } = createServiceContext();
     db.queueSelect([{ id: TEST_SPACE_ID }]);
@@ -777,6 +843,13 @@ class InMemorySourceDocumentRepository {
 class JobCreateHarness {
   readonly created: JobCreateInput[] = [];
   private readonly rowsByIdempotencyKey = new Map<string, JobRow>();
+
+  seed(row: JobRow): JobRow {
+    if (row.idempotency_key !== null) {
+      this.rowsByIdempotencyKey.set(row.idempotency_key, row);
+    }
+    return row;
+  }
 
   create(_db: unknown, input: JobCreateInput): Promise<JobRow> {
     if (input.idempotency_key !== undefined && input.idempotency_key !== null) {

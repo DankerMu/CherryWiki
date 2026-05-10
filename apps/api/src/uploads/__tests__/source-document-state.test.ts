@@ -12,6 +12,7 @@ describe('SourceDocumentStateMachine', () => {
     ['parsing', 'parse_failed'],
     ['parsed', 'graphify_pending'],
     ['parse_failed', 'uploaded'],
+    ['security_rejected', 'uploaded'],
   ] as const)('allows %s -> %s', (from, to) => {
     expect(SourceDocumentStateMachine.canTransition(from, to)).toBe(true);
     expect(() => SourceDocumentStateMachine.assertTransition(from, to)).not.toThrow();
@@ -20,7 +21,6 @@ describe('SourceDocumentStateMachine', () => {
   it.each([
     ['uploaded', 'parsing'],
     ['parsed', 'uploaded'],
-    ['security_rejected', 'uploaded'],
   ] as const)('rejects %s -> %s', (from, to) => {
     expect(SourceDocumentStateMachine.canTransition(from, to)).toBe(false);
     expect(() => SourceDocumentStateMachine.assertTransition(from, to)).toThrow(

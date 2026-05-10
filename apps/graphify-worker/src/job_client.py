@@ -45,20 +45,23 @@ async def poll_jobs(
         ) as http_client:
             while stop_event is None or not stop_event.is_set():
                 try:
-                    job = await _fetch_pending_job(http_client)
-                    if job is None:
+                    pending_jobs = await _fetch_pending_jobs(http_client)
+                    if not pending_jobs:
                         await _sleep(poll_interval, stop_event)
                         continue
 
-                    job_id = _job_id(job)
-                    if job_id is None:
-                        logger.warning("pending job missing id: %s", job)
-                        await _sleep(poll_interval, stop_event)
-                        continue
+                    job = None
+                    job_id = None
+                    for candidate in pending_jobs:
+                        cid = _job_id(candidate)
+                        if cid is None:
+                            continue
+                        if await acquire_lock(redis, cid, current_worker_id):
+                            job = candidate
+                            job_id = cid
+                            break
 
-                    # Redis coordinates duplicate local workers; the API progress
-                    # claim is the server-side ownership source of truth.
-                    if not await acquire_lock(redis, job_id, current_worker_id):
+                    if job is None or job_id is None:
                         await _sleep(poll_interval, stop_event)
                         continue
 
@@ -67,6 +70,9 @@ async def poll_jobs(
                         if not await _claim_job(http_client, job_id, current_worker_id):
                             claim_failed = True
                         else:
+                            heartbeat_task = asyncio.create_task(
+                                _heartbeat_loop(http_client, job_id, current_worker_id)
+                            )
                             try:
                                 result = await run(job)
                             except Exception as exc:
@@ -80,6 +86,12 @@ async def poll_jobs(
                                 await _complete_job(
                                     http_client, job_id, current_worker_id, result
                                 )
+                            finally:
+                                heartbeat_task.cancel()
+                                try:
+                                    await heartbeat_task
+                                except asyncio.CancelledError:
+                                    pass
                     finally:
                         await release_lock(redis, job_id, current_worker_id)
                     if claim_failed:
@@ -95,13 +107,13 @@ async def poll_jobs(
             await redis.aclose()
 
 
-async def _fetch_pending_job(http_client: httpx.AsyncClient) -> dict[str, Any] | None:
+async def _fetch_pending_jobs(http_client: httpx.AsyncClient) -> list[dict[str, Any]]:
     response = await http_client.get(
-        "/internal/jobs/pending", params={"type": "graphify"}
+        "/internal/jobs/pending", params={"type": "graphify", "limit": 5}
     )
     response.raise_for_status()
     payload = response.json()
-    return _parse_pending_job(payload)
+    return _parse_pending_jobs(payload)
 
 
 async def _claim_job(
@@ -116,6 +128,10 @@ async def _claim_job(
         )
         return False
 
+    try:
+        await _send_worker_heartbeat(http_client, worker_id, [job_id])
+    except Exception:
+        pass
     return True
 
 
@@ -129,6 +145,30 @@ async def _report_progress(
     response = await http_client.patch(
         f"/internal/jobs/{job_id}/progress",
         json={"worker_id": worker_id, "percent": percent, "stage": stage},
+    )
+    response.raise_for_status()
+
+
+HEARTBEAT_INTERVAL = 60
+
+
+async def _heartbeat_loop(
+    http_client: httpx.AsyncClient, job_id: str, worker_id: str
+) -> None:
+    while True:
+        await asyncio.sleep(HEARTBEAT_INTERVAL)
+        try:
+            await _send_worker_heartbeat(http_client, worker_id, [job_id])
+        except Exception:
+            logger.debug("worker heartbeat failed for %s", worker_id)
+
+
+async def _send_worker_heartbeat(
+    http_client: httpx.AsyncClient, worker_id: str, active_jobs: list[str]
+) -> None:
+    response = await http_client.post(
+        "/internal/workers/heartbeat",
+        json={"worker_id": worker_id, "active_jobs": active_jobs},
     )
     response.raise_for_status()
 
@@ -171,32 +211,29 @@ async def _sleep(poll_interval: float, stop_event: asyncio.Event | None) -> None
         return
 
 
-def _parse_pending_job(payload: Any) -> dict[str, Any] | None:
+def _parse_pending_jobs(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, list):
-        first_job = payload[0] if payload else None
-        return first_job if isinstance(first_job, dict) else None
+        return [j for j in payload if isinstance(j, dict)]
 
     if not isinstance(payload, dict):
-        return None
+        return []
 
     data = payload.get("data")
     if isinstance(data, list):
-        first_job = data[0] if data else None
-        return first_job if isinstance(first_job, dict) else None
+        return [j for j in data if isinstance(j, dict)]
 
     job = payload.get("job")
     if isinstance(job, dict):
-        return job
+        return [job]
 
     jobs = payload.get("jobs")
     if isinstance(jobs, list):
-        first_job = jobs[0] if jobs else None
-        return first_job if isinstance(first_job, dict) else None
+        return [j for j in jobs if isinstance(j, dict)]
 
     if "id" in payload or "job_id" in payload:
-        return payload
+        return [payload]
 
-    return None
+    return []
 
 
 def _job_id(job: dict[str, Any]) -> str | None:

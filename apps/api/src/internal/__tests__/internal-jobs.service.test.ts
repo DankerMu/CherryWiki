@@ -860,7 +860,7 @@ describe('InternalJobsService', () => {
       attempt_count: 1,
       locked_by: null,
       locked_at: null,
-      next_run_at: new Date('2026-04-30T12:01:00.000Z'),
+      next_run_at: new Date('2026-04-30T12:00:00.000Z'),
       error_json: { code: 'PARSE_ERROR', message: 'boom' },
       completed_at: null,
       started_at: null,
@@ -1095,7 +1095,7 @@ describe('InternalJobsService', () => {
       attempt_count: 1,
       locked_by: null,
       locked_at: null,
-      next_run_at: new Date('2026-04-30T12:01:00.000Z'),
+      next_run_at: new Date('2026-04-30T12:00:00.000Z'),
       error_json: { code: 'WORKER_TIMEOUT', message: 'Worker heartbeat timed out' },
       completed_at: null,
       started_at: null,
@@ -1129,7 +1129,7 @@ describe('InternalJobsService', () => {
       JobStatus.FAILED,
       JobStatus.PENDING,
       expect.objectContaining({
-        next_run_at: new Date('2026-04-30T12:01:00.000Z'),
+        next_run_at: new Date('2026-04-30T12:00:00.000Z'),
       }),
     );
     expect(eventSpy).toHaveBeenCalledTimes(3);
@@ -1143,7 +1143,7 @@ describe('InternalJobsService', () => {
           to: JobStatus.PENDING,
           worker_id: 'worker-1',
           reason: 'worker_timeout_retry',
-          next_run_at: '2026-04-30T12:01:00.000Z',
+          next_run_at: '2026-04-30T12:00:00.000Z',
         },
       }),
     );

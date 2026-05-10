@@ -676,7 +676,13 @@ export class UploadsService {
     );
 
     if (existingSource !== undefined) {
-      return toUploadResponse(existingSource, null, false, undefined, true);
+      if (existingSource.status !== 'security_rejected') {
+        return toUploadResponse(existingSource, null, false, undefined, true);
+      }
+      const reset = await this.sourceDocumentRepository.updateStatus(existingSource.id, 'uploaded', {
+        metadata_json: clearSecurityRejectionMetadata(existingSource.metadata_json),
+      });
+      return this.requeueExistingBlobDocument(reset, input, true);
     }
 
     const isArchivedBlob = isArchiveStorageUri(input.blob.storage_uri);
@@ -715,6 +721,32 @@ export class UploadsService {
       return toUploadResponse(sourceDocument.row, null, false, undefined, true);
     }
 
+    return this.requeueExistingBlobDocument(sourceDocument.row, input);
+  }
+
+  private async requeueExistingBlobDocument(
+    document: SourceDocumentRow,
+    input: {
+      tenantId: string;
+      spaceId: string;
+      userId: string;
+      blob: FileBlobRow;
+      priority: number;
+    },
+    retryAttempt = false,
+  ): Promise<UploadResponseDto> {
+    const isArchivedBlob = isArchiveStorageUri(input.blob.storage_uri);
+    const isQuarantinedBlob = isQuarantineStorageUri(input.blob.storage_uri);
+    const quarantineKey = isQuarantinedBlob ? storageKeyFromUri(input.blob.storage_uri) : undefined;
+
+    if (!isArchivedBlob && !isQuarantinedBlob) {
+      throwApiError(
+        ErrorCode.CONFLICT,
+        'Existing file blob is neither archived nor quarantined',
+        HttpStatus.CONFLICT,
+      );
+    }
+
     if (!isArchivedBlob) {
       if (quarantineKey === undefined) {
         throwApiError(
@@ -725,11 +757,11 @@ export class UploadsService {
       }
 
       const metadata = {
-        ...asJsonRecord(sourceDocument.row.metadata_json),
+        ...asJsonRecord(document.metadata_json),
         quarantine_uri: input.blob.storage_uri,
         quarantine_key: quarantineKey,
       };
-      const validating = await this.sourceDocumentRepository.updateStatus(sourceDocument.row.id, 'validating', {
+      const validating = await this.sourceDocumentRepository.updateStatus(document.id, 'validating', {
         metadata_json: metadata,
       });
       const validationJob = await this.createValidationJob(
@@ -740,6 +772,7 @@ export class UploadsService {
         input.blob.storage_uri,
         quarantineKey,
         input.priority,
+        retryAttempt,
       );
 
       return toUploadResponse(validating, validationJob, true);
@@ -749,13 +782,13 @@ export class UploadsService {
       input.tenantId,
       input.spaceId,
       input.userId,
-      sourceDocument.row,
+      document,
       input.blob,
       input.priority,
       false,
     );
 
-    return toUploadResponse(sourceDocument.row, job, true);
+    return toUploadResponse(document, job, true);
   }
 
   private async advanceDocumentToParsing(document: SourceDocumentRow): Promise<SourceDocumentRow> {
@@ -820,7 +853,12 @@ export class UploadsService {
     quarantineUri: string,
     quarantineKey: string,
     priority: number,
+    retryAttempt = false,
   ): Promise<JobRow> {
+    const idempotencyKey = retryAttempt
+      ? `validation:${document.id}:retry-${Date.now()}`
+      : `validation:${document.id}`;
+
     return JobRepository.create(this.db, {
       tenant_id: tenantId,
       space_id: spaceId,
@@ -832,7 +870,7 @@ export class UploadsService {
         quarantine_uri: quarantineUri,
         quarantine_key: quarantineKey,
       },
-      idempotency_key: `validation:${document.id}`,
+      idempotency_key: idempotencyKey,
       created_by: userId,
     });
   }
@@ -1130,6 +1168,14 @@ function hasImplicitSpaceAccess(role: string | undefined): boolean {
 
 function asJsonRecord(value: unknown): JsonRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as JsonRecord : {};
+}
+
+function clearSecurityRejectionMetadata(value: unknown): JsonRecord {
+  const metadata = { ...asJsonRecord(value) };
+  delete metadata.rejection_reason;
+  delete metadata.rejection_details;
+  delete metadata.security_validation;
+  return metadata;
 }
 
 function readParsedUriFromMetadata(document: SourceDocumentRow): string | undefined {

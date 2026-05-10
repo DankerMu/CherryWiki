@@ -20,7 +20,6 @@ SUBAGENT_TOOL_NAME = "Agent"
 ALLOWED_TOOLS = ["Bash", "Read", "Write", "Edit", SUBAGENT_TOOL_NAME]
 CLAUDE_SPAWN_ARGS = [
     "claude",
-    "--bare",
     "-p",
     "--input-format",
     "stream-json",
@@ -182,6 +181,7 @@ def install_skill(config_dir: Path | str) -> Path:
             text=True,
         )
         if skill_dst.exists():
+            _strip_moonshot_promo(skill_dst)
             return skill_dst
     except (OSError, subprocess.CalledProcessError) as install_error:
         fallback_reason = install_error
@@ -199,13 +199,37 @@ def install_skill(config_dir: Path | str) -> Path:
 
     shutil.copy2(skill_src, skill_dst)
     (skill_dst.parent / ".graphify_version").write_text("local", encoding="utf-8")
+    _strip_moonshot_promo(skill_dst)
     return skill_dst
+
+
+_MOONSHOT_BLOCK_RE = re.compile(
+    r"\*\*Before dispatching subagents:\*\*.*?(?=\*\*Run Part A|\*\*Part A|####|$)",
+    re.DOTALL,
+)
+
+
+def _strip_moonshot_promo(skill_path: Path) -> None:
+    try:
+        text = skill_path.read_text(encoding="utf-8")
+        cleaned = _MOONSHOT_BLOCK_RE.sub("", text)
+        if cleaned != text:
+            skill_path.write_text(cleaned, encoding="utf-8")
+            _LOGGER.info("stripped moonshot promo block from %s", skill_path)
+    except OSError:
+        pass
+
+
+CLAUDE_RUN_UID = int(os.environ.get("CLAUDE_RUN_UID", "10001"))
+CLAUDE_RUN_GID = int(os.environ.get("CLAUDE_RUN_GID", "10001"))
 
 
 def spawn_claude(
     session_dir: Path | str, config_dir: Path | str, settings_path: Path | str
 ) -> subprocess.Popen[str]:
+    session_path = Path(session_dir)
     config_path = Path(config_dir)
+    stderr_path = session_path / "claude_stderr.log"
     args = [
         *CLAUDE_SPAWN_ARGS,
         "--settings",
@@ -213,16 +237,24 @@ def spawn_claude(
         "--tools",
         ",".join(ALLOWED_TOOLS),
     ]
-    return subprocess.Popen(
-        args,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        cwd=str(session_dir),
-        env=build_claude_env(config_path.parent, config_path),
-        text=True,
-        bufsize=1,
-    )
+    session_path.mkdir(parents=True, exist_ok=True)
+    _chown_recursive(session_path, CLAUDE_RUN_UID, CLAUDE_RUN_GID)
+    _chown_recursive(config_path.parent, CLAUDE_RUN_UID, CLAUDE_RUN_GID)
+    with stderr_path.open("w", encoding="utf-8") as stderr_file:
+        proc = subprocess.Popen(
+            args,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=stderr_file,
+            cwd=str(session_path),
+            env=build_claude_env(config_path.parent, config_path),
+            text=True,
+            bufsize=1,
+            user=CLAUDE_RUN_UID,
+            group=CLAUDE_RUN_GID,
+        )
+    setattr(proc, "_claude_stderr_path", stderr_path)
+    return proc
 
 
 def write_user_message(proc: subprocess.Popen[str], text: str) -> None:
@@ -491,6 +523,7 @@ async def _run_stream_loop(
                     proc=proc,
                     session_id=session_id,
                 )
+            _log_and_remove_stderr(proc)
             return {
                 "status": "failed",
                 "state": RunState.FAILED.value,
@@ -502,6 +535,11 @@ async def _run_stream_loop(
         event = parse_stream_event(line)
         if event is None:
             continue
+        _LOGGER.debug(
+            "stream event type=%s raw=%.1000s",
+            event["type"],
+            json.dumps(event.get("raw", {})),
+        )
 
         if event["type"] == "system":
             session_id = event.get("session_id")
@@ -510,6 +548,9 @@ async def _run_stream_loop(
 
         if event["type"] == "assistant":
             state = RunState.RUNNING
+            text = event.get("text", "")
+            if text:
+                _LOGGER.debug("claude assistant: %.500s", text)
             waiting_for_input = waiting_for_input or bool(
                 event.get("waiting_for_input")
             )
@@ -518,6 +559,7 @@ async def _run_stream_loop(
         if event["type"] == "error":
             _request_terminate(proc)
             await _wait_for_process_exit(proc, 10)
+            _log_and_remove_stderr(proc)
             return {
                 "status": "failed",
                 "state": RunState.FAILED.value,
@@ -531,6 +573,7 @@ async def _run_stream_loop(
             if event.get("is_error"):
                 _request_terminate(proc)
                 await _wait_for_process_exit(proc, 10)
+                _log_and_remove_stderr(proc)
                 return {
                     "status": "failed",
                     "state": RunState.FAILED.value,
@@ -548,6 +591,8 @@ async def _run_stream_loop(
                 session_id=session_id,
             )
             await _wait_for_process_exit(proc, 10)
+            if result.get("status") != "success":
+                _log_and_remove_stderr(proc)
             return result
 
         if state == RunState.FAILED:
@@ -567,6 +612,7 @@ async def _terminate_for_timeout(proc: subprocess.Popen[str]) -> dict[str, Any]:
     except TimeoutError:
         _request_kill(proc)
         await _wait_for_process_exit(proc, 10)
+    _log_and_remove_stderr(proc)
     return {
         "status": "failed",
         "state": RunState.FAILED.value,
@@ -576,19 +622,24 @@ async def _terminate_for_timeout(proc: subprocess.Popen[str]) -> dict[str, Any]:
 
 
 async def _cleanup_process(proc: subprocess.Popen[str]) -> None:
-    _close_stdin(proc)
-    if _process_exited(proc):
-        return
-
-    _request_terminate(proc)
     try:
-        await _wait_for_process_exit(proc, 5)
-    except TimeoutError:
-        _request_kill(proc)
+        _close_stdin(proc)
+        if _process_exited(proc):
+            return
+
+        _request_terminate(proc)
         try:
             await _wait_for_process_exit(proc, 5)
         except TimeoutError:
-            _LOGGER.warning("Claude process %s did not exit after SIGKILL", proc.pid)
+            _request_kill(proc)
+            try:
+                await _wait_for_process_exit(proc, 5)
+            except TimeoutError:
+                _LOGGER.warning(
+                    "Claude process %s did not exit after SIGKILL", proc.pid
+                )
+    finally:
+        _remove_claude_stderr_file(proc)
 
 
 def _close_stdin(proc: subprocess.Popen[str]) -> None:
@@ -636,6 +687,62 @@ def _read_stdout_line(proc: subprocess.Popen[str]) -> str:
     if proc.stdout is None:
         return ""
     return proc.stdout.readline()
+
+
+def _log_and_remove_stderr(proc: subprocess.Popen[str]) -> None:
+    stderr_tail = _read_and_remove_claude_stderr_tail(proc)
+    if stderr_tail:
+        _LOGGER.error("claude stderr: %s", stderr_tail)
+
+
+def _read_and_remove_claude_stderr_tail(
+    proc: subprocess.Popen[str], limit: int = 4096
+) -> str:
+    stderr_path = _claude_stderr_path(proc)
+    if stderr_path is None:
+        return ""
+
+    try:
+        with stderr_path.open("rb") as stderr_file:
+            stderr_file.seek(0, os.SEEK_END)
+            size = stderr_file.tell()
+            stderr_file.seek(max(0, size - limit))
+            return stderr_file.read().decode("utf-8", errors="replace")
+    except OSError:
+        return ""
+    finally:
+        _remove_claude_stderr_file(proc)
+
+
+def _remove_claude_stderr_file(proc: subprocess.Popen[str]) -> None:
+    stderr_path = _claude_stderr_path(proc)
+    if stderr_path is None:
+        return
+    try:
+        stderr_path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _claude_stderr_path(proc: subprocess.Popen[str]) -> Path | None:
+    path = getattr(proc, "_claude_stderr_path", None)
+    if isinstance(path, Path):
+        return path
+    if isinstance(path, str):
+        return Path(path)
+    return None
+
+
+def _chown_recursive(path: Path, uid: int, gid: int) -> None:
+    try:
+        os.chown(path, uid, gid)
+        for child in path.rglob("*"):
+            try:
+                os.chown(child, uid, gid, follow_symlinks=False)
+            except OSError:
+                pass
+    except OSError:
+        pass
 
 
 def _copy_inputs(src_dir: Path, dst_dir: Path) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import logging
 import sys
 import time
 from pathlib import Path
@@ -144,20 +145,28 @@ def test_spawn_claude_uses_required_stream_json_args(
 
     monkeypatch.setattr(claude_runner.subprocess, "Popen", FakePopen)
 
-    claude_runner.spawn_claude(
+    proc = claude_runner.spawn_claude(
         tmp_path / "session", tmp_path / ".claude", tmp_path / ".claude/settings.json"
     )
 
     args = captured["args"]
     assert args[:1] == ["claude"]
-    assert "--bare" in args
+    assert "--bare" not in args
     assert "-p" in args
     assert _arg_value(args, "--input-format") == "stream-json"
     assert _arg_value(args, "--output-format") == "stream-json"
     assert _arg_value(args, "--permission-mode") == "bypassPermissions"
     assert captured["kwargs"]["stdin"] is claude_runner.subprocess.PIPE
     assert captured["kwargs"]["stdout"] is claude_runner.subprocess.PIPE
-    assert captured["kwargs"]["stderr"] is claude_runner.subprocess.DEVNULL
+    assert captured["kwargs"]["stderr"] is not claude_runner.subprocess.PIPE
+    assert (
+        Path(captured["kwargs"]["stderr"].name)
+        == tmp_path / "session" / "claude_stderr.log"
+    )
+    assert (
+        getattr(proc, "_claude_stderr_path")
+        == tmp_path / "session" / "claude_stderr.log"
+    )
     assert captured["kwargs"]["cwd"] == str(tmp_path / "session")
 
 
@@ -279,6 +288,24 @@ def test_idle_with_missing_output_and_waiting_fails_requires_interaction(
     assert result["reason"] == "requires_interaction"
     assert result["retryable"] is False
     assert proc.terminated is True
+
+
+def test_failed_result_logs_file_backed_stderr_tail(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    stderr_path = tmp_path / "claude_stderr.log"
+    stderr_path.write_text("x" * 5000 + "tail-message", encoding="utf-8")
+    proc = FakeProc(
+        stdout=LineStdout(['{"type":"result","result":{"is_error":false}}\n'])
+    )
+    setattr(proc, "_claude_stderr_path", stderr_path)
+    caplog.set_level(logging.ERROR, logger=claude_runner.__name__)
+
+    result = asyncio.run(claude_runner._run_stream_loop(proc, tmp_path, 1))
+
+    assert result["reason"] == "empty_output"
+    assert "tail-message" in caplog.text
+    assert not stderr_path.exists()
 
 
 def test_timeout_sends_sigterm_after_timeout(

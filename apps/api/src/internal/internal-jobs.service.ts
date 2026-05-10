@@ -49,7 +49,6 @@ const DEAD_WORKER_SCAN_INTERVAL_MS = 30_000;
 const DEAD_WORKER_THRESHOLD_MS = 90_000;
 const DEFAULT_LOCK_TTL_SECONDS = 600;
 const HEARTBEAT_TTL_SECONDS = 180;
-const MAX_RETRY_DELAY_SECONDS = 1_800;
 
 @Injectable()
 export class InternalJobsService {
@@ -219,7 +218,7 @@ export class InternalJobsService {
           return failedJob;
         }
 
-        const nextRunAt = new Date(Date.now() + getRetryDelaySeconds(nextAttemptCount) * 1_000);
+        const nextRunAt = new Date(Date.now() + getRetryDelaySeconds() * 1_000);
         const retriedJob = await JobStateMachine.transition(txDb, job.id, JobStatus.FAILED, JobStatus.PENDING, {
           next_run_at: nextRunAt,
           started_at: null,
@@ -436,7 +435,7 @@ export class InternalJobsService {
         });
 
         if (willRetry) {
-          const nextRunAt = new Date(failedAt.getTime() + getRetryDelaySeconds(nextAttemptCount) * 1_000);
+          const nextRunAt = new Date(failedAt.getTime() + getRetryDelaySeconds() * 1_000);
 
           await JobStateMachine.transition(txDb, job.id, JobStatus.FAILED, JobStatus.PENDING, {
             next_run_at: nextRunAt,
@@ -823,8 +822,8 @@ function throwApiError(code: ErrorCode, message: string, status: HttpStatus): ne
   throw new HttpException({ code, message }, status);
 }
 
-function getRetryDelaySeconds(nextAttemptCount: number): number {
-  return Math.min(60 * 2 ** Math.max(0, nextAttemptCount - 1), MAX_RETRY_DELAY_SECONDS);
+function getRetryDelaySeconds(): number {
+  return 0;
 }
 
 function workerHeartbeatKey(workerId: string): string {

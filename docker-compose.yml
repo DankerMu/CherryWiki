@@ -305,11 +305,11 @@ services:
       dockerfile: Dockerfile
       args:
         GRAPHIFY_REF: ${GRAPHIFY_REF:-58271fb5af4c0c123ddbad9c689ee1e220360be8}
-        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-1.0.18}
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.131}
     restart: unless-stopped
     working_dir: /app/apps/graphify-worker
     command: >-
-      sh -c "pip install -r requirements.txt --quiet && python -m src"
+      sh -c "chown -R 10001:10001 /work/graphify && pip install -r requirements.txt --quiet && python -m src"
     mem_limit: 4g
     cpus: 2.0
     environment:

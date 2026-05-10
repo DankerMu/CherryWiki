@@ -50,14 +50,22 @@ def test_worker_id_consistency_across_status_requests() -> None:
     asyncio.run(_assert_worker_id_consistency_across_status_requests())
 
 
+def test_heartbeat_loop_sends_worker_heartbeat_without_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asyncio.run(
+        _assert_heartbeat_loop_sends_worker_heartbeat_without_progress(monkeypatch)
+    )
+
+
 async def _assert_poll_jobs_claims_before_job_runs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     events: list[tuple[str, str]] = []
     stop_event = asyncio.Event()
 
-    async def fetch_pending_job(_http_client: object) -> dict[str, str]:
-        return {"id": "job-1"}
+    async def fetch_pending_jobs(_http_client: object) -> list[dict[str, str]]:
+        return [{"id": "job-1"}]
 
     async def acquire(_redis_client: object, job_id: str, worker_id: str) -> bool:
         events.append(("acquire", f"{job_id}:{worker_id}"))
@@ -89,7 +97,7 @@ async def _assert_poll_jobs_claims_before_job_runs(
         events.append(("release", f"{job_id}:{worker_id}"))
         return True
 
-    monkeypatch.setattr(job_client, "_fetch_pending_job", fetch_pending_job)
+    monkeypatch.setattr(job_client, "_fetch_pending_jobs", fetch_pending_jobs)
     monkeypatch.setattr(job_client, "acquire_lock", acquire)
     monkeypatch.setattr(job_client, "_claim_job", claim_job)
     monkeypatch.setattr(job_client, "run", runner)
@@ -120,8 +128,8 @@ async def _assert_poll_jobs_skips_job_when_claim_fails(
     released_locks: list[tuple[str, str]] = []
     stop_event = asyncio.Event()
 
-    async def fetch_pending_job(_http_client: object) -> dict[str, str]:
-        return {"id": "job-1"}
+    async def fetch_pending_jobs(_http_client: object) -> list[dict[str, str]]:
+        return [{"id": "job-1"}]
 
     async def acquire(_redis_client: object, _job_id: str, _worker_id: str) -> bool:
         return True
@@ -151,7 +159,7 @@ async def _assert_poll_jobs_skips_job_when_claim_fails(
         released_locks.append((job_id, worker_id))
         return True
 
-    monkeypatch.setattr(job_client, "_fetch_pending_job", fetch_pending_job)
+    monkeypatch.setattr(job_client, "_fetch_pending_jobs", fetch_pending_jobs)
     monkeypatch.setattr(job_client, "acquire_lock", acquire)
     monkeypatch.setattr(job_client, "_claim_job", claim_job)
     monkeypatch.setattr(job_client, "run", runner)
@@ -176,8 +184,8 @@ async def _assert_poll_jobs_sleeps_after_lock_contention(
     sleep_calls: list[float] = []
     stop_event = asyncio.Event()
 
-    async def fetch_pending_job(_http_client: object) -> dict[str, str]:
-        return {"id": "job-1"}
+    async def fetch_pending_jobs(_http_client: object) -> list[dict[str, str]]:
+        return [{"id": "job-1"}]
 
     async def acquire(_redis_client: object, _job_id: str, _worker_id: str) -> bool:
         return False
@@ -187,7 +195,7 @@ async def _assert_poll_jobs_sleeps_after_lock_contention(
         assert event is stop_event
         stop_event.set()
 
-    monkeypatch.setattr(job_client, "_fetch_pending_job", fetch_pending_job)
+    monkeypatch.setattr(job_client, "_fetch_pending_jobs", fetch_pending_jobs)
     monkeypatch.setattr(job_client, "acquire_lock", acquire)
     monkeypatch.setattr(job_client, "_sleep", sleep)
 
@@ -209,8 +217,8 @@ async def _assert_poll_jobs_reports_runner_failure_and_releases_lock(
     released_locks: list[tuple[str, str]] = []
     stop_event = asyncio.Event()
 
-    async def fetch_pending_job(_http_client: object) -> dict[str, str]:
-        return {"id": "job-1"}
+    async def fetch_pending_jobs(_http_client: object) -> list[dict[str, str]]:
+        return [{"id": "job-1"}]
 
     async def acquire(_redis_client: object, _job_id: str, _worker_id: str) -> bool:
         return True
@@ -239,7 +247,7 @@ async def _assert_poll_jobs_reports_runner_failure_and_releases_lock(
         released_locks.append((job_id, worker_id))
         return True
 
-    monkeypatch.setattr(job_client, "_fetch_pending_job", fetch_pending_job)
+    monkeypatch.setattr(job_client, "_fetch_pending_jobs", fetch_pending_jobs)
     monkeypatch.setattr(job_client, "acquire_lock", acquire)
     monkeypatch.setattr(job_client, "_claim_job", claim_job)
     monkeypatch.setattr(job_client, "run", runner)
@@ -279,6 +287,37 @@ async def _assert_claim_job_returns_false_on_conflict() -> None:
             {"worker_id": "worker-1", "percent": 0, "stage": "claimed"},
         )
     ]
+
+
+async def _assert_heartbeat_loop_sends_worker_heartbeat_without_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests: list[tuple[str, dict[str, Any]]] = []
+    heartbeat_sent = asyncio.Event()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(_captured_json_request(request))
+        if request.url.path == "/internal/workers/heartbeat":
+            heartbeat_sent.set()
+        return httpx.Response(200, json={"ok": True})
+
+    monkeypatch.setattr(job_client, "HEARTBEAT_INTERVAL", 0.01)
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(
+        base_url="http://cherry-api.test", transport=transport
+    ) as client:
+        task = asyncio.create_task(
+            job_client._heartbeat_loop(client, "job-1", "worker-1")
+        )
+        await asyncio.wait_for(heartbeat_sent.wait(), timeout=1)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    assert requests
+    assert all(path == "/internal/workers/heartbeat" for path, _body in requests)
 
 
 async def _assert_complete_job_sends_worker_result_dto() -> None:
@@ -356,6 +395,7 @@ async def _assert_worker_id_consistency_across_status_requests() -> None:
         )
 
     assert [payload["worker_id"] for _path, payload in requests] == [
+        worker_id,
         worker_id,
         worker_id,
         worker_id,
