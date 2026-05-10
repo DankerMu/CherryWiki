@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { join } from 'node:path';
 
+import { normalizeAgentSpaces } from './agent-graph-paths.js';
 import type { AgentDatabaseConfig, AgentSpaceContext } from './dto/agent.dto.js';
 
 export type ClaudeMdInput = {
@@ -11,12 +11,10 @@ export type ClaudeMdInput = {
   databaseConfig?: AgentDatabaseConfig;
 };
 
-const DEFAULT_GRAPH_BASE_PATH = '/data/spaces';
-
 @Injectable()
 export class ClaudeMdGenerator {
   generate(input: ClaudeMdInput): string {
-    const spaces = normalizeSpaces(input);
+    const spaces = normalizeAgentSpaces(input);
     const dbEnabled = input.enableDatabase === true && input.databaseConfig?.enabled === true;
     const lines = [
       '## CherryWiki Agent',
@@ -25,7 +23,12 @@ export class ClaudeMdGenerator {
       '',
       '### Accessible Spaces',
       '',
-      ...spaces.map((space) => `- ${space.id}${space.name ? ` (${space.name})` : ''}: graph path \`${space.graphPath}\``),
+      ...spaces.map((space) => {
+        const label = `${space.id}${space.name ? ` (${space.name})` : ''}`;
+        return space.graphPath === undefined
+          ? `- ${label}: graph path unavailable`
+          : `- ${label}: graph path \`${space.graphPath}\``;
+      }),
       '',
       '### Tools',
       '',
@@ -82,20 +85,4 @@ export class ClaudeMdGenerator {
 
     return `${lines.join('\n')}\n`;
   }
-}
-
-function normalizeSpaces(input: ClaudeMdInput): Array<{ id: string; name?: string | null; graphPath: string }> {
-  const spaces = input.allowedSpaces?.length === undefined || input.allowedSpaces.length === 0
-    ? [{ id: input.spaceId }]
-    : input.allowedSpaces;
-  const graphBasePath = input.graphBasePath ?? process.env.CHERRY_GRAPHIFY_BASE_PATH ?? DEFAULT_GRAPH_BASE_PATH;
-
-  return spaces.map((space) => {
-    const normalized = {
-      id: space.id,
-      graphPath: space.graphPath ?? join(graphBasePath, space.id, 'graphify-out', 'graph.json'),
-    };
-
-    return space.name === undefined ? normalized : { ...normalized, name: space.name };
-  });
 }

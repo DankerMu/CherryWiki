@@ -29,24 +29,82 @@ afterEach(() => {
 
 describe('SettingsGenerator tool allowlist', () => {
   it('allows only Bash and Read tools while denying mutation and network tools', () => {
-    const settings = new SettingsGenerator().generate();
+    const settings = new SettingsGenerator().generate({
+      workDir: '/tmp/work',
+      graphPaths: ['/data/graphs/space-a', '/data/graphs/space-a/graph.json'],
+    });
 
     expect(settings.tools).toEqual(['Bash', 'Read']);
     expect(settings.permissions.allow).toEqual(
-      expect.arrayContaining(['Bash(cherrywiki *)', 'Bash(graphify *)', 'Bash(cherrydb *)', 'Read(*)']),
+      expect.arrayContaining([
+        'Bash(cherrywiki *)',
+        'Bash(graphify *)',
+        'Bash(cherrydb *)',
+        'Read(/tmp/work/**)',
+        'Read(/data/graphs/space-a/**)',
+        'Read(/data/graphs/space-a/graph.json)',
+      ]),
     );
+    expect(settings.permissions.allow).not.toContain('Read(*)');
     expect(settings.permissions.deny).toEqual(
-      expect.arrayContaining(['Write', 'Edit', 'MultiEdit', 'WebFetch', 'WebSearch', 'Bash(rm *)', 'Bash(curl *)']),
+      expect.arrayContaining([
+        'Write',
+        'Edit',
+        'MultiEdit',
+        'NotebookEdit',
+        'WebFetch',
+        'WebSearch',
+        'Task',
+        'Bash(rm *)',
+        'Bash(curl *)',
+        'Bash(wget *)',
+        'Bash(chmod *)',
+        'Bash(chown *)',
+        'Bash(python *)',
+        'Bash(node *)',
+        'Bash(sh *)',
+        'Bash(bash -c *)',
+        'Bash(echo * > *)',
+        'Bash(cat * > *)',
+        'Bash(tee *)',
+      ]),
     );
     expect(settings).not.toHaveProperty('env');
     expect(settings).not.toHaveProperty('model');
+  });
+
+  it('rejects relative and traversal graph paths while deduplicating read scopes', () => {
+    const settings = new SettingsGenerator().generate({
+      workDir: '/tmp/work',
+      graphPaths: [
+        'relative/graph',
+        '/data/graphs/space-a/../space-b',
+        null as unknown as string,
+        undefined as unknown as string,
+        '',
+        '/data/graphs/space-a',
+        '/data/graphs/space-a',
+      ],
+    });
+
+    expect(settings.permissions.allow).toContain('Read(/tmp/work/**)');
+    expect(settings.permissions.allow).toContain('Read(/data/graphs/space-a/**)');
+    expect(settings.permissions.allow).not.toContain('Read(relative/graph/**)');
+    expect(settings.permissions.allow).not.toContain('Read(/data/graphs/space-b/**)');
+    expect(
+      settings.permissions.allow.filter((permission) => permission === 'Read(/data/graphs/space-a/**)'),
+    ).toHaveLength(1);
+    expect(settings.permissions.allow).not.toContain('Read(*)');
   });
 
   it('does not copy unrelated server environment variables into settings.json', () => {
     process.env.DATABASE_URL = 'postgres://server-secret';
     process.env.JWT_SECRET = 'jwt-secret';
 
-    const settings = new SettingsGenerator().generate();
+    const settings = new SettingsGenerator().generate({
+      workDir: '/tmp/work',
+      graphPaths: [],
+    });
 
     expect(settings).not.toHaveProperty('env');
     expect(settings.permissions.deny).toContain('Task');

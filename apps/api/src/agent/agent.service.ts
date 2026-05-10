@@ -9,6 +9,7 @@ import type { Readable } from 'node:stream';
 
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import type { DrizzleDatabase } from '../database/drizzle.module.js';
+import { collectAgentGraphPaths } from './agent-graph-paths.js';
 import { AuditCapture } from './audit-capture.js';
 import { ClaudeMdGenerator } from './claude-md-generator.js';
 import type {
@@ -847,7 +848,19 @@ export class AgentService implements OnModuleDestroy {
     const claudeMdPath = join(session.workDir, 'CLAUDE.md');
     const settingsPath = join(session.workDir, 'settings.json');
     await writeFileExclusive(claudeMdPath, this.claudeMdGenerator.generate(claudeMdInput), AGENT_UID, AGENT_GID);
-    await writeFileExclusive(settingsPath, `${JSON.stringify(this.settingsGenerator.generate(), null, 2)}\n`, AGENT_UID, AGENT_GID);
+    await writeFileExclusive(
+      settingsPath,
+      `${JSON.stringify(
+        this.settingsGenerator.generate({
+          workDir: session.workDir,
+          graphPaths: collectAgentGraphPaths(claudeMdInput),
+        }),
+        null,
+        2,
+      )}\n`,
+      AGENT_UID,
+      AGENT_GID,
+    );
   }
 
   private async recordModelUsage(
