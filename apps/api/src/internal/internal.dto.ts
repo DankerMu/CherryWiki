@@ -36,6 +36,11 @@ export class PendingJobsQueryDto {
   @Min(1)
   @Max(10)
   limit = 1;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  tenant_id?: string;
 }
 
 export class JobProgressUpdateDto {
