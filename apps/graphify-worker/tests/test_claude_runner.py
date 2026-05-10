@@ -150,14 +150,14 @@ def test_spawn_claude_uses_required_stream_json_args(
 
     args = captured["args"]
     assert args[:1] == ["claude"]
-    assert "--bare" in args
+    assert "--bare" not in args
     assert "-p" in args
     assert _arg_value(args, "--input-format") == "stream-json"
     assert _arg_value(args, "--output-format") == "stream-json"
     assert _arg_value(args, "--permission-mode") == "bypassPermissions"
     assert captured["kwargs"]["stdin"] is claude_runner.subprocess.PIPE
     assert captured["kwargs"]["stdout"] is claude_runner.subprocess.PIPE
-    assert captured["kwargs"]["stderr"] is claude_runner.subprocess.DEVNULL
+    assert captured["kwargs"]["stderr"] is claude_runner.subprocess.PIPE
     assert captured["kwargs"]["cwd"] == str(tmp_path / "session")
 
 

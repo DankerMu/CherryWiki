@@ -56,8 +56,8 @@ async def _assert_poll_jobs_claims_before_job_runs(
     events: list[tuple[str, str]] = []
     stop_event = asyncio.Event()
 
-    async def fetch_pending_job(_http_client: object) -> dict[str, str]:
-        return {"id": "job-1"}
+    async def fetch_pending_jobs(_http_client: object) -> list[dict[str, str]]:
+        return [{"id": "job-1"}]
 
     async def acquire(_redis_client: object, job_id: str, worker_id: str) -> bool:
         events.append(("acquire", f"{job_id}:{worker_id}"))
@@ -89,7 +89,7 @@ async def _assert_poll_jobs_claims_before_job_runs(
         events.append(("release", f"{job_id}:{worker_id}"))
         return True
 
-    monkeypatch.setattr(job_client, "_fetch_pending_job", fetch_pending_job)
+    monkeypatch.setattr(job_client, "_fetch_pending_jobs", fetch_pending_jobs)
     monkeypatch.setattr(job_client, "acquire_lock", acquire)
     monkeypatch.setattr(job_client, "_claim_job", claim_job)
     monkeypatch.setattr(job_client, "run", runner)
@@ -120,8 +120,8 @@ async def _assert_poll_jobs_skips_job_when_claim_fails(
     released_locks: list[tuple[str, str]] = []
     stop_event = asyncio.Event()
 
-    async def fetch_pending_job(_http_client: object) -> dict[str, str]:
-        return {"id": "job-1"}
+    async def fetch_pending_jobs(_http_client: object) -> list[dict[str, str]]:
+        return [{"id": "job-1"}]
 
     async def acquire(_redis_client: object, _job_id: str, _worker_id: str) -> bool:
         return True
@@ -151,7 +151,7 @@ async def _assert_poll_jobs_skips_job_when_claim_fails(
         released_locks.append((job_id, worker_id))
         return True
 
-    monkeypatch.setattr(job_client, "_fetch_pending_job", fetch_pending_job)
+    monkeypatch.setattr(job_client, "_fetch_pending_jobs", fetch_pending_jobs)
     monkeypatch.setattr(job_client, "acquire_lock", acquire)
     monkeypatch.setattr(job_client, "_claim_job", claim_job)
     monkeypatch.setattr(job_client, "run", runner)
@@ -176,8 +176,8 @@ async def _assert_poll_jobs_sleeps_after_lock_contention(
     sleep_calls: list[float] = []
     stop_event = asyncio.Event()
 
-    async def fetch_pending_job(_http_client: object) -> dict[str, str]:
-        return {"id": "job-1"}
+    async def fetch_pending_jobs(_http_client: object) -> list[dict[str, str]]:
+        return [{"id": "job-1"}]
 
     async def acquire(_redis_client: object, _job_id: str, _worker_id: str) -> bool:
         return False
@@ -187,7 +187,7 @@ async def _assert_poll_jobs_sleeps_after_lock_contention(
         assert event is stop_event
         stop_event.set()
 
-    monkeypatch.setattr(job_client, "_fetch_pending_job", fetch_pending_job)
+    monkeypatch.setattr(job_client, "_fetch_pending_jobs", fetch_pending_jobs)
     monkeypatch.setattr(job_client, "acquire_lock", acquire)
     monkeypatch.setattr(job_client, "_sleep", sleep)
 
@@ -209,8 +209,8 @@ async def _assert_poll_jobs_reports_runner_failure_and_releases_lock(
     released_locks: list[tuple[str, str]] = []
     stop_event = asyncio.Event()
 
-    async def fetch_pending_job(_http_client: object) -> dict[str, str]:
-        return {"id": "job-1"}
+    async def fetch_pending_jobs(_http_client: object) -> list[dict[str, str]]:
+        return [{"id": "job-1"}]
 
     async def acquire(_redis_client: object, _job_id: str, _worker_id: str) -> bool:
         return True
@@ -239,7 +239,7 @@ async def _assert_poll_jobs_reports_runner_failure_and_releases_lock(
         released_locks.append((job_id, worker_id))
         return True
 
-    monkeypatch.setattr(job_client, "_fetch_pending_job", fetch_pending_job)
+    monkeypatch.setattr(job_client, "_fetch_pending_jobs", fetch_pending_jobs)
     monkeypatch.setattr(job_client, "acquire_lock", acquire)
     monkeypatch.setattr(job_client, "_claim_job", claim_job)
     monkeypatch.setattr(job_client, "run", runner)
@@ -356,6 +356,7 @@ async def _assert_worker_id_consistency_across_status_requests() -> None:
         )
 
     assert [payload["worker_id"] for _path, payload in requests] == [
+        worker_id,
         worker_id,
         worker_id,
         worker_id,

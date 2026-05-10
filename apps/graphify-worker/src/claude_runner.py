@@ -528,7 +528,11 @@ async def _run_stream_loop(
         event = parse_stream_event(line)
         if event is None:
             continue
-        _LOGGER.info("stream event type=%s raw=%.1000s", event["type"], json.dumps(event.get("raw", {})))
+        _LOGGER.info(
+            "stream event type=%s raw=%.1000s",
+            event["type"],
+            json.dumps(event.get("raw", {})),
+        )
 
         if event["type"] == "system":
             session_id = event.get("session_id")
