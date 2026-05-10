@@ -62,10 +62,10 @@ export class InternalJobsService {
     @Optional() private readonly bridgeQueueService?: BridgeQueueService,
   ) {}
 
-  async pollPendingJobs(type: string, limit: number): Promise<JobDto[]> {
+  async pollPendingJobs(type: string, limit: number, tenantId?: string): Promise<JobDto[]> {
     const pendingJobs = await JobRepository.findPendingByType(
       this.db,
-      process.env.DEFAULT_TENANT_ID ?? 'default',
+      tenantId,
       type,
       limit,
     );

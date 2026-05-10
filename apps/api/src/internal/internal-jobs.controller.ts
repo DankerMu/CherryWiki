@@ -14,7 +14,7 @@ export class InternalJobsController {
 
   @Get('pending')
   async getPendingJobs(@Query() query: PendingJobsQueryDto): Promise<JobDto[]> {
-    return this.internalJobsService.pollPendingJobs(query.type, query.limit);
+    return this.internalJobsService.pollPendingJobs(query.type, query.limit, query.tenant_id);
   }
 
   @Patch(':job_id/progress')

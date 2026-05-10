@@ -27,21 +27,69 @@ describe('InternalJobsService', () => {
     vi.restoreAllMocks();
   });
 
-  it('polls pending jobs by type and returns an empty array when none exist', async () => {
+  it('polls pending jobs across tenants when no tenant scope is provided', async () => {
     delete process.env.DEFAULT_TENANT_ID;
     const service = createService();
-    const findPendingByTypeSpy = vi.spyOn(JobRepository, 'findPendingByType').mockResolvedValueOnce([createJobRow()]);
+    const tenantOneJob = createJobRow({ id: 'job-1', tenant_id: 'tenant-1' });
+    const tenantTwoJob = createJobRow({ id: 'job-2', tenant_id: 'tenant-2' });
+    const findPendingByTypeSpy = vi
+      .spyOn(JobRepository, 'findPendingByType')
+      .mockResolvedValueOnce([tenantOneJob, tenantTwoJob]);
 
     await expect(service.pollPendingJobs('graphify', 2)).resolves.toEqual([
+      expect.objectContaining({ job_id: 'job-1', tenant_id: 'tenant-1' }),
+      expect.objectContaining({ job_id: 'job-2', tenant_id: 'tenant-2' }),
+    ]);
+    expect(findPendingByTypeSpy).toHaveBeenCalledWith(expect.anything(), undefined, 'graphify', 2);
+  });
+
+  it('polls pending jobs for an explicit tenant scope', async () => {
+    const service = createService();
+    const findPendingByTypeSpy = vi
+      .spyOn(JobRepository, 'findPendingByType')
+      .mockResolvedValueOnce([createJobRow({ tenant_id: 'tenant-2' })]);
+
+    await expect(service.pollPendingJobs('graphify', 1, 'tenant-2')).resolves.toEqual([
       expect.objectContaining({
         job_id: 'job-1',
+        tenant_id: 'tenant-2',
         type: 'graphify',
         status: JobStatus.PENDING,
       }),
     ]);
-    expect(findPendingByTypeSpy).toHaveBeenCalledWith(expect.anything(), 'default', 'graphify', 2);
+    expect(findPendingByTypeSpy).toHaveBeenCalledWith(expect.anything(), 'tenant-2', 'graphify', 1);
+  });
 
-    findPendingByTypeSpy.mockResolvedValueOnce([]);
+  it('does not use DEFAULT_TENANT_ID as a polling filter without an explicit tenant scope', async () => {
+    process.env.DEFAULT_TENANT_ID = 'tenant-1';
+    const service = createService();
+    const findPendingByTypeSpy = vi
+      .spyOn(JobRepository, 'findPendingByType')
+      .mockResolvedValueOnce([createJobRow({ id: 'job-2', tenant_id: 'tenant-2' })]);
+
+    await expect(service.pollPendingJobs('graphify', 10)).resolves.toEqual([
+      expect.objectContaining({ job_id: 'job-2', tenant_id: 'tenant-2' }),
+    ]);
+    expect(findPendingByTypeSpy).toHaveBeenCalledWith(expect.anything(), undefined, 'graphify', 10);
+  });
+
+  it('includes the persisted tenant_id in returned job DTOs', async () => {
+    const service = createService();
+    vi.spyOn(JobRepository, 'findPendingByType').mockResolvedValueOnce([
+      createJobRow({ id: 'job-1', tenant_id: 'tenant-alpha' }),
+      createJobRow({ id: 'job-2', tenant_id: 'tenant-beta' }),
+    ]);
+
+    await expect(service.pollPendingJobs('graphify', 2)).resolves.toEqual([
+      expect.objectContaining({ job_id: 'job-1', tenant_id: 'tenant-alpha' }),
+      expect.objectContaining({ job_id: 'job-2', tenant_id: 'tenant-beta' }),
+    ]);
+  });
+
+  it('returns an empty array when no pending jobs exist', async () => {
+    const service = createService();
+    vi.spyOn(JobRepository, 'findPendingByType').mockResolvedValueOnce([]);
+
     await expect(service.pollPendingJobs('graphify', 1)).resolves.toEqual([]);
   });
 
