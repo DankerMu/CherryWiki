@@ -126,6 +126,65 @@ describe('Message input', () => {
   });
 });
 
+describe('Message input IME composition handling', () => {
+  it('does not submit on Enter during IME composition', () => {
+    const onSend = vi.fn<(message: string) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithRouter(<MessageInput disabled={false} isStreaming={false} onSend={onSend} />);
+
+    const textarea = screen.getByLabelText<HTMLTextAreaElement>('消息');
+    fireEvent.change(textarea, { target: { value: 'pin' } });
+    fireTextareaKeyDown(textarea, { key: 'Enter', isComposing: true });
+
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('submits normally on Enter after composition', async () => {
+    const onSend = vi.fn<(message: string) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithRouter(<MessageInput disabled={false} isStreaming={false} onSend={onSend} />);
+
+    const textarea = screen.getByLabelText<HTMLTextAreaElement>('消息');
+    fireEvent.change(textarea, { target: { value: '完成输入' } });
+    fireTextareaKeyDown(textarea, { key: 'Enter', isComposing: false });
+
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    expect(onSend).toHaveBeenCalledWith('完成输入', expect.any(Object));
+  });
+
+  it('does not submit on Shift+Enter regardless of composition state', () => {
+    const onSend = vi.fn<(message: string) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithRouter(<MessageInput disabled={false} isStreaming={false} onSend={onSend} />);
+
+    const textarea = screen.getByLabelText<HTMLTextAreaElement>('消息');
+    fireEvent.change(textarea, { target: { value: 'line one' } });
+    fireTextareaKeyDown(textarea, { key: 'Enter', shiftKey: true, isComposing: false });
+    fireTextareaKeyDown(textarea, { key: 'Enter', shiftKey: true, isComposing: true });
+
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('does not submit on the Process key during composition', () => {
+    const onSend = vi.fn<(message: string) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithRouter(<MessageInput disabled={false} isStreaming={false} onSend={onSend} />);
+
+    const textarea = screen.getByLabelText<HTMLTextAreaElement>('消息');
+    fireEvent.change(textarea, { target: { value: 'process key input' } });
+    fireTextareaKeyDown(textarea, { key: 'Process' });
+
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('does not submit when keyCode is 229 (Safari IME fallback)', () => {
+    const onSend = vi.fn<(message: string) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithRouter(<MessageInput disabled={false} isStreaming={false} onSend={onSend} />);
+
+    const textarea = screen.getByLabelText<HTMLTextAreaElement>('消息');
+    fireEvent.change(textarea, { target: { value: 'safari ime input' } });
+    fireTextareaKeyDown(textarea, { key: 'Enter', keyCode: 229, isComposing: false });
+
+    expect(onSend).not.toHaveBeenCalled();
+  });
+});
+
 describe('Phase 3 chat controls and stream events', () => {
   it('sends enable_deep_analysis when the deep analysis toggle is on', async () => {
     const fetchState = stubChatFetch({
@@ -308,6 +367,10 @@ function renderChatRoute(): void {
 
 function renderWithRouter(element: ReactElement): void {
   render(<MemoryRouter>{element}</MemoryRouter>);
+}
+
+function fireTextareaKeyDown(textarea: HTMLTextAreaElement, init: KeyboardEventInit): void {
+  fireEvent(textarea, new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
 }
 
 function buildMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
