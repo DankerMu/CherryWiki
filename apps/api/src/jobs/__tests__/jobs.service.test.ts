@@ -339,6 +339,17 @@ describe('deriveDisplayName', () => {
     );
   });
 
+  it('uses a result metadata filename when top-level fields are unavailable', () => {
+    expect(
+      deriveDisplayName(
+        createJobRow({
+          payload_json: { source_document_id: 'doc-1' },
+          result_json: { metadata: { filename: 'report.pdf', original_filename: 'report.pdf' } },
+        }),
+      ),
+    ).toBe('report.pdf');
+  });
+
   it('returns null when no display metadata is available', () => {
     expect(deriveDisplayName(createJobRow())).toBeNull();
   });

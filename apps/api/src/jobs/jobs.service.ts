@@ -429,23 +429,36 @@ function isJobSortField(field: string): field is JobSortField {
 
 export function deriveDisplayName(job: JobRow): string | null {
   const candidates = [job.payload_json, job.result_json];
-  const primaryFields = ['display_name', 'name', 'title', 'filename', 'file_name'];
-  const fallbackFields = ['source_document_filename', 'original_filename'];
+  const fields = [
+    'display_name',
+    'name',
+    'title',
+    'filename',
+    'file_name',
+    'source_document_filename',
+    'original_filename',
+  ];
 
   for (const source of candidates) {
-    for (const field of primaryFields) {
-      const value = readDisplayNameField(source, field);
+    if (typeof source !== 'object' || source === null) {
+      continue;
+    }
+
+    const record = source as Record<string, unknown>;
+    for (const field of fields) {
+      const value = readDisplayNameValue(record[field]);
       if (value !== null) {
         return value;
       }
     }
-  }
 
-  for (const source of candidates) {
-    for (const field of fallbackFields) {
-      const value = readDisplayNameField(source, field);
-      if (value !== null) {
-        return value;
+    if (typeof record.metadata === 'object' && record.metadata !== null) {
+      const metadata = record.metadata as Record<string, unknown>;
+      for (const field of fields) {
+        const value = readDisplayNameValue(metadata[field]);
+        if (value !== null) {
+          return value;
+        }
       }
     }
   }
@@ -453,12 +466,7 @@ export function deriveDisplayName(job: JobRow): string | null {
   return null;
 }
 
-function readDisplayNameField(source: unknown, field: string): string | null {
-  if (typeof source !== 'object' || source === null) {
-    return null;
-  }
-
-  const value = (source as Record<string, unknown>)[field];
+function readDisplayNameValue(value: unknown): string | null {
   if (typeof value !== 'string') {
     return null;
   }

@@ -175,11 +175,12 @@ describe('JobDetailPage', () => {
   });
 
   it('renders job details and the event timeline', async () => {
-    stubJobApi();
+    stubJobApi({ job: { display_name: 'readme.md' } });
 
     renderJobsRoute('/admin/jobs/job-1');
 
     expect(await screen.findByRole('heading', { name: '任务详情' })).toBeInTheDocument();
+    expect(await screen.findByText('readme.md')).toBeInTheDocument();
     expect(await screen.findByText('space-main')).toBeInTheDocument();
     expect(screen.getAllByText('Graphify').length).toBeGreaterThan(0);
     expect(screen.getByText('Progress Updated')).toBeInTheDocument();
