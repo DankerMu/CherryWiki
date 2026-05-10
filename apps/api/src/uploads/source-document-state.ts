@@ -17,7 +17,7 @@ const LEGAL_TRANSITIONS = {
   parsing: ['parsed', 'parse_failed'],
   parsed: ['graphify_pending'],
   parse_failed: ['uploaded'],
-  security_rejected: [],
+  security_rejected: ['uploaded'],
   graphify_pending: ['graphify_running'],
   graphify_running: ['wiki_proposed', 'graphify_failed'],
   graphify_failed: ['graphify_pending'],

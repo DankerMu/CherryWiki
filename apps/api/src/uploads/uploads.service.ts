@@ -676,7 +676,11 @@ export class UploadsService {
     );
 
     if (existingSource !== undefined) {
-      return toUploadResponse(existingSource, null, false, undefined, true);
+      if (existingSource.status !== 'security_rejected') {
+        return toUploadResponse(existingSource, null, false, undefined, true);
+      }
+      const reset = await this.sourceDocumentRepository.updateStatus(existingSource.id, 'uploaded');
+      return this.requeueExistingBlobDocument(reset, input);
     }
 
     const isArchivedBlob = isArchiveStorageUri(input.blob.storage_uri);
@@ -715,6 +719,31 @@ export class UploadsService {
       return toUploadResponse(sourceDocument.row, null, false, undefined, true);
     }
 
+    return this.requeueExistingBlobDocument(sourceDocument.row, input);
+  }
+
+  private async requeueExistingBlobDocument(
+    document: SourceDocumentRow,
+    input: {
+      tenantId: string;
+      spaceId: string;
+      userId: string;
+      blob: FileBlobRow;
+      priority: number;
+    },
+  ): Promise<UploadResponseDto> {
+    const isArchivedBlob = isArchiveStorageUri(input.blob.storage_uri);
+    const isQuarantinedBlob = isQuarantineStorageUri(input.blob.storage_uri);
+    const quarantineKey = isQuarantinedBlob ? storageKeyFromUri(input.blob.storage_uri) : undefined;
+
+    if (!isArchivedBlob && !isQuarantinedBlob) {
+      throwApiError(
+        ErrorCode.CONFLICT,
+        'Existing file blob is neither archived nor quarantined',
+        HttpStatus.CONFLICT,
+      );
+    }
+
     if (!isArchivedBlob) {
       if (quarantineKey === undefined) {
         throwApiError(
@@ -725,11 +754,11 @@ export class UploadsService {
       }
 
       const metadata = {
-        ...asJsonRecord(sourceDocument.row.metadata_json),
+        ...asJsonRecord(document.metadata_json),
         quarantine_uri: input.blob.storage_uri,
         quarantine_key: quarantineKey,
       };
-      const validating = await this.sourceDocumentRepository.updateStatus(sourceDocument.row.id, 'validating', {
+      const validating = await this.sourceDocumentRepository.updateStatus(document.id, 'validating', {
         metadata_json: metadata,
       });
       const validationJob = await this.createValidationJob(
@@ -749,13 +778,13 @@ export class UploadsService {
       input.tenantId,
       input.spaceId,
       input.userId,
-      sourceDocument.row,
+      document,
       input.blob,
       input.priority,
       false,
     );
 
-    return toUploadResponse(sourceDocument.row, job, true);
+    return toUploadResponse(document, job, true);
   }
 
   private async advanceDocumentToParsing(document: SourceDocumentRow): Promise<SourceDocumentRow> {

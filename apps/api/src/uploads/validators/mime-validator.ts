@@ -98,7 +98,11 @@ export async function validateUploadMagicBytes(
     });
   }
 
-  if (declaredMime !== undefined && !isMimeAllowedForExtension(declaredMime, extension)) {
+  if (
+    declaredMime !== undefined &&
+    declaredMime !== 'application/octet-stream' &&
+    !isMimeAllowedForExtension(declaredMime, extension)
+  ) {
     return validationReject(ErrorCode.MIME_MISMATCH, 'Declared Content-Type does not match file extension', {
       filename: input.filename,
       extension,
@@ -132,7 +136,7 @@ export async function validateUploadMagicBytes(
     });
   }
 
-  if (declaredMime !== undefined && !areCompatibleMimes(declaredMime, detectedMime, extension)) {
+  if (declaredMime !== undefined && declaredMime !== 'application/octet-stream' && !areCompatibleMimes(declaredMime, detectedMime, extension)) {
     return validationReject(ErrorCode.MIME_MISMATCH, 'Declared Content-Type does not match detected MIME type', {
       filename: input.filename,
       extension,

@@ -20,7 +20,6 @@ SUBAGENT_TOOL_NAME = "Agent"
 ALLOWED_TOOLS = ["Bash", "Read", "Write", "Edit", SUBAGENT_TOOL_NAME]
 CLAUDE_SPAWN_ARGS = [
     "claude",
-    "--bare",
     "-p",
     "--input-format",
     "stream-json",
@@ -182,6 +181,7 @@ def install_skill(config_dir: Path | str) -> Path:
             text=True,
         )
         if skill_dst.exists():
+            _strip_moonshot_promo(skill_dst)
             return skill_dst
     except (OSError, subprocess.CalledProcessError) as install_error:
         fallback_reason = install_error
@@ -199,7 +199,29 @@ def install_skill(config_dir: Path | str) -> Path:
 
     shutil.copy2(skill_src, skill_dst)
     (skill_dst.parent / ".graphify_version").write_text("local", encoding="utf-8")
+    _strip_moonshot_promo(skill_dst)
     return skill_dst
+
+
+_MOONSHOT_BLOCK_RE = re.compile(
+    r"\*\*Before dispatching subagents:\*\*.*?(?=\*\*Run Part A|\*\*Part A|####|$)",
+    re.DOTALL,
+)
+
+
+def _strip_moonshot_promo(skill_path: Path) -> None:
+    try:
+        text = skill_path.read_text(encoding="utf-8")
+        cleaned = _MOONSHOT_BLOCK_RE.sub("", text)
+        if cleaned != text:
+            skill_path.write_text(cleaned, encoding="utf-8")
+            _LOGGER.info("stripped moonshot promo block from %s", skill_path)
+    except OSError:
+        pass
+
+
+CLAUDE_RUN_UID = int(os.environ.get("CLAUDE_RUN_UID", "10001"))
+CLAUDE_RUN_GID = int(os.environ.get("CLAUDE_RUN_GID", "10001"))
 
 
 def spawn_claude(
@@ -213,15 +235,19 @@ def spawn_claude(
         "--tools",
         ",".join(ALLOWED_TOOLS),
     ]
+    _chown_recursive(Path(session_dir), CLAUDE_RUN_UID, CLAUDE_RUN_GID)
+    _chown_recursive(config_path.parent, CLAUDE_RUN_UID, CLAUDE_RUN_GID)
     return subprocess.Popen(
         args,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
         cwd=str(session_dir),
         env=build_claude_env(config_path.parent, config_path),
         text=True,
         bufsize=1,
+        user=CLAUDE_RUN_UID,
+        group=CLAUDE_RUN_GID,
     )
 
 
@@ -502,6 +528,7 @@ async def _run_stream_loop(
         event = parse_stream_event(line)
         if event is None:
             continue
+        _LOGGER.info("stream event type=%s raw=%.1000s", event["type"], json.dumps(event.get("raw", {})))
 
         if event["type"] == "system":
             session_id = event.get("session_id")
@@ -510,6 +537,9 @@ async def _run_stream_loop(
 
         if event["type"] == "assistant":
             state = RunState.RUNNING
+            text = event.get("text", "")
+            if text:
+                _LOGGER.info("claude assistant: %.500s", text)
             waiting_for_input = waiting_for_input or bool(
                 event.get("waiting_for_input")
             )
@@ -547,6 +577,10 @@ async def _run_stream_loop(
                 proc=proc,
                 session_id=session_id,
             )
+            if result.get("status") != "success" and proc.stderr:
+                stderr_tail = proc.stderr.read(4096)
+                if stderr_tail:
+                    _LOGGER.error("claude stderr: %s", stderr_tail)
             await _wait_for_process_exit(proc, 10)
             return result
 
@@ -636,6 +670,18 @@ def _read_stdout_line(proc: subprocess.Popen[str]) -> str:
     if proc.stdout is None:
         return ""
     return proc.stdout.readline()
+
+
+def _chown_recursive(path: Path, uid: int, gid: int) -> None:
+    try:
+        os.chown(path, uid, gid)
+        for child in path.rglob("*"):
+            try:
+                os.chown(child, uid, gid, follow_symlinks=False)
+            except OSError:
+                pass
+    except OSError:
+        pass
 
 
 def _copy_inputs(src_dir: Path, dst_dir: Path) -> None:

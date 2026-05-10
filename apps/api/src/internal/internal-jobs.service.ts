@@ -823,8 +823,8 @@ function throwApiError(code: ErrorCode, message: string, status: HttpStatus): ne
   throw new HttpException({ code, message }, status);
 }
 
-function getRetryDelaySeconds(nextAttemptCount: number): number {
-  return Math.min(60 * 2 ** Math.max(0, nextAttemptCount - 1), MAX_RETRY_DELAY_SECONDS);
+function getRetryDelaySeconds(_nextAttemptCount: number): number {
+  return 0;
 }
 
 function workerHeartbeatKey(workerId: string): string {
