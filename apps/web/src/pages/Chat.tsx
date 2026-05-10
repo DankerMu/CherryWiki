@@ -433,7 +433,7 @@ export function MessageInput({
         placeholder={isStreaming ? t('chat.streamingPlaceholder') : t('chat.inputPlaceholder')}
         onChange={(event) => setValue(event.target.value.slice(0, CHAT_INPUT_MAX_LENGTH))}
         onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing || event.key === 'Process') {
+          if (event.nativeEvent.isComposing || event.key === 'Process' || event.nativeEvent.keyCode === 229) {
             return;
           }
 

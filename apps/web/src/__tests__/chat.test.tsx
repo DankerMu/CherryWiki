@@ -172,6 +172,17 @@ describe('Message input IME composition handling', () => {
 
     expect(onSend).not.toHaveBeenCalled();
   });
+
+  it('does not submit when keyCode is 229 (Safari IME fallback)', () => {
+    const onSend = vi.fn<(message: string) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithRouter(<MessageInput disabled={false} isStreaming={false} onSend={onSend} />);
+
+    const textarea = screen.getByLabelText<HTMLTextAreaElement>('消息');
+    fireEvent.change(textarea, { target: { value: 'safari ime input' } });
+    fireTextareaKeyDown(textarea, { key: 'Enter', keyCode: 229, isComposing: false });
+
+    expect(onSend).not.toHaveBeenCalled();
+  });
 });
 
 describe('Phase 3 chat controls and stream events', () => {
