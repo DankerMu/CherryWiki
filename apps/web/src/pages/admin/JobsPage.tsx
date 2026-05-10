@@ -1,7 +1,7 @@
 import { ReloadOutlined } from '@ant-design/icons';
-import { Button, Input, Progress, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { Button, Progress, Select, Space, Table, Tag, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { useCallback, useDeferredValue, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { requireAdminPage } from '../../components/RequireAdminPage';
@@ -38,7 +38,9 @@ function JobsPage() {
   const [type, setType] = useState('');
   const [status, setStatus] = useState('');
   const [spaceId, setSpaceId] = useState('');
-  const deferredSpaceId = useDeferredValue(spaceId);
+  const [spaces, setSpaces] = useState<{ id: string; name: string }[]>([]);
+  const [spacesLoaded, setSpacesLoaded] = useState(false);
+  const [spacesError, setSpacesError] = useState(false);
   const [page, setPage] = useState(DEFAULT_PAGINATION.page);
   const [perPage, setPerPage] = useState(DEFAULT_PAGINATION.per_page);
   const [pagination, setPagination] = useState(DEFAULT_PAGINATION);
@@ -52,7 +54,7 @@ function JobsPage() {
         const response = await api.getWrapped<AdminJob[]>('/admin/jobs', {
           type,
           status,
-          space_id: deferredSpaceId,
+          space_id: spaceId,
           page,
           per_page: perPage,
           sort: '-created_at',
@@ -72,12 +74,31 @@ function JobsPage() {
         if (!background) setIsLoading(false);
       }
     },
-    [deferredSpaceId, page, perPage, status, type],
+    [page, perPage, spaceId, status, type],
   );
 
   useEffect(() => {
     void loadJobs();
   }, [loadJobs]);
+
+  useEffect(() => {
+    async function loadSpaces() {
+      try {
+        const response = await api.getWrapped<{ id: string; name: string }[]>('/spaces', {
+          per_page: 100,
+          sort: 'name',
+        });
+        setSpaces(response.data);
+        setSpacesLoaded(true);
+        setSpacesError(false);
+      } catch (err) {
+        setSpacesError(true);
+        void message.error(getErrorMessage(err));
+      }
+    }
+
+    void loadSpaces();
+  }, []);
 
   const shouldPoll = status === 'running' || jobs.some((job) => job.status === 'running');
 
@@ -183,12 +204,18 @@ function JobsPage() {
             <Select.Option key={jobStatus} value={jobStatus}>{formatLabel(jobStatus)}</Select.Option>
           ))}
         </Select>
-        <Input.Search
+        <Select
+          aria-label={t('admin.jobs.filter.space')}
           placeholder={t('admin.jobs.filter.spacePlaceholder')}
-          value={spaceId}
-          onChange={(e) => { setSpaceId(e.target.value); setPage(1); }}
+          value={spaceId || undefined}
+          onChange={(val) => { setSpaceId(val ?? ''); setPage(1); }}
           allowClear
+          showSearch
+          optionFilterProp="label"
           style={{ width: 200 }}
+          loading={!spacesLoaded && !spacesError}
+          {...(spacesError ? { status: 'error' as const } : {})}
+          options={spaces.map((space) => ({ value: space.id, label: space.name }))}
         />
       </Space>
 

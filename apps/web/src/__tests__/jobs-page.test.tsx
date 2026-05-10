@@ -43,10 +43,85 @@ describe('JobsPage', () => {
     renderJobsRoute('/admin/jobs');
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalled();
-      expect(getRequestUrl(fetchMock.mock.calls[0]?.[0] ?? '')).toContain(
-        '/api/admin/jobs?page=1&per_page=20&sort=-created_at',
-      );
+      expect(getRequestUrls(fetchMock)).toContain('/api/admin/jobs?page=1&per_page=20&sort=-created_at');
+    });
+  });
+
+  it('loads space options in the dropdown', async () => {
+    const fetchMock = stubJobApi();
+
+    renderJobsRoute('/admin/jobs');
+
+    await waitFor(() => {
+      expect(getRequestUrls(fetchMock)).toContain('/api/spaces?per_page=100&sort=name');
+    });
+    await openSpaceSelect();
+
+    expect(await screen.findByText('Main Space')).toBeInTheDocument();
+  });
+
+  it('stops showing the space filter loading indicator when the spaces list is empty', async () => {
+    const fetchMock = stubJobApi({ spaces: [] });
+
+    renderJobsRoute('/admin/jobs');
+
+    await waitFor(() => {
+      expect(getRequestUrls(fetchMock)).toContain('/api/spaces?per_page=100&sort=name');
+    });
+
+    await waitFor(() => {
+      expect(getSpaceSelectContainer().querySelector('.anticon-loading')).not.toBeInTheDocument();
+    });
+  });
+
+  it('selecting a space filters jobs', async () => {
+    const fetchMock = stubJobApi();
+
+    renderJobsRoute('/admin/jobs');
+
+    await selectSpaceOption('Main Space');
+
+    await waitFor(() => {
+      expect(getAdminJobRequestUrls(fetchMock).some((url) => getQueryParam(url, 'space_id') === 'space-main')).toBe(true);
+    });
+  });
+
+  it('clearing a space removes the filter', async () => {
+    const fetchMock = stubJobApi();
+
+    renderJobsRoute('/admin/jobs');
+
+    await selectSpaceOption('Main Space');
+
+    await waitFor(() => {
+      expect(getAdminJobRequestUrls(fetchMock).some((url) => getQueryParam(url, 'space_id') === 'space-main')).toBe(true);
+    });
+
+    const requestCountAfterSelect = getAdminJobRequestUrls(fetchMock).length;
+    const clearButton = getSpaceSelectContainer().querySelector<HTMLElement>('.ant-select-clear');
+    expect(clearButton).not.toBeNull();
+    fireEvent.mouseDown(clearButton!);
+    fireEvent.click(clearButton!);
+
+    await waitFor(() => {
+      expect(
+        getAdminJobRequestUrls(fetchMock)
+          .slice(requestCountAfterSelect)
+          .some((url) => !getQueryParams(url).has('space_id')),
+      ).toBe(true);
+    });
+  });
+
+  it('keeps the jobs table usable when space options fail to load', async () => {
+    const fetchMock = stubJobApi({ failSpaces: true });
+
+    renderJobsRoute('/admin/jobs');
+
+    expect(await screen.findByText('job-1')).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(getSpaceSelectContainer()).toHaveClass('ant-select-status-error');
+      expect(getAdminJobRequestUrls(fetchMock).length).toBeGreaterThan(0);
     });
   });
 });
@@ -108,11 +183,32 @@ function renderJobsRoute(path: string): void {
   );
 }
 
-function stubJobApi() {
+function stubJobApi(options: { failSpaces?: boolean; spaces?: { id: string; name: string }[] } = {}) {
   let cancelRequestedAt: string | null = null;
+  const spaces = options.spaces ?? [{ id: 'space-main', name: 'Main Space' }];
 
   const fetchMock = vi.fn<typeof fetch>((input, init) => {
     const path = getRequestPath(input);
+
+    if (path === '/api/spaces') {
+      if (options.failSpaces === true) {
+        return Promise.resolve(jsonResponse({ error: { code: 'SPACES_UNAVAILABLE', message: 'Spaces unavailable' } }, 500));
+      }
+
+      return Promise.resolve(
+        jsonResponse({
+          data: spaces,
+          meta: {
+            pagination: {
+              page: 1,
+              per_page: 100,
+              total: spaces.length,
+              has_next: false,
+            },
+          },
+        }),
+      );
+    }
 
     if (path === '/api/admin/jobs') {
       return Promise.resolve(
@@ -188,6 +284,44 @@ function stubJobApi() {
   return fetchMock;
 }
 
+async function openSpaceSelect(): Promise<void> {
+  const combobox = await findSpaceCombobox();
+  fireEvent.mouseDown(combobox);
+}
+
+async function selectSpaceOption(name: string): Promise<void> {
+  await openSpaceSelect();
+  fireEvent.click(await screen.findByText(name));
+}
+
+function getSpaceSelectContainer(): HTMLElement {
+  const combobox = getSpaceCombobox();
+  const container = combobox.closest('.ant-select');
+  if (container === null) {
+    throw new Error('Space Select container was not found');
+  }
+  return container as HTMLElement;
+}
+
+async function findSpaceCombobox(): Promise<HTMLElement> {
+  const labelledElements = await screen.findAllByLabelText('空间');
+  const combobox = labelledElements.find((element) => element.getAttribute('role') === 'combobox');
+  if (combobox === undefined) {
+    throw new Error('Space Select combobox was not found');
+  }
+  return combobox;
+}
+
+function getSpaceCombobox(): HTMLElement {
+  const combobox = screen
+    .getAllByLabelText('空间')
+    .find((element) => element.getAttribute('role') === 'combobox');
+  if (combobox === undefined) {
+    throw new Error('Space Select combobox was not found');
+  }
+  return combobox;
+}
+
 function buildJob(cancelRequestedAt: string | null = null) {
   return {
     job_id: 'job-1',
@@ -234,4 +368,20 @@ function getRequestUrl(input: RequestInfo | URL): string {
   }
 
   return input.url;
+}
+
+function getRequestUrls(fetchMock: ReturnType<typeof stubJobApi>): string[] {
+  return fetchMock.mock.calls.map(([input]) => getRequestUrl(input));
+}
+
+function getAdminJobRequestUrls(fetchMock: ReturnType<typeof stubJobApi>): string[] {
+  return getRequestUrls(fetchMock).filter((url) => getRequestPath(url) === '/api/admin/jobs');
+}
+
+function getQueryParam(url: string, key: string): string | null {
+  return getQueryParams(url).get(key);
+}
+
+function getQueryParams(url: string): URLSearchParams {
+  return new URLSearchParams(url.split('?')[1] ?? '');
 }
