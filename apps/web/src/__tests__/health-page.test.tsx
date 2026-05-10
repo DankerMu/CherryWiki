@@ -65,20 +65,20 @@ describe('HealthPage', () => {
 
     expect(await screen.findByRole('heading', { name: 'System Health' })).toBeInTheDocument();
 
-    const databaseCard = getComponentCard('Database');
+    const databaseCard = await getComponentCard('Database');
     expect(within(databaseCard).getByText('Unhealthy')).toBeInTheDocument();
 
-    const vectorStoreCard = getComponentCard('Vector Store');
+    const vectorStoreCard = await getComponentCard('Vector Store');
     expect(within(vectorStoreCard).getByText('Unhealthy')).toBeInTheDocument();
     expect(vectorStoreCard).toHaveTextContent('Depends on database health check');
     expect(vectorStoreCard).toHaveTextContent('Postgres-backed vector store');
 
-    const graphStoreCard = getComponentCard('Graph Store');
+    const graphStoreCard = await getComponentCard('Graph Store');
     expect(within(graphStoreCard).getByText('Unhealthy')).toBeInTheDocument();
     expect(graphStoreCard).toHaveTextContent('Depends on database health check');
     expect(graphStoreCard).toHaveTextContent('Postgres-backed graph store');
 
-    expect(getComponentCard('Docmost Bridge')).toHaveTextContent('Optional integration');
+    expect(await getComponentCard('Docmost Bridge')).toHaveTextContent('Optional integration');
   });
 });
 
@@ -141,8 +141,8 @@ function getRequestPath(input: RequestInfo | URL): string {
   return input.url.split('?')[0] ?? '';
 }
 
-function getComponentCard(label: string): HTMLElement {
-  const title = screen.getByText(label);
+async function getComponentCard(label: string): Promise<HTMLElement> {
+  const title = await screen.findByText(label);
   const card = title.closest('.ant-card');
   expect(card).not.toBeNull();
   return card as HTMLElement;
