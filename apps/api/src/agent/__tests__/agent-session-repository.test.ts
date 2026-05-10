@@ -61,10 +61,10 @@ describe('AgentSessionRepository', () => {
     expect(set).toMatchObject({
       status: 'running',
       provider_session_id: 'claude-session-2',
-      tenant_id: TEST_TENANT_ID,
       space_id: TEST_SPACE_ID,
-      user_id: TEST_USER_ID,
     });
+    expect(set).not.toHaveProperty('tenant_id');
+    expect(set).not.toHaveProperty('user_id');
     expect(set).not.toHaveProperty('created_at');
   });
 

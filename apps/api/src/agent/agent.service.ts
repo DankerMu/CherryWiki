@@ -347,6 +347,18 @@ export class AgentService implements OnModuleDestroy {
     userMessage: string,
     options: AgentSpawnOptions = {},
   ): AsyncGenerator<AgentEvent> {
+    const tenantId = options.tenantId ?? '';
+    const userId = options.userId ?? '';
+    const inMemorySession = this.sessionManager.getSession(conversationId);
+    if (
+      inMemorySession !== undefined &&
+      ((inMemorySession.options.tenantId ?? '') !== tenantId ||
+        (inMemorySession.options.userId ?? '') !== userId)
+    ) {
+      yield agentSessionScopeMismatchEvent();
+      return;
+    }
+
     const releaseTurn = this.turnMutex.tryAcquire(conversationId);
     if (releaseTurn === null) {
       throw new AgentSessionBusyError(conversationId);
@@ -356,16 +368,12 @@ export class AgentService implements OnModuleDestroy {
       const session = await this.sessionManager.getOrCreateSession(
         conversationId,
         spaceId,
-        options.tenantId ?? '',
-        options.userId ?? '',
+        tenantId,
+        userId,
         options,
       );
       if (session === undefined) {
-        yield {
-          type: 'message.error',
-          code: 'agent_session_scope_mismatch',
-          message: 'Agent session is not available for this tenant or user',
-        };
+        yield agentSessionScopeMismatchEvent();
         return;
       }
 
@@ -1116,6 +1124,14 @@ function toAgentErrorEvent(err: unknown): Extract<AgentEvent, { type: 'message.e
     type: 'message.error',
     code: err instanceof AgentProcessError ? 'process_error' : 'internal_error',
     message: err instanceof Error ? err.message : String(err),
+  };
+}
+
+function agentSessionScopeMismatchEvent(): Extract<AgentEvent, { type: 'message.error' }> {
+  return {
+    type: 'message.error',
+    code: 'agent_session_scope_mismatch',
+    message: 'Agent session is not available for this tenant or user',
   };
 }
 

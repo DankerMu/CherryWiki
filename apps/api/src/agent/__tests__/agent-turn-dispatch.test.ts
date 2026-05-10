@@ -210,6 +210,45 @@ describe('AgentService sendTurn dispatch', () => {
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
+  it('checks in-memory scope before the turn mutex for active conversations', async () => {
+    const proc = createMockProcess();
+    const stdinChunks = captureStdin(proc);
+    spawnMock.mockReturnValue(proc as never);
+    const { service } = createService();
+    const conversationId = uniqueConversationId();
+
+    const firstTurn = collectAsync(
+      service.sendTurn(conversationId, 'space-1', 'active turn', {
+        tenantId: 'tenant-a',
+        userId: 'user-a',
+      }),
+    );
+    await waitForSpawn();
+    writeJsonLine(proc, { type: 'system', subtype: 'init', session_id: 'provider-active-scope' });
+    await vi.waitFor(() => expect(stdinChunks.join('')).toContain('active turn'));
+
+    const events = await collectAsync(
+      service.sendTurn(conversationId, 'space-2', 'cross-scope active turn', {
+        tenantId: 'tenant-b',
+        userId: 'user-b',
+      }),
+    );
+
+    expect(events).toEqual([
+      {
+        type: 'message.error',
+        code: 'agent_session_scope_mismatch',
+        message: 'Agent session is not available for this tenant or user',
+      },
+    ]);
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+
+    writeJsonLine(proc, { type: 'result', subtype: 'success', session_id: 'provider-active-scope' });
+    await firstTurn;
+
+    proc.close(0);
+  });
+
   it('sends SIGINT on SSE disconnect and keeps the process alive if Claude returns to idle', async () => {
     const proc = createMockProcess();
     const stdinChunks = captureStdin(proc);

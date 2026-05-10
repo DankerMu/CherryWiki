@@ -20,9 +20,7 @@ export class AgentSessionRepository {
       .onConflictDoUpdate({
         target: agentSessions.conversation_id,
         set: {
-          tenant_id: values.tenant_id,
           space_id: values.space_id,
-          user_id: values.user_id,
           provider: values.provider,
           provider_session_id: values.provider_session_id,
           work_dir: values.work_dir,
