@@ -83,7 +83,7 @@ export class SessionManager implements OnModuleDestroy {
       return clonePersistentSession(existing);
     }
 
-    const row = await this.repository?.findByConversationId(conversationId);
+    const row = await this.repository?.findByConversationScope(conversationId, tenantId, userId);
     if (row !== undefined) {
       this.persistedSessionIds.add(conversationId);
       const restored = await this.restoreSessionFromRow(row, options);

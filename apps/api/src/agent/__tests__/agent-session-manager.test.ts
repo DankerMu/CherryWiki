@@ -48,7 +48,12 @@ describe('SessionManager', () => {
       ownedByInstance: 'instance-local',
     });
     expect(session.optionsFingerprint).toHaveLength(64);
-    expect(repository.findByConversationId).toHaveBeenCalledWith('conversation-fresh');
+    expect(repository.findByConversationScope).toHaveBeenCalledWith(
+      'conversation-fresh',
+      'tenant-1',
+      'user-1',
+    );
+    expect(repository.findByConversationId).not.toHaveBeenCalled();
     expect(repository.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         conversation_id: 'conversation-fresh',
@@ -61,7 +66,7 @@ describe('SessionManager', () => {
     await expect(stat(session.agentHome)).resolves.toBeTruthy();
   });
 
-  it('restores DB metadata into memory when the in-memory registry misses', async () => {
+  it('getOrCreateSession restores persisted session when tenant and user match', async () => {
     const row = createAgentSessionRow({
       conversation_id: 'conversation-restore',
       provider_session_id: 'claude-session-restore',
@@ -76,11 +81,17 @@ describe('SessionManager', () => {
     const session = await manager.getOrCreateSession(
       'conversation-restore',
       'ignored-space',
-      'ignored-tenant',
-      'ignored-user',
+      row.tenant_id,
+      row.user_id,
       {},
     );
 
+    expect(repository.findByConversationScope).toHaveBeenCalledWith(
+      'conversation-restore',
+      row.tenant_id,
+      row.user_id,
+    );
+    expect(repository.findByConversationId).not.toHaveBeenCalled();
     expect(session).toMatchObject({
       conversationId: 'conversation-restore',
       tenantId: row.tenant_id,
@@ -100,6 +111,106 @@ describe('SessionManager', () => {
         owned_by_instance: 'instance-local',
       }),
     );
+  });
+
+  it('getOrCreateSession creates fresh session when persisted row has wrong tenant', async () => {
+    const row = createAgentSessionRow({
+      conversation_id: 'conversation-wrong-tenant',
+      tenant_id: 'tenant-original',
+      user_id: 'user-1',
+      provider_session_id: 'claude-session-original',
+      status: 'idle',
+      work_dir: await createWorkDir('wrong-tenant'),
+    });
+    row.agent_home = join(row.work_dir, '.home');
+    const repository = createRepository([row]);
+    const manager = await createManager(repository.instance);
+
+    const session = await manager.getOrCreateSession(
+      'conversation-wrong-tenant',
+      'space-request',
+      'tenant-request',
+      'user-1',
+      {},
+    );
+
+    expect(repository.findByConversationScope).toHaveBeenCalledWith(
+      'conversation-wrong-tenant',
+      'tenant-request',
+      'user-1',
+    );
+    expect(repository.findByConversationId).not.toHaveBeenCalled();
+    expect(session).toMatchObject({
+      conversationId: 'conversation-wrong-tenant',
+      tenantId: 'tenant-request',
+      spaceId: 'space-request',
+      userId: 'user-1',
+      providerSessionId: undefined,
+      status: 'starting',
+    });
+    expect(session.workDir).not.toBe(row.work_dir);
+    expect(repository.upsert).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        conversation_id: 'conversation-wrong-tenant',
+        tenant_id: 'tenant-request',
+        user_id: 'user-1',
+        provider_session_id: null,
+        status: 'starting',
+      }),
+    );
+    expect(repository.updateStatus).not.toHaveBeenCalled();
+    expect(repository.updateProviderSessionId).not.toHaveBeenCalled();
+    expect(repository.touchActivity).not.toHaveBeenCalled();
+  });
+
+  it('getOrCreateSession creates fresh session when persisted row has wrong user', async () => {
+    const row = createAgentSessionRow({
+      conversation_id: 'conversation-wrong-user',
+      tenant_id: 'tenant-1',
+      user_id: 'user-original',
+      provider_session_id: 'claude-session-original',
+      status: 'idle',
+      work_dir: await createWorkDir('wrong-user'),
+    });
+    row.agent_home = join(row.work_dir, '.home');
+    const repository = createRepository([row]);
+    const manager = await createManager(repository.instance);
+
+    const session = await manager.getOrCreateSession(
+      'conversation-wrong-user',
+      'space-request',
+      'tenant-1',
+      'user-request',
+      {},
+    );
+
+    expect(repository.findByConversationScope).toHaveBeenCalledWith(
+      'conversation-wrong-user',
+      'tenant-1',
+      'user-request',
+    );
+    expect(repository.findByConversationId).not.toHaveBeenCalled();
+    expect(session).toMatchObject({
+      conversationId: 'conversation-wrong-user',
+      tenantId: 'tenant-1',
+      spaceId: 'space-request',
+      userId: 'user-request',
+      providerSessionId: undefined,
+      status: 'starting',
+    });
+    expect(session.workDir).not.toBe(row.work_dir);
+    expect(repository.upsert).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        conversation_id: 'conversation-wrong-user',
+        tenant_id: 'tenant-1',
+        user_id: 'user-request',
+        provider_session_id: null,
+        status: 'starting',
+      }),
+    );
+    expect(repository.updateStatus).not.toHaveBeenCalled();
+    expect(repository.updateProviderSessionId).not.toHaveBeenCalled();
+    expect(repository.touchActivity).not.toHaveBeenCalled();
   });
 
   it('marks sessions owned by a different instance as stopped and claims ownership', async () => {
@@ -395,6 +506,13 @@ function createRepository(initialRows: AgentSessionRow[] = []): MockAgentSession
       return Promise.resolve(row);
     }),
     findByConversationId: vi.fn((conversationId: string) => Promise.resolve(rows.get(conversationId))),
+    findByConversationScope: vi.fn((conversationId: string, tenantId: string, userId: string) => {
+      const row = rows.get(conversationId);
+      if (row?.tenant_id !== tenantId || row.user_id !== userId) {
+        return Promise.resolve(undefined);
+      }
+      return Promise.resolve(row);
+    }),
     updateProviderSessionId: vi.fn((conversationId: string, providerSessionId: string) => {
       const row = rows.get(conversationId);
       if (row !== undefined) {
@@ -473,6 +591,9 @@ type MockAgentSessionRepository = {
   rows: Map<string, AgentSessionRow>;
   upsert: Mock<(data: NewAgentSession) => Promise<AgentSessionRow>>;
   findByConversationId: Mock<(conversationId: string) => Promise<AgentSessionRow | undefined>>;
+  findByConversationScope: Mock<
+    (conversationId: string, tenantId: string, userId: string) => Promise<AgentSessionRow | undefined>
+  >;
   updateProviderSessionId: Mock<(conversationId: string, providerSessionId: string) => Promise<void>>;
   updateStatus: Mock<(conversationId: string, status: string, extra?: Partial<AgentSessionRow>) => Promise<void>>;
   updateOwnedByInstance: Mock<(conversationId: string, instanceId: string) => Promise<void>>;

@@ -55,6 +55,26 @@ export class AgentSessionRepository {
     return row;
   }
 
+  async findByConversationScope(
+    conversationId: string,
+    tenantId: string,
+    userId: string,
+  ): Promise<AgentSessionRow | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(agentSessions)
+      .where(
+        and(
+          eq(agentSessions.conversation_id, conversationId),
+          eq(agentSessions.tenant_id, tenantId),
+          eq(agentSessions.user_id, userId),
+        ),
+      )
+      .limit(1);
+
+    return row;
+  }
+
   async updateProviderSessionId(conversationId: string, providerSessionId: string): Promise<void> {
     await this.db
       .update(agentSessions)

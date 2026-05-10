@@ -302,6 +302,13 @@ function createRepository(initialRows: AgentSessionRow[] = []): {
       return Promise.resolve(row);
     }),
     findByConversationId: vi.fn((conversationId: string) => Promise.resolve(rows.get(conversationId))),
+    findByConversationScope: vi.fn((conversationId: string, tenantId: string, userId: string) => {
+      const row = rows.get(conversationId);
+      if (row?.tenant_id !== tenantId || row.user_id !== userId) {
+        return Promise.resolve(undefined);
+      }
+      return Promise.resolve(row);
+    }),
     updateProviderSessionId: vi.fn((conversationId: string, providerSessionId: string) => {
       const row = rows.get(conversationId);
       if (row !== undefined) {
