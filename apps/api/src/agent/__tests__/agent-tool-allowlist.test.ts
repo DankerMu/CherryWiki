@@ -31,7 +31,7 @@ describe('SettingsGenerator tool allowlist', () => {
   it('allows only Bash and Read tools while denying mutation and network tools', () => {
     const settings = new SettingsGenerator().generate({
       workDir: '/tmp/work',
-      graphPaths: ['/data/graphs/space-a'],
+      graphPaths: ['/data/graphs/space-a', '/data/graphs/space-a/graph.json'],
     });
 
     expect(settings.tools).toEqual(['Bash', 'Read']);
@@ -40,8 +40,9 @@ describe('SettingsGenerator tool allowlist', () => {
         'Bash(cherrywiki *)',
         'Bash(graphify *)',
         'Bash(cherrydb *)',
-        'Read(/tmp/work)',
-        'Read(/data/graphs/space-a)',
+        'Read(/tmp/work/**)',
+        'Read(/data/graphs/space-a/**)',
+        'Read(/data/graphs/space-a/graph.json)',
       ]),
     );
     expect(settings.permissions.allow).not.toContain('Read(*)');
@@ -86,13 +87,13 @@ describe('SettingsGenerator tool allowlist', () => {
       ],
     });
 
-    expect(settings.permissions.allow).toContain('Read(/tmp/work)');
-    expect(settings.permissions.allow).toContain('Read(/data/graphs/space-a)');
-    expect(settings.permissions.allow).not.toContain('Read(relative/graph)');
-    expect(settings.permissions.allow).not.toContain('Read(/data/graphs/space-b)');
-    expect(settings.permissions.allow.filter((permission) => permission === 'Read(/data/graphs/space-a)')).toHaveLength(
-      1,
-    );
+    expect(settings.permissions.allow).toContain('Read(/tmp/work/**)');
+    expect(settings.permissions.allow).toContain('Read(/data/graphs/space-a/**)');
+    expect(settings.permissions.allow).not.toContain('Read(relative/graph/**)');
+    expect(settings.permissions.allow).not.toContain('Read(/data/graphs/space-b/**)');
+    expect(
+      settings.permissions.allow.filter((permission) => permission === 'Read(/data/graphs/space-a/**)'),
+    ).toHaveLength(1);
     expect(settings.permissions.allow).not.toContain('Read(*)');
   });
 

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import path from 'node:path';
 
 import { normalizeGraphReadPath, normalizeWorkDirReadPath } from './agent-graph-paths.js';
 
@@ -73,6 +74,14 @@ export class SettingsGenerator {
       }
     }
 
-    return [...paths].sort().map((path) => `Read(${path})`);
+    return [...paths].sort().map((resolvedPath) => this.formatReadScope(resolvedPath));
+  }
+
+  private formatReadScope(resolvedPath: string): string {
+    if (path.extname(resolvedPath).length > 0) {
+      return `Read(${resolvedPath})`;
+    }
+
+    return `Read(${resolvedPath}/**)`;
   }
 }
