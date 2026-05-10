@@ -161,10 +161,6 @@ async def _heartbeat_loop(
             await _send_worker_heartbeat(http_client, worker_id, [job_id])
         except Exception:
             logger.debug("worker heartbeat failed for %s", worker_id)
-        try:
-            await _report_progress(http_client, job_id, worker_id, -1, "running")
-        except Exception:
-            logger.debug("job progress failed for %s", job_id)
 
 
 async def _send_worker_heartbeat(

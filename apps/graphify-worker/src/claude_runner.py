@@ -227,7 +227,9 @@ CLAUDE_RUN_GID = int(os.environ.get("CLAUDE_RUN_GID", "10001"))
 def spawn_claude(
     session_dir: Path | str, config_dir: Path | str, settings_path: Path | str
 ) -> subprocess.Popen[str]:
+    session_path = Path(session_dir)
     config_path = Path(config_dir)
+    stderr_path = session_path / "claude_stderr.log"
     args = [
         *CLAUDE_SPAWN_ARGS,
         "--settings",
@@ -235,20 +237,24 @@ def spawn_claude(
         "--tools",
         ",".join(ALLOWED_TOOLS),
     ]
-    _chown_recursive(Path(session_dir), CLAUDE_RUN_UID, CLAUDE_RUN_GID)
+    session_path.mkdir(parents=True, exist_ok=True)
+    _chown_recursive(session_path, CLAUDE_RUN_UID, CLAUDE_RUN_GID)
     _chown_recursive(config_path.parent, CLAUDE_RUN_UID, CLAUDE_RUN_GID)
-    return subprocess.Popen(
-        args,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        cwd=str(session_dir),
-        env=build_claude_env(config_path.parent, config_path),
-        text=True,
-        bufsize=1,
-        user=CLAUDE_RUN_UID,
-        group=CLAUDE_RUN_GID,
-    )
+    with stderr_path.open("w", encoding="utf-8") as stderr_file:
+        proc = subprocess.Popen(
+            args,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=stderr_file,
+            cwd=str(session_path),
+            env=build_claude_env(config_path.parent, config_path),
+            text=True,
+            bufsize=1,
+            user=CLAUDE_RUN_UID,
+            group=CLAUDE_RUN_GID,
+        )
+    setattr(proc, "_claude_stderr_path", stderr_path)
+    return proc
 
 
 def write_user_message(proc: subprocess.Popen[str], text: str) -> None:
@@ -528,7 +534,7 @@ async def _run_stream_loop(
         event = parse_stream_event(line)
         if event is None:
             continue
-        _LOGGER.info(
+        _LOGGER.debug(
             "stream event type=%s raw=%.1000s",
             event["type"],
             json.dumps(event.get("raw", {})),
@@ -543,7 +549,7 @@ async def _run_stream_loop(
             state = RunState.RUNNING
             text = event.get("text", "")
             if text:
-                _LOGGER.info("claude assistant: %.500s", text)
+                _LOGGER.debug("claude assistant: %.500s", text)
             waiting_for_input = waiting_for_input or bool(
                 event.get("waiting_for_input")
             )
@@ -581,11 +587,11 @@ async def _run_stream_loop(
                 proc=proc,
                 session_id=session_id,
             )
-            if result.get("status") != "success" and proc.stderr:
-                stderr_tail = proc.stderr.read(4096)
+            await _wait_for_process_exit(proc, 10)
+            if result.get("status") != "success":
+                stderr_tail = _read_and_remove_claude_stderr_tail(proc)
                 if stderr_tail:
                     _LOGGER.error("claude stderr: %s", stderr_tail)
-            await _wait_for_process_exit(proc, 10)
             return result
 
         if state == RunState.FAILED:
@@ -614,19 +620,24 @@ async def _terminate_for_timeout(proc: subprocess.Popen[str]) -> dict[str, Any]:
 
 
 async def _cleanup_process(proc: subprocess.Popen[str]) -> None:
-    _close_stdin(proc)
-    if _process_exited(proc):
-        return
-
-    _request_terminate(proc)
     try:
-        await _wait_for_process_exit(proc, 5)
-    except TimeoutError:
-        _request_kill(proc)
+        _close_stdin(proc)
+        if _process_exited(proc):
+            return
+
+        _request_terminate(proc)
         try:
             await _wait_for_process_exit(proc, 5)
         except TimeoutError:
-            _LOGGER.warning("Claude process %s did not exit after SIGKILL", proc.pid)
+            _request_kill(proc)
+            try:
+                await _wait_for_process_exit(proc, 5)
+            except TimeoutError:
+                _LOGGER.warning(
+                    "Claude process %s did not exit after SIGKILL", proc.pid
+                )
+    finally:
+        _remove_claude_stderr_file(proc)
 
 
 def _close_stdin(proc: subprocess.Popen[str]) -> None:
@@ -674,6 +685,44 @@ def _read_stdout_line(proc: subprocess.Popen[str]) -> str:
     if proc.stdout is None:
         return ""
     return proc.stdout.readline()
+
+
+def _read_and_remove_claude_stderr_tail(
+    proc: subprocess.Popen[str], limit: int = 4096
+) -> str:
+    stderr_path = _claude_stderr_path(proc)
+    if stderr_path is None:
+        return ""
+
+    try:
+        with stderr_path.open("rb") as stderr_file:
+            stderr_file.seek(0, os.SEEK_END)
+            size = stderr_file.tell()
+            stderr_file.seek(max(0, size - limit))
+            return stderr_file.read().decode("utf-8", errors="replace")
+    except OSError:
+        return ""
+    finally:
+        _remove_claude_stderr_file(proc)
+
+
+def _remove_claude_stderr_file(proc: subprocess.Popen[str]) -> None:
+    stderr_path = _claude_stderr_path(proc)
+    if stderr_path is None:
+        return
+    try:
+        stderr_path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _claude_stderr_path(proc: subprocess.Popen[str]) -> Path | None:
+    path = getattr(proc, "_claude_stderr_path", None)
+    if isinstance(path, Path):
+        return path
+    if isinstance(path, str):
+        return Path(path)
+    return None
 
 
 def _chown_recursive(path: Path, uid: int, gid: int) -> None:

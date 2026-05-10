@@ -50,6 +50,14 @@ def test_worker_id_consistency_across_status_requests() -> None:
     asyncio.run(_assert_worker_id_consistency_across_status_requests())
 
 
+def test_heartbeat_loop_sends_worker_heartbeat_without_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asyncio.run(
+        _assert_heartbeat_loop_sends_worker_heartbeat_without_progress(monkeypatch)
+    )
+
+
 async def _assert_poll_jobs_claims_before_job_runs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -279,6 +287,37 @@ async def _assert_claim_job_returns_false_on_conflict() -> None:
             {"worker_id": "worker-1", "percent": 0, "stage": "claimed"},
         )
     ]
+
+
+async def _assert_heartbeat_loop_sends_worker_heartbeat_without_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests: list[tuple[str, dict[str, Any]]] = []
+    heartbeat_sent = asyncio.Event()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(_captured_json_request(request))
+        if request.url.path == "/internal/workers/heartbeat":
+            heartbeat_sent.set()
+        return httpx.Response(200, json={"ok": True})
+
+    monkeypatch.setattr(job_client, "HEARTBEAT_INTERVAL", 0.01)
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(
+        base_url="http://cherry-api.test", transport=transport
+    ) as client:
+        task = asyncio.create_task(
+            job_client._heartbeat_loop(client, "job-1", "worker-1")
+        )
+        await asyncio.wait_for(heartbeat_sent.wait(), timeout=1)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    assert requests
+    assert all(path == "/internal/workers/heartbeat" for path, _body in requests)
 
 
 async def _assert_complete_job_sends_worker_result_dto() -> None:
