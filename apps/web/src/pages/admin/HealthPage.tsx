@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { requireAdminPage } from '../../components/RequireAdminPage';
 import { api } from '../../lib/api';
 import { formatLabel, getErrorMessage } from '../../components/adminUi';
-import { type SystemHealth } from '../../lib/adminTypes';
+import { type HealthComponent, type SystemHealth } from '../../lib/adminTypes';
 import { message } from 'antd';
 
 const REFRESH_INTERVAL_MS = 30_000;
@@ -103,7 +103,10 @@ function HealthPage() {
                   <div>
                     <Typography.Text type="secondary">{t('admin.health.component.details')}: </Typography.Text>
                     <Typography.Text>
-                      {component.error ?? (component.status === 'not_configured' ? t('common.state.notConfigured') : t('common.state.operational'))}
+                      {formatComponentDetails(component, {
+                        notConfigured: t('common.state.notConfigured'),
+                        operational: t('common.state.operational'),
+                      })}
                     </Typography.Text>
                   </div>
                 </Space>
@@ -126,4 +129,19 @@ function formatUptime(seconds: number): string {
   if (hours > 0) return `${hours}h ${minutes}m`;
   if (minutes > 0) return `${minutes}m ${remainingSeconds}s`;
   return `${remainingSeconds}s`;
+}
+
+function formatComponentDetails(
+  component: HealthComponent,
+  fallback: { notConfigured: string; operational: string },
+): string {
+  const details = [component.error, component.details]
+    .filter((value): value is string => value !== undefined && value.trim().length > 0)
+    .join(' - ');
+
+  if (details.length > 0) {
+    return details;
+  }
+
+  return component.status === 'not_configured' ? fallback.notConfigured : fallback.operational;
 }

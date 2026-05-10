@@ -23,6 +23,7 @@ export type HealthComponent = {
   status: ComponentStatus;
   latency_ms?: number;
   error?: string;
+  details?: string;
 };
 
 export type AdminSystemHealthResponse = {
@@ -47,9 +48,9 @@ export class AdminHealthController {
       database,
       redis,
       minio,
-      vector_store: { status: 'not_configured' },
-      graph_store: { status: 'not_configured' },
-      docmost_bridge: { status: 'not_configured' },
+      vector_store: postgresBackedComponent(database, 'Postgres-backed vector store'),
+      graph_store: postgresBackedComponent(database, 'Postgres-backed graph store'),
+      docmost_bridge: { status: 'not_configured', details: 'Optional integration' },
     };
 
     return {
@@ -107,11 +108,31 @@ function getOverallStatus(components: Record<ComponentName, HealthComponent>): H
     return 'unhealthy';
   }
 
-  const hasOptionalUnhealthy = Object.entries(components).some(
-    ([name, component]) => name !== 'database' && component.status === 'unhealthy',
-  );
+  const hasOptionalUnhealthy = Object.entries(components).some(([name, component]) => {
+    if (name === 'database' || component.status === 'not_configured') {
+      return false;
+    }
+
+    return component.status === 'unhealthy';
+  });
 
   return hasOptionalUnhealthy ? 'degraded' : 'healthy';
+}
+
+function postgresBackedComponent(database: HealthComponent, details: string): HealthComponent {
+  if (database.status === 'healthy') {
+    return {
+      status: 'healthy',
+      ...(database.latency_ms !== undefined ? { latency_ms: database.latency_ms } : {}),
+      details,
+    };
+  }
+
+  return {
+    status: 'unhealthy',
+    error: 'Depends on database health check',
+    details,
+  };
 }
 
 function elapsedMs(startedAt: number): number {
