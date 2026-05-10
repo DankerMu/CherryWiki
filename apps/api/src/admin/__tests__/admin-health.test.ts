@@ -26,16 +26,16 @@ describe('AdminHealthController', () => {
     expect(result.components.vector_store).toEqual({
       status: 'healthy',
       latency_ms: result.components.database.latency_ms,
-      details: expect.stringMatching(/Postgres/i),
+      details: expect.stringMatching(/Postgres/i) as unknown,
     });
     expect(result.components.graph_store).toEqual({
       status: 'healthy',
       latency_ms: result.components.database.latency_ms,
-      details: expect.stringMatching(/Postgres/i),
+      details: expect.stringMatching(/Postgres/i) as unknown,
     });
     expect(result.components.docmost_bridge).toEqual({
       status: 'not_configured',
-      details: expect.stringMatching(/optional/i),
+      details: expect.stringMatching(/optional/i) as unknown,
     });
     expect(result.uptime).toBeGreaterThanOrEqual(1);
     expect(dbQuery).toHaveBeenCalledWith('select 1');
@@ -86,13 +86,13 @@ describe('AdminHealthController', () => {
     expect(result.status).toBe('unhealthy');
     expect(result.components.vector_store).toEqual({
       status: 'unhealthy',
-      error: expect.stringMatching(/database/i),
-      details: expect.stringMatching(/Postgres/i),
+      error: expect.stringMatching(/database/i) as unknown,
+      details: expect.stringMatching(/Postgres/i) as unknown,
     });
     expect(result.components.graph_store).toEqual({
       status: 'unhealthy',
-      error: expect.stringMatching(/database/i),
-      details: expect.stringMatching(/Postgres/i),
+      error: expect.stringMatching(/database/i) as unknown,
+      details: expect.stringMatching(/Postgres/i) as unknown,
     });
   });
 
@@ -107,16 +107,16 @@ describe('AdminHealthController', () => {
     expect(result.components.vector_store).toEqual({
       status: 'healthy',
       latency_ms: result.components.database.latency_ms,
-      details: expect.stringMatching(/Postgres/i),
+      details: expect.stringMatching(/Postgres/i) as unknown,
     });
     expect(result.components.graph_store).toEqual({
       status: 'healthy',
       latency_ms: result.components.database.latency_ms,
-      details: expect.stringMatching(/Postgres/i),
+      details: expect.stringMatching(/Postgres/i) as unknown,
     });
     expect(result.components.docmost_bridge).toEqual({
       status: 'not_configured',
-      details: expect.stringMatching(/optional/i),
+      details: expect.stringMatching(/optional/i) as unknown,
     });
   });
 
@@ -128,7 +128,7 @@ describe('AdminHealthController', () => {
     expect(result.status).toBe('healthy');
     expect(result.components.docmost_bridge).toEqual({
       status: 'not_configured',
-      details: expect.stringMatching(/optional/i),
+      details: expect.stringMatching(/optional/i) as unknown,
     });
   });
 });
