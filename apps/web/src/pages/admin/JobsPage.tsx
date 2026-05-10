@@ -39,6 +39,7 @@ function JobsPage() {
   const [status, setStatus] = useState('');
   const [spaceId, setSpaceId] = useState('');
   const [spaces, setSpaces] = useState<{ id: string; name: string }[]>([]);
+  const [spacesLoaded, setSpacesLoaded] = useState(false);
   const [spacesError, setSpacesError] = useState(false);
   const [page, setPage] = useState(DEFAULT_PAGINATION.page);
   const [perPage, setPerPage] = useState(DEFAULT_PAGINATION.per_page);
@@ -88,6 +89,7 @@ function JobsPage() {
           sort: 'name',
         });
         setSpaces(response.data);
+        setSpacesLoaded(true);
         setSpacesError(false);
       } catch (err) {
         setSpacesError(true);
@@ -211,7 +213,7 @@ function JobsPage() {
           showSearch
           optionFilterProp="label"
           style={{ width: 200 }}
-          loading={spaces.length === 0 && !spacesError}
+          loading={!spacesLoaded && !spacesError}
           {...(spacesError ? { status: 'error' as const } : {})}
           options={spaces.map((space) => ({ value: space.id, label: space.name }))}
         />

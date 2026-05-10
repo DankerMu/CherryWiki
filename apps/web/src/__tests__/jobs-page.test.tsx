@@ -60,6 +60,20 @@ describe('JobsPage', () => {
     expect(await screen.findByText('Main Space')).toBeInTheDocument();
   });
 
+  it('stops showing the space filter loading indicator when the spaces list is empty', async () => {
+    const fetchMock = stubJobApi({ spaces: [] });
+
+    renderJobsRoute('/admin/jobs');
+
+    await waitFor(() => {
+      expect(getRequestUrls(fetchMock)).toContain('/api/spaces?per_page=100&sort=name');
+    });
+
+    await waitFor(() => {
+      expect(getSpaceSelectContainer().querySelector('.anticon-loading')).not.toBeInTheDocument();
+    });
+  });
+
   it('selecting a space filters jobs', async () => {
     const fetchMock = stubJobApi();
 
@@ -169,8 +183,9 @@ function renderJobsRoute(path: string): void {
   );
 }
 
-function stubJobApi(options: { failSpaces?: boolean } = {}) {
+function stubJobApi(options: { failSpaces?: boolean; spaces?: { id: string; name: string }[] } = {}) {
   let cancelRequestedAt: string | null = null;
+  const spaces = options.spaces ?? [{ id: 'space-main', name: 'Main Space' }];
 
   const fetchMock = vi.fn<typeof fetch>((input, init) => {
     const path = getRequestPath(input);
@@ -182,12 +197,12 @@ function stubJobApi(options: { failSpaces?: boolean } = {}) {
 
       return Promise.resolve(
         jsonResponse({
-          data: [{ id: 'space-main', name: 'Main Space' }],
+          data: spaces,
           meta: {
             pagination: {
               page: 1,
               per_page: 100,
-              total: 1,
+              total: spaces.length,
               has_next: false,
             },
           },
