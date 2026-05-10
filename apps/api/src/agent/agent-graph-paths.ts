@@ -70,7 +70,11 @@ export function normalizeWorkDirReadPath(rawPath: string | null | undefined): st
   }
 
   const trimmed = rawPath.trim();
-  return trimmed.length === 0 ? undefined : resolve(trimmed);
+  if (trimmed.length === 0 || !isAbsolute(trimmed) || containsTraversal(trimmed)) {
+    return undefined;
+  }
+
+  return resolve(trimmed);
 }
 
 function normalizeSpaceGraphPath(space: AgentSpaceContext, graphBasePath: string): string | undefined {
