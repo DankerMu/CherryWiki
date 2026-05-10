@@ -39,6 +39,7 @@ export class PendingJobsQueryDto {
 
   @IsOptional()
   @IsString()
+  @IsNotEmpty()
   @MaxLength(200)
   tenant_id?: string;
 }
