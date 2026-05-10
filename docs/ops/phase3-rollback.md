@@ -11,6 +11,7 @@ Use this procedure when Phase 3 Graph API, GraphRAG fusion, Agent, or cherrydb p
    ```
 3. Temporarily hide frontend `enable_deep_analysis`, `enable_database`, `graph_rag`, `path_first`, and `community_first` controls.
 4. Keep static Wiki RAG online. Static RAG should continue to use vector/BM25 retrieval and strict no-hit behavior.
+5. If persistent Agent runtime is enabled, restart `cherry-api` after disabling Agent env. Restart closes live Claude child processes but intentionally keeps `agent_sessions` metadata and `CHERRY_AGENT_ROOT` workDirs for audit/recovery.
 
 ## 2. Freeze Graph Activation
 
@@ -23,6 +24,7 @@ Use this procedure when Phase 3 Graph API, GraphRAG fusion, Agent, or cherrydb p
 1. Set affected `spaces.database_config.enabled=false` or remove the encrypted DSN from `database_config`.
 2. Revoke readonly database credentials used by `CHERRY_DB_DSN` if query audit logs show unsafe access.
 3. Export `audit_logs` rows with `action='database_query'` for incident review before pruning any data.
+4. Preserve `CHERRY_AGENT_ROOT` until incident review is complete. It may contain `.failed.*` workDirs from resume fallback and `.claude` transcripts needed to reconstruct Agent behavior.
 
 ## 4. Deploy Last Known Good
 
@@ -34,6 +36,7 @@ Use this procedure when Phase 3 Graph API, GraphRAG fusion, Agent, or cherrydb p
    docker compose config --quiet
    ```
 3. Confirm `/api/chat/completions` succeeds for `wiki_only` requests and no Agent process is spawned.
+4. Confirm no resident Claude child process remains after API restart. `agent_sessions` rows in `stopped`/`failed` state may remain until `AGENT_SESSION_RETENTION_DAYS` cleanup or explicit Chat session deletion.
 
 ## 5. Re-enable Safely
 

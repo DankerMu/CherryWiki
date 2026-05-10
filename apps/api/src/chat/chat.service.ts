@@ -611,8 +611,8 @@ export class ChatService {
           const assistant = await this.persistMessage(prepared.session.id, 'assistant', assistantText, usage.completion_tokens, [], {
             source: 'agent',
           });
-          yield { type: 'usage', usage };
           void this.maybeGenerateTitle(prepared, input.message, assistantText);
+          yield { type: 'usage', usage };
           yield { type: 'message.completed' };
           this.auditCompletion(prepared, usage, 0, false, assistant.id);
           return;
@@ -666,13 +666,13 @@ export class ChatService {
         const assistant = await this.persistMessage(prepared.session.id, 'assistant', NO_HIT_MESSAGE, 0, [], {
           source: 'no_hit',
         });
+        void this.maybeGenerateTitle(prepared, input.message, NO_HIT_MESSAGE);
         await this.persistRetrievalTrace(prepared, input.retrievalMode ?? 'wiki_only', retrievedContext).catch(
           () => undefined,
         );
         yield { type: 'content', delta: NO_HIT_MESSAGE };
         yield { type: 'citations', citations: [] };
         yield { type: 'usage', usage };
-        void this.maybeGenerateTitle(prepared, input.message, NO_HIT_MESSAGE);
         yield { type: 'message.completed' };
         this.auditCompletion(prepared, usage, retrievalResults.length, false, assistant.id);
         return;
@@ -737,6 +737,7 @@ export class ChatService {
         citations,
         metadata,
       );
+      void this.maybeGenerateTitle(prepared, input.message, assistantText);
       await this.persistCitations(assistant.id, citations);
       await this.persistRetrievalTrace(prepared, input.retrievalMode ?? 'wiki_only', retrievedContext).catch(
         () => undefined,
@@ -745,7 +746,6 @@ export class ChatService {
 
       yield { type: 'citations', citations };
       yield { type: 'usage', usage };
-      void this.maybeGenerateTitle(prepared, input.message, assistantText);
       yield { type: 'message.completed' };
       this.auditCompletion(prepared, usage, retrievalResults.length, citations.length > 0, assistant.id);
     } catch {

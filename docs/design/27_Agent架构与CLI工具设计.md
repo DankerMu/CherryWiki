@@ -51,58 +51,59 @@ CherryWiki 需要三种 agentic 能力：
 用户提问
   ↓
 当前 Cherry 会话是否已绑定 Agent 工作目录？
-  ├── 有 → spawn claude --print --resume <session_id>（恢复上下文，保持连贯）
+  ├── 有 → 复用 live Agent process；无 live process 时 --resume <provider_session_id>
   └── 无 → 路由判断
         ├── 简单问题 → 静态 RAG Pipeline（Phase 1 已有）
         │     Vector + BM25 → rerank → context pack → LLM 单次调用（Deepseek Flash）
         │     成本低、延迟低（2-5s）
         │
-        └── 复杂问题 → 首次 spawn Claude Code（claude --print）
+        └── 复杂问题 → 首次 spawn Claude Code 常驻进程
               创建工作目录，注入 CLI 工具 + CLAUDE.md 规则
-              多轮 tool-use 循环，进程执行完退出
-              .claude/ 目录持久化会话状态，空闲超时后清理
+              多轮 tool-use 循环，result 后进程进入 idle
+              .claude/ 目录和 agent_sessions 元数据持久化
               SSE 流式转发回前端
 ```
 
 ### 2.1 Session 绑定模型
 
-**Claude Code 会话上下文与 Cherry 会话（conversation）绑定，通过 `--resume <session_id>` 参数恢复上下文，而非进程常驻。**
+**Claude Code 会话上下文与 Cherry 会话（conversation）绑定。正常情况下同一 Cherry 会话复用一个常驻 Claude Code 进程；API 重启、24h idle kill 或 LRU 淘汰后，通过 `--resume <provider_session_id>` 恢复上下文。**
 
-每次用户消息到达时 spawn 一个 `claude --print` 进程，进程执行完即退出。会话状态通过工作目录中的 `.claude/` 目录自动持久化。首次 spawn 后从 stream-json 输出中捕获 `session_id`，后续消息使用 `--resume <session_id>` 恢复上下文。
+Agent 入口统一为 `sendTurn(conversation_id, message, options)`。首次触发时创建 `agent_sessions` 元数据、工作目录和隔离 HOME，spawn `claude -p --input-format stream-json --output-format stream-json`，随后每轮消息通过 stdin 写入 stream-json user line。收到 `result` 后进程保持存活并标记为 `idle`，下一轮直接复用同一 stdin/stdout reader。
 
 ```text
 Cherry 会话生命周期
 ├── 消息 1: "SSO 是什么" → 静态 RAG（Claude Code 尚未触发）
 ├── 消息 2: "详细解释 SSO 和权限校验的关系"（触发 Agent）
-│   → 首次触发：spawn claude --print -p "消息"（不带 --resume）
-│   → 进程执行多轮 tool-use → stdout 流式输出 → 进程正常退出
-│   → 从 stream-json 输出中捕获 session_id 并存入 sessionManager
-│   → 会话状态自动保存在工作目录 .claude/ 中
+│   → 首次触发：spawn claude -p --input-format stream-json --session-id <uuid>
+│   → stdin 写入 user JSON line；stdout reader 将 tool_use/content/chart/result 转 SSE
+│   → 从 system/init 捕获 provider_session_id 并写入 agent_sessions
+│   → result 后进程进入 idle，工作目录和 .home/.claude 保留
 ├── 消息 3: "刚才那个 token 刷新，数据库里上个月有多少次？"
-│   → spawn claude --print --resume <session_id> -p "追问"（恢复上次会话上下文）
-│   → 有上文记忆，无需重新注入历史
-│   → 进程执行完退出
+│   → 复用 live idle 进程，stdin 写入下一条 user JSON line
+│   → 若数据库开关从 off→on，先重写 CLAUDE.md/settings，再 terminate idle 进程并 --resume
 ├── 消息 4: "画个折线图"
-│   → spawn claude --print --resume <session_id> -p "画图"（记得刚才查了什么）
-│   → 直接 cherrydb chart → 进程退出
-└── 会话关闭 / 空闲超时 → 清理工作目录（含 .claude/）
+│   → 若 API 重启或进程已被 idle kill，spawn --resume <provider_session_id>
+│   → 若 resume 启动失败，旧 workDir 重命名为 .failed.<timestamp>，新会话 fresh spawn
+└── 会话关闭 → SIGTERM/SIGKILL 后删除 workDir、agentHome、agent_sessions
 ```
 
 关键设计：
 - **懒加载**：Claude Code 仅在首次需要 Agent 时触发，不是会话创建就 spawn
 - **一旦绑定，全走 Agent**：避免混合路由导致 Claude Code 丢失部分对话上下文
-- **每次 spawn 新进程 + `--resume <session_id>` 恢复上下文**：进程不常驻，每次调用后正常退出，会话状态通过 `.claude/` 目录持久化。首次 spawn 后捕获 session_id 用于后续恢复。
-- **资源管控**：进程超时 kill + 空闲超时清理工作目录 + 并发上限 + 排队机制
+- **常驻优先，resume 兜底**：live idle 进程复用；无 live process 但有 `provider_session_id` 时用 `--resume`；resume 启动失败才 fresh spawn。
+- **每轮刷新配置**：每个 turn 前重写 `CLAUDE.md` 和 `settings.json`，并用 options fingerprint 判断是否需要 restart + resume 注入新 env。
+- **资源管控**：24h idle kill、resident process cap、SIGINT cancel grace、长期 retention sweep 分离。
 
 资源管理策略：
 
 | 策略 | 值 | 说明 |
 |---|---|---|
-| 进程执行超时 | 1 小时 | 超时后 `SIGTERM` → 5s 后 `SIGKILL`。`.claude/` 目录保留，下次消息可通过 `--resume <session_id>` 接续上下文重新 spawn |
-| 空闲超时 | 10 分钟 | 无新消息 → 清理工作目录（含 `.claude/`） |
-| 最大并发 | 可配置（默认 20） | 超过上限 → 排队，前端显示"Agent 繁忙" |
-| 会话关闭 | 立即清理 | 用户关闭会话 → 删除工作目录 |
-| `--resume` 失败 | 降级为新会话 | `.claude/` 损坏时删除后重新 spawn（不带 `--resume`） |
+| idle process kill | `AGENT_PROCESS_IDLE_TIMEOUT_MS=86400000` | 24h 无新 turn 后 kill live process，保留 workDir/.home/.claude 和 DB metadata |
+| resident cap | `AGENT_MAX_RESIDENT_PROCESSES=5` | 超限时 LRU kill idle process；running turn 不淘汰 |
+| cancel grace | `AGENT_SIGINT_GRACE_MS=5000` | SSE disconnect 先 `SIGINT` 取消当前 turn，超时升级 `SIGKILL` |
+| retention | `AGENT_SESSION_RETENTION_DAYS=7` | stopped/failed 元数据和 workDir 超期后清理，包括 `.failed.*` |
+| 会话关闭 | 立即清理 | 用户关闭会话 → `SIGTERM`/`SIGKILL` 后删除 workDir、agentHome、agent_sessions |
+| `--resume` 失败 | 降级为新会话 | 旧 workDir 重命名为 `.failed.<timestamp>`，重新创建 workDir 后 fresh spawn |
 
 ### 2.2 路由条件（首次触发 Agent）
 
@@ -251,136 +252,68 @@ graphify query "SSO 和权限" --graph /data/graphify-out/space_rd/graph.json
 
 ### 4.1 进程生命周期
 
-Claude Code 采用 `--print` 模式（一次性调用），每次用户消息 spawn 新进程，进程执行完正常退出。通过 `--resume <session_id>` 参数恢复会话上下文。会话状态由 Claude Code 存储在 `$HOME/.claude/projects/` 下（通过隔离 HOME 目录实现进程间隔离）。
+Claude Code 采用持久 stream-json 协议。CherryWiki 不再把用户消息放到命令行 `-p <message>` 中，而是在进程启动后向 stdin 写入 JSON line：
+
+```json
+{"type":"user","message":{"role":"user","content":"<message>"}}
+```
 
 **首次 spawn（懒加载，不带 `--resume`）：**
 
 ```typescript
-// cherry-api 内部 — 首次触发 Agent 时
-import { spawn } from 'child_process';
-import { randomUUID } from 'crypto';
-
-const workDir = prepareWorkDir(conversationId, spaceId);
-const agentHome = join(workDir, '.home'); // 隔离 HOME，防止加载宿主 ~/.claude/ 配置
-mkdirSync(agentHome, { recursive: true });
-
-// 生成 CLAUDE.md（见 §4.3）
-await generateClaudeMd(workDir, spaceId, userSpaces, dbEnabled);
-// 生成 settings.json（权限配置，见 §4.6）
-const settingsPath = join(workDir, 'settings.json');
-await writeSettings(settingsPath);
-
-// 最小环境变量白名单 — 禁止 ...process.env 泄露服务端密钥
-const envVars: Record<string, string> = {
-  PATH: process.env.PATH!,
-  HOME: agentHome,                        // 隔离 HOME，Claude Code 不会加载宿主配置/hooks/plugins
-  LANG: process.env.LANG || 'en_US.UTF-8',
-  TMPDIR: join(workDir, 'tmp'),
-  // Claude Code Agent 模型配置 — 通过 env 注入，支持代理网关/替换模型（见 §4.8）
-  ANTHROPIC_API_KEY: process.env.AGENT_ANTHROPIC_API_KEY!,
-  ...(process.env.AGENT_ANTHROPIC_BASE_URL && {
-    ANTHROPIC_BASE_URL: process.env.AGENT_ANTHROPIC_BASE_URL,
-  }),
-  ...(process.env.AGENT_ANTHROPIC_MODEL && {
-    ANTHROPIC_MODEL: process.env.AGENT_ANTHROPIC_MODEL,
-  }),
-  CHERRY_API_INTERNAL_URL: internalApiUrl,
-  CHERRY_AGENT_TOKEN: agentToken,
-};
-// 仅在数据库开关开启时注入 — cherrydb CLI 通过此变量连接数据库
-if (dbEnabled) {
-  envVars.CHERRY_DB_DSN = dbConnectionString;
-  envVars.CHERRY_DB_ALLOWED_TABLES = allowedTables;
-  envVars.CHERRY_DB_MASKED_COLUMNS = maskedColumns;
-}
-
-const newSessionId = randomUUID();
 const args = [
-  '--print',
+  '-p',
+  '--input-format', 'stream-json',
   '--output-format', 'stream-json',
   '--verbose',
-  '--include-partial-messages',           // token 级流式输出（否则只在完整回合后输出）
-  // 仅在未配置 AGENT_ANTHROPIC_MODEL 时传 --model（避免 --model 覆盖 ANTHROPIC_MODEL env）
-  ...(process.env.AGENT_ANTHROPIC_MODEL ? [] : ['--model', 'sonnet']),
-  '--max-budget-usd', '2',               // 单次调用成本上限
-  '--tools', 'Bash,Read',                // 限制可用工具集（注意 Bash 本身需 OS 级沙箱，见 §4.7）
+  '--include-partial-messages',
+  '--tools', 'Bash,Read',
   '--permission-mode', 'bypassPermissions',
-  '--session-id', newSessionId,           // 显式设置 session ID（非 --resume）
-  '--settings', settingsPath,             // 显式加载 settings，不依赖全局配置
-  '-p', userMessage,
+  '--settings', join(workDir, 'settings.json'),
+  '--max-budget-usd', '2',
+  '--session-id', cherryGeneratedSessionId,
 ];
 const proc = spawn('claude', args, { cwd: workDir, env: envVars });
-
-// 存储 session_id（也可从 system/init 事件或 result 事件中捕获验证）
-sessionManager.setSessionId(conversationId, newSessionId);
-
-// 1h 进程执行超时（防止挂起），超时后 kill，会话状态保留可 --resume 接续
-const killTimer = setTimeout(() => {
-  proc.kill('SIGTERM');
-  setTimeout(() => { if (proc.exitCode === null) proc.kill('SIGKILL'); }, 5000);
-}, 3600_000);
-proc.on('exit', () => clearTimeout(killTimer));
-
-// stdout 逐行读取 stream-json 事件（见 §4.5），转发为 SSE
-// 首条事件为 type:"system" subtype:"init"，包含 session_id 可用于验证
-// 进程执行完正常退出（exit code 0）
 ```
 
-**后续消息（带 `--resume`，恢复上下文）：**
+启动握手等待 `system/init`，捕获 Claude Code 返回的 `provider_session_id` 并写入 `agent_sessions.provider_session_id`。stdout reader 在进程生命周期内持续运行，按当前 active turn 分发 `assistant`、`tool_use`、`tool_result` 和 `result` 事件；`result` 只结束当前 turn，不关闭 reader。
+
+**后续消息：**
 
 ```typescript
-// 用户发来追问消息时
-const workDir = sessionManager.getWorkDir(conversationId);
-const sessionId = sessionManager.getSessionId(conversationId);
-if (workDir && sessionId) {
-  const settingsPath = join(workDir, 'settings.json');
-  const proc = spawn('claude', [
-    '--print',
-    '--output-format', 'stream-json',
-    '--verbose',
-    '--include-partial-messages',
-    '--resume', sessionId,                // 显式传入 session_id 恢复上下文
-    '--model', 'sonnet',
-    '--max-budget-usd', '2',
-    '--tools', 'Bash,Read',
-    '--permission-mode', 'bypassPermissions',
-    '--settings', settingsPath,
-    '-p', followUpMessage,
-  ], { cwd: workDir, env: envVars });
-  // 同样设置 1h kill 超时
-  const killTimer = setTimeout(() => {
-    proc.kill('SIGTERM');
-    setTimeout(() => { if (proc.exitCode === null) proc.kill('SIGKILL'); }, 5000);
-  }, 3600_000);
-  proc.on('exit', () => clearTimeout(killTimer));
-  // stdout 流式读取，进程完成后正常退出
-  // 若进程被 kill（超时），会话状态保留，下次追问仍可 --resume 接续
-} else {
-  // session_id 丢失 → 降级为新会话
-  spawnNewSession(conversationId, spaceId, userMessage);
+await refreshClaudeMdAndSettings(session, options);
+if (optionsFingerprintChanged && session.status === 'idle') {
+  await terminateIdleProcess(session);
 }
+if (!session.child && session.providerSessionId) {
+  await spawn('claude', [...baseArgs, '--resume', session.providerSessionId], { cwd: workDir, env: envVars });
+}
+proc.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: userMessage } }) + '\n');
 ```
 
-**清理：**
+配置变更由 restart + resume 生效，因为 live process 不会重新读取 env/settings：
 
-```typescript
-// 空闲超时 / 会话关闭
-sessionManager.cleanup(conversationId);
-// 删除整个工作目录（含 .home/），释放磁盘空间
-// 正常场景：进程每次调用完已退出，无需 kill
-// 超时场景：进程已被 1h kill timer 终止，会话状态仍保留在 .home/.claude/
-//   → 若用户在 kill 后继续追问，可通过 --resume <session_id> 接续上下文
-//   → 空闲超时 10 分钟后才清理工作目录，给用户重试窗口
-```
+- 每个 turn 前重写 `CLAUDE.md` 与 `settings.json`。
+- fingerprint 覆盖 allowed spaces、graph paths、database enabled/DSN、model、budget、settings/tool version。
+- fingerprint 变化且进程 idle 时先 terminate，再用 `--resume <provider_session_id>` 重新启动。
+- 数据库开关 off→on 必须走该路径，以注入 `CHERRY_DB_*` env 和数据库指令。
+- 如果 `--resume` 在 `system/init` 前失败，旧 workDir 重命名为 `{workDir}.failed.{timestamp}`，重新创建 workDir 并 fresh spawn；新 `provider_session_id` 回写 DB。
 
-> 参考实现：happy 项目 `packages/happy-cli/src/claude/sdk/query.ts`（SDK 模式，`--output-format stream-json --verbose`，stdout 逐行读取 JSON）和 `packages/happy-cli/src/claude/claudeLocal.ts`（交互模式，`--session-id`/`--resume` 显式管理会话 ID，`--settings` 隔离配置，`--append-system-prompt` 注入规则）。CherryWiki 使用 `--print` + `--session-id`/`--resume` 模式，每次消息独立 spawn，适合 Web 服务端无状态架构。
+**API shutdown 与清理：**
+
+- API runtime 重启/模块销毁：关闭 live child processes，保留 `agent_sessions`、workDir、agentHome。
+- 24h idle kill / LRU eviction：关闭 idle child process，保留可 resume 元数据。
+- 用户删除 Chat session：`SIGTERM` → grace → `SIGKILL`，删除 workDir、agentHome、`.failed.*` 和 DB row。
+- retention sweep：`AGENT_SESSION_RETENTION_DAYS` 后清理 stopped/failed session。
+
+> 参考实现：happy 项目 `packages/happy-cli/src/claude/sdk/query.ts`（stdout 逐行读取 JSON）和 `packages/happy-cli/src/claude/claudeLocal.ts`（`--session-id`/`--resume` 显式管理会话 ID，`--settings` 隔离配置）。CherryWiki 使用持久 stdin/stdout reader，并以 `agent_sessions` 表补足 API 重启后的 resume 能力。
 
 ### 4.2 工作目录结构
 
-首次 spawn 时创建隔离工作目录，生命周期与 Cherry 会话一致（空闲超时后清理）：
+首次 spawn 时创建隔离工作目录，生命周期与 Cherry 会话一致。该目录必须位于持久卷（推荐 `CHERRY_AGENT_ROOT=/var/lib/cherry-agent`），不能放在容器临时层：
 
 ```text
-/tmp/cherry-agent/{conversation_id}/
+/var/lib/cherry-agent/{conversation_id}/
   CLAUDE.md           ← 注入规则（见 §4.3）
   settings.json       ← 权限配置（通过 --settings 显式加载）
   tmp/                ← Agent 进程的 TMPDIR
@@ -757,11 +690,11 @@ MCP Gateway 仅在需要对接第三方外部工具时保留（Phase 4+）。
 | 风险 | 缓解 |
 |---|---|
 | Claude Code 模型成本 | 双层架构确保大部分查询走静态 RAG；支持代理网关 + Deepseek 等替换模型（§4.8），不必绑定 Anthropic 原生价格；`--max-budget-usd 2` 单次成本上限 |
-| Claude Code 进程启动延迟 | 懒加载 + `--resume` 恢复上下文减少重复初始化；前端显示"深度分析中..."状态 |
-| 多用户并发时进程数 | 内网企业场景并发不高；空闲超时 10 分钟自动回收；并发上限 + 排队 |
+| Claude Code 进程启动延迟 | 懒加载 + 常驻 idle process 复用；无 live process 时 `--resume` 恢复上下文 |
+| 多用户并发时进程数 | `AGENT_MAX_RESIDENT_PROCESSES` 限制 resident child processes；LRU 只淘汰 idle process |
 | Claude Code CLI 版本更新可能 breaking | 锁定 Claude Code 版本；Docker 镜像固定 |
 | 数据库 SQL 注入风险 | `readonly=True`（主防线）+ sqlparse AST + 分号拒绝 + LIMIT 1000 + statement_timeout |
-| Agent 进程挂起 | 1 小时进程级 kill 超时；kill 后会话状态保留，用户追问时 `--resume` 接续上下文 |
+| Agent 进程挂起 | 24h idle kill、SSE disconnect `SIGINT` grace、超时 `SIGKILL`；会话状态保留，用户追问时 `--resume` |
 | Agent 沙箱逃逸（Bash 写文件/读 env） | settings.json deny 规则 + OS 级隔离（只读挂载/非 root/网络隔离，见 §4.7） |
 | 环境变量泄露 | 最小 env 白名单（§4.1），不注入 `process.env`；HOME 隔离防止读取宿主配置 |
 | 宿主配置污染（hooks/plugins/MCP） | 隔离 HOME 目录 + `--settings` 显式加载（§4.1, §4.6） |

@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { configDefaults, defineConfig } from 'vitest/config';
 
 const rootDir = fileURLToPath(new URL('.', import.meta.url));
+const runsExplicitWebTest = process.argv.some((arg) => arg.startsWith('apps/web/'));
 
 export default defineConfig({
   root: rootDir,
@@ -20,7 +21,7 @@ export default defineConfig({
   },
   test: {
     include: ['packages/**/src/**/*.test.ts', 'apps/**/src/**/*.test.ts', 'apps/**/src/**/*.test.tsx', 'tests/**/*.test.ts'],
-    exclude: [...configDefaults.exclude, 'apps/web/**'],
+    exclude: runsExplicitWebTest ? configDefaults.exclude : [...configDefaults.exclude, 'apps/web/**'],
     passWithNoTests: true,
     coverage: {
       provider: 'v8',

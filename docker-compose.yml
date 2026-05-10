@@ -59,10 +59,13 @@ services:
       - url_fetch_private
 
   cherry-api:
-    image: node:20-slim
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      args:
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.131}
     restart: unless-stopped
     working_dir: /app
-    command: ["sh", "/app/ops/entrypoint-api.sh"]
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       HOST: 0.0.0.0
@@ -109,9 +112,9 @@ services:
           "CMD-SHELL",
           "curl -f http://localhost:8080/api/health || node -e \"fetch('http://localhost:8080/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
         ]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+      interval: 15s
+      timeout: 10s
+      retries: 5
       start_period: 120s
     depends_on:
       postgres:
