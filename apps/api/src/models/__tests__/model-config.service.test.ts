@@ -289,7 +289,10 @@ describe('ModelConfigService', () => {
       expect(result.reachable).toBe(true);
       expect(result.error).toBeUndefined();
     });
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/embeddings');
+    const { url, init } = getFirstFetchCall(fetchMock);
+    expect(url).toBe('https://api.openai.com/v1/embeddings');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBe(JSON.stringify({ model: 'text-embedding-3-large', input: 'test' }));
   });
 
   it('tests rerank model connectivity through the rerank endpoint', async () => {
@@ -309,7 +312,10 @@ describe('ModelConfigService', () => {
       expect(result.reachable).toBe(true);
       expect(result.error).toBeUndefined();
     });
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/rerank');
+    const { url, init } = getFirstFetchCall(fetchMock);
+    expect(url).toBe('https://api.openai.com/v1/rerank');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBe(JSON.stringify({ model: 'bge-reranker-large', query: 'test', documents: ['test'] }));
   });
 
   it('returns unreachable when rerank probe returns 500', async () => {
@@ -383,6 +389,22 @@ describe('ModelConfigService', () => {
     const { service, db } = createServiceContext();
     const fetchMock = mockFetchResponse(200);
     db.queueSelect([createModelConfigRow({ encrypted_api_key_ref: null })]);
+
+    const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        reachable: false,
+        error: 'No API key configured',
+      }),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('returns no API key configured without fetching when key ref is empty string', async () => {
+    const { service, db } = createServiceContext();
+    const fetchMock = mockFetchResponse(200);
+    db.queueSelect([createModelConfigRow({ encrypted_api_key_ref: '' })]);
 
     const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
 

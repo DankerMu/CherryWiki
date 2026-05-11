@@ -502,18 +502,20 @@ async function findModelById(
   return model;
 }
 
+type ProbeResult = { ok: boolean; status: number };
+
 async function probeModelEndpoint(
   baseUrl: string,
   apiKey: string,
   modelId: string,
   modelType: ModelType,
-): Promise<Response> {
+): Promise<ProbeResult> {
   const request = buildProbeRequest(modelId, modelType);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
 
   try {
-    return await fetch(`${baseUrl.replace(/\/+$/, '')}${request.path}`, {
+    const response = await fetch(`${baseUrl.replace(/\/+$/, '')}${request.path}`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -522,6 +524,9 @@ async function probeModelEndpoint(
       body: JSON.stringify(request.body),
       signal: controller.signal,
     });
+    const result = { ok: response.ok, status: response.status };
+    await response.body?.cancel().catch(() => undefined);
+    return result;
   } finally {
     clearTimeout(timeout);
   }
