@@ -99,6 +99,10 @@ export class ScriptedChatDb {
     this.executeResults.push(result);
   }
 
+  transaction<T>(callback: (tx: NodePgDatabase) => Promise<T>): Promise<T> {
+    return callback(this.asDrizzle());
+  }
+
   select(): ScriptedQueryBuilder {
     return new ScriptedQueryBuilder(this, this.selectResults.shift() ?? []);
   }

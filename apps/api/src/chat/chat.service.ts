@@ -274,34 +274,39 @@ export class ChatService {
   ): Promise<string> {
     const now = new Date();
     const normalizedSpaceIds = uniqueNonEmptyStrings(spaceIds.length > 0 ? spaceIds : [spaceId]);
-    const [created] = await this.db
-      .insert(chatSessions)
-      .values({
-        id: randomUUID(),
-        tenant_id: tenantId,
-        space_id: spaceId,
-        user_id: userId,
-        title: null,
-        created_at: now,
-        updated_at: now,
-      })
-      .returning();
 
-    if (created === undefined) {
-      throw new Error('Failed to create chat session');
-    }
+    const sessionId = await this.db.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(chatSessions)
+        .values({
+          id: randomUUID(),
+          tenant_id: tenantId,
+          space_id: spaceId,
+          user_id: userId,
+          title: null,
+          created_at: now,
+          updated_at: now,
+        })
+        .returning();
 
-    await this.db.insert(chatSessionSpaces).values(
-      normalizedSpaceIds.map((selectedSpaceId, position) => ({
-        session_id: created.id,
-        tenant_id: tenantId,
-        space_id: selectedSpaceId,
-        position,
-        created_at: now,
-      })),
-    );
+      if (created === undefined) {
+        throw new Error('Failed to create chat session');
+      }
 
-    return created.id;
+      await tx.insert(chatSessionSpaces).values(
+        normalizedSpaceIds.map((selectedSpaceId, position) => ({
+          session_id: created.id,
+          tenant_id: tenantId,
+          space_id: selectedSpaceId,
+          position,
+          created_at: now,
+        })),
+      );
+
+      return created.id;
+    });
+
+    return sessionId;
   }
 
   async listSessions(
@@ -1021,6 +1026,10 @@ export class ChatService {
 
     if (providedSpaceIds !== undefined && providedSpaceIds.length > 10) {
       throwApiError(ErrorCode.VALIDATION_ERROR, 'At most 10 Spaces can be selected', HttpStatus.BAD_REQUEST);
+    }
+
+    if (providedSpaceIds !== undefined && providedSpaceIds.length === 0) {
+      throwApiError(ErrorCode.VALIDATION_ERROR, 'space_ids must not be empty when provided', HttpStatus.BAD_REQUEST);
     }
 
     if (providedSpaceIds !== undefined && providedSpaceIds.length > 0) {

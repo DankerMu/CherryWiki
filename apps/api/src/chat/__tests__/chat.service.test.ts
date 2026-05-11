@@ -184,6 +184,20 @@ describe('Space scope normalization', () => {
     }
   });
 
+  it('rejects explicitly empty space_ids array', () => {
+    const { service } = createServiceContext();
+
+    try {
+      normalizeSpaceScopeForTest(service, { space_id: 'a', space_ids: [] });
+    } catch (err) {
+      expect((err as HttpException).getStatus()).toBe(400);
+      expect(getHttpExceptionCode(err)).toBe(ErrorCode.VALIDATION_ERROR);
+      return;
+    }
+
+    throw new Error('Expected empty space_ids to be rejected');
+  });
+
   it('rejects conflicting primary space', () => {
     const { service } = createServiceContext();
 
@@ -957,6 +971,10 @@ class ScriptedChatDb {
 
   queueExecute(result: unknown[]): void {
     this.executeResults.push(result);
+  }
+
+  transaction<T>(callback: (tx: NodePgDatabase) => Promise<T>): Promise<T> {
+    return callback(this.asDrizzle());
   }
 
   select(): ScriptedQueryBuilder {

@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsInt,
@@ -24,6 +25,7 @@ export class ChatCompletionDto {
   @IsString({ each: true })
   @MinLength(1, { each: true })
   @MaxLength(200, { each: true })
+  @ArrayMinSize(1)
   @ArrayMaxSize(10)
   space_ids?: string[];
 
