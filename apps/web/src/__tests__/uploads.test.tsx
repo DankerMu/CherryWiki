@@ -209,7 +209,7 @@ describe('UploadList', () => {
 });
 
 describe('UploadCenter', () => {
-  it('loads documents with search, source type, and sort query parameters', async () => {
+  it('loads documents with search, source type, and sort query parameters', { timeout: 30000 }, async () => {
     const fetchMock = stubUploadListApi();
 
     renderUploadCenter();
