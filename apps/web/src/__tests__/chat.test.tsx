@@ -7,8 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '../i18n';
 import i18n from '../i18n';
 import { AuthProvider, type AuthUser } from '../lib/auth.js';
-import Chat, { ChatMessageBubble, MessageInput, SessionSidebar } from '../pages/Chat.js';
-import { CHAT_INPUT_MAX_LENGTH, ChatStreamError, type ChatCitation, type ChatMessage } from '../hooks/useChatStream.js';
+import Chat, { ChatMessageBubble, MessageInput, SessionSidebar, SpaceSelector } from '../pages/Chat.js';
+import {
+  CHAT_INPUT_MAX_LENGTH,
+  ChatStreamError,
+  normalizeCitation,
+  type ChatCitation,
+  type ChatMessage,
+} from '../hooks/useChatStream.js';
 
 vi.mock('echarts-for-react', () => ({
   default: () => <div data-testid="echarts-chart">ECharts component</div>,
@@ -20,7 +26,10 @@ const testUser: AuthUser = {
   name: 'Viewer',
   role: 'viewer',
   groups: [],
-  spaces: [{ id: 'space-1', name: 'Space One', role: 'viewer' }],
+  spaces: [
+    { id: 'space-1', name: 'Space One', role: 'viewer' },
+    { id: 'space-2', name: 'Space Two', role: 'viewer' },
+  ],
 };
 
 beforeEach(async () => {
@@ -75,6 +84,55 @@ describe('Chat message rendering', () => {
 
     expect(await screen.findByRole('heading', { name: 'Wiki target' })).toBeInTheDocument();
   });
+
+  it('routes secondary-space citations to their source space', async () => {
+    const citation = buildCitation({
+      index: 1,
+      space_id: 'space-2',
+      page_id: 'target-page',
+      page_title: 'Secondary Source',
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/spaces/space-1/chat']}>
+        <Routes>
+          <Route
+            path="/spaces/:spaceId/chat"
+            element={
+              <ChatMessageBubble
+                message={buildMessage({ role: 'assistant', content: 'Use this source [^1].', citations: [citation] })}
+                spaceId="space-1"
+                spaceNameById={{ 'space-2': 'Space Two' }}
+              />
+            }
+          />
+          <Route path="/spaces/space-1/wiki/:pageId" element={<h1>Wrong space</h1>} />
+          <Route path="/spaces/space-2/wiki/:pageId" element={<h1>Secondary wiki target</h1>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '[1]' }));
+
+    expect(await screen.findByRole('heading', { name: 'Secondary wiki target' })).toBeInTheDocument();
+  });
+
+  it('normalizes citation space_id from API payloads', () => {
+    expect(
+      normalizeCitation({
+        index: 2,
+        chunk_id: 'chunk-2',
+        wiki_page_pk: 'wiki-2',
+        space_id: 'space-2',
+        page_id: 'page-2',
+        page_title: 'Page 2',
+      }),
+    ).toMatchObject({
+      index: 2,
+      space_id: 'space-2',
+      page_id: 'page-2',
+    });
+  });
 });
 
 describe('Session sidebar', () => {
@@ -91,6 +149,11 @@ describe('Session sidebar', () => {
           {
             id: 'session-old',
             title: null,
+            space_ids: ['space-1', 'space-2'],
+            space_details: [
+              { id: 'space-1', name: 'Space One' },
+              { id: 'space-2', name: 'Space Two' },
+            ],
             created_at: '2026-05-01T10:00:00.000Z',
             updated_at: '2026-05-01T11:00:00.000Z',
           },
@@ -105,6 +168,111 @@ describe('Session sidebar', () => {
 
     expect(screen.getByText('Latest chat')).toBeInTheDocument();
     expect(screen.getByText('Chat session-')).toBeInTheDocument();
+    expect(screen.getByText('2 空间')).toBeInTheDocument();
+    expect(screen.getByText(/Space One、Space Two/)).toBeInTheDocument();
+  });
+});
+
+describe('Space selector', () => {
+  it('renders with the route space selected as primary', () => {
+    renderWithRouter(
+      <SpaceSelector
+        availableSpaces={[
+          { id: 'space-1', name: 'Space One' },
+          { id: 'space-2', name: 'Space Two' },
+        ]}
+        selectedSpaceIds={['space-1']}
+        primarySpaceId="space-1"
+        locked={false}
+        onChange={vi.fn()}
+        onStartNewSession={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Space One（主）')).toBeInTheDocument();
+  });
+
+  it('adds spaces while preserving the route space first', async () => {
+    const onChange = vi.fn();
+    renderWithRouter(
+      <SpaceSelector
+        availableSpaces={[
+          { id: 'space-1', name: 'Space One' },
+          { id: 'space-2', name: 'Space Two' },
+        ]}
+        selectedSpaceIds={['space-1']}
+        primarySpaceId="space-1"
+        locked={false}
+        onChange={onChange}
+        onStartNewSession={vi.fn()}
+      />,
+    );
+
+    fireEvent.mouseDown(screen.getByRole('combobox'));
+    fireEvent.click(await screen.findByText('Space Two'));
+
+    expect(onChange).toHaveBeenCalledWith(['space-1', 'space-2']);
+  });
+
+  it('removes secondary spaces without removing the route space', () => {
+    const onChange = vi.fn();
+    renderWithRouter(
+      <SpaceSelector
+        availableSpaces={[
+          { id: 'space-1', name: 'Space One' },
+          { id: 'space-2', name: 'Space Two' },
+        ]}
+        selectedSpaceIds={['space-1', 'space-2']}
+        primarySpaceId="space-1"
+        locked={false}
+        onChange={onChange}
+        onStartNewSession={vi.fn()}
+      />,
+    );
+
+    const closeButton = document.querySelector('.ant-tag-close-icon');
+    expect(closeButton).toBeInTheDocument();
+    fireEvent.click(closeButton!);
+
+    expect(onChange).toHaveBeenCalledWith(['space-1']);
+  });
+
+  it('locks selection during an active session', () => {
+    renderWithRouter(
+      <SpaceSelector
+        availableSpaces={[{ id: 'space-1', name: 'Space One' }]}
+        selectedSpaceIds={['space-1']}
+        primarySpaceId="space-1"
+        locked
+        onChange={vi.fn()}
+        onStartNewSession={vi.fn()}
+      />,
+    );
+
+    expect(document.querySelector('.chat-space-selector.ant-select-disabled')).toBeInTheDocument();
+    expect(screen.getByText('当前会话已锁定空间范围')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /新建对话以更改/ })).toBeInTheDocument();
+  });
+
+  it('disables unselected options after selecting 10 spaces', async () => {
+    renderWithRouter(
+      <SpaceSelector
+        availableSpaces={Array.from({ length: 11 }, (_, index) => ({
+          id: `space-${index + 1}`,
+          name: `Space ${index + 1}`,
+        }))}
+        selectedSpaceIds={Array.from({ length: 10 }, (_, index) => `space-${index + 1}`)}
+        primarySpaceId="space-1"
+        locked={false}
+        onChange={vi.fn()}
+        onStartNewSession={vi.fn()}
+      />,
+    );
+
+    fireEvent.mouseDown(screen.getByRole('combobox'));
+
+    const extraOption = await screen.findByTitle('Space 11');
+    expect(extraOption.closest('.ant-select-item-option-disabled')).not.toBeNull();
   });
 });
 
@@ -186,6 +354,80 @@ describe('Message input IME composition handling', () => {
 });
 
 describe('Phase 3 chat controls and stream events', () => {
+  it('sends selected space_ids when multiple spaces are selected', async () => {
+    const fetchState = stubChatFetch({
+      spaces: [
+        { id: 'space-1', name: 'Space One' },
+        { id: 'space-2', name: 'Space Two' },
+      ],
+      streamEvents: [{ event: 'message.completed', data: {} }],
+    });
+
+    renderChatRoute();
+
+    fireEvent.mouseDown(await screen.findByRole('combobox', { name: '聊天空间' }));
+    fireEvent.click(await screen.findByText('Space Two'));
+    await sendChatMessage('compare both spaces');
+
+    await waitFor(() =>
+      expect(getLastChatCompletionBody(fetchState.calls)).toMatchObject({
+        space_id: 'space-1',
+        space_ids: ['space-1', 'space-2'],
+      }),
+    );
+  });
+
+  it('restores selected spaces when opening a multi-space session', async () => {
+    stubChatFetch({
+      sessions: [
+        {
+          id: 'session-multi',
+          title: 'Multi-space chat',
+          space_ids: ['space-1', 'space-2'],
+          space_details: [
+            { id: 'space-1', name: 'Space One' },
+            { id: 'space-2', name: 'Space Two' },
+          ],
+          created_at: '2026-05-01T10:00:00.000Z',
+          updated_at: '2026-05-01T11:00:00.000Z',
+        },
+      ],
+      sessionDetails: {
+        'session-multi': {
+          id: 'session-multi',
+          space_ids: ['space-1', 'space-2'],
+          space_details: [
+            { id: 'space-1', name: 'Space One' },
+            { id: 'space-2', name: 'Space Two' },
+          ],
+          messages: [],
+        },
+      },
+    });
+
+    renderChatRoute();
+
+    fireEvent.click(await screen.findByText('Multi-space chat'));
+
+    expect(await screen.findByText('Space Two')).toBeInTheDocument();
+    expect(screen.getByText('当前会话已锁定空间范围')).toBeInTheDocument();
+  });
+
+  it('locks the selector after a session starts', async () => {
+    stubChatFetch({
+      streamEvents: [
+        { event: 'session', data: { session_id: 'session-started' } },
+        { event: 'message.completed', data: {} },
+      ],
+    });
+
+    renderChatRoute();
+    await sendChatMessage('start a scoped session');
+
+    expect(await screen.findByText('当前会话已锁定空间范围')).toBeInTheDocument();
+    expect(document.querySelector('.chat-space-selector.ant-select-disabled')).toBeInTheDocument();
+  });
+
   it('sends enable_deep_analysis when the deep analysis toggle is on', async () => {
     const fetchState = stubChatFetch({
       streamEvents: [{ event: 'message.completed', data: { latency_ms: 42 } }],
@@ -426,11 +668,41 @@ type StreamEvent = {
   data: unknown;
 };
 
+type StubSpace = {
+  id: string;
+  name: string;
+};
+
+type StubSession = {
+  id: string;
+  title: string | null;
+  space_ids?: string[];
+  space_details?: StubSpace[];
+  created_at: string;
+  updated_at: string;
+};
+
+type StubSessionDetail = {
+  id: string;
+  space_ids?: string[];
+  space_details?: StubSpace[];
+  messages: unknown[];
+};
+
 function stubChatFetch({
   databaseEnabled = false,
+  spaces = [
+    { id: 'space-1', name: 'Space One' },
+    { id: 'space-2', name: 'Space Two' },
+  ],
+  sessions = [],
+  sessionDetails = {},
   streamEvents = [],
 }: {
   databaseEnabled?: boolean;
+  spaces?: StubSpace[];
+  sessions?: StubSession[];
+  sessionDetails?: Record<string, StubSessionDetail>;
   streamEvents?: StreamEvent[];
 } = {}): { calls: FetchCall[] } {
   const calls: FetchCall[] = [];
@@ -441,12 +713,31 @@ function stubChatFetch({
       const path = getRequestPath(input);
       calls.push({ path, body: parseRequestBody(init?.body) });
 
+      if (path === '/api/spaces') {
+        return Promise.resolve(
+          jsonResponse({
+            data: spaces.map((space) => ({ ...space, status: 'active' })),
+            meta: { request_id: 'req-spaces' },
+          }),
+        );
+      }
+
       if (path === '/api/spaces/space-1') {
         return Promise.resolve(jsonResponse({ data: { id: 'space-1', database_config: { enabled: databaseEnabled } } }));
       }
 
       if (path === '/api/spaces/space-1/chat/sessions' && init?.method !== 'POST') {
-        return Promise.resolve(jsonResponse({ data: [], meta: { request_id: 'req-sessions' } }));
+        return Promise.resolve(jsonResponse({ data: sessions, meta: { request_id: 'req-sessions' } }));
+      }
+
+      const sessionDetailMatch = path.match(/^\/api\/spaces\/space-1\/chat\/sessions\/([^/]+)$/);
+      if (sessionDetailMatch !== null) {
+        const detail = sessionDetails[decodeURIComponent(sessionDetailMatch[1] ?? '')];
+        return Promise.resolve(
+          detail !== undefined
+            ? jsonResponse({ data: detail, meta: { request_id: 'req-session-detail' } })
+            : jsonResponse({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404),
+        );
       }
 
       if (path === '/api/chat/completions') {
