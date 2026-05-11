@@ -980,6 +980,7 @@ export const answerCitations = pgTable(
     wiki_page_pk: text('wiki_page_pk')
       .notNull()
       .references(() => wikiPages.id),
+    space_id: text('space_id').references(() => spaces.id),
     section_id: text('section_id').references(() => wikiSections.id, { onDelete: 'set null' }),
     chunk_id: text('chunk_id').references(() => wikiChunks.id, { onDelete: 'set null' }),
     relevance_score: real('relevance_score').notNull(),
@@ -990,6 +991,7 @@ export const answerCitations = pgTable(
   (table) => [
     index('idx_answer_citations_message').on(table.message_id),
     index('idx_answer_citations_page').on(table.wiki_page_pk),
+    index('idx_answer_citations_space').on(table.space_id),
   ],
 );
 

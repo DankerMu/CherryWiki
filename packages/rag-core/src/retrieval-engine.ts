@@ -8,15 +8,16 @@ const DEFAULT_SEARCH_TOP_N = 20;
 export type RetrievalParams = {
   query: string;
   queryEmbedding: number[];
-  spaceId: string;
+  spaceIds: string[];
   tenantId: string;
   userGroupIds: string[];
-  snapshotId: string;
+  snapshotsBySpace: Record<string, string>;
   topK?: number;
 };
 
 export type RetrievalResult = {
   chunkId: string;
+  spaceId: string;
   content: string;
   score: number;
   wikiPagePk: string;
@@ -29,6 +30,7 @@ export type RetrievalResult = {
 
 export type SearchHit = {
   chunkId: string;
+  spaceId: string;
   content: string;
   score: number;
   wikiPagePk: string;
@@ -64,24 +66,41 @@ export async function retrieve(
 ): Promise<RetrievalResult[]> {
   const topK = normalizeTopK(params.topK);
   const topN = Math.max(DEFAULT_SEARCH_TOP_N, topK);
+  const allVectorHits: SearchHit[] = [];
+  const allBm25Hits: SearchHit[] = [];
+  const selectedSpaceIds = new Set(params.spaceIds);
+  const spaceEntries = Object.entries(params.snapshotsBySpace).filter(([spaceId]) => selectedSpaceIds.has(spaceId));
 
-  const searchParams = {
-    spaceId: params.spaceId,
-    tenantId: params.tenantId,
-    userGroupIds: params.userGroupIds,
-    snapshotId: params.snapshotId,
-    topN,
-  };
+  if (spaceEntries.length === 0) {
+    return [];
+  }
 
-  const [vectorResult, bm25Result] = await Promise.allSettled([
-    Promise.resolve().then(() => vectorSearch({ ...searchParams, queryEmbedding: params.queryEmbedding })),
-    Promise.resolve().then(() => bm25Search({ ...searchParams, query: params.query })),
-  ]);
+  await Promise.all(
+    spaceEntries.map(async ([spaceId, snapshotId]) => {
+      const searchParams = {
+        spaceId,
+        tenantId: params.tenantId,
+        userGroupIds: params.userGroupIds,
+        snapshotId,
+        topN,
+      };
 
-  const vectorResults = vectorResult.status === 'fulfilled' ? vectorResult.value : [];
-  const bm25Results = bm25Result.status === 'fulfilled' ? bm25Result.value : [];
+      const [vectorResult, bm25Result] = await Promise.allSettled([
+        Promise.resolve().then(() => vectorSearch({ ...searchParams, queryEmbedding: params.queryEmbedding })),
+        Promise.resolve().then(() => bm25Search({ ...searchParams, query: params.query })),
+      ]);
 
-  return rrfFuse(vectorResults, bm25Results, { topK });
+      if (vectorResult.status === 'fulfilled') {
+        allVectorHits.push(...vectorResult.value.map((hit) => ({ ...hit, spaceId })));
+      }
+
+      if (bm25Result.status === 'fulfilled') {
+        allBm25Hits.push(...bm25Result.value.map((hit) => ({ ...hit, spaceId })));
+      }
+    }),
+  );
+
+  return rrfFuse(allVectorHits, allBm25Hits, { topK });
 }
 
 function normalizeTopK(topK: number | undefined): number {

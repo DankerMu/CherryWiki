@@ -74,6 +74,6 @@ describe('chat injection-risk integration', () => {
     expect(riskCitation?.relevance_score).toBeCloseTo((1 / 61) * 0.3);
     expect(chatProvider.lastParams?.systemPrompt).toContain(SECURITY_ISOLATION_DIRECTIVE);
     expect(chatProvider.lastParams?.systemPrompt).toContain(INJECTION_RISK_PREFIX);
-    expect(chatProvider.lastParams?.systemPrompt).toContain('[^2] (Page: Risky Page, Section: Prompt Injection)');
+    expect(chatProvider.lastParams?.systemPrompt).toContain('[^2] (Page: Risky Page, Section: Prompt Injection, Space: Knowledge)');
   });
 });

@@ -57,6 +57,49 @@ describe('Agent routing', () => {
     expect(events.map((event) => event.type)).toEqual(['session', 'content', 'usage', 'message.completed']);
   });
 
+  it('passes all selected Spaces and disables database mode for multi-space turns', async () => {
+    const agent = createAgentServiceMock([
+      { type: 'message.delta', delta: 'agent answer' },
+      { type: 'message.completed', usage: { input_tokens: 3, output_tokens: 2 } },
+    ]);
+    const { service, db } = createService(agent);
+    db.queueSelect([createSpaceRow({ id: 'space-a', name: 'Space A', database_config: { enabled: true } })]);
+    db.queueSelect([createSpaceRow({ id: 'space-b', name: 'Space B', database_config: { enabled: true } })]);
+    db.queueSelect([createModelRow()]);
+    db.queueInsert([createSessionRow({ space_id: 'space-a' })]);
+    db.queueSelect([createSessionRow({ space_id: 'space-a' })]);
+    db.queueSelect([]);
+    db.queueInsert([createMessageRow({ id: 'user-message', role: 'user' })]);
+    db.queueInsert([createMessageRow({ id: 'assistant-message', role: 'assistant' })]);
+
+    await collectAsync(
+      await service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: 'space-a',
+        spaceIds: ['space-a', 'space-b'],
+        userId: TEST_USER_ID,
+        userGroupIds: [],
+        message: 'run a deep analysis',
+        enableDeepAnalysis: true,
+        enableDatabase: true,
+      }),
+    );
+
+    expect(agent.sendTurn).toHaveBeenCalledWith(
+      'session-1',
+      'space-a',
+      'run a deep analysis',
+      expect.objectContaining({
+        allowedSpaces: [
+          { id: 'space-a', name: 'Space A' },
+          { id: 'space-b', name: 'Space B' },
+        ],
+        enableDatabase: false,
+      }),
+    );
+    expect((agent.sendTurn as ReturnType<typeof vi.fn>).mock.calls[0]?.[3]).not.toHaveProperty('databaseConfig');
+  });
+
   it('propagates Agent errors as chat SSE errors', async () => {
     const agent = createAgentServiceMock([
       { type: 'message.error', code: 'process_error', message: 'Claude failed' },

@@ -15,10 +15,10 @@ const sourceChainJson: SourceChainJson = {
 const baseParams: RetrievalParams = {
   query: 'alpha beta',
   queryEmbedding: [0.1, 0.2, 0.3],
-  spaceId: 'space-1',
+  spaceIds: ['space-1'],
   tenantId: 'tenant-1',
   userGroupIds: ['editors'],
-  snapshotId: 'snapshot-1',
+  snapshotsBySpace: { 'space-1': 'snapshot-1' },
 };
 
 describe('rrfFuse', () => {
@@ -132,11 +132,81 @@ describe('retrieve', () => {
     expect(callbackParams.every((received) => received.tenantId === 'tenant-1')).toBe(true);
     expect(callbackParams.every((received) => received.spaceId === 'space-1')).toBe(true);
   });
+
+  it('fans out over selected space snapshots and preserves source space ids', async () => {
+    const callbackParams: Array<{ snapshotId: string; spaceId: string }> = [];
+
+    const results = await retrieve(
+      {
+        ...baseParams,
+        spaceIds: ['space-1', 'space-2'],
+        snapshotsBySpace: { 'space-1': 'snapshot-1', 'space-2': 'snapshot-2' },
+      },
+      (received) => {
+        callbackParams.push(received);
+        return Promise.resolve([makeHit(`vector-${received.spaceId}`, 0.9, false, received.spaceId)]);
+      },
+      (received) => {
+        callbackParams.push(received);
+        return Promise.resolve([makeHit(`bm25-${received.spaceId}`, 0.8, false, received.spaceId)]);
+      },
+    );
+
+    expect(callbackParams).toEqual([
+      expect.objectContaining({ spaceId: 'space-1', snapshotId: 'snapshot-1' }),
+      expect.objectContaining({ spaceId: 'space-1', snapshotId: 'snapshot-1' }),
+      expect.objectContaining({ spaceId: 'space-2', snapshotId: 'snapshot-2' }),
+      expect.objectContaining({ spaceId: 'space-2', snapshotId: 'snapshot-2' }),
+    ]);
+    expect(new Set(results.map((result) => result.spaceId))).toEqual(new Set(['space-1', 'space-2']));
+  });
+
+  it('applies topK globally after multi-space fusion', async () => {
+    const results = await retrieve(
+      {
+        ...baseParams,
+        spaceIds: ['space-1', 'space-2'],
+        snapshotsBySpace: { 'space-1': 'snapshot-1', 'space-2': 'snapshot-2' },
+        topK: 2,
+      },
+      (received) =>
+        Promise.resolve([
+          makeHit(`vector-a-${received.spaceId}`, 0.9, false, received.spaceId),
+          makeHit(`vector-b-${received.spaceId}`, 0.8, false, received.spaceId),
+        ]),
+      () => Promise.resolve([]),
+    );
+
+    expect(results).toHaveLength(2);
+  });
+
+  it('ignores spaces without activated snapshots', async () => {
+    const searchedSpaces: string[] = [];
+
+    await retrieve(
+      {
+        ...baseParams,
+        spaceIds: ['space-1', 'space-2'],
+        snapshotsBySpace: { 'space-1': 'snapshot-1' },
+      },
+      (received) => {
+        searchedSpaces.push(received.spaceId);
+        return Promise.resolve([]);
+      },
+      (received) => {
+        searchedSpaces.push(received.spaceId);
+        return Promise.resolve([]);
+      },
+    );
+
+    expect(searchedSpaces).toEqual(['space-1', 'space-1']);
+  });
 });
 
-function makeHit(chunkId: string, score: number, injectionRisk = false): SearchHit {
+function makeHit(chunkId: string, score: number, injectionRisk = false, spaceId = 'space-1'): SearchHit {
   return {
     chunkId,
+    spaceId,
     content: `content ${chunkId}`,
     score,
     wikiPagePk: `page-${chunkId}`,

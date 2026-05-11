@@ -33,6 +33,7 @@ describe('source-chain citations', () => {
 function createRetrievalResult(overrides: Partial<RetrievalResult> = {}): RetrievalResult {
   return {
     chunkId: 'chunk-1',
+    spaceId: 'space-1',
     content: 'A depends on B.',
     score: 0.9,
     wikiPagePk: 'wiki-page-1',
