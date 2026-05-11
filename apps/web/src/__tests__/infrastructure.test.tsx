@@ -242,6 +242,7 @@ describe('AppShell', () => {
       </MemoryRouter>,
     );
 
+    expect(screen.getByText('Overview')).toBeInTheDocument();
     expect(screen.getAllByText('Chat').length).toBeGreaterThan(0);
     expect(screen.getByText('Wiki')).toBeInTheDocument();
     expect(screen.getByText('Documents')).toBeInTheDocument();

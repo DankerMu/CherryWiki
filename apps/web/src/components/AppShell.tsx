@@ -3,6 +3,7 @@ import {
   AuditOutlined,
   BookOutlined,
   CloudUploadOutlined,
+  DashboardOutlined,
   DatabaseOutlined,
   HeartOutlined,
   HistoryOutlined,
@@ -39,7 +40,7 @@ import { useAuth, type AuthUser } from '../lib/auth';
 import { useTheme } from '../theme/ThemeProvider';
 import './AppShell.css';
 
-type SpaceFunction = 'chat' | 'wiki' | 'uploads' | 'graph' | 'graphify';
+type SpaceFunction = 'overview' | 'chat' | 'wiki' | 'uploads' | 'graph' | 'graphify';
 type AdminRouteKey = 'users' | 'groups' | 'spaces' | 'models' | 'audit' | 'health' | 'jobs' | 'adminGraphify';
 
 const SIDER_STORAGE_KEY = 'cherrywiki.shell.collapsed';
@@ -49,6 +50,7 @@ const SPACE_FUNCTIONS: Array<{
   icon: ReactNode;
   translationKey: string;
 }> = [
+  { key: 'overview', icon: <DashboardOutlined />, translationKey: 'shell.sidebar.overview' },
   { key: 'chat', icon: <MessageOutlined />, translationKey: 'shell.sidebar.chat' },
   { key: 'wiki', icon: <BookOutlined />, translationKey: 'shell.sidebar.wiki' },
   { key: 'uploads', icon: <CloudUploadOutlined />, translationKey: 'shell.sidebar.documents' },
@@ -174,7 +176,7 @@ export default function AppShell() {
 
   function handleSpaceChange(nextSpaceId: string): void {
     try {
-      const nextFunction = selectedSpaceFunction ?? 'chat';
+      const nextFunction = selectedSpaceFunction ?? 'overview';
       void navigate(`/spaces/${encodeURIComponent(nextSpaceId)}/${nextFunction}`);
     } catch {
       // Keep the current route if navigation fails.
@@ -350,11 +352,13 @@ function isSpaceFunction(key: string): key is SpaceFunction {
 
 function getSpaceFunctionFromPath(pathname: string): SpaceFunction | null {
   if (pathname.startsWith('/admin')) return null;
+  if (pathname.includes('/overview')) return 'overview';
   if (pathname.includes('/wiki')) return 'wiki';
   if (pathname.includes('/uploads')) return 'uploads';
   if (pathname.includes('/graphify')) return 'graphify';
   if (pathname.includes('/graph')) return 'graph';
   if (pathname.includes('/chat')) return 'chat';
+  if (/^\/spaces\/[^/]+\/?$/.test(pathname)) return 'overview';
   return null;
 }
 

@@ -78,11 +78,10 @@ describe('App routing', () => {
     expect(await screen.findByRole('heading', { name: '登录' })).toBeInTheDocument();
   });
 
-  it('redirects authenticated admin with spaces to first space chat', async () => {
-    mockChatSessionsApi();
+  it('redirects authenticated admin with spaces to first space overview', async () => {
+    mockOverviewApi();
     renderRoute('/', ADMIN_USER);
-    // Admin with spaces should go to /spaces/space-main/chat
-    expect(await screen.findByRole('heading', { name: '聊天' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '空间概览' })).toBeInTheDocument();
   });
 
   it('redirects authenticated admin without spaces to /admin/spaces', async () => {
@@ -119,9 +118,9 @@ describe('App routing', () => {
   });
 
   it('redirects non-admin from admin routes to /', async () => {
-    mockChatSessionsApi();
+    mockOverviewApi();
     renderRoute('/admin/users', VIEWER_USER);
-    expect(await screen.findByRole('heading', { name: '聊天' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '空间概览' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '用户管理' })).not.toBeInTheDocument();
   });
 
@@ -374,6 +373,61 @@ function mockChatSessionsApi(): void {
               has_next: false,
             },
           },
+        }));
+      }
+
+      return Promise.resolve(jsonResponse({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404));
+    }),
+  );
+}
+
+function mockOverviewApi(): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn<typeof fetch>((input) => {
+      const path = getRequestPath(input);
+
+      if (path === '/api/spaces/space-main') {
+        return Promise.resolve(jsonResponse({
+          data: {
+            id: 'space-main',
+            name: 'Main Space',
+            slug: 'main-space',
+            status: 'active',
+            description: null,
+            active_graphify_run_id: null,
+            active_index_snapshot_id: null,
+            index_consistency_status: 'consistent',
+            strict_knowledge_only: true,
+            created_at: '2026-01-01T00:00:00.000Z',
+            updated_at: '2026-01-01T00:00:00.000Z',
+          },
+          meta: { request_id: 'req-space' },
+        }));
+      }
+
+      if (path === '/api/spaces/space-main/stats') {
+        return Promise.resolve(jsonResponse({
+          data: {
+            space_id: 'space-main',
+            source_count: 0,
+            page_count: 0,
+            node_count: 0,
+            edge_count: 0,
+            index_consistency: 'consistent',
+          },
+          meta: { request_id: 'req-stats' },
+        }));
+      }
+
+      if (path === '/api/spaces/space-main/uploads' || path === '/api/spaces/space-main/wiki/pages') {
+        return Promise.resolve(jsonResponse({ data: [], meta: { request_id: 'req-list' } }));
+      }
+
+      if (path === '/api/graph/communities') {
+        return Promise.resolve(jsonResponse({
+          data: { communities: [] },
+          meta: { request_id: 'req-communities' },
         }));
       }
 
