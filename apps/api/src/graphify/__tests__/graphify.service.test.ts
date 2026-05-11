@@ -14,7 +14,7 @@ import {
   getRejectedHttpException,
   requireRecord,
 } from '../../users/__tests__/user-group-service-test-utils.js';
-import { GraphifyService } from '../graphify.service.js';
+import { GraphifyService, resolveInputScope, toGraphifyRunResponse } from '../graphify.service.js';
 
 type GraphifyRunRow = typeof graphifyRuns.$inferSelect;
 type GraphReportRow = typeof graphReports.$inferSelect;
@@ -333,6 +333,155 @@ describe('GraphifyService', () => {
     expect(err.getStatus()).toBe(403);
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.PERMISSION_DENIED);
   });
+
+  describe('input_scope_resolved', () => {
+    it('resolveInputScope deduplicates source document ids across runs', async () => {
+      const db = new ScriptedDb();
+      db.queueSelect([
+        { id: 'doc-1', filename: 'Plan.pdf' },
+        { id: 'doc-2', filename: 'Notes.md' },
+      ]);
+
+      const resolved = await resolveInputScope(
+        db.asDrizzle(),
+        [
+          createRunRow({ stats_json: { input_scope: { source_document_ids: ['doc-1', 'doc-2'] } } }),
+          createRunRow({ id: 'run-2', stats_json: { input_scope: { source_document_ids: ['doc-1'] } } }),
+        ],
+        TEST_TENANT_ID,
+      );
+
+      expect(resolved.docMap).toEqual(
+        new Map([
+          ['doc-1', 'Plan.pdf'],
+          ['doc-2', 'Notes.md'],
+        ]),
+      );
+      expect(resolved.pageMap.size).toBe(0);
+      expect(db.selectFields).toHaveLength(1);
+    });
+
+    it("resolveInputScope omits document ids that don't exist", async () => {
+      const db = new ScriptedDb();
+      db.queueSelect([{ id: 'doc-existing', filename: 'Existing.pdf' }]);
+
+      const resolved = await resolveInputScope(
+        db.asDrizzle(),
+        [
+          createRunRow({
+            stats_json: { input_scope: { source_document_ids: ['doc-existing', 'doc-deleted'] } },
+          }),
+        ],
+        TEST_TENANT_ID,
+      );
+
+      expect(resolved.docMap.get('doc-existing')).toBe('Existing.pdf');
+      expect(resolved.docMap.has('doc-deleted')).toBe(false);
+    });
+
+    it('resolveInputScope resolves wiki page ids and titles', async () => {
+      const db = new ScriptedDb();
+      db.queueSelect([
+        { id: 'page-pk-1', title: 'Getting Started' },
+        { id: 'page-pk-2', title: 'API Guide' },
+      ]);
+
+      const resolved = await resolveInputScope(
+        db.asDrizzle(),
+        [
+          createRunRow({
+            stats_json: { input_scope: { page_ids: ['page-pk-1', 'page-pk-2'] } },
+          }),
+        ],
+        TEST_TENANT_ID,
+      );
+
+      expect(resolved.pageMap.get('page-pk-1')).toBe('Getting Started');
+      expect(resolved.pageMap.size).toBe(2);
+      expect(resolved.docMap.size).toBe(0);
+    });
+
+    it('resolveInputScope adds space_id filter', async () => {
+      const db = new ScriptedDb();
+      db.queueSelect([{ id: 'doc-1', filename: 'Plan.pdf' }]);
+      db.queueSelect([{ id: 'page-pk-1', title: 'Getting Started' }]);
+
+      await resolveInputScope(
+        db.asDrizzle(),
+        [
+          createRunRow({
+            stats_json: {
+              input_scope: {
+                source_document_ids: ['doc-1'],
+                page_ids: ['page-pk-1'],
+              },
+            },
+          }),
+        ],
+        TEST_TENANT_ID,
+      );
+
+      expect(db.whereClauses).toHaveLength(2);
+      expect(db.whereClauses.every((clause) => hasEncodedParam(clause, TEST_SPACE_ID, 'space_id'))).toBe(
+        true,
+      );
+    });
+
+    it('toGraphifyRunResponse includes resolved source documents and pages', () => {
+      const result = toGraphifyRunResponse(
+        createRunRow({
+          stats_json: {
+            input_scope: {
+              source_document_ids: ['doc-1', 'doc-2'],
+              page_ids: ['page-1'],
+            },
+          },
+        }),
+        {
+          docMap: new Map([
+            ['doc-1', 'Plan.pdf'],
+            ['doc-2', 'Notes.md'],
+          ]),
+          pageMap: new Map([['page-1', 'Overview']]),
+        },
+      );
+
+      expect(result.input_scope_resolved).toEqual({
+        source_documents: [
+          { id: 'doc-1', filename: 'Plan.pdf', missing: false },
+          { id: 'doc-2', filename: 'Notes.md', missing: false },
+        ],
+        pages: [{ id: 'page-1', title: 'Overview', missing: false }],
+      });
+    });
+
+    it('toGraphifyRunResponse marks unresolved source documents and pages as missing', () => {
+      const result = toGraphifyRunResponse(
+        createRunRow({
+          stats_json: {
+            input_scope: {
+              source_document_ids: ['doc-1'],
+              page_ids: ['page-1'],
+            },
+          },
+        }),
+      );
+
+      expect(result.input_scope_resolved).toEqual({
+        source_documents: [{ id: 'doc-1', filename: null, missing: true }],
+        pages: [{ id: 'page-1', title: null, missing: true }],
+      });
+    });
+
+    it('toGraphifyRunResponse returns empty resolved arrays for empty input scope', () => {
+      const result = toGraphifyRunResponse(createRunRow({ stats_json: { input_scope: {} } }));
+
+      expect(result.input_scope_resolved).toEqual({
+        source_documents: [],
+        pages: [],
+      });
+    });
+  });
 });
 
 function createServiceContext(): {
@@ -358,6 +507,37 @@ function createAdminContext(): {
     actorRole: 'admin',
     userId: TEST_USER_ID,
   };
+}
+
+function hasEncodedParam(
+  value: unknown,
+  expectedValue: string,
+  expectedEncoderName: string,
+  seen = new Set<object>(),
+): boolean {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  if (seen.has(value)) {
+    return false;
+  }
+  seen.add(value);
+
+  const record = value as Record<PropertyKey, unknown>;
+  const encoder = record.encoder;
+  if (
+    record.value === expectedValue &&
+    typeof encoder === 'object' &&
+    encoder !== null &&
+    (encoder as Record<PropertyKey, unknown>).name === expectedEncoderName
+  ) {
+    return true;
+  }
+
+  return Reflect.ownKeys(record).some((key) =>
+    hasEncodedParam(record[key], expectedValue, expectedEncoderName, seen),
+  );
 }
 
 function createRunRow(overrides: Partial<GraphifyRunRow> = {}): GraphifyRunRow {
