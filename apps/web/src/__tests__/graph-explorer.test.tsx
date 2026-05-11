@@ -11,6 +11,35 @@ import * as graphApi from '../lib/graphApi';
 import type { GraphCanvasData } from '../pages/graph/GraphCanvas';
 import type { GraphCommunity, GraphEdge, GraphNode } from '../lib/graphApi';
 
+type ApiGetMock = (path: string, query?: Record<string, unknown>) => Promise<unknown>;
+
+const apiMocks = vi.hoisted(() => ({
+  get: vi.fn<ApiGetMock>(),
+}));
+
+vi.mock('../lib/api', () => {
+  class ApiError extends Error {
+    readonly status: number;
+    readonly code: string;
+    readonly details: unknown;
+
+    constructor(input: { status: number; code: string; message: string; details?: unknown }) {
+      super(input.message);
+      this.name = 'ApiError';
+      this.status = input.status;
+      this.code = input.code;
+      this.details = input.details;
+    }
+  }
+
+  return {
+    ApiError,
+    api: {
+      get: apiMocks.get,
+    },
+  };
+});
+
 vi.mock('../lib/graphApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/graphApi')>();
   return {
@@ -68,6 +97,15 @@ const getGraphCommunitiesMock = vi.mocked(graphApi.getGraphCommunities);
 describe('SpaceGraphExplorerPage', () => {
   beforeEach(async () => {
     await i18n.changeLanguage('en');
+    apiMocks.get.mockImplementation((path) => {
+      if (path === '/spaces/space-1') {
+        return Promise.resolve(createSpaceDetail());
+      }
+      if (path === '/spaces/space-1/stats') {
+        return Promise.resolve(createSpaceStats());
+      }
+      return Promise.reject(new Error(`Unexpected API path: ${path}`));
+    });
     getGraphCommunitiesMock.mockResolvedValue({ communities: [] });
     searchGraphNodesMock.mockResolvedValue({ nodes: [], total: 0 });
     getGraphNeighborsMock.mockResolvedValue({ center_node: null, neighbors: [] });
@@ -170,6 +208,23 @@ describe('SpaceGraphExplorerPage', () => {
     expect(await screen.findByText('No graph data loaded. Search for a node or run Graphify for this space.')).toBeInTheDocument();
   });
 
+  it('shows graphify empty state when the space has no graph nodes', async () => {
+    apiMocks.get.mockImplementation((path) => {
+      if (path === '/spaces/space-1') {
+        return Promise.resolve(createSpaceDetail({ active_graphify_run_id: null }));
+      }
+      if (path === '/spaces/space-1/stats') {
+        return Promise.resolve(createSpaceStats({ node_count: 0 }));
+      }
+      return Promise.reject(new Error(`Unexpected API path: ${path}`));
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('No active graph yet')).toBeInTheDocument();
+    expect(screen.getByText('Run Graphify').closest('a')).toHaveAttribute('href', '/spaces/space-1/graphify');
+  });
+
   it('shows an error state when the API fails', async () => {
     searchGraphNodesMock.mockRejectedValue(new Error('Graph API failed'));
 
@@ -186,6 +241,23 @@ describe('SpaceGraphExplorerPage', () => {
     runSearch('missing');
 
     expect(await screen.findByText('No matching nodes found.')).toBeInTheDocument();
+  });
+
+  it('preserves canvas state when neighbor expansion fails', async () => {
+    searchGraphNodesMock.mockResolvedValue({
+      nodes: [createNode({ id: 'node-a', label: 'SSO' })],
+      total: 1,
+    });
+    getGraphNeighborsMock.mockRejectedValue(new Error('Neighbor API failed'));
+
+    renderPage();
+    runSearch('SSO');
+    fireEvent.click(await screen.findByTestId('graph-node-node-a'));
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Neighbors' }));
+
+    expect(await screen.findByText('Neighbor API failed')).toBeInTheDocument();
+    expect(screen.getByTestId('graph-node-node-a')).toBeInTheDocument();
+    expect(screen.getByTestId('graph-canvas')).toHaveAttribute('data-node-count', '1');
   });
 });
 
@@ -242,6 +314,40 @@ function createCommunity(overrides: Partial<GraphCommunity> = {}): GraphCommunit
     label: 'Auth',
     summary: 'Authentication',
     node_count: 2,
+    ...overrides,
+  };
+}
+
+function createSpaceDetail(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 'space-1',
+    name: 'Space 1',
+    slug: 'space-1',
+    status: 'active',
+    description: null,
+    stats: createSpaceStats(),
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+    docmost_space_id: null,
+    wiki_repo_path: '',
+    active_graphify_run_id: 'run-1',
+    active_index_snapshot_id: null,
+    index_consistency_status: 'consistent',
+    strict_knowledge_only: false,
+    graphify_config: null,
+    default_publish_policy: 'draft',
+    ...overrides,
+  };
+}
+
+function createSpaceStats(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    space_id: 'space-1',
+    page_count: 0,
+    source_count: 0,
+    node_count: 2,
+    edge_count: 1,
+    index_consistency: 'consistent',
     ...overrides,
   };
 }

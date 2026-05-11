@@ -26,6 +26,25 @@ const NODE_TYPE_COLORS: Record<string, string> = {
 };
 const DEFAULT_NODE_COLOR = '#64748b';
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case '&':
+        return '&amp;';
+      case '<':
+        return '&lt;';
+      case '>':
+        return '&gt;';
+      case '"':
+        return '&quot;';
+      case '\'':
+        return '&#39;';
+      default:
+        return char;
+    }
+  });
+}
+
 type GraphCanvasProps = {
   graphData: GraphCanvasData;
   activeCommunityId: string | null;
@@ -111,10 +130,10 @@ export default function GraphCanvas({
           height={size.height}
           backgroundColor="#ffffff"
           nodeColor={getNodeColor}
-          nodeLabel={(node) => node.label}
+          nodeLabel={(node) => escapeHtml(node.label)}
           nodeRelSize={6}
           linkColor={getLinkColor}
-          linkLabel={(link) => link.relationship}
+          linkLabel={(link) => escapeHtml(link.relationship)}
           linkDirectionalArrowLength={4}
           linkDirectionalArrowRelPos={1}
           linkWidth={(link) => (link.id === selectedEdgeId ? 2.5 : 1.2)}

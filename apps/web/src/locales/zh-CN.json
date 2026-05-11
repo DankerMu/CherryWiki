@@ -698,7 +698,13 @@
       "loading": "加载图谱中...",
       "empty": "暂无已加载的图谱数据。请搜索节点，或先为此空间运行图谱化。",
       "noResults": "没有找到匹配节点。",
-      "truncated": "为保持图谱流畅，仅展示前 {{limit}} 个节点。"
+      "truncated": "为保持图谱流畅，仅展示前 {{limit}} 个节点。",
+      "edgeTruncated": "为保持图谱流畅，仅展示与已加载节点相连的前 {{limit}} 条边。"
+    },
+    "emptyGraph": {
+      "title": "暂无可用图谱",
+      "description": "请先运行图谱化，为此空间构建节点和关系后再浏览图谱。",
+      "action": "运行图谱化"
     },
     "drawer": {
       "title": "选中详情"

@@ -698,7 +698,13 @@
       "loading": "Loading graph...",
       "empty": "No graph data loaded. Search for a node or run Graphify for this space.",
       "noResults": "No matching nodes found.",
-      "truncated": "Showing the first {{limit}} nodes to keep the graph responsive."
+      "truncated": "Showing the first {{limit}} nodes to keep the graph responsive.",
+      "edgeTruncated": "Showing the first {{limit}} edges connected to loaded nodes to keep the graph responsive."
+    },
+    "emptyGraph": {
+      "title": "No active graph yet",
+      "description": "Run Graphify to build nodes and relationships for this space before exploring the graph.",
+      "action": "Run Graphify"
     },
     "drawer": {
       "title": "Selection Details"

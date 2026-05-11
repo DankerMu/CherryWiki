@@ -16,6 +16,8 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSS
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router';
 import { getErrorMessage } from '../../components/adminUi';
+import { api } from '../../lib/api';
+import type { AdminSpaceDetail } from '../../lib/adminTypes';
 import {
   getGraphCommunities,
   getGraphNeighbors,
@@ -29,12 +31,14 @@ import GraphCanvas, { GRAPH_NODE_TYPE_COLORS, getGraphNodeTypeColor, type GraphC
 
 const SEARCH_LIMIT = 20;
 const MAX_GRAPH_NODES = 500;
+const MAX_GRAPH_EDGES = 1000;
 
 type GraphState = {
   nodesById: Map<string, GraphNode>;
   edgesById: Map<string, GraphEdge>;
   expandedNodeIds: Set<string>;
   truncated: boolean;
+  edgeTruncated: boolean;
 };
 
 type GraphAction =
@@ -47,6 +51,11 @@ const INITIAL_GRAPH_STATE: GraphState = {
   edgesById: new Map(),
   expandedNodeIds: new Set(),
   truncated: false,
+  edgeTruncated: false,
+};
+
+type SpaceStatsResponse = {
+  node_count: number;
 };
 
 type Selection =
@@ -69,19 +78,50 @@ export default function SpaceGraphExplorerPage() {
   const [activeCommunityId, setActiveCommunityId] = useState<string | null>(null);
   const [selection, setSelection] = useState<Selection>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hasEmptyGraph, setHasEmptyGraph] = useState(false);
   const searchSeqRef = useRef(0);
+  const spaceSeqRef = useRef(0);
 
   useEffect(() => {
+    const spaceSeq = ++spaceSeqRef.current;
+    searchSeqRef.current++;
     dispatch({ type: 'clear' });
     setQuery('');
     setSearchResults([]);
     setHasSearched(false);
+    setIsSearching(false);
+    setIsExpanding(false);
     setActiveCommunityId(null);
     setSelection(null);
     setError(null);
+    setHasEmptyGraph(false);
+
+    if (spaceId.length === 0) {
+      return;
+    }
+
+    void (async () => {
+      try {
+        const [space, stats] = await Promise.all([
+          api.get<AdminSpaceDetail>(`/spaces/${encodeURIComponent(spaceId)}`),
+          api.get<SpaceStatsResponse>(`/spaces/${encodeURIComponent(spaceId)}/stats`),
+        ]);
+        if (spaceSeq !== spaceSeqRef.current) {
+          return;
+        }
+        setHasEmptyGraph(stats.node_count === 0 || space.active_graphify_run_id === null);
+      } catch (err) {
+        if (spaceSeq !== spaceSeqRef.current) {
+          return;
+        }
+        setError(getErrorMessage(err));
+        setHasEmptyGraph(false);
+      }
+    })();
   }, [spaceId]);
 
   const loadCommunities = useCallback(async () => {
+    const spaceSeq = spaceSeqRef.current;
     if (spaceId.length === 0) {
       setCommunities([]);
       setIsLoadingCommunities(false);
@@ -91,12 +131,20 @@ export default function SpaceGraphExplorerPage() {
     setIsLoadingCommunities(true);
     try {
       const response = await getGraphCommunities(spaceId);
+      if (spaceSeq !== spaceSeqRef.current) {
+        return;
+      }
       setCommunities(response.communities);
     } catch (err) {
+      if (spaceSeq !== spaceSeqRef.current) {
+        return;
+      }
       setError(getErrorMessage(err));
       setCommunities([]);
     } finally {
-      setIsLoadingCommunities(false);
+      if (spaceSeq === spaceSeqRef.current) {
+        setIsLoadingCommunities(false);
+      }
     }
   }, [spaceId]);
 
@@ -123,21 +171,23 @@ export default function SpaceGraphExplorerPage() {
 
   async function handleSearch(nextQuery: string): Promise<void> {
     const normalizedQuery = nextQuery.trim();
+    const seq = ++searchSeqRef.current;
+    const spaceSeq = spaceSeqRef.current;
     setQuery(normalizedQuery);
     setHasSearched(true);
     setSearchResults([]);
 
     if (normalizedQuery.length === 0) {
+      setIsSearching(false);
       return;
     }
 
-    const seq = ++searchSeqRef.current;
     setIsSearching(true);
     setError(null);
 
     try {
       const response = await searchGraphNodes({ spaceId, query: normalizedQuery, limit: SEARCH_LIMIT });
-      if (seq !== searchSeqRef.current) {
+      if (seq !== searchSeqRef.current || spaceSeq !== spaceSeqRef.current) {
         return;
       }
 
@@ -145,12 +195,12 @@ export default function SpaceGraphExplorerPage() {
       setSearchResults(scopedNodes);
       dispatch({ type: 'merge', spaceId, nodes: scopedNodes, edges: [] });
     } catch (err) {
-      if (seq !== searchSeqRef.current) {
+      if (seq !== searchSeqRef.current || spaceSeq !== spaceSeqRef.current) {
         return;
       }
       setError(getErrorMessage(err));
     } finally {
-      if (seq === searchSeqRef.current) {
+      if (seq === searchSeqRef.current && spaceSeq === spaceSeqRef.current) {
         setIsSearching(false);
       }
     }
@@ -161,11 +211,15 @@ export default function SpaceGraphExplorerPage() {
       return;
     }
 
+    const spaceSeq = spaceSeqRef.current;
     setIsExpanding(true);
     setError(null);
 
     try {
       const response = await getGraphNeighbors({ nodeId, spaceId, hops });
+      if (spaceSeq !== spaceSeqRef.current) {
+        return;
+      }
       const nodes = [
         ...(response.center_node === null ? [] : [response.center_node]),
         ...response.neighbors.map((neighbor) => neighbor.node),
@@ -176,9 +230,14 @@ export default function SpaceGraphExplorerPage() {
       dispatch({ type: 'merge', spaceId, nodes, edges });
       dispatch({ type: 'markExpanded', nodeId });
     } catch (err) {
+      if (spaceSeq !== spaceSeqRef.current) {
+        return;
+      }
       setError(getErrorMessage(err));
     } finally {
-      setIsExpanding(false);
+      if (spaceSeq === spaceSeqRef.current) {
+        setIsExpanding(false);
+      }
     }
   }
 
@@ -202,51 +261,69 @@ export default function SpaceGraphExplorerPage() {
       {graphState.truncated ? (
         <Alert message={t('graph.state.truncated', { limit: MAX_GRAPH_NODES })} type="warning" showIcon style={{ marginBottom: 16 }} />
       ) : null}
+      {graphState.edgeTruncated ? (
+        <Alert message={t('graph.state.edgeTruncated', { limit: MAX_GRAPH_EDGES })} type="warning" showIcon style={{ marginBottom: 16 }} />
+      ) : null}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 320px) minmax(0, 1fr)', gap: 16, alignItems: 'start' }}>
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          <GraphSearchPanel
-            query={query}
-            results={searchResults}
-            hasSearched={hasSearched}
-            isSearching={isSearching}
-            onQueryChange={setQuery}
-            onSearch={(value) => { void handleSearch(value); }}
-            onSelectNode={(nodeId) => setSelection({ type: 'node', id: nodeId })}
-          />
-          <GraphCommunityPanel
-            communities={communities}
-            isLoading={isLoadingCommunities}
-            activeCommunityId={activeCommunityId}
-            onSelectCommunity={setActiveCommunityId}
-          />
-        </Space>
+      {hasEmptyGraph ? (
+        <Empty
+          description={(
+            <Space direction="vertical" size={12}>
+              <Typography.Text strong>{t('graph.emptyGraph.title')}</Typography.Text>
+              <Typography.Text type="secondary">{t('graph.emptyGraph.description')}</Typography.Text>
+              <Button type="primary" href={`/spaces/${encodeURIComponent(spaceId)}/graphify`}>
+                {t('graph.emptyGraph.action')}
+              </Button>
+            </Space>
+          )}
+          style={{ marginTop: 48 }}
+        />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 320px) minmax(0, 1fr)', gap: 16, alignItems: 'start' }}>
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <GraphSearchPanel
+              query={query}
+              results={searchResults}
+              hasSearched={hasSearched}
+              isSearching={isSearching}
+              onQueryChange={setQuery}
+              onSearch={(value) => { void handleSearch(value); }}
+              onSelectNode={(nodeId) => setSelection({ type: 'node', id: nodeId })}
+            />
+            <GraphCommunityPanel
+              communities={communities}
+              isLoading={isLoadingCommunities}
+              activeCommunityId={activeCommunityId}
+              onSelectCommunity={setActiveCommunityId}
+            />
+          </Space>
 
-        <Space direction="vertical" size={12} style={{ width: '100%' }}>
-          <GraphToolbar
-            hops={hops}
-            isExpanding={isExpanding}
-            selectedNode={selectedNode}
-            alreadyExpanded={selectedNode !== null && graphState.expandedNodeIds.has(selectedNode.id)}
-            onHopsChange={setHops}
-            onExpand={(force) => {
-              if (selectedNode !== null) {
-                void expandNode(selectedNode.id, force);
-              }
-            }}
-          />
-          <GraphCanvas
-            graphData={graphData}
-            activeCommunityId={activeCommunityId}
-            selectedNodeId={selectedNode?.id ?? null}
-            selectedEdgeId={selectedEdge?.id ?? null}
-            loading={isSearching || isExpanding}
-            onNodeSelect={(nodeId) => setSelection({ type: 'node', id: nodeId })}
-            onEdgeSelect={(edgeId) => setSelection({ type: 'edge', id: edgeId })}
-          />
-          <GraphLegend />
-        </Space>
-      </div>
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <GraphToolbar
+              hops={hops}
+              isExpanding={isExpanding}
+              selectedNode={selectedNode}
+              alreadyExpanded={selectedNode !== null && graphState.expandedNodeIds.has(selectedNode.id)}
+              onHopsChange={setHops}
+              onExpand={(force) => {
+                if (selectedNode !== null) {
+                  void expandNode(selectedNode.id, force);
+                }
+              }}
+            />
+            <GraphCanvas
+              graphData={graphData}
+              activeCommunityId={activeCommunityId}
+              selectedNodeId={selectedNode?.id ?? null}
+              selectedEdgeId={selectedEdge?.id ?? null}
+              loading={isSearching || isExpanding}
+              onNodeSelect={(nodeId) => setSelection({ type: 'node', id: nodeId })}
+              onEdgeSelect={(edgeId) => setSelection({ type: 'edge', id: edgeId })}
+            />
+            <GraphLegend />
+          </Space>
+        </div>
+      )}
 
       <GraphSelectionDrawer
         selectedNode={selectedNode}
@@ -490,6 +567,7 @@ function graphReducer(state: GraphState, action: GraphAction): GraphState {
       edgesById: new Map(),
       expandedNodeIds: new Set(),
       truncated: false,
+      edgeTruncated: false,
     };
   }
 
@@ -500,8 +578,9 @@ function graphReducer(state: GraphState, action: GraphAction): GraphState {
   }
 
   const nodesById = new Map(state.nodesById);
-  const edgesById = new Map(state.edgesById);
+  let edgesById = new Map(state.edgesById);
   let truncated = state.truncated;
+  let edgeTruncated = state.edgeTruncated;
 
   for (const node of action.nodes) {
     if (node.space_id !== action.spaceId) {
@@ -528,11 +607,27 @@ function graphReducer(state: GraphState, action: GraphAction): GraphState {
     edgesById.set(edge.id, edge);
   }
 
+  if (edgesById.size > MAX_GRAPH_EDGES) {
+    edgeTruncated = true;
+    const cappedEdgesById = new Map<string, GraphEdge>();
+    for (const [edgeId, edge] of edgesById) {
+      if (!nodesById.has(edge.source_node_id) || !nodesById.has(edge.target_node_id)) {
+        continue;
+      }
+      cappedEdgesById.set(edgeId, edge);
+      if (cappedEdgesById.size >= MAX_GRAPH_EDGES) {
+        break;
+      }
+    }
+    edgesById = cappedEdgesById;
+  }
+
   return {
     ...state,
     nodesById,
     edgesById,
     truncated,
+    edgeTruncated,
   };
 }
 
