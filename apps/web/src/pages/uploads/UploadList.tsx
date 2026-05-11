@@ -140,6 +140,7 @@ export default function UploadList({
           allowClear
           aria-label={t('upload.list.search.placeholder')}
           enterButton={t('common.action.search')}
+          maxLength={200}
           onChange={(event) => onSearchTermChange(event.target.value)}
           onSearch={(value) => onSearchTermChange(value)}
           placeholder={t('upload.list.search.placeholder')}

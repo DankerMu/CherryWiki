@@ -1,6 +1,6 @@
 import { ReloadOutlined } from '@ant-design/icons';
 import { Alert, Button, Select, Spin, Typography, message } from 'antd';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Navigate, useParams } from 'react-router';
 import { getErrorMessage } from '../../components/adminUi';
@@ -46,6 +46,7 @@ export default function UploadCenter() {
   const [uploadSpaceId, setUploadSpaceId] = useState(spaceId);
   const [selectedUploadId, setSelectedUploadId] = useState<string | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<UploadStatus | null>(null);
+  const requestSeqRef = useRef(0);
 
   const loadUploads = useCallback(
     async (background = false) => {
@@ -61,6 +62,8 @@ export default function UploadCenter() {
       }
       setError(null);
 
+      const seq = ++requestSeqRef.current;
+
       try {
         const normalizedStatus = normalizeUploadStatusFilter(statusFilter);
         const normalizedSourceType = normalizeUploadSourceTypeFilter(sourceTypeFilter);
@@ -74,6 +77,7 @@ export default function UploadCenter() {
           search: normalizedSearch,
           sort: normalizedSort,
         });
+        if (seq !== requestSeqRef.current) return;
         setUploads(response.data);
         setPagination(
           response.meta?.pagination ?? {
@@ -84,9 +88,10 @@ export default function UploadCenter() {
           },
         );
       } catch (err) {
+        if (seq !== requestSeqRef.current) return;
         setError(getErrorMessage(err));
       } finally {
-        if (!background) {
+        if (seq === requestSeqRef.current && !background) {
           setIsLoading(false);
         }
       }
