@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router';
+import { lazy, Suspense } from 'react';
 import AppShell from './components/AppShell';
 import { AuthProvider, useAuth } from './lib/auth';
 import AuditPage from './pages/admin/AuditPage';
@@ -20,6 +21,8 @@ import Wiki from './pages/Wiki';
 import UploadCenter from './pages/uploads/UploadCenter';
 import { ThemeProvider } from './theme/ThemeProvider';
 
+const SpaceGraphExplorerPage = lazy(() => import('./pages/graph/SpaceGraphExplorerPage'));
+
 export function AppRoutes() {
   return (
     <Routes>
@@ -30,6 +33,14 @@ export function AppRoutes() {
         <Route path="/spaces/:spaceId/wiki" element={<Wiki />} />
         <Route path="/spaces/:spaceId/wiki/:pageId" element={<Wiki />} />
         <Route path="/spaces/:spaceId/wiki/:pageId/history" element={<Wiki />} />
+        <Route
+          path="/spaces/:spaceId/graph"
+          element={(
+            <Suspense fallback={null}>
+              <SpaceGraphExplorerPage />
+            </Suspense>
+          )}
+        />
         <Route path="/spaces/:spaceId/graphify" element={<GraphifyRunsPage />} />
         <Route path="/spaces/:spaceId/graphify/:runId" element={<GraphifyRunDetailPage />} />
         <Route path="/spaces/:spaceId/uploads" element={<UploadCenter />} />

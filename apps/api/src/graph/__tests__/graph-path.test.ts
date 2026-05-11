@@ -103,6 +103,33 @@ describe('GraphController path', () => {
       { id: 'node-c', hop: 2 },
     ]);
   });
+
+  it('scopes neighbor expansion to the requested space', async () => {
+    const { controller, db } = createGraphContext();
+    db.queueSelect([createSpaceRow()]);
+    db.queueSelect([createActiveSpaceRow()]);
+    db.queueExecute([
+      {
+        nodes_json: [
+          createNode({ id: 'node-a', label: 'SSO' }),
+          createNode({ id: 'node-b', label: 'Token' }),
+        ],
+        edges_json: [
+          createEdge({ id: 'edge-ab', source_node_id: 'node-a', target_node_id: 'node-b' }),
+        ],
+      },
+    ]);
+
+    const result = await controller.getNeighbors(
+      'node-a',
+      { hops: '1', space_id: TEST_SPACE_ID },
+      createRequest(),
+    );
+
+    expect(result.center_node).toMatchObject({ id: 'node-a', space_id: TEST_SPACE_ID });
+    expect(result.neighbors).toHaveLength(1);
+    expect(db.executedQueries).toHaveLength(1);
+  });
 });
 
 function createGraphContext(): { controller: GraphController; db: ScriptedDb } {

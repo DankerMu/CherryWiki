@@ -73,6 +73,7 @@
       "wiki": "Wiki",
       "uploads": "Documents",
       "documents": "Documents",
+      "graph": "Graph Explorer",
       "graphify": "Graphify"
     },
     "admin": {
@@ -665,6 +666,61 @@
       "published": "Published",
       "archived": "Archived",
       "current": "Current"
+    }
+  },
+  "graph": {
+    "title": "Graph Explorer",
+    "description": "Search graph nodes, expand neighbors, and inspect relationships in this space.",
+    "search": {
+      "title": "Search",
+      "placeholder": "Search nodes"
+    },
+    "community": {
+      "title": "Communities",
+      "empty": "No communities available",
+      "clear": "Clear",
+      "nodeCount": "{{count}} nodes"
+    },
+    "canvas": {
+      "resetView": "Reset graph view"
+    },
+    "toolbar": {
+      "hops": "Hops",
+      "oneHop": "1-hop",
+      "twoHop": "2-hop"
+    },
+    "action": {
+      "expandNeighbors": "Expand Neighbors",
+      "refreshNeighbors": "Refresh Neighbors",
+      "clearGraph": "Clear Graph"
+    },
+    "state": {
+      "loading": "Loading graph...",
+      "empty": "No graph data loaded. Search for a node or run Graphify for this space.",
+      "noResults": "No matching nodes found.",
+      "truncated": "Showing the first {{limit}} nodes to keep the graph responsive."
+    },
+    "drawer": {
+      "title": "Selection Details"
+    },
+    "detail": {
+      "label": "Label",
+      "nodeType": "Node type",
+      "community": "Community",
+      "score": "Score",
+      "id": "ID",
+      "description": "Description",
+      "relationship": "Relationship",
+      "confidence": "Confidence",
+      "evidenceCount": "Evidence count",
+      "source": "Source",
+      "target": "Target"
+    },
+    "legend": {
+      "title": "Legend"
+    },
+    "nodeType": {
+      "unknown": "Unknown"
     }
   },
   "graphify": {
