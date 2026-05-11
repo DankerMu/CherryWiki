@@ -21,6 +21,7 @@ export const graphPathRequestSchema = z.object({
 
 export const graphNeighborsQuerySchema = z.object({
   hops: hopsSchema,
+  space_id: optionalSpaceIdSchema,
 });
 
 export const graphCommunitiesQuerySchema = z.object({

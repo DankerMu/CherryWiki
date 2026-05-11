@@ -104,7 +104,7 @@ export class GraphService {
     input: GraphNeighborsQueryDto,
     context: GraphContext = {},
   ): Promise<GraphNeighborsResponseDto> {
-    const spaceIds = await this.resolveReadableSpaceIds(undefined, context);
+    const spaceIds = await this.resolveReadableSpaceIds(input.space_id, context);
     if (spaceIds.length === 0) {
       return { center_node: null, neighbors: [] };
     }

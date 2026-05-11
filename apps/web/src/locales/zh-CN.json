@@ -73,6 +73,7 @@
       "wiki": "知识库",
       "uploads": "文档",
       "documents": "文档",
+      "graph": "图谱探索",
       "graphify": "图谱化"
     },
     "admin": {
@@ -665,6 +666,67 @@
       "published": "已发布",
       "archived": "已归档",
       "current": "当前"
+    }
+  },
+  "graph": {
+    "title": "图谱探索",
+    "description": "在此空间中搜索图谱节点、展开邻居并查看关系详情。",
+    "search": {
+      "title": "搜索",
+      "placeholder": "搜索节点"
+    },
+    "community": {
+      "title": "社区",
+      "empty": "暂无社区",
+      "clear": "清除",
+      "nodeCount": "{{count}} 个节点"
+    },
+    "canvas": {
+      "resetView": "重置图谱视图"
+    },
+    "toolbar": {
+      "hops": "跳数",
+      "oneHop": "1 跳",
+      "twoHop": "2 跳"
+    },
+    "action": {
+      "expandNeighbors": "展开邻居",
+      "refreshNeighbors": "刷新邻居",
+      "clearGraph": "清空图谱"
+    },
+    "state": {
+      "loading": "加载图谱中...",
+      "empty": "暂无已加载的图谱数据。请搜索节点，或先为此空间运行图谱化。",
+      "noResults": "没有找到匹配节点。",
+      "truncated": "为保持图谱流畅，仅展示前 {{limit}} 个节点。",
+      "edgeTruncated": "为保持图谱流畅，仅展示与已加载节点相连的前 {{limit}} 条边。"
+    },
+    "emptyGraph": {
+      "title": "暂无可用图谱",
+      "description": "请先运行图谱化，为此空间构建节点和关系后再浏览图谱。",
+      "action": "运行图谱化"
+    },
+    "drawer": {
+      "title": "选中详情"
+    },
+    "detail": {
+      "label": "标签",
+      "nodeType": "节点类型",
+      "community": "社区",
+      "score": "分数",
+      "id": "ID",
+      "description": "描述",
+      "relationship": "关系",
+      "confidence": "置信度",
+      "evidenceCount": "证据数",
+      "source": "源节点",
+      "target": "目标节点"
+    },
+    "legend": {
+      "title": "图例"
+    },
+    "nodeType": {
+      "unknown": "未知"
     }
   },
   "graphify": {

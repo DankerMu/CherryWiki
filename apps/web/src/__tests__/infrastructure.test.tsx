@@ -245,6 +245,7 @@ describe('AppShell', () => {
     expect(screen.getAllByText('Chat').length).toBeGreaterThan(0);
     expect(screen.getByText('Wiki')).toBeInTheDocument();
     expect(screen.getByText('Documents')).toBeInTheDocument();
+    expect(screen.getByText('Graph Explorer')).toBeInTheDocument();
   });
 
   it.each([

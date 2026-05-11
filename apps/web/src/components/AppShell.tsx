@@ -13,6 +13,7 @@ import {
   MoonOutlined,
   NodeIndexOutlined,
   SettingOutlined,
+  ShareAltOutlined,
   SunOutlined,
   TeamOutlined,
   UserOutlined,
@@ -38,7 +39,7 @@ import { useAuth, type AuthUser } from '../lib/auth';
 import { useTheme } from '../theme/ThemeProvider';
 import './AppShell.css';
 
-type SpaceFunction = 'chat' | 'wiki' | 'uploads' | 'graphify';
+type SpaceFunction = 'chat' | 'wiki' | 'uploads' | 'graph' | 'graphify';
 type AdminRouteKey = 'users' | 'groups' | 'spaces' | 'models' | 'audit' | 'health' | 'jobs' | 'adminGraphify';
 
 const SIDER_STORAGE_KEY = 'cherrywiki.shell.collapsed';
@@ -51,6 +52,7 @@ const SPACE_FUNCTIONS: Array<{
   { key: 'chat', icon: <MessageOutlined />, translationKey: 'shell.sidebar.chat' },
   { key: 'wiki', icon: <BookOutlined />, translationKey: 'shell.sidebar.wiki' },
   { key: 'uploads', icon: <CloudUploadOutlined />, translationKey: 'shell.sidebar.documents' },
+  { key: 'graph', icon: <ShareAltOutlined />, translationKey: 'shell.sidebar.graph' },
   { key: 'graphify', icon: <NodeIndexOutlined />, translationKey: 'shell.sidebar.graphify' },
 ];
 
@@ -351,6 +353,7 @@ function getSpaceFunctionFromPath(pathname: string): SpaceFunction | null {
   if (pathname.includes('/wiki')) return 'wiki';
   if (pathname.includes('/uploads')) return 'uploads';
   if (pathname.includes('/graphify')) return 'graphify';
+  if (pathname.includes('/graph')) return 'graph';
   if (pathname.includes('/chat')) return 'chat';
   return null;
 }
