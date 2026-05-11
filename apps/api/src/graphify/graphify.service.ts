@@ -11,6 +11,7 @@ import {
   source_documents,
   space_permissions,
   spaces,
+  wikiPages,
   type GraphifyRunMode,
   type GraphifyRunStatus,
   type GraphifyTriggerType,
@@ -30,8 +31,8 @@ import { getApiLogger } from '../common/logger/logger.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { AuditService } from '../audit/audit.service.js';
 
-type GraphifyDatabase = NodePgDatabase;
-type GraphifyRunRow = typeof graphifyRuns.$inferSelect;
+export type GraphifyDatabase = NodePgDatabase;
+export type GraphifyRunRow = typeof graphifyRuns.$inferSelect;
 type GraphReportRow = typeof graphReports.$inferSelect;
 type SpaceRow = typeof spaces.$inferSelect;
 
@@ -90,6 +91,10 @@ export type GraphifyRunResponse = {
   input_scope: {
     page_ids: string[];
     source_document_ids: string[];
+  };
+  input_scope_resolved: {
+    source_documents: Array<{ id: string; filename: string | null; missing: boolean }>;
+    pages: Array<{ id: string; title: string | null; missing: boolean }>;
   };
   result: {
     nodes_created: number;
@@ -181,7 +186,8 @@ export class GraphifyService {
       trigger_type: input.trigger_type,
     });
 
-    return toGraphifyRunResponse(created);
+    const resolved = await resolveInputScope(this.db, [created], tenantId);
+    return toGraphifyRunResponse(created, resolved);
   }
 
   async listRuns(
@@ -209,15 +215,18 @@ export class GraphifyService {
       .offset((page - 1) * perPage);
     const [countRow] = await this.db.select({ total: count() }).from(graphifyRuns).where(where);
 
+    const resolved = await resolveInputScope(this.db, rows, tenantId);
+
     return paginatedResponse(
-      rows.map(toGraphifyRunResponse),
+      rows.map((row) => toGraphifyRunResponse(row, resolved)),
       buildPaginationMeta(page, perPage, normalizeCount(countRow?.total)),
     );
   }
 
   async getRun(runId: string, context: GraphifyContext = {}): Promise<GraphifyRunResponse> {
     const run = await this.getAccessibleRun(runId, context, 'graphify:view');
-    return toGraphifyRunResponse(run);
+    const resolved = await resolveInputScope(this.db, [run], run.tenant_id);
+    return toGraphifyRunResponse(run, resolved);
   }
 
   async cancelRun(
@@ -293,7 +302,8 @@ export class GraphifyService {
       original_run_id: run.id,
     });
 
-    return toGraphifyRunResponse(created);
+    const resolved = await resolveInputScope(this.db, [created], tenantId);
+    return toGraphifyRunResponse(created, resolved);
   }
 
   async getReport(runId: string, context: GraphifyContext = {}): Promise<GraphifyReportResponse> {
@@ -818,7 +828,62 @@ function buildRunOrder(sort: string): SQL {
   return parsed.direction === 'desc' ? desc(column) : asc(column);
 }
 
-function toGraphifyRunResponse(run: GraphifyRunRow): GraphifyRunResponse {
+export async function resolveInputScope(
+  db: GraphifyDatabase,
+  runs: GraphifyRunRow[],
+  tenantId: string,
+): Promise<{ docMap: Map<string, string>; pageMap: Map<string, string> }> {
+  const sourceDocumentIds = new Set<string>();
+  const pageIds = new Set<string>();
+
+  for (const run of runs) {
+    const stats = asRecord(run.stats_json);
+    const inputScope = readInputScope(stats.input_scope);
+    for (const id of inputScope?.source_document_ids ?? []) {
+      sourceDocumentIds.add(id);
+    }
+    for (const id of inputScope?.page_ids ?? []) {
+      pageIds.add(id);
+    }
+  }
+
+  const docMap = new Map<string, string>();
+  const pageMap = new Map<string, string>();
+  const sourceDocumentIdList = [...sourceDocumentIds];
+  const pageIdList = [...pageIds];
+
+  if (sourceDocumentIdList.length > 0) {
+    const rows = await db
+      .select({ id: source_documents.id, filename: source_documents.filename })
+      .from(source_documents)
+      .where(and(eq(source_documents.tenant_id, tenantId), inArray(source_documents.id, sourceDocumentIdList)));
+
+    for (const row of rows) {
+      docMap.set(row.id, row.filename);
+    }
+  }
+
+  if (pageIdList.length > 0) {
+    const rows = await db
+      .select({ id: wikiPages.id, title: wikiPages.title })
+      .from(wikiPages)
+      .where(and(eq(wikiPages.tenant_id, tenantId), inArray(wikiPages.id, pageIdList)));
+
+    for (const row of rows) {
+      pageMap.set(row.id, row.title);
+    }
+  }
+
+  return { docMap, pageMap };
+}
+
+export function toGraphifyRunResponse(
+  run: GraphifyRunRow,
+  resolved: { docMap: Map<string, string>; pageMap: Map<string, string> } = {
+    docMap: new Map(),
+    pageMap: new Map(),
+  },
+): GraphifyRunResponse {
   const stats = asRecord(run.stats_json);
   const inputScope = readInputScope(stats.input_scope) ?? {};
   const progress = asRecord(stats.progress);
@@ -836,6 +901,18 @@ function toGraphifyRunResponse(run: GraphifyRunRow): GraphifyRunResponse {
     input_scope: {
       page_ids: inputScope.page_ids ?? [],
       source_document_ids: inputScope.source_document_ids ?? [],
+    },
+    input_scope_resolved: {
+      source_documents: (inputScope.source_document_ids ?? []).map((id) => ({
+        id,
+        filename: resolved.docMap.get(id) ?? null,
+        missing: !resolved.docMap.has(id),
+      })),
+      pages: (inputScope.page_ids ?? []).map((id) => ({
+        id,
+        title: resolved.pageMap.get(id) ?? null,
+        missing: !resolved.pageMap.has(id),
+      })),
     },
     result: {
       nodes_created: readInteger(stats.nodes_created) ?? readInteger(stats.node_count) ?? 0,

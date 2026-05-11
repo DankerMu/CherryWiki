@@ -224,6 +224,7 @@ function createRunResponse(
     status: 'pending',
     progress: { percent: 0, stage: 'pending' },
     input_scope: { page_ids: [], source_document_ids: [] },
+    input_scope_resolved: { source_documents: [], pages: [] },
     result: {
       nodes_created: 0,
       nodes_updated: 0,
