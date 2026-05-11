@@ -219,7 +219,7 @@ describe('UploadCenter', () => {
       expect(getRequestUrls(fetchMock)).toContain('/api/spaces/space-1/uploads?page=1&per_page=20&sort=-created_at');
     });
 
-    const searchInput = screen.getByPlaceholderText('Search filenames');
+    const searchInput = await screen.findByPlaceholderText('Search filenames');
     fireEvent.change(searchInput, { target: { value: 'roadmap' } });
     await waitFor(() => expect(searchInput).toHaveValue('roadmap'));
 
@@ -227,12 +227,14 @@ describe('UploadCenter', () => {
       expect(getRequestUrls(fetchMock)).toContain('/api/spaces/space-1/uploads?page=1&per_page=20&search=roadmap&sort=-created_at');
     });
 
+    await waitFor(() => getComboboxByLabel('Source type'));
     fireEvent.mouseDown(getComboboxByLabel('Source type'));
     fireEvent.click(await findSelectOption('URL'));
     await waitFor(() => {
       expect(getRequestUrls(fetchMock)).toContain('/api/spaces/space-1/uploads?page=1&per_page=20&source_type=url&search=roadmap&sort=-created_at');
     });
 
+    await waitFor(() => getComboboxByLabel('Sort by'));
     fireEvent.mouseDown(getComboboxByLabel('Sort by'));
     fireEvent.click(await findSelectOption('Recently updated'));
     await waitFor(() => {
