@@ -43,14 +43,19 @@ export class AdminHealthController {
 
   @Get('health')
   async getHealth(): Promise<AdminSystemHealthResponse> {
-    const [database, redis, minio] = await Promise.all([this.checkDatabase(), this.checkRedis(), this.checkStorage()]);
+    const [database, redis, minio, docmost] = await Promise.all([
+      this.checkDatabase(),
+      this.checkRedis(),
+      this.checkStorage(),
+      this.checkDocmost(),
+    ]);
     const components: Record<ComponentName, HealthComponent> = {
       database,
       redis,
       minio,
       vector_store: postgresBackedComponent(database, 'Postgres-backed vector store'),
       graph_store: postgresBackedComponent(database, 'Postgres-backed graph store'),
-      docmost_bridge: { status: 'not_configured', details: 'Optional integration' },
+      docmost_bridge: docmost,
     };
 
     return {
@@ -82,6 +87,46 @@ export class AdminHealthController {
     }
 
     return this.storage.healthCheck();
+  }
+
+  private async checkDocmost(): Promise<HealthComponent> {
+    const baseUrl = process.env.DOCMOST_BASE_URL?.trim();
+    if (baseUrl === undefined || baseUrl.length === 0) {
+      return { status: 'not_configured', details: 'DOCMOST_BASE_URL not set' };
+    }
+
+    const startedAt = performance.now();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    try {
+      const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/api/health`, {
+        method: 'GET',
+        signal: controller.signal,
+      });
+      const result: HealthComponent =
+        response.status === 200
+          ? { status: 'healthy', latency_ms: elapsedMs(startedAt) }
+          : { status: 'unhealthy', latency_ms: elapsedMs(startedAt), error: `HTTP ${response.status}` };
+      await response.body?.cancel().catch(() => undefined);
+      return result;
+    } catch (err) {
+      if (isAbortError(err)) {
+        return {
+          status: 'unhealthy',
+          latency_ms: 5000,
+          error: 'Health check timed out (5s)',
+        };
+      }
+
+      return {
+        status: 'unhealthy',
+        latency_ms: elapsedMs(startedAt),
+        error: toSafeErrorMessage(err),
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 }
 
@@ -141,4 +186,8 @@ function elapsedMs(startedAt: number): number {
 
 function toSafeErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'AbortError';
 }
