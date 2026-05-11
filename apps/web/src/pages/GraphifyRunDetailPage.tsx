@@ -356,10 +356,10 @@ function renderBoldMarkdown(text: string, keyPrefix: string): ReactNode[] {
 
 function formatInputScope(run: GraphifyRun, t: (key: string) => string): string {
   const sourceDocumentNames = run.input_scope_resolved.source_documents
-    .map((sourceDocument) => (sourceDocument.missing ? t('common.deleted') : sourceDocument.filename))
+    .map((sourceDocument) => (sourceDocument.missing ? t('common.status.deleted') : sourceDocument.filename))
     .filter((name): name is string => name !== null && name.length > 0);
   const pageNames = run.input_scope_resolved.pages
-    .map((page) => (page.missing ? t('common.deleted') : page.title))
+    .map((page) => (page.missing ? t('common.status.deleted') : page.title))
     .filter((name): name is string => name !== null && name.length > 0);
   const names = [...sourceDocumentNames, ...pageNames];
 

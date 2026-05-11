@@ -119,10 +119,10 @@ export function isGraphifyRunActive(run: GraphifyRun): boolean {
 export function formatRunLabel(run: GraphifyRun, t: TFunction): { primary: string; secondary: string } {
   const names = [
     ...run.input_scope_resolved.source_documents.map((sourceDocument) => (
-      sourceDocument.missing ? t('common.deleted') : sourceDocument.filename
+      sourceDocument.missing ? t('common.status.deleted') : sourceDocument.filename
     )),
     ...run.input_scope_resolved.pages.map((page) => (
-      page.missing ? t('common.deleted') : page.title
+      page.missing ? t('common.status.deleted') : page.title
     )),
   ].filter((name): name is string => name !== null && name.length > 0);
 
