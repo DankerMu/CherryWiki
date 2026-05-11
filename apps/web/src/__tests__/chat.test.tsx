@@ -333,6 +333,7 @@ describe('Sidebar collapse', () => {
 
     await waitFor(() => {
       expect(document.querySelector('.chat-page')).not.toHaveClass('sidebar-collapsed');
+      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(localStorageMock.setItem).toHaveBeenLastCalledWith('cherry-chat-sidebar-collapsed', 'false');
     });
   });
