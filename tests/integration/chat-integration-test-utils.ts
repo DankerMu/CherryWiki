@@ -428,6 +428,7 @@ export function createRetrievalResult(overrides: Partial<RetrievalResult> = {}):
     injectionRisk: false,
     pageTitle: 'Auth',
     sectionTitle: 'SSO',
+    spaceId: TEST_SPACE_ID,
     ...overrides,
   };
 }
