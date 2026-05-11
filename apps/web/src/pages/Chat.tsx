@@ -412,6 +412,7 @@ export default function Chat() {
         className={`chat-session-sidebar${isMobileSidebarOpen ? ' open' : ''}`}
         aria-label={t('chat.title')}
         aria-hidden={isSidebarCollapsed && !isMobileSidebarOpen}
+        inert={isSidebarCollapsed && !isMobileSidebarOpen ? true : undefined}
       >
         <div className="chat-sidebar-header">
           <div>
