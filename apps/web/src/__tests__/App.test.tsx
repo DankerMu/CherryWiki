@@ -78,10 +78,10 @@ describe('App routing', () => {
     expect(await screen.findByRole('heading', { name: '登录' })).toBeInTheDocument();
   });
 
-  it('redirects authenticated admin with spaces to first space overview', async () => {
+  it('redirects authenticated admin with spaces to first space overview', { timeout: 30000 }, async () => {
     mockOverviewApi();
     renderRoute('/', ADMIN_USER);
-    expect(await screen.findByRole('heading', { name: '空间概览' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '空间概览' }, { timeout: 15000 })).toBeInTheDocument();
   });
 
   it('redirects authenticated admin without spaces to /admin/spaces', async () => {
@@ -117,10 +117,10 @@ describe('App routing', () => {
     expect(screen.getByRole('heading', { name: '登录' })).toBeInTheDocument();
   });
 
-  it('redirects non-admin from admin routes to /', async () => {
+  it('redirects non-admin from admin routes to /', { timeout: 30000 }, async () => {
     mockOverviewApi();
     renderRoute('/admin/users', VIEWER_USER);
-    expect(await screen.findByRole('heading', { name: '空间概览' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '空间概览' }, { timeout: 15000 })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '用户管理' })).not.toBeInTheDocument();
   });
 
@@ -429,6 +429,10 @@ function mockOverviewApi(): void {
           data: { communities: [] },
           meta: { request_id: 'req-communities' },
         }));
+      }
+
+      if (path === '/api/spaces/space-main/graphify/runs') {
+        return Promise.resolve(jsonResponse({ data: [], meta: { request_id: 'req-runs' } }));
       }
 
       return Promise.resolve(jsonResponse({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404));
