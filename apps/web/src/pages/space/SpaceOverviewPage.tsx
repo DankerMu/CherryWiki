@@ -26,6 +26,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
 import { formatDate, formatLabel, getErrorMessage } from '../../components/adminUi';
+import { api } from '../../lib/api';
 import { getGraphCommunities } from '../../lib/graphApi';
 import { getGraphifyRun, type GraphifyRun } from '../../lib/graphifyApi';
 import {
@@ -80,6 +81,11 @@ export default function SpaceOverviewPage() {
     const seq = ++requestSeqRef.current;
     setIsLoading(true);
     setErrors(EMPTY_ERRORS);
+    setSpace(null);
+    setStats(null);
+    setDocuments([]);
+    setWikiPages([]);
+    setCommunityCount(0);
     setActiveRun(null);
 
     const setError = (key: keyof OverviewErrors, error: unknown): void => {
@@ -93,6 +99,19 @@ export default function SpaceOverviewPage() {
           if (seq !== requestSeqRef.current) return;
           setSpace(nextSpace);
           if (nextSpace.active_graphify_run_id === null) {
+            try {
+              const latestRuns = await api.get<GraphifyRun[]>(
+                `/spaces/${encodeURIComponent(spaceId)}/graphify/runs`,
+                { per_page: 1, sort: '-created_at' },
+              );
+              if (seq !== requestSeqRef.current) return;
+              const latestRun = latestRuns[0];
+              if (latestRun?.status === 'pending' || latestRun?.status === 'running') {
+                setActiveRun(latestRun);
+              }
+            } catch (err) {
+              setError('graphifyRun', err);
+            }
             return;
           }
           try {
@@ -103,7 +122,11 @@ export default function SpaceOverviewPage() {
             setError('graphifyRun', err);
           }
         })
-        .catch((err) => setError('space', err)),
+        .catch((err) => {
+          if (seq !== requestSeqRef.current) return;
+          setSpace(null);
+          setError('space', err);
+        }),
       getSpaceStats(spaceId)
         .then((nextStats) => {
           if (seq !== requestSeqRef.current) return;
@@ -267,6 +290,16 @@ function KnowledgeStatusPanel({
             type="warning"
             showIcon
             message={t('overview.status.indexWarning', { status: formatLabel(indexConsistency) })}
+            description={(
+              <Space size={12} wrap>
+                <Link to={`/spaces/${encodeURIComponent(spaceId)}/wiki`}>
+                  {t('overview.status.reviewWiki')}
+                </Link>
+                <Link to={`/spaces/${encodeURIComponent(spaceId)}/graphify`}>
+                  {t('overview.status.runGraphify')}
+                </Link>
+              </Space>
+            )}
           />
         ) : null}
         {errors.communities !== null ? <Alert type="warning" showIcon message={errors.communities} /> : null}
@@ -337,7 +370,11 @@ function RecentDocumentsList({
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
               description={t('overview.recentDocuments.empty')}
-            />
+            >
+              <Link to={`/spaces/${encodeURIComponent(spaceId)}/uploads`}>
+                <Button type="primary">{t('overview.action.addDocuments')}</Button>
+              </Link>
+            </Empty>
           ),
         }}
         renderItem={(document) => (
@@ -383,7 +420,11 @@ function RecentWikiPagesList({
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
               description={t('overview.recentWikiPages.empty')}
-            />
+            >
+              <Link to={`/spaces/${encodeURIComponent(spaceId)}/graphify`}>
+                <Button>{t('overview.action.runGraphify')}</Button>
+              </Link>
+            </Empty>
           ),
         }}
         renderItem={(page) => (

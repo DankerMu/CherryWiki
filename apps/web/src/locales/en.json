@@ -485,7 +485,9 @@
       "communities": "Communities",
       "activeRun": "Active Graphify run",
       "noActiveRun": "No active run",
-      "viewRun": "View run"
+      "viewRun": "View run",
+      "reviewWiki": "Review wiki",
+      "runGraphify": "Run Graphify"
     },
     "recentDocuments": {
       "title": "Recent Documents",
@@ -493,7 +495,7 @@
     },
     "recentWikiPages": {
       "title": "Recent Wiki Pages",
-      "empty": "No wiki pages in this space yet."
+      "empty": "Wiki pages appear after document ingestion or Graphify generation."
     },
     "quickActions": {
       "title": "Quick Actions",
@@ -504,7 +506,9 @@
       "chat": "Chat"
     },
     "action": {
-      "viewAll": "View all"
+      "viewAll": "View all",
+      "addDocuments": "Add documents",
+      "runGraphify": "Run Graphify"
     },
     "error": {
       "stats": "Stats unavailable"

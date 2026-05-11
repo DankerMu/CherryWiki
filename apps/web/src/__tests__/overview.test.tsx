@@ -40,7 +40,40 @@ describe('SpaceOverviewPage', () => {
     renderPage();
 
     expect(await screen.findByText('No documents in this space yet.')).toBeInTheDocument();
-    expect(screen.getByText('No wiki pages in this space yet.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add documents' }).closest('a')).toHaveAttribute(
+      'href',
+      '/spaces/space-1/uploads',
+    );
+    expect(screen.getByText('Wiki pages appear after document ingestion or Graphify generation.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Run Graphify' }).closest('a')).toHaveAttribute(
+      'href',
+      '/spaces/space-1/graphify',
+    );
+  });
+
+  it('shows the latest pending graphify run when no active run is set', async () => {
+    stubOverviewApi({
+      space: { active_graphify_run_id: null },
+      latestGraphifyRuns: [createGraphifyRun({ run_id: 'run-latest', status: 'pending' })],
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('Pending')).toBeInTheDocument();
+    expect(screen.getByText('View run').closest('a')).toHaveAttribute(
+      'href',
+      '/spaces/space-1/graphify/run-latest',
+    );
+  });
+
+  it('shows remediation links when index consistency is unhealthy', async () => {
+    stubOverviewApi({ space: { index_consistency_status: 'stale' } });
+
+    renderPage();
+
+    expect(await screen.findByText('Index consistency is Stale.')).toBeInTheDocument();
+    expect(screen.getByText('Review wiki').closest('a')).toHaveAttribute('href', '/spaces/space-1/wiki');
+    expect(screen.getByText('Run Graphify').closest('a')).toHaveAttribute('href', '/spaces/space-1/graphify');
   });
 
   it('keeps recent documents visible when stats fail', async () => {
@@ -108,6 +141,8 @@ function renderPage(): void {
 function stubOverviewApi(options: {
   documents?: unknown[];
   wikiPages?: unknown[];
+  space?: Record<string, unknown>;
+  latestGraphifyRuns?: unknown[];
   failStats?: boolean;
   statsSequence?: number[];
 } = {}) {
@@ -116,7 +151,7 @@ function stubOverviewApi(options: {
     const path = getRequestPath(input);
 
     if (path === '/api/spaces/space-1') {
-      return Promise.resolve(jsonResponse({ data: createSpaceDetail() }));
+      return Promise.resolve(jsonResponse({ data: createSpaceDetail(options.space) }));
     }
 
     if (path === '/api/spaces/space-1/stats') {
@@ -136,6 +171,10 @@ function stubOverviewApi(options: {
       return Promise.resolve(jsonResponse({ data: options.wikiPages ?? [createWikiPage()] }));
     }
 
+    if (path === '/api/spaces/space-1/graphify/runs') {
+      return Promise.resolve(jsonResponse({ data: options.latestGraphifyRuns ?? [] }));
+    }
+
     if (path === '/api/graph/communities') {
       return Promise.resolve(jsonResponse({ data: { communities: [{ id: 'community-1' }] } }));
     }
@@ -151,7 +190,7 @@ function stubOverviewApi(options: {
   return fetchMock;
 }
 
-function createSpaceDetail() {
+function createSpaceDetail(overrides: Record<string, unknown> = {}) {
   return {
     id: 'space-1',
     name: 'Space 1',
@@ -164,6 +203,7 @@ function createSpaceDetail() {
     strict_knowledge_only: true,
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-01-02T00:00:00.000Z',
+    ...overrides,
   };
 }
 
@@ -203,7 +243,7 @@ function createWikiPage(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function createGraphifyRun() {
+function createGraphifyRun(overrides: Record<string, unknown> = {}) {
   return {
     run_id: 'run-1',
     space_id: 'space-1',
@@ -224,6 +264,7 @@ function createGraphifyRun() {
     created_at: '2026-01-01T00:00:00.000Z',
     started_at: '2026-01-01T00:01:00.000Z',
     completed_at: null,
+    ...overrides,
   };
 }
 
