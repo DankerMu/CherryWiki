@@ -31,7 +31,17 @@ export const UPLOAD_STATUS_OPTIONS = [
   'security_rejected',
 ] as const;
 
-export type UploadSourceType = 'upload' | 'url';
+export const UPLOAD_SOURCE_TYPE_OPTIONS = ['upload', 'url'] as const;
+export const UPLOAD_SORT_OPTIONS = [
+  '-created_at',
+  '-updated_at',
+  'filename',
+  'status',
+] as const;
+export const DEFAULT_UPLOAD_SORT = '-created_at';
+
+export type UploadSourceType = (typeof UPLOAD_SOURCE_TYPE_OPTIONS)[number];
+export type UploadSortOption = (typeof UPLOAD_SORT_OPTIONS)[number];
 
 export type UploadResponse = {
   source_document_id: string;
@@ -86,6 +96,18 @@ export function isSupportedUploadFile(filename: string): boolean {
   return SUPPORTED_UPLOAD_EXTENSIONS.includes(
     getUploadExtension(filename) as (typeof SUPPORTED_UPLOAD_EXTENSIONS)[number],
   );
+}
+
+export function normalizeUploadStatusFilter(value: string): string {
+  return UPLOAD_STATUS_OPTIONS.includes(value as (typeof UPLOAD_STATUS_OPTIONS)[number]) ? value : '';
+}
+
+export function normalizeUploadSourceTypeFilter(value: string): UploadSourceType | '' {
+  return UPLOAD_SOURCE_TYPE_OPTIONS.includes(value as UploadSourceType) ? (value as UploadSourceType) : '';
+}
+
+export function normalizeUploadSort(value: string): UploadSortOption {
+  return UPLOAD_SORT_OPTIONS.includes(value as UploadSortOption) ? (value as UploadSortOption) : DEFAULT_UPLOAD_SORT;
 }
 
 export function formatFileSize(sizeBytes: number | null | undefined): string {

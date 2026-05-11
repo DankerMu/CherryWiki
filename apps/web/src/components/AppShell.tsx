@@ -50,7 +50,7 @@ const SPACE_FUNCTIONS: Array<{
 }> = [
   { key: 'chat', icon: <MessageOutlined />, translationKey: 'shell.sidebar.chat' },
   { key: 'wiki', icon: <BookOutlined />, translationKey: 'shell.sidebar.wiki' },
-  { key: 'uploads', icon: <CloudUploadOutlined />, translationKey: 'shell.sidebar.uploads' },
+  { key: 'uploads', icon: <CloudUploadOutlined />, translationKey: 'shell.sidebar.documents' },
   { key: 'graphify', icon: <NodeIndexOutlined />, translationKey: 'shell.sidebar.graphify' },
 ];
 

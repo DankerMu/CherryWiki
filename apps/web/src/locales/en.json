@@ -71,7 +71,8 @@
       "spaceFunctions": "Space Functions",
       "chat": "Chat",
       "wiki": "Wiki",
-      "uploads": "Uploads",
+      "uploads": "Documents",
+      "documents": "Documents",
       "graphify": "Graphify"
     },
     "admin": {
@@ -463,7 +464,11 @@
   "upload": {
     "title": "Upload Center",
     "description": "Upload files and URLs, then track processing status for this space.",
-    "loading": "Loading uploads...",
+    "browser": {
+      "title": "Documents",
+      "description": "Browse source documents in this space, add files or URLs, and track processing status."
+    },
+    "loading": "Loading documents...",
     "spaceSelector": "Target space",
     "spaceSelectorLabel": "Upload to space",
     "duplicateWarning": "File \"{{name}}\" already exists in this space and has been linked.",
@@ -487,9 +492,10 @@
       "success": "Added source_document_id: {{id}}"
     },
     "list": {
-      "title": "Uploads",
-      "description": "Track processing state for files and URLs in this space.",
-      "emptyFilter": "No uploads match the current filters.",
+      "title": "Space Documents",
+      "description": "Browse processed files and URL sources in this space.",
+      "emptyFilter": "No documents match the current filters.",
+      "emptySpace": "No documents in this space yet.",
       "columns": {
         "filename": "Filename",
         "type": "Type",
@@ -501,7 +507,34 @@
       },
       "filter": {
         "status": "Status",
-        "allStatuses": "All statuses"
+        "allStatuses": "All statuses",
+        "sourceType": "Source type",
+        "allTypes": "All types"
+      },
+      "search": {
+        "placeholder": "Search filenames"
+      },
+      "sourceTypes": {
+        "upload": "Upload",
+        "url": "URL"
+      },
+      "statusOptions": {
+        "uploaded": "Uploaded",
+        "validating": "Validating",
+        "archived": "Archived",
+        "parsing": "Parsing",
+        "parsed": "Parsed",
+        "graphify_pending": "Graphify Pending",
+        "graphify_running": "Graphify Running",
+        "parse_failed": "Parse Failed",
+        "security_rejected": "Security Rejected"
+      },
+      "sort": {
+        "label": "Sort by",
+        "createdAt": "Newest created",
+        "updatedAt": "Recently updated",
+        "filename": "Filename",
+        "status": "Status"
       },
       "details": "Details",
       "unknown": "Unknown",

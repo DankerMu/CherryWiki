@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ComponentProps } from 'react';
+import { MemoryRouter, Route, Routes } from 'react-router';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import i18n from '../i18n';
+import { AuthProvider, type AuthUser } from '../lib/auth';
 import FileUploadZone from '../pages/uploads/FileUploadZone';
+import UploadCenter from '../pages/uploads/UploadCenter';
 import UploadDetail from '../pages/uploads/UploadDetail';
 import UploadList from '../pages/uploads/UploadList';
 import UrlUploadForm from '../pages/uploads/UrlUploadForm';
@@ -11,6 +16,10 @@ import type { UploadItem, UploadResponse, UploadStatus } from '../pages/uploads/
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+
+beforeEach(async () => {
+  await i18n.changeLanguage('en');
 });
 
 describe('FileUploadZone', () => {
@@ -105,21 +114,14 @@ describe('UrlUploadForm', () => {
 
 describe('UploadList', () => {
   it('renders status tags, rows, and details buttons', () => {
-    render(
-      <UploadList
-        uploads={[
-          buildUpload({ id: 'source-1', filename: 'notes.md', status: 'parsing' }),
-          buildUpload({ id: 'source-2', filename: 'done.pdf', status: 'parsed' }),
-          buildUpload({ id: 'source-3', filename: 'bad.pdf', status: 'parse_failed' }),
-        ]}
-        page={1}
-        total={3}
-        statusFilter=""
-        onStatusFilterChange={vi.fn()}
-        onPageChange={vi.fn()}
-        onSelectUpload={vi.fn()}
-      />,
-    );
+    renderUploadList({
+      uploads: [
+        buildUpload({ id: 'source-1', filename: 'notes.md', status: 'parsing' }),
+        buildUpload({ id: 'source-2', filename: 'done.pdf', status: 'parsed' }),
+        buildUpload({ id: 'source-3', filename: 'bad.pdf', status: 'parse_failed' }),
+      ],
+      total: 3,
+    });
 
     // antd Tag renders status labels
     expect(screen.getByText('Parsing')).toBeInTheDocument();
@@ -131,20 +133,111 @@ describe('UploadList', () => {
     expect(screen.getAllByRole('button', { name: 'Details' })).toHaveLength(3);
   });
 
-  it('renders an empty state', () => {
-    render(
-      <UploadList
-        uploads={[]}
-        page={1}
-        total={0}
-        statusFilter=""
-        onStatusFilterChange={vi.fn()}
-        onPageChange={vi.fn()}
-        onSelectUpload={vi.fn()}
-      />,
-    );
+  it('renders filename metadata without raw source document IDs in the primary row', () => {
+    const uuid = '550e8400-e29b-41d4-a716-446655440000';
 
-    expect(screen.getByText('No uploads match the current filters.')).toBeInTheDocument();
+    renderUploadList({
+      uploads: [
+        buildUpload({
+          id: uuid,
+          filename: 'security-review.pdf',
+          mime_type: 'application/pdf',
+          source_type: 'upload',
+          status: 'parsed',
+        }),
+      ],
+      total: 1,
+    });
+
+    expect(screen.getByText('security-review.pdf')).toBeInTheDocument();
+    expect(screen.getByText('application/pdf')).toBeInTheDocument();
+    expect(screen.getAllByText('Upload').length).toBeGreaterThan(0);
+    expect(screen.queryByText(uuid)).not.toBeInTheDocument();
+  });
+
+  it('renders document search, source type filter, and sort controls', () => {
+    renderUploadList();
+
+    expect(screen.getByPlaceholderText('Search filenames')).toBeInTheDocument();
+    expect(screen.getByText('Source type')).toBeInTheDocument();
+    expect(screen.getByText('All types')).toBeInTheDocument();
+    expect(screen.getByText('Sort by')).toBeInTheDocument();
+    expect(screen.getByText('Newest created')).toBeInTheDocument();
+  });
+
+  it('updates filename searches from the search control', () => {
+    const onSearchTermChange = vi.fn<(search: string) => void>();
+
+    renderUploadList({
+      onSearchTermChange,
+    });
+
+    fireEvent.change(screen.getByPlaceholderText('Search filenames'), { target: { value: 'roadmap' } });
+
+    expect(onSearchTermChange).toHaveBeenCalledWith('roadmap');
+  });
+
+  it('updates source type and sort selections', async () => {
+    const onSourceTypeFilterChange = vi.fn<(sourceType: string) => void>();
+    const onSortOrderChange = vi.fn<(sort: string) => void>();
+
+    renderUploadList({
+      onSourceTypeFilterChange,
+      onSortOrderChange,
+    });
+
+    fireEvent.mouseDown(getComboboxByLabel('Source type'));
+    fireEvent.click(await findSelectOption('URL'));
+    expect(onSourceTypeFilterChange).toHaveBeenCalledWith('url');
+
+    fireEvent.mouseDown(getComboboxByLabel('Sort by'));
+    fireEvent.click(await findSelectOption('Recently updated'));
+    expect(onSortOrderChange).toHaveBeenCalledWith('-updated_at');
+  });
+
+  it('renders an empty document-space state', () => {
+    renderUploadList();
+
+    expect(screen.getByText('No documents in this space yet.')).toBeInTheDocument();
+  });
+
+  it('renders an empty filtered state', () => {
+    renderUploadList({ searchTerm: 'roadmap' });
+
+    expect(screen.getByText('No documents match the current filters.')).toBeInTheDocument();
+  });
+});
+
+describe('UploadCenter', () => {
+  it('loads documents with search, source type, and sort query parameters', async () => {
+    const fetchMock = stubUploadListApi();
+
+    renderUploadCenter();
+
+    expect(await screen.findByText('Documents')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(getRequestUrls(fetchMock)).toContain('/api/spaces/space-1/uploads?page=1&per_page=20&sort=-created_at');
+    });
+
+    const searchInput = screen.getByPlaceholderText('Search filenames');
+    fireEvent.change(searchInput, { target: { value: 'roadmap' } });
+    await waitFor(() => expect(searchInput).toHaveValue('roadmap'));
+
+    await waitFor(() => {
+      expect(getRequestUrls(fetchMock)).toContain('/api/spaces/space-1/uploads?page=1&per_page=20&search=roadmap&sort=-created_at');
+    });
+
+    fireEvent.mouseDown(getComboboxByLabel('Source type'));
+    fireEvent.click(await findSelectOption('URL'));
+    await waitFor(() => {
+      expect(getRequestUrls(fetchMock)).toContain('/api/spaces/space-1/uploads?page=1&per_page=20&source_type=url&search=roadmap&sort=-created_at');
+    });
+
+    fireEvent.mouseDown(getComboboxByLabel('Sort by'));
+    fireEvent.click(await findSelectOption('Recently updated'));
+    await waitFor(() => {
+      expect(getRequestUrls(fetchMock)).toContain('/api/spaces/space-1/uploads?page=1&per_page=20&source_type=url&search=roadmap&sort=-updated_at');
+    });
   });
 });
 
@@ -196,6 +289,49 @@ type MockXhrRequest = {
   url: string;
   headers: Headers;
 };
+
+const TEST_USER: AuthUser = {
+  id: 'user-1',
+  email: 'viewer@example.com',
+  name: 'Viewer User',
+  role: 'viewer',
+  groups: [],
+  spaces: [{ id: 'space-1', name: 'Space One', role: 'editor' }],
+};
+
+function renderUploadList(overrides: Partial<ComponentProps<typeof UploadList>> = {}) {
+  const props: ComponentProps<typeof UploadList> = {
+    uploads: [],
+    page: 1,
+    total: 0,
+    statusFilter: '',
+    sourceTypeFilter: '',
+    searchTerm: '',
+    sortOrder: '-created_at',
+    onStatusFilterChange: vi.fn(),
+    onSourceTypeFilterChange: vi.fn(),
+    onSearchTermChange: vi.fn(),
+    onSortOrderChange: vi.fn(),
+    onPageChange: vi.fn(),
+    onSelectUpload: vi.fn(),
+    ...overrides,
+  };
+
+  return render(<UploadList {...props} />);
+}
+
+function renderUploadCenter() {
+  return render(
+    <MemoryRouter initialEntries={['/spaces/space-1/uploads']}>
+      <AuthProvider initialSession={{ user: TEST_USER, accessToken: 'test-token', expiresIn: 3600 }}>
+        <Routes>
+          <Route path="/spaces/:spaceId/uploads" element={<UploadCenter />} />
+          <Route path="/login" element={<h1>Login</h1>} />
+        </Routes>
+      </AuthProvider>
+    </MemoryRouter>,
+  );
+}
 
 function stubXmlHttpRequest(sourceDocumentId = 'source-1'): MockXhrRequest[] {
   const requests: MockXhrRequest[] = [];
@@ -258,6 +394,37 @@ function stubUrlUploadApi() {
             job_id: 'job-url',
             status: 'uploaded',
             created: true,
+          },
+        }),
+      );
+    }
+
+    return Promise.resolve(jsonResponse({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404));
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
+function stubUploadListApi() {
+  const fetchMock = vi.fn<typeof fetch>((input, init) => {
+    if (getRequestPath(input) === '/api/spaces/space-1/uploads' && init?.method === 'GET') {
+      return Promise.resolve(
+        jsonResponse({
+          data: [
+            buildUpload({
+              id: 'source-roadmap',
+              filename: 'roadmap.pdf',
+              status: 'parsed',
+              mime_type: 'application/pdf',
+            }),
+          ],
+          meta: {
+            pagination: {
+              page: 1,
+              per_page: 20,
+              total: 1,
+              has_next: false,
+            },
           },
         }),
       );
@@ -342,6 +509,37 @@ function getRequestPath(input: RequestInfo | URL): string {
   }
 
   return input.url.split('?')[0] ?? input.url;
+}
+
+function getRequestUrls(fetchMock: ReturnType<typeof stubUploadListApi>): string[] {
+  return fetchMock.mock.calls.map((call) => getRequestUrl(call[0]));
+}
+
+function getRequestUrl(input: RequestInfo | URL): string {
+  if (typeof input === 'string') {
+    return input;
+  }
+
+  const url = input instanceof URL ? input : new URL(input.url);
+  return `${url.pathname}${url.search}`;
+}
+
+function getComboboxByLabel(label: string): HTMLElement {
+  const combobox = screen.getAllByLabelText(label).find((element) => element.getAttribute('role') === 'combobox');
+  if (combobox === undefined) {
+    throw new Error(`Combobox with label "${label}" not found`);
+  }
+
+  return combobox;
+}
+
+async function findSelectOption(label: string): Promise<HTMLElement> {
+  const option = (await screen.findAllByText(label)).find((element) => element.closest('.ant-select-item-option') !== null);
+  if (option === undefined) {
+    throw new Error(`Select option "${label}" not found`);
+  }
+
+  return option;
 }
 
 function getRequestBody(init: RequestInit | undefined): string {

@@ -1,6 +1,6 @@
 import { ReloadOutlined } from '@ant-design/icons';
 import { Alert, Button, Select, Spin, Typography, message } from 'antd';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Navigate, useParams } from 'react-router';
 import { getErrorMessage } from '../../components/adminUi';
@@ -11,7 +11,16 @@ import FileUploadZone from './FileUploadZone';
 import UploadDetail from './UploadDetail';
 import UploadList from './UploadList';
 import UrlUploadForm from './UrlUploadForm';
-import { UPLOAD_PAGE_SIZE, type UploadItem, type UploadResponse, type UploadStatus } from './types';
+import {
+  DEFAULT_UPLOAD_SORT,
+  UPLOAD_PAGE_SIZE,
+  normalizeUploadSort,
+  normalizeUploadSourceTypeFilter,
+  normalizeUploadStatusFilter,
+  type UploadItem,
+  type UploadResponse,
+  type UploadStatus,
+} from './types';
 
 const DEFAULT_PAGINATION: NonNullable<ApiMeta['pagination']> = {
   page: 1,
@@ -27,12 +36,17 @@ export default function UploadCenter() {
   const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [page, setPage] = useState(DEFAULT_PAGINATION.page);
   const [statusFilter, setStatusFilter] = useState('');
+  const [sourceTypeFilter, setSourceTypeFilter] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortOrder, setSortOrder] = useState<string>(DEFAULT_UPLOAD_SORT);
   const [pagination, setPagination] = useState(DEFAULT_PAGINATION);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploadSpaceId, setUploadSpaceId] = useState(spaceId);
   const [selectedUploadId, setSelectedUploadId] = useState<string | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<UploadStatus | null>(null);
+  const requestSeqRef = useRef(0);
 
   const loadUploads = useCallback(
     async (background = false) => {
@@ -48,13 +62,22 @@ export default function UploadCenter() {
       }
       setError(null);
 
+      const seq = ++requestSeqRef.current;
+
       try {
+        const normalizedStatus = normalizeUploadStatusFilter(statusFilter);
+        const normalizedSourceType = normalizeUploadSourceTypeFilter(sourceTypeFilter);
+        const normalizedSearch = searchTerm.trim();
+        const normalizedSort = normalizeUploadSort(sortOrder);
         const response = await api.getWrapped<UploadItem[]>(`/spaces/${encodeURIComponent(uploadSpaceId)}/uploads`, {
           page,
           per_page: UPLOAD_PAGE_SIZE,
-          status: statusFilter,
-          sort: '-created_at',
+          status: normalizedStatus,
+          source_type: normalizedSourceType,
+          search: normalizedSearch,
+          sort: normalizedSort,
         });
+        if (seq !== requestSeqRef.current) return;
         setUploads(response.data);
         setPagination(
           response.meta?.pagination ?? {
@@ -65,14 +88,15 @@ export default function UploadCenter() {
           },
         );
       } catch (err) {
+        if (seq !== requestSeqRef.current) return;
         setError(getErrorMessage(err));
       } finally {
-        if (!background) {
+        if (seq === requestSeqRef.current && !background) {
           setIsLoading(false);
         }
       }
     },
-    [page, uploadSpaceId, statusFilter],
+    [page, searchTerm, sortOrder, sourceTypeFilter, statusFilter, uploadSpaceId],
   );
 
   useEffect(() => {
@@ -82,6 +106,15 @@ export default function UploadCenter() {
   useEffect(() => {
     setUploadSpaceId(spaceId);
   }, [spaceId]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setSearchTerm(searchInput.trim());
+      setPage(1);
+    }, 300);
+
+    return () => window.clearTimeout(timeout);
+  }, [searchInput]);
 
   useEffect(() => {
     setSelectedUploadId(null);
@@ -159,15 +192,27 @@ export default function UploadCenter() {
       job_id: response.job_id,
     };
 
+    const normalizedStatus = normalizeUploadStatusFilter(statusFilter);
+    const normalizedSourceType = normalizeUploadSourceTypeFilter(sourceTypeFilter);
+    const normalizedSort = normalizeUploadSort(sortOrder);
+    const matchesActiveFilters = uploadMatchesActiveFilters(upload, {
+      status: normalizedStatus,
+      sourceType: normalizedSourceType,
+      search: searchTerm,
+    });
+
     setUploads((current) => {
-      if (statusFilter.length > 0 && statusFilter !== upload.status) {
+      if (!matchesActiveFilters || normalizedSort !== DEFAULT_UPLOAD_SORT) {
         return current;
       }
 
       const withoutDuplicate = current.filter((item) => item.id !== upload.id);
       return [upload, ...withoutDuplicate].slice(0, UPLOAD_PAGE_SIZE);
     });
-    setPagination((current) => ({ ...current, total: response.created ? current.total + 1 : current.total }));
+    setPagination((current) => ({
+      ...current,
+      total: response.created && matchesActiveFilters ? current.total + 1 : current.total,
+    }));
     void loadUploads(true);
   }
 
@@ -179,8 +224,8 @@ export default function UploadCenter() {
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div>
-          <Typography.Title level={4} style={{ margin: 0 }}>{t('upload.title')}</Typography.Title>
-          <Typography.Text type="secondary">{t('upload.description')}</Typography.Text>
+          <Typography.Title level={4} style={{ margin: 0 }}>{t('upload.browser.title')}</Typography.Title>
+          <Typography.Text type="secondary">{t('upload.browser.description')}</Typography.Text>
         </div>
         <Button icon={<ReloadOutlined />} onClick={() => { void loadUploads(); }}>
           {t('common.action.refresh')}
@@ -235,8 +280,22 @@ export default function UploadCenter() {
           page={pagination.page}
           total={pagination.total}
           statusFilter={statusFilter}
+          sourceTypeFilter={sourceTypeFilter}
+          searchTerm={searchInput}
+          sortOrder={sortOrder}
           onStatusFilterChange={(nextStatus) => {
-            setStatusFilter(nextStatus);
+            setStatusFilter(normalizeUploadStatusFilter(nextStatus));
+            setPage(1);
+          }}
+          onSourceTypeFilterChange={(nextSourceType) => {
+            setSourceTypeFilter(normalizeUploadSourceTypeFilter(nextSourceType));
+            setPage(1);
+          }}
+          onSearchTermChange={(nextSearchInput) => {
+            setSearchInput(nextSearchInput);
+          }}
+          onSortOrderChange={(nextSortOrder) => {
+            setSortOrder(normalizeUploadSort(nextSortOrder));
             setPage(1);
           }}
           onPageChange={setPage}
@@ -273,4 +332,25 @@ export default function UploadCenter() {
       />
     </>
   );
+}
+
+function uploadMatchesActiveFilters(
+  upload: UploadItem,
+  filters: { status: string; sourceType: string; search: string },
+): boolean {
+  if (filters.status.length > 0 && upload.status !== filters.status) {
+    return false;
+  }
+
+  if (filters.sourceType.length > 0 && upload.source_type !== filters.sourceType) {
+    return false;
+  }
+
+  const normalizedSearch = filters.search.trim().toLowerCase();
+  if (normalizedSearch.length === 0) {
+    return true;
+  }
+
+  const searchable = `${upload.filename} ${upload.classification ?? ''}`.toLowerCase();
+  return searchable.includes(normalizedSearch);
 }
