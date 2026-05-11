@@ -39,6 +39,7 @@ beforeEach(async () => {
 afterEach(() => {
   cleanup();
   window.sessionStorage.clear();
+  window.localStorage.clear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -291,6 +292,65 @@ describe('Message input', () => {
 
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
     expect(onSend.mock.calls[0]?.[0]).toHaveLength(CHAT_INPUT_MAX_LENGTH);
+  });
+});
+
+describe('Chat bottom area layout', () => {
+  it('wraps space selector and message input in chat-bottom-area container', async () => {
+    stubChatFetch();
+
+    renderChatRoute();
+
+    await screen.findByLabelText('消息');
+    const bottomArea = document.querySelector('.chat-bottom-area');
+    expect(bottomArea).toBeInTheDocument();
+    expect(bottomArea?.querySelector('.chat-space-selector-panel')).toBeInTheDocument();
+    expect(bottomArea?.querySelector('.chat-input-panel')).toBeInTheDocument();
+  });
+});
+
+describe('Sidebar collapse', () => {
+  it('renders collapse toggle button in sidebar header', async () => {
+    stubChatFetch();
+
+    renderChatRoute();
+
+    const collapseButton = await screen.findByRole('button', { name: '收起侧边栏' });
+    fireEvent.click(collapseButton);
+
+    await waitFor(() => expect(document.querySelector('.chat-page')).toHaveClass('sidebar-collapsed'));
+  });
+
+  it('persists sidebar collapsed state to localStorage', async () => {
+    const localStorageMock = stubLocalStorage({ 'cherry-chat-sidebar-collapsed': 'true' });
+    stubChatFetch();
+
+    renderChatRoute();
+
+    await waitFor(() => expect(document.querySelector('.chat-page')).toHaveClass('sidebar-collapsed'));
+    localStorageMock.clear();
+    fireEvent.click(await screen.findByRole('button', { name: '展开侧边栏' }));
+
+    await waitFor(() => {
+      expect(document.querySelector('.chat-page')).not.toHaveClass('sidebar-collapsed');
+      expect(localStorageMock.setItem).toHaveBeenLastCalledWith('cherry-chat-sidebar-collapsed', 'false');
+    });
+  });
+
+  it('shows floating expand button when sidebar is collapsed', async () => {
+    stubLocalStorage({ 'cherry-chat-sidebar-collapsed': 'true' });
+    stubChatFetch();
+
+    renderChatRoute();
+
+    const expandButton = await screen.findByRole('button', { name: '展开侧边栏' });
+    expect(expandButton).toHaveClass('chat-sidebar-expand');
+    fireEvent.click(expandButton);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: '展开侧边栏' })).not.toBeInTheDocument();
+      expect(document.querySelector('.chat-page')).not.toHaveClass('sidebar-collapsed');
+    });
   });
 });
 
@@ -749,6 +809,31 @@ function stubChatFetch({
   );
 
   return { calls };
+}
+
+function stubLocalStorage(initial: Record<string, string> = {}): Storage {
+  const store: Record<string, string> = { ...initial };
+  const localStorageMock: Storage = {
+    get length() {
+      return Object.keys(store).length;
+    },
+    clear: vi.fn(() => {
+      for (const key of Object.keys(store)) {
+        delete store[key];
+      }
+    }),
+    getItem: vi.fn((key: string) => (Object.prototype.hasOwnProperty.call(store, key) ? store[key] ?? null : null)),
+    key: vi.fn((index: number) => Object.keys(store)[index] ?? null),
+    removeItem: vi.fn((key: string) => {
+      delete store[key];
+    }),
+    setItem: vi.fn((key: string, value: string) => {
+      store[key] = value;
+    }),
+  };
+
+  vi.stubGlobal('localStorage', localStorageMock);
+  return localStorageMock;
 }
 
 async function sendChatMessage(message: string): Promise<void> {

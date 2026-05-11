@@ -5,7 +5,16 @@ import { Navigate, useNavigate, useParams } from 'react-router';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
 import { Alert, Button, Collapse, Empty, Input, List, message, Popconfirm, Result, Select, Spin, Tag } from 'antd';
-import { CloseOutlined, DeleteOutlined, LockOutlined, MenuOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons';
+import {
+  CloseOutlined,
+  DeleteOutlined,
+  LockOutlined,
+  MenuFoldOutlined,
+  MenuOutlined,
+  MenuUnfoldOutlined,
+  PlusOutlined,
+  SendOutlined,
+} from '@ant-design/icons';
 import ChatChart from '../components/ChatChart.js';
 import { ConfidenceBadge } from '../components/ConfidenceBadge.js';
 import GraphPathViewer, { type GraphPathData, type GraphPathEdge, type GraphPathNode } from '../components/GraphPathViewer.js';
@@ -92,6 +101,7 @@ const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   retrievalMode: DEFAULT_RETRIEVAL_MODE,
 };
 const CHAT_SPACE_SELECTION_MAX = 10;
+const CHAT_SIDEBAR_COLLAPSED_KEY = 'cherry-chat-sidebar-collapsed';
 
 export default function Chat() {
   const { t } = useTranslation();
@@ -118,6 +128,7 @@ export default function Chat() {
       ? chatSettingsState.settings
       : loadChatSettings(selectedSpaceIds);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => loadSidebarCollapsed());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const sessionSwitchRef = useRef(0);
   const previousSpaceIdRef = useRef(spaceId);
@@ -298,6 +309,10 @@ export default function Chat() {
     }
   }, [messages]);
 
+  useEffect(() => {
+    saveSidebarCollapsed(isSidebarCollapsed);
+  }, [isSidebarCollapsed]);
+
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
@@ -383,7 +398,7 @@ export default function Chat() {
   const selectorLocked = isStreaming || sessionId !== null;
 
   return (
-    <div className="chat-page">
+    <div className={`chat-page${isSidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
       {isMobileSidebarOpen ? (
         <button
           className="chat-sidebar-backdrop"
@@ -393,19 +408,32 @@ export default function Chat() {
         />
       ) : null}
 
-      <aside className={`chat-session-sidebar${isMobileSidebarOpen ? ' open' : ''}`} aria-label={t('chat.title')}>
+      <aside
+        className={`chat-session-sidebar${isMobileSidebarOpen ? ' open' : ''}`}
+        aria-label={t('chat.title')}
+        aria-hidden={isSidebarCollapsed && !isMobileSidebarOpen}
+      >
         <div className="chat-sidebar-header">
           <div>
             <span className="eyebrow">{t('chat.space')}</span>
             <strong>{t('chat.brand')}</strong>
           </div>
-          <Button
-            type="text"
-            icon={<CloseOutlined />}
-            className="chat-sidebar-close"
-            onClick={() => setIsMobileSidebarOpen(false)}
-            aria-label={t('chat.closeSidebar')}
-          />
+          <div className="chat-sidebar-actions">
+            <Button
+              type="text"
+              icon={<MenuFoldOutlined />}
+              className="chat-sidebar-collapse"
+              onClick={() => setIsSidebarCollapsed(true)}
+              aria-label={t('chat.collapseSidebar')}
+            />
+            <Button
+              type="text"
+              icon={<CloseOutlined />}
+              className="chat-sidebar-close"
+              onClick={() => setIsMobileSidebarOpen(false)}
+              aria-label={t('chat.closeSidebar')}
+            />
+          </div>
         </div>
         {sessionsError !== null ? <Alert type="error" message={sessionsError} showIcon style={{ margin: '0 8px 8px' }} /> : null}
         <SessionSidebar
@@ -421,6 +449,17 @@ export default function Chat() {
           }}
         />
       </aside>
+
+      {isSidebarCollapsed ? (
+        <button
+          className="chat-sidebar-expand"
+          type="button"
+          aria-label={t('chat.expandSidebar')}
+          onClick={() => setIsSidebarCollapsed(false)}
+        >
+          <MenuUnfoldOutlined />
+        </button>
+      ) : null}
 
       <main className="chat-main">
         <header className="chat-topbar">
@@ -448,39 +487,41 @@ export default function Chat() {
           <div ref={messagesEndRef} />
         </section>
 
-        {chatErrorMessage !== null ? (
-          <div className="chat-error-bar" role="alert">
-            <span>{chatErrorMessage}</span>
-            {streamError?.code !== 'NO_CHAT_MODEL_CONFIGURED' ? (
-              <Button
-                type="default"
-                disabled={isStreaming}
-                onClick={() => {
-                  void retry();
-                }}
-              >
-                {t('common.action.retry')}
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
+        <div className="chat-bottom-area">
+          {chatErrorMessage !== null ? (
+            <div className="chat-error-bar" role="alert">
+              <span>{chatErrorMessage}</span>
+              {streamError?.code !== 'NO_CHAT_MODEL_CONFIGURED' ? (
+                <Button
+                  type="default"
+                  disabled={isStreaming}
+                  onClick={() => {
+                    void retry();
+                  }}
+                >
+                  {t('common.action.retry')}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
 
-        <SpaceSelector
-          availableSpaces={availableSpaces}
-          selectedSpaceIds={selectedSpaceIds}
-          primarySpaceId={spaceId}
-          locked={selectorLocked}
-          onChange={setSelectedSpaceIds}
-          onStartNewSession={newChat}
-        />
-        <MessageInput
-          disabled={isStreaming}
-          isStreaming={isStreaming}
-          settings={chatSettings}
-          databaseAvailable={selectedSpaceIds.length === 1 && spaceDatabaseEnabled}
-          onSettingsChange={updateChatSettings}
-          onSend={handleSend}
-        />
+          <SpaceSelector
+            availableSpaces={availableSpaces}
+            selectedSpaceIds={selectedSpaceIds}
+            primarySpaceId={spaceId}
+            locked={selectorLocked}
+            onChange={setSelectedSpaceIds}
+            onStartNewSession={newChat}
+          />
+          <MessageInput
+            disabled={isStreaming}
+            isStreaming={isStreaming}
+            settings={chatSettings}
+            databaseAvailable={selectedSpaceIds.length === 1 && spaceDatabaseEnabled}
+            onSettingsChange={updateChatSettings}
+            onSend={handleSend}
+          />
+        </div>
       </main>
     </div>
   );
@@ -1112,6 +1153,30 @@ function saveChatSettings(spaceIds: string[], settings: ChatSettings): void {
 
 function getChatSettingsKey(spaceIds: string[]): string {
   return `cherry-chat-settings:${JSON.stringify([...spaceIds].sort())}`;
+}
+
+function loadSidebarCollapsed(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  try {
+    return window.localStorage.getItem(CHAT_SIDEBAR_COLLAPSED_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function saveSidebarCollapsed(isCollapsed: boolean): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(CHAT_SIDEBAR_COLLAPSED_KEY, String(isCollapsed));
+  } catch {
+    // localStorage can be unavailable in private browsing contexts.
+  }
 }
 
 function isSpaceDatabaseEnabled(value: unknown): boolean {

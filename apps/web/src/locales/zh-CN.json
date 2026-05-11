@@ -891,6 +891,8 @@
     "brand": "Cherry Chat",
     "closeSessions": "关闭会话列表",
     "closeSidebar": "关闭",
+    "collapseSidebar": "收起侧边栏",
+    "expandSidebar": "展开侧边栏",
     "newChat": "新建对话",
     "loadingSessions": "加载会话中...",
     "emptyConversation": "开始新的对话",

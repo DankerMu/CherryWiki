@@ -891,6 +891,8 @@
     "brand": "Cherry Chat",
     "closeSessions": "Close sessions",
     "closeSidebar": "Close",
+    "collapseSidebar": "Collapse sidebar",
+    "expandSidebar": "Expand sidebar",
     "newChat": "New Chat",
     "loadingSessions": "Loading sessions...",
     "emptyConversation": "Start a new conversation",
