@@ -191,6 +191,10 @@ function buildRun(overrides: Partial<GraphifyRun> = {}): GraphifyRun {
       page_ids: [],
       source_document_ids: [],
     },
+    input_scope_resolved: {
+      source_documents: [],
+      pages: [],
+    },
     result: {
       nodes_created: 10,
       nodes_updated: 0,

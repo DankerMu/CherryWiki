@@ -17,6 +17,7 @@ import {
   GRAPHIFY_PAGE_SIZE,
   formatCount,
   getGraphifyStat,
+  formatRunLabel,
   getQuarantineType,
   isGraphifyRunActive,
   isQuarantined,
@@ -131,15 +132,18 @@ function GraphifyPage() {
     {
       title: t('admin.graphify.columns.run'),
       key: 'run',
-      render: (_: unknown, run: GraphifyRun) => (
-        <div>
-          <Typography.Text strong>{run.run_id}</Typography.Text>
-          <br />
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {run.result.report_uri ?? t('admin.graphify.noReport')}
-          </Typography.Text>
-        </div>
-      ),
+      render: (_: unknown, run: GraphifyRun) => {
+        const label = formatRunLabel(run, t);
+        return (
+          <div>
+            <Typography.Text strong>{label.primary}</Typography.Text>
+            <br />
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {label.secondary}
+            </Typography.Text>
+          </div>
+        );
+      },
     },
     {
       title: t('admin.graphify.columns.status'),

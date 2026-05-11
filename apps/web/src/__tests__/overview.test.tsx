@@ -252,6 +252,10 @@ function createGraphifyRun(overrides: Record<string, unknown> = {}) {
     status: 'running',
     progress: { percent: 40, stage: 'importing' },
     input_scope: {},
+    input_scope_resolved: {
+      source_documents: [],
+      pages: [],
+    },
     result: {
       nodes_created: 0,
       nodes_updated: 0,
