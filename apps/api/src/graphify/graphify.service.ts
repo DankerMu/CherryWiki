@@ -828,6 +828,8 @@ function buildRunOrder(sort: string): SQL {
   return parsed.direction === 'desc' ? desc(column) : asc(column);
 }
 
+const RESOLVE_CHUNK_SIZE = 200;
+
 export async function resolveInputScope(
   db: GraphifyDatabase,
   runs: GraphifyRunRow[],
@@ -840,55 +842,59 @@ export async function resolveInputScope(
     return { docMap, pageMap };
   }
 
-  const sourceDocumentIds = new Set<string>();
-  const pageIds = new Set<string>();
-  const spaceId = runs[0]?.space_id ?? '';
+  const spaceGroups = new Map<string, { docIds: Set<string>; pageIds: Set<string> }>();
 
   for (const run of runs) {
     const stats = asRecord(run.stats_json);
     const inputScope = readInputScope(stats.input_scope);
+    let group = spaceGroups.get(run.space_id);
+    if (group === undefined) {
+      group = { docIds: new Set(), pageIds: new Set() };
+      spaceGroups.set(run.space_id, group);
+    }
     for (const id of inputScope?.source_document_ids ?? []) {
-      sourceDocumentIds.add(id);
+      group.docIds.add(id);
     }
     for (const id of inputScope?.page_ids ?? []) {
-      pageIds.add(id);
+      group.pageIds.add(id);
     }
   }
 
-  const sourceDocumentIdList = [...sourceDocumentIds].slice(0, 200);
-  const pageIdList = [...pageIds].slice(0, 200);
-
-  if (sourceDocumentIdList.length > 0) {
-    const rows = await db
-      .select({ id: source_documents.id, filename: source_documents.filename })
-      .from(source_documents)
-      .where(
-        and(
-          eq(source_documents.tenant_id, tenantId),
-          eq(source_documents.space_id, spaceId),
-          inArray(source_documents.id, sourceDocumentIdList),
-        ),
-      );
-
-    for (const row of rows) {
-      docMap.set(row.id, row.filename);
+  for (const [spaceId, group] of spaceGroups) {
+    const docIdList = [...group.docIds];
+    for (let i = 0; i < docIdList.length; i += RESOLVE_CHUNK_SIZE) {
+      const chunk = docIdList.slice(i, i + RESOLVE_CHUNK_SIZE);
+      const rows = await db
+        .select({ id: source_documents.id, filename: source_documents.filename })
+        .from(source_documents)
+        .where(
+          and(
+            eq(source_documents.tenant_id, tenantId),
+            eq(source_documents.space_id, spaceId),
+            inArray(source_documents.id, chunk),
+          ),
+        );
+      for (const row of rows) {
+        docMap.set(row.id, row.filename);
+      }
     }
-  }
 
-  if (pageIdList.length > 0) {
-    const rows = await db
-      .select({ id: wikiPages.id, title: wikiPages.title })
-      .from(wikiPages)
-      .where(
-        and(
-          eq(wikiPages.tenant_id, tenantId),
-          eq(wikiPages.space_id, spaceId),
-          inArray(wikiPages.id, pageIdList),
-        ),
-      );
-
-    for (const row of rows) {
-      pageMap.set(row.id, row.title);
+    const pageIdList = [...group.pageIds];
+    for (let i = 0; i < pageIdList.length; i += RESOLVE_CHUNK_SIZE) {
+      const chunk = pageIdList.slice(i, i + RESOLVE_CHUNK_SIZE);
+      const rows = await db
+        .select({ id: wikiPages.id, title: wikiPages.title })
+        .from(wikiPages)
+        .where(
+          and(
+            eq(wikiPages.tenant_id, tenantId),
+            eq(wikiPages.space_id, spaceId),
+            inArray(wikiPages.id, chunk),
+          ),
+        );
+      for (const row of rows) {
+        pageMap.set(row.id, row.title);
+      }
     }
   }
 
