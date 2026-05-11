@@ -9,7 +9,7 @@ export default function Home() {
   const firstSpace = user?.spaces?.[0];
 
   if (firstSpace !== undefined) {
-    return <Navigate to={`/spaces/${encodeURIComponent(firstSpace.id)}/chat`} replace />;
+    return <Navigate to={`/spaces/${encodeURIComponent(firstSpace.id)}/overview`} replace />;
   }
 
   if (isAdmin) {

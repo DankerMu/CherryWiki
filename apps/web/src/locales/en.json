@@ -69,6 +69,7 @@
     },
     "sidebar": {
       "spaceFunctions": "Space Functions",
+      "overview": "Overview",
       "chat": "Chat",
       "wiki": "Wiki",
       "uploads": "Documents",
@@ -460,6 +461,57 @@
         "notStarted": "Not started",
         "unavailable": "Unavailable"
       }
+    }
+  },
+  "overview": {
+    "title": "Space Overview",
+    "description": "Review knowledge coverage, graph readiness, and recent activity for this space.",
+    "stats": {
+      "documents": "Documents",
+      "wikiPages": "Wiki Pages",
+      "graphNodes": "Graph Nodes",
+      "graphEdges": "Graph Edges"
+    },
+    "status": {
+      "title": "Knowledge Status",
+      "indexConsistency": "Index consistency",
+      "indexWarning": "Index consistency is {{status}}.",
+      "strictMode": "Strict knowledge mode",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "graphAvailability": "Graph availability",
+      "graphAvailable": "Available in Graph Explorer",
+      "graphUnavailable": "No graph nodes yet",
+      "communities": "Communities",
+      "activeRun": "Active Graphify run",
+      "noActiveRun": "No active run",
+      "viewRun": "View run",
+      "reviewWiki": "Review wiki",
+      "runGraphify": "Run Graphify"
+    },
+    "recentDocuments": {
+      "title": "Recent Documents",
+      "empty": "No documents in this space yet."
+    },
+    "recentWikiPages": {
+      "title": "Recent Wiki Pages",
+      "empty": "Wiki pages appear after document ingestion or Graphify generation."
+    },
+    "quickActions": {
+      "title": "Quick Actions",
+      "documents": "Documents",
+      "wiki": "Wiki",
+      "graph": "Graph Explorer",
+      "graphify": "Graphify",
+      "chat": "Chat"
+    },
+    "action": {
+      "viewAll": "View all",
+      "addDocuments": "Add documents",
+      "runGraphify": "Run Graphify"
+    },
+    "error": {
+      "stats": "Stats unavailable"
     }
   },
   "upload": {

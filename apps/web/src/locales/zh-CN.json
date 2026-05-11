@@ -69,6 +69,7 @@
     },
     "sidebar": {
       "spaceFunctions": "空间功能",
+      "overview": "概览",
       "chat": "聊天",
       "wiki": "知识库",
       "uploads": "文档",
@@ -460,6 +461,57 @@
         "notStarted": "未开始",
         "unavailable": "不可用"
       }
+    }
+  },
+  "overview": {
+    "title": "空间概览",
+    "description": "查看此空间的知识覆盖、图谱可用性和最近活动。",
+    "stats": {
+      "documents": "文档",
+      "wikiPages": "知识库页面",
+      "graphNodes": "图谱节点",
+      "graphEdges": "图谱边"
+    },
+    "status": {
+      "title": "知识状态",
+      "indexConsistency": "索引一致性",
+      "indexWarning": "索引一致性为 {{status}}。",
+      "strictMode": "严格知识模式",
+      "enabled": "已启用",
+      "disabled": "已禁用",
+      "graphAvailability": "图谱可用性",
+      "graphAvailable": "可在图谱探索中查看",
+      "graphUnavailable": "暂无图谱节点",
+      "communities": "社区",
+      "activeRun": "活跃 Graphify 运行",
+      "noActiveRun": "暂无活跃运行",
+      "viewRun": "查看运行",
+      "reviewWiki": "查看知识库",
+      "runGraphify": "运行图谱化"
+    },
+    "recentDocuments": {
+      "title": "最近文档",
+      "empty": "此空间还没有文档。"
+    },
+    "recentWikiPages": {
+      "title": "最近知识库页面",
+      "empty": "知识库页面会在文档摄取或图谱化生成后显示。"
+    },
+    "quickActions": {
+      "title": "快捷操作",
+      "documents": "文档",
+      "wiki": "知识库",
+      "graph": "图谱探索",
+      "graphify": "图谱化",
+      "chat": "聊天"
+    },
+    "action": {
+      "viewAll": "查看全部",
+      "addDocuments": "添加文档",
+      "runGraphify": "运行图谱化"
+    },
+    "error": {
+      "stats": "统计不可用"
     }
   },
   "upload": {

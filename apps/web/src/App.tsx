@@ -22,6 +22,7 @@ import UploadCenter from './pages/uploads/UploadCenter';
 import { ThemeProvider } from './theme/ThemeProvider';
 
 const SpaceGraphExplorerPage = lazy(() => import('./pages/graph/SpaceGraphExplorerPage'));
+const SpaceOverviewPage = lazy(() => import('./pages/space/SpaceOverviewPage'));
 
 export function AppRoutes() {
   return (
@@ -29,6 +30,15 @@ export function AppRoutes() {
       <Route path="/login" element={<Login />} />
       <Route element={<ProtectedShell />}>
         <Route path="/" element={<Home />} />
+        <Route path="/spaces/:spaceId" element={<Navigate to="overview" replace />} />
+        <Route
+          path="/spaces/:spaceId/overview"
+          element={(
+            <Suspense fallback={null}>
+              <SpaceOverviewPage />
+            </Suspense>
+          )}
+        />
         <Route path="/spaces/:spaceId/chat" element={<Chat />} />
         <Route path="/spaces/:spaceId/wiki" element={<Wiki />} />
         <Route path="/spaces/:spaceId/wiki/:pageId" element={<Wiki />} />
