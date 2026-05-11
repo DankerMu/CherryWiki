@@ -78,6 +78,6 @@ describe('chat RAG flow integration', () => {
       ]),
     );
     expect(embeddingProvider.calls).toEqual([['How are SSO and MFA configured?']]);
-    expect(chatProvider.lastParams?.systemPrompt).toContain('[^1] (Page: Auth, Section: SSO)');
+    expect(chatProvider.lastParams?.systemPrompt).toContain('[^1] (Page: Auth, Section: SSO, Space: Knowledge)');
   });
 });

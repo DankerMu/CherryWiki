@@ -32,6 +32,7 @@ describe('graph chunk conflict policy', () => {
 function createSearchHit(content: string): SearchHit {
   return {
     chunkId: 'chunk-1',
+    spaceId: 'space-1',
     content,
     score: 1,
     wikiPagePk: 'wiki-page-1',

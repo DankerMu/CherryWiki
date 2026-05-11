@@ -361,6 +361,7 @@ function makePath(nodes: GraphQueryNode[], edges: GraphQueryEdge[], totalConfide
 function makeHit(chunkId: string, content: string, injectionRisk = false): SearchHit {
   return {
     chunkId,
+    spaceId: 'space-1',
     content,
     score: 1,
     wikiPagePk: `page-${chunkId}`,

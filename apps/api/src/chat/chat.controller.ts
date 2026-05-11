@@ -196,7 +196,8 @@ function writeSseEvent(reply: SseReply, event: ChatStreamEvent): void {
   }
 
   if (event.type === 'message.completed') {
-    reply.raw.write(`event: message.completed\ndata: ${JSON.stringify({})}\n\n`);
+    const data = event.database_mode === undefined ? {} : { database_mode: event.database_mode };
+    reply.raw.write(`event: message.completed\ndata: ${JSON.stringify(data)}\n\n`);
     return;
   }
 

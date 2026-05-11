@@ -73,6 +73,7 @@ type ChatUsage = {
   completion_tokens: number;
   total_tokens: number;
 };
+type DatabaseMode = 'enabled' | 'disabled' | 'unavailable_multi_space';
 
 export type Intent =
   | 'relationship_explanation'
@@ -117,7 +118,7 @@ export type ChatStreamEvent =
   | { type: 'usage'; usage: ChatUsage }
   | { type: 'agent.tool_use'; id?: string; name: string; input: Record<string, unknown> }
   | { type: 'chart.data'; data: Record<string, unknown> }
-  | { type: 'message.completed' }
+  | { type: 'message.completed'; database_mode?: DatabaseMode }
   | { type: 'error'; code: string; message: string };
 
 export type SpaceDisplayInfo = {
@@ -155,6 +156,7 @@ export type ChatSessionDetailResponse = ChatSessionResponse & {
 export type CitationResponse = {
   index: number;
   chunk_id: string;
+  space_id?: string;
   wiki_page_pk: string;
   page_id: string;
   section_id: string | null;
@@ -198,7 +200,7 @@ type RetrievedContext = {
       graph: GraphHint[];
     };
     finalContext: {
-      wiki: Array<Pick<RetrievalResult, 'chunkId' | 'score' | 'pageTitle' | 'sectionTitle'>>;
+      wiki: Array<Pick<RetrievalResult, 'chunkId' | 'spaceId' | 'score' | 'pageTitle' | 'sectionTitle'>>;
       graph_hints: GraphHint[];
       wiki_tokens: number;
       graph_tokens: number;
@@ -562,8 +564,14 @@ export class ChatService {
     modelId: string;
     modelMaxTokens?: number | null;
     relaxedNoHit?: boolean;
+    spaces?: SpaceDisplayInfo[];
   }): RagPrompt {
-    const systemPrompt = buildSystemPrompt(input.retrievalResults, input.relaxedNoHit === true, input.graphHints ?? []);
+    const systemPrompt = buildSystemPrompt(
+      input.retrievalResults,
+      input.relaxedNoHit === true,
+      input.graphHints ?? [],
+      input.spaces ?? [],
+    );
     const messages = truncateHistoryForBudget(
       input.history,
       input.currentMessage,
@@ -636,7 +644,9 @@ export class ChatService {
     }
 
     const visibleDatabaseConfig = normalizeDatabaseConfig(prepared.space.database_config);
-    const enableDatabase = input.enableDatabase === true && visibleDatabaseConfig.enabled;
+    const databaseSuppressed = prepared.spaceIds.length > 1 && input.enableDatabase === true;
+    const enableDatabase = prepared.spaceIds.length === 1 && input.enableDatabase === true && visibleDatabaseConfig.enabled;
+    const databaseMode: DatabaseMode = databaseSuppressed ? 'unavailable_multi_space' : enableDatabase ? 'enabled' : 'disabled';
     const databaseConfig = enableDatabase
       ? await decryptSpaceDatabaseConfig(this.db, prepared.space.database_config)
       : visibleDatabaseConfig;
@@ -701,11 +711,14 @@ export class ChatService {
 
           const assistant = await this.persistMessage(prepared.session.id, 'assistant', assistantText, usage.completion_tokens, [], {
             source: 'agent',
+            database_mode: databaseMode,
           });
           void this.maybeGenerateTitle(prepared, input.message, assistantText);
           yield { type: 'usage', usage };
-          yield { type: 'message.completed' };
-          this.auditCompletion(prepared, usage, 0, false, assistant.id);
+          yield databaseSuppressed
+            ? { type: 'message.completed', database_mode: databaseMode }
+            : { type: 'message.completed' };
+          this.auditCompletion(prepared, usage, 0, false, assistant.id, { database_mode: databaseMode });
           return;
         }
 
@@ -735,11 +748,17 @@ export class ChatService {
     const startedAt = Date.now();
 
     try {
-      const snapshot = await this.findActivatedSnapshot(prepared.tenantId, prepared.space.id);
+      const spaceSnapshots: Array<{ spaceId: string; snapshot: IndexSnapshotRow }> = [];
+      for (const spaceId of prepared.spaceIds) {
+        const snapshot = await this.findActivatedSnapshot(prepared.tenantId, spaceId);
+        if (snapshot !== undefined) {
+          spaceSnapshots.push({ spaceId, snapshot });
+        }
+      }
       let retrievedContext = emptyRetrievedContext();
 
-      if (snapshot !== undefined) {
-        retrievedContext = await this.retrieveContext(prepared, snapshot);
+      if (spaceSnapshots.length > 0) {
+        retrievedContext = await this.retrieveContext(prepared, spaceSnapshots);
         retrievalResults = retrievedContext.results;
       }
 
@@ -792,6 +811,7 @@ export class ChatService {
         modelId: prepared.chatModel.model_id,
         modelMaxTokens: prepared.chatModel.max_tokens,
         relaxedNoHit,
+        spaces: prepared.spaces.map((space) => ({ id: space.id, name: space.name })),
       });
       const provider = this.chatProviderFactory(toChatProviderConfig(prepared.chatModel));
       let assistantText = '';
@@ -1172,12 +1192,11 @@ export class ChatService {
     return model;
   }
 
-  private async retrieveContext(prepared: PreparedCompletion, snapshot: IndexSnapshotRow): Promise<RetrievedContext> {
-    const embeddingModel = await this.resolveSnapshotEmbeddingModel(prepared.tenantId, snapshot);
-    const embeddingProvider = this.embeddingProviderFactory(toEmbeddingProviderConfig(embeddingModel));
-    const [queryEmbedding] = await embeddingProvider.embedBatch([prepared.message]);
-
-    if (queryEmbedding === undefined || queryEmbedding.length === 0) {
+  private async retrieveContext(
+    prepared: PreparedCompletion,
+    spaceSnapshots: Array<{ spaceId: string; snapshot: IndexSnapshotRow }>,
+  ): Promise<RetrievedContext> {
+    if (spaceSnapshots.length === 0) {
       return emptyRetrievedContext();
     }
 
@@ -1188,27 +1207,59 @@ export class ChatService {
     };
     const vectorSearch = this.createVectorSearchFn();
     const bm25Search = this.createBm25SearchFn();
-    const results = await retrieve(
-      {
-        query: prepared.message,
-        queryEmbedding,
-        tenantId: prepared.tenantId,
-        spaceId: prepared.space.id,
-        userGroupIds: prepared.userGroupIds,
-        snapshotId: snapshot.id,
-        topK: RETRIEVAL_TOP_K,
-      },
-      async (params) => {
-        const hits = await vectorSearch(params);
-        candidates.vector = hits;
-        return hits;
-      },
-      async (params) => {
-        const hits = await bm25Search(params);
-        candidates.bm25 = hits;
-        return hits;
-      },
-    );
+    const modelGroups = new Map<string, Array<{ spaceId: string; snapshot: IndexSnapshotRow }>>();
+
+    for (const entry of spaceSnapshots) {
+      const group = modelGroups.get(entry.snapshot.embedding_model_id) ?? [];
+      group.push(entry);
+      modelGroups.set(entry.snapshot.embedding_model_id, group);
+    }
+
+    let results: RetrievalResult[] = [];
+
+    for (const groupSnapshots of modelGroups.values()) {
+      const firstSnapshot = groupSnapshots[0]?.snapshot;
+      if (firstSnapshot === undefined) {
+        continue;
+      }
+
+      const embeddingModel = await this.resolveSnapshotEmbeddingModel(prepared.tenantId, firstSnapshot);
+      const embeddingProvider = this.embeddingProviderFactory(toEmbeddingProviderConfig(embeddingModel));
+      const [queryEmbedding] = await embeddingProvider.embedBatch([prepared.message]);
+
+      if (queryEmbedding === undefined || queryEmbedding.length === 0) {
+        continue;
+      }
+
+      const snapshotsBySpace = Object.fromEntries(
+        groupSnapshots.map(({ spaceId, snapshot }) => [spaceId, snapshot.id]),
+      );
+      const groupResults = await retrieve(
+        {
+          query: prepared.message,
+          queryEmbedding,
+          tenantId: prepared.tenantId,
+          spaceIds: Object.keys(snapshotsBySpace),
+          userGroupIds: prepared.userGroupIds,
+          snapshotsBySpace,
+          topK: RETRIEVAL_TOP_K,
+        },
+        async (params) => {
+          const hits = await vectorSearch(params);
+          candidates.vector.push(...hits);
+          return hits;
+        },
+        async (params) => {
+          const hits = await bm25Search(params);
+          candidates.bm25.push(...hits);
+          return hits;
+        },
+      );
+
+      results.push(...groupResults);
+    }
+
+    results = results.sort((left, right) => right.score - left.score).slice(0, RETRIEVAL_TOP_K);
 
     return {
       results,
@@ -1221,6 +1272,7 @@ export class ChatService {
         finalContext: {
           wiki: results.map((result) => ({
             chunkId: result.chunkId,
+            spaceId: result.spaceId,
             score: result.score,
             pageTitle: result.pageTitle,
             sectionTitle: result.sectionTitle,
@@ -1242,21 +1294,40 @@ export class ChatService {
     }
 
     try {
-      const result = await this.graphService.searchNodes(
-        {
-          q: prepared.message,
-          space_id: prepared.space.id,
-          top_k: 5,
-        },
-        {
-          tenantId: prepared.tenantId,
-          actorUserId: prepared.userId,
-          userId: prepared.userId,
-          userGroupIds: prepared.userGroupIds,
-        },
+      const results = await Promise.allSettled(
+        prepared.spaceIds.map((spaceId) =>
+          this.graphService!.searchNodes(
+            {
+              q: prepared.message,
+              space_id: spaceId,
+              top_k: 5,
+            },
+            {
+              tenantId: prepared.tenantId,
+              actorUserId: prepared.userId,
+              userId: prepared.userId,
+              userGroupIds: prepared.userGroupIds,
+            },
+          ),
+        ),
       );
+      const hintsById = new Map<string, GraphHint>();
 
-      return result.nodes.slice(0, 5).map(toGraphHint);
+      for (const result of results) {
+        if (result.status !== 'fulfilled' || result.value === undefined) {
+          continue;
+        }
+
+        for (const node of result.value.nodes) {
+          if (!hintsById.has(node.id)) {
+            hintsById.set(node.id, toGraphHint(node));
+          }
+        }
+      }
+
+      return Array.from(hintsById.values())
+        .sort((left, right) => right.score - left.score)
+        .slice(0, 5);
     } catch {
       return [];
     }
@@ -1324,7 +1395,7 @@ export class ChatService {
       `;
       const result = await this.db.execute<SearchRow>(query);
 
-      return normalizeSearchRows(result);
+      return normalizeSearchRows(result, params.spaceId);
     };
   }
 
@@ -1357,7 +1428,7 @@ export class ChatService {
       `;
       const result = await this.db.execute<SearchRow>(query);
 
-      return normalizeSearchRows(result);
+      return normalizeSearchRows(result, params.spaceId);
     };
   }
 
@@ -1371,6 +1442,7 @@ export class ChatService {
         id: randomUUID(),
         message_id: messageId,
         wiki_page_pk: citation.wiki_page_pk,
+        ...(citation.space_id !== undefined ? { space_id: citation.space_id } : {}),
         section_id: citation.section_id,
         chunk_id: citation.chunk_id,
         relevance_score: citation.relevance_score,
@@ -1386,6 +1458,7 @@ export class ChatService {
     retrievalCount: number,
     hasCitations: boolean,
     assistantMessageId?: string,
+    metadata: Record<string, unknown> = {},
   ): void {
     this.auditService.push({
       tenant_id: prepared.tenantId,
@@ -1407,6 +1480,7 @@ export class ChatService {
         retrieval_count: retrievalCount,
         has_citations: hasCitations,
         ...(assistantMessageId !== undefined ? { assistant_message_id: assistantMessageId } : {}),
+        ...metadata,
       },
     });
   }
@@ -1486,7 +1560,9 @@ function buildSystemPrompt(
   retrievalResults: RetrievalResult[],
   relaxedNoHit: boolean,
   graphHints: GraphHint[] = [],
+  spaces: SpaceDisplayInfo[] = [],
 ): string {
+  const spaceLabels = new Map(spaces.map((space) => [space.id, space.name]));
   const lines = [
     'You are CherryWiki Chat. Answer the user with concise, factual information.',
     'Use citations in [^N] format when facts come from provided sources.',
@@ -1503,34 +1579,40 @@ function buildSystemPrompt(
   }
 
   if (retrievalResults.length > 0) {
-    lines.push('', 'Context blocks:', formatContextBlock(retrievalResults));
+    lines.push('', 'Context blocks:', formatContextBlock(retrievalResults, spaceLabels));
   }
 
   if (graphHints.length > 0) {
     lines.push(
       '',
       'Graph hints (supplemental, do not cite these with [^N]):',
-      formatGraphHintBlock(graphHints),
+      formatGraphHintBlock(graphHints, spaceLabels),
     );
   }
 
   return lines.join('\n');
 }
 
-function formatContextBlock(results: RetrievalResult[]): string {
+function formatContextBlock(results: RetrievalResult[], spaceLabels: Map<string, string>): string {
   return results
     .map((result, index) => {
       const marker = `[^${index + 1}]`;
       const section = result.sectionTitle ?? 'N/A';
+      const space = spaceLabels.get(result.spaceId) ?? result.spaceId;
       const content = result.injectionRisk ? `${INJECTION_RISK_PREFIX}\n${result.content}` : result.content;
 
-      return `${marker} (Page: ${result.pageTitle}, Section: ${section})\n${content}\n`;
+      return `${marker} (Page: ${result.pageTitle}, Section: ${section}, Space: ${space})\n${content}\n`;
     })
     .join('\n');
 }
 
-function formatGraphHintBlock(hints: GraphHint[]): string {
-  return hints.map((hint, index) => `[G${index + 1}] ${hint.content}`).join('\n');
+function formatGraphHintBlock(hints: GraphHint[], spaceLabels: Map<string, string> = new Map()): string {
+  return hints
+    .map((hint, index) => {
+      const space = spaceLabels.get(hint.space_id) ?? hint.space_id;
+      return `[G${index + 1}] (Space: ${space}) ${hint.content}`;
+    })
+    .join('\n');
 }
 
 function toGraphHint(node: {
@@ -1619,6 +1701,7 @@ function toCitationResponse(result: RetrievalResult, index: number, fallback: bo
   return {
     index,
     chunk_id: result.chunkId,
+    space_id: result.spaceId,
     wiki_page_pk: result.wikiPagePk,
     page_id: typeof scj.page_id === 'string' ? scj.page_id : result.wikiPagePk,
     section_id: result.sectionId,
@@ -1695,9 +1778,10 @@ function toEmbeddingProviderConfig(model: ModelConfigRow): EmbeddingProviderConf
   };
 }
 
-function normalizeSearchRows(result: SqlQueryResult<SearchRow>): SearchHit[] {
+function normalizeSearchRows(result: SqlQueryResult<SearchRow>, spaceId: string): SearchHit[] {
   return result.rows.map((row) => ({
     chunkId: row.id,
+    spaceId,
     content: row.content,
     score: normalizeScore(row.score),
     wikiPagePk: row.wiki_page_pk,

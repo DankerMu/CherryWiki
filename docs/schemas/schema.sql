@@ -454,6 +454,7 @@ CREATE TABLE answer_citations (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id),
   message_id TEXT NOT NULL REFERENCES chat_messages(id),
+  space_id TEXT REFERENCES spaces(id),
   page_id TEXT,
   page_version_id TEXT REFERENCES wiki_page_versions(id),
   section_id TEXT REFERENCES wiki_sections(id),
@@ -676,6 +677,7 @@ CREATE INDEX idx_page_blocks_owner ON page_block_metadata(wiki_page_pk, owner);
 CREATE INDEX idx_source_links_page_version ON source_links(page_version_id);
 CREATE INDEX idx_source_links_source_doc ON source_links(source_document_id);
 CREATE INDEX idx_answer_citations_message ON answer_citations(message_id);
+CREATE INDEX idx_answer_citations_space ON answer_citations(space_id);
 CREATE INDEX idx_jobs_poll ON jobs(queue_name, status, priority, next_run_at) WHERE status = 'pending';
 CREATE INDEX idx_jobs_locked ON jobs(locked_by, locked_at) WHERE locked_by IS NOT NULL;
 CREATE INDEX idx_job_events_job ON job_events(job_id, created_at);
