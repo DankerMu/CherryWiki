@@ -71,7 +71,8 @@
       "spaceFunctions": "空间功能",
       "chat": "聊天",
       "wiki": "知识库",
-      "uploads": "上传",
+      "uploads": "文档",
+      "documents": "文档",
       "graphify": "图谱化"
     },
     "admin": {
@@ -463,7 +464,11 @@
   "upload": {
     "title": "上传中心",
     "description": "上传文件和 URL，跟踪此空间的处理状态。",
-    "loading": "加载上传记录中...",
+    "browser": {
+      "title": "文档",
+      "description": "浏览此空间的来源文档，添加文件或 URL，并跟踪处理状态。"
+    },
+    "loading": "加载文档中...",
     "spaceSelector": "目标空间",
     "spaceSelectorLabel": "上传到空间",
     "duplicateWarning": "文件「{{name}}」已存在于该空间，已自动关联。",
@@ -487,9 +492,10 @@
       "success": "已添加 source_document_id: {{id}}"
     },
     "list": {
-      "title": "上传列表",
-      "description": "跟踪此空间中文件和 URL 的处理状态。",
-      "emptyFilter": "没有上传记录匹配当前筛选条件。",
+      "title": "空间文档",
+      "description": "浏览此空间中已处理的文件和 URL 来源。",
+      "emptyFilter": "没有文档匹配当前筛选条件。",
+      "emptySpace": "此空间还没有文档。",
       "columns": {
         "filename": "文件名",
         "type": "类型",
@@ -501,7 +507,34 @@
       },
       "filter": {
         "status": "状态",
-        "allStatuses": "所有状态"
+        "allStatuses": "所有状态",
+        "sourceType": "来源类型",
+        "allTypes": "所有类型"
+      },
+      "search": {
+        "placeholder": "搜索文件名"
+      },
+      "sourceTypes": {
+        "upload": "上传",
+        "url": "URL"
+      },
+      "statusOptions": {
+        "uploaded": "已上传",
+        "validating": "校验中",
+        "archived": "已归档",
+        "parsing": "解析中",
+        "parsed": "已解析",
+        "graphify_pending": "等待图谱化",
+        "graphify_running": "图谱构建中",
+        "parse_failed": "解析失败",
+        "security_rejected": "安全拒绝"
+      },
+      "sort": {
+        "label": "排序",
+        "createdAt": "最新创建",
+        "updatedAt": "最近更新",
+        "filename": "文件名",
+        "status": "状态"
       },
       "details": "详情",
       "unknown": "未知",
