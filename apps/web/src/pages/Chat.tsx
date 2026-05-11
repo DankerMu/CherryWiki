@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import { Navigate, useNavigate, useParams } from 'react-router';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
-import { Alert, Button, Collapse, Empty, Input, List, Popconfirm, Result, Select, Spin, Tag } from 'antd';
+import { Alert, Button, Collapse, Empty, Input, List, message, Popconfirm, Result, Select, Spin, Tag } from 'antd';
 import { CloseOutlined, DeleteOutlined, LockOutlined, MenuOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons';
 import ChatChart from '../components/ChatChart.js';
 import { ConfidenceBadge } from '../components/ConfidenceBadge.js';
@@ -91,6 +91,7 @@ const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   enableDatabase: false,
   retrievalMode: DEFAULT_RETRIEVAL_MODE,
 };
+const CHAT_SPACE_SELECTION_MAX = 10;
 
 export default function Chat() {
   const { t } = useTranslation();
@@ -119,6 +120,7 @@ export default function Chat() {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const sessionSwitchRef = useRef(0);
+  const previousSpaceIdRef = useRef(spaceId);
   const spaceNameById = useMemo(() => {
     const names: Record<string, string> = {};
     for (const space of availableSpaces) {
@@ -183,8 +185,12 @@ export default function Chat() {
   }, [loadSessions]);
 
   useEffect(() => {
+    if (previousSpaceIdRef.current !== spaceId) {
+      startNewSession();
+      previousSpaceIdRef.current = spaceId;
+    }
     setSelectedSpaceIds(normalizeSelectedSpaceIds(spaceId, [spaceId]));
-  }, [spaceId]);
+  }, [spaceId, startNewSession]);
 
   useEffect(() => {
     if (chatSettingsKeyRef.current !== selectedSpaceSettingsKey) {
@@ -374,6 +380,7 @@ export default function Chat() {
   }
 
   const chatErrorMessage = getChatErrorMessage(streamError, selectedSpaceIds.length);
+  const selectorLocked = isStreaming || sessionId !== null;
 
   return (
     <div className="chat-page">
@@ -462,7 +469,7 @@ export default function Chat() {
           availableSpaces={availableSpaces}
           selectedSpaceIds={selectedSpaceIds}
           primarySpaceId={spaceId}
-          locked={sessionId !== null}
+          locked={selectorLocked}
           onChange={setSelectedSpaceIds}
           onStartNewSession={newChat}
         />
@@ -497,10 +504,11 @@ export function SpaceSelector({
   }, [availableSpaces]);
 
   const selectedIds = normalizeSelectedSpaceIds(primarySpaceId, selectedSpaceIds);
+  const isAtSpaceLimit = selectedIds.length >= CHAT_SPACE_SELECTION_MAX;
   const options = availableSpaces.map((space) => ({
     value: space.id,
     label: space.name,
-    disabled: space.id === primarySpaceId,
+    disabled: space.id === primarySpaceId || (isAtSpaceLimit && !selectedIds.includes(space.id)),
   }));
 
   return (
@@ -543,7 +551,12 @@ export function SpaceSelector({
             );
           }}
           onChange={(nextIds) => {
-            onChange(normalizeSelectedSpaceIds(primarySpaceId, nextIds));
+            const normalizedIds = normalizeSelectedSpaceIds(primarySpaceId, nextIds);
+            if (normalizedIds.length > CHAT_SPACE_SELECTION_MAX) {
+              void message.warning(t('chat.spaceSelectorMax'));
+              return;
+            }
+            onChange(normalizedIds);
           }}
         />
         {locked ? (
@@ -1098,7 +1111,7 @@ function saveChatSettings(spaceIds: string[], settings: ChatSettings): void {
 }
 
 function getChatSettingsKey(spaceIds: string[]): string {
-  return `cherry-chat-settings:${[...spaceIds].sort().join(',')}`;
+  return `cherry-chat-settings:${JSON.stringify([...spaceIds].sort())}`;
 }
 
 function isSpaceDatabaseEnabled(value: unknown): boolean {

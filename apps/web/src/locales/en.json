@@ -914,6 +914,7 @@
     "spaceSelectorPlaceholder": "Add accessible spaces",
     "primarySpaceTag": "{{name}} (primary)",
     "scopeLocked": "Space scope is locked for this session",
+    "spaceSelectorMax": "Maximum 10 spaces",
     "changeScopeNewChat": "New chat to change",
     "multiSpaceSelected": "{{count}} spaces selected: {{names}}",
     "multiSpaceBadge": "{{count}} spaces",

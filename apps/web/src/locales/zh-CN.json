@@ -914,6 +914,7 @@
     "spaceSelectorPlaceholder": "添加可访问空间",
     "primarySpaceTag": "{{name}}（主）",
     "scopeLocked": "当前会话已锁定空间范围",
+    "spaceSelectorMax": "最多选择 10 个空间",
     "changeScopeNewChat": "新建对话以更改",
     "multiSpaceSelected": "已选择 {{count}} 个空间：{{names}}",
     "multiSpaceBadge": "{{count}} 空间",

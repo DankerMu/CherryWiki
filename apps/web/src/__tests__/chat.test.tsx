@@ -253,6 +253,27 @@ describe('Space selector', () => {
     expect(screen.getByText('当前会话已锁定空间范围')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /新建对话以更改/ })).toBeInTheDocument();
   });
+
+  it('disables unselected options after selecting 10 spaces', async () => {
+    renderWithRouter(
+      <SpaceSelector
+        availableSpaces={Array.from({ length: 11 }, (_, index) => ({
+          id: `space-${index + 1}`,
+          name: `Space ${index + 1}`,
+        }))}
+        selectedSpaceIds={Array.from({ length: 10 }, (_, index) => `space-${index + 1}`)}
+        primarySpaceId="space-1"
+        locked={false}
+        onChange={vi.fn()}
+        onStartNewSession={vi.fn()}
+      />,
+    );
+
+    fireEvent.mouseDown(screen.getByRole('combobox'));
+
+    const extraOption = await screen.findByTitle('Space 11');
+    expect(extraOption.closest('.ant-select-item-option-disabled')).not.toBeNull();
+  });
 });
 
 describe('Message input', () => {
