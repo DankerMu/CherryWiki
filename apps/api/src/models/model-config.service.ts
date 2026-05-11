@@ -19,6 +19,10 @@ type ModelConfigRow = typeof model_configs.$inferSelect;
 type ModelConfigInsert = typeof model_configs.$inferInsert;
 type ModelType = 'chat' | 'embedding' | 'rerank';
 type ModelStatus = 'active' | 'disabled';
+type ProbeRequest = {
+  path: string;
+  body: unknown;
+};
 
 export type AdminContext = {
   tenantId?: string;
@@ -359,32 +363,85 @@ export class ModelConfigService {
     }
 
     const startedAt = Date.now();
+    let result: ModelConnectivityTestResponse;
+
+    let apiKey: string;
     try {
-      this.resolveApiKey(existing.encrypted_api_key_ref);
-      const result = {
-        reachable: true,
-        latency_ms: Math.max(1, Date.now() - startedAt),
+      apiKey = this.resolveApiKey(existing.encrypted_api_key_ref);
+    } catch {
+      result = {
+        reachable: false,
+        latency_ms: elapsedMs(startedAt),
+        error: 'No API key configured',
       };
 
       this.auditModelTest(tenantId, existing, result, context);
       return result;
-    } catch (err) {
-      const code = getHttpExceptionCode(err);
-      const result = {
+    }
+
+    const baseUrl = resolveModelBaseUrl(existing);
+    if (baseUrl === null) {
+      result = {
         reachable: false,
-        latency_ms: Math.max(1, Date.now() - startedAt),
-        error: code ?? (err instanceof Error ? err.message : String(err)),
+        latency_ms: elapsedMs(startedAt),
+        error: 'No base URL configured',
       };
 
       this.auditModelTest(tenantId, existing, result, context);
-      throw err;
+      return result;
     }
+
+    try {
+      const response = await probeModelEndpoint(
+        baseUrl,
+        apiKey,
+        existing.model_id,
+        normalizeModelTypeOrThrow(existing.model_type),
+      );
+      const latencyMs = elapsedMs(startedAt);
+
+      if (response.ok) {
+        result = {
+          reachable: true,
+          latency_ms: latencyMs,
+        };
+      } else if (response.status === 401 || response.status === 403) {
+        result = {
+          reachable: false,
+          latency_ms: latencyMs,
+          error: `Authentication failed (HTTP ${response.status})`,
+        };
+      } else {
+        result = {
+          reachable: false,
+          latency_ms: latencyMs,
+          error: `HTTP ${response.status}`,
+        };
+      }
+    } catch (err) {
+      if (isAbortError(err)) {
+        result = {
+          reachable: false,
+          latency_ms: 10000,
+          error: 'Request timed out (10s)',
+        };
+      } else {
+        result = {
+          reachable: false,
+          latency_ms: elapsedMs(startedAt),
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
+
+    this.auditModelTest(tenantId, existing, result, context);
+    return result;
   }
 
   resolveApiKey(encryptedApiKeyRef: string | null): string {
     const secretName = parseSecretRef(encryptedApiKeyRef);
     const apiKey = process.env[secretName.toUpperCase()];
-    if (apiKey === undefined) {
+    if (apiKey === undefined || apiKey.trim().length === 0) {
       throwApiError(ErrorCode.SECRET_NOT_FOUND, 'Secret not found', HttpStatus.UNPROCESSABLE_ENTITY);
     }
 
@@ -443,6 +500,72 @@ async function findModelById(
     .limit(1);
 
   return model;
+}
+
+async function probeModelEndpoint(
+  baseUrl: string,
+  apiKey: string,
+  modelId: string,
+  modelType: ModelType,
+): Promise<Response> {
+  const request = buildProbeRequest(modelId, modelType);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    return await fetch(`${baseUrl.replace(/\/+$/, '')}${request.path}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request.body),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function buildProbeRequest(modelId: string, modelType: ModelType): ProbeRequest {
+  switch (modelType) {
+    case 'chat':
+      return {
+        path: '/chat/completions',
+        body: {
+          model: modelId,
+          messages: [{ role: 'user', content: 'ping' }],
+          max_tokens: 1,
+        },
+      };
+    case 'embedding':
+      return {
+        path: '/embeddings',
+        body: {
+          model: modelId,
+          input: 'test',
+        },
+      };
+    case 'rerank':
+      return {
+        path: '/rerank',
+        body: {
+          model: modelId,
+          query: 'test',
+          documents: ['test'],
+        },
+      };
+  }
+}
+
+function resolveModelBaseUrl(model: ModelConfigRow): string | null {
+  const modelBaseUrl = model.base_url?.trim();
+  if (modelBaseUrl !== undefined && modelBaseUrl.length > 0) {
+    return modelBaseUrl;
+  }
+
+  const envBaseUrl = process.env.MODEL_API_BASE_URL?.trim();
+  return envBaseUrl !== undefined && envBaseUrl.length > 0 ? envBaseUrl : null;
 }
 
 async function findModelByProviderModelId(
@@ -645,17 +768,16 @@ function normalizeCount(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function elapsedMs(startedAt: number): number {
+  return Math.max(1, Date.now() - startedAt);
+}
+
 function toModelStatus(enabled: boolean): ModelStatus {
   return enabled ? 'active' : 'disabled';
 }
 
-function getHttpExceptionCode(err: unknown): string | undefined {
-  if (!(err instanceof HttpException)) {
-    return undefined;
-  }
-
-  const response = err.getResponse();
-  return isRecord(response) && typeof response.code === 'string' ? response.code : undefined;
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'AbortError';
 }
 
 function throwModelNotFound(): never {
