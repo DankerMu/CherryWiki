@@ -833,8 +833,16 @@ export async function resolveInputScope(
   runs: GraphifyRunRow[],
   tenantId: string,
 ): Promise<{ docMap: Map<string, string>; pageMap: Map<string, string> }> {
+  const docMap = new Map<string, string>();
+  const pageMap = new Map<string, string>();
+
+  if (runs.length === 0) {
+    return { docMap, pageMap };
+  }
+
   const sourceDocumentIds = new Set<string>();
   const pageIds = new Set<string>();
+  const spaceId = runs[0]?.space_id ?? '';
 
   for (const run of runs) {
     const stats = asRecord(run.stats_json);
@@ -847,16 +855,20 @@ export async function resolveInputScope(
     }
   }
 
-  const docMap = new Map<string, string>();
-  const pageMap = new Map<string, string>();
-  const sourceDocumentIdList = [...sourceDocumentIds];
-  const pageIdList = [...pageIds];
+  const sourceDocumentIdList = [...sourceDocumentIds].slice(0, 200);
+  const pageIdList = [...pageIds].slice(0, 200);
 
   if (sourceDocumentIdList.length > 0) {
     const rows = await db
       .select({ id: source_documents.id, filename: source_documents.filename })
       .from(source_documents)
-      .where(and(eq(source_documents.tenant_id, tenantId), inArray(source_documents.id, sourceDocumentIdList)));
+      .where(
+        and(
+          eq(source_documents.tenant_id, tenantId),
+          eq(source_documents.space_id, spaceId),
+          inArray(source_documents.id, sourceDocumentIdList),
+        ),
+      );
 
     for (const row of rows) {
       docMap.set(row.id, row.filename);
@@ -867,7 +879,13 @@ export async function resolveInputScope(
     const rows = await db
       .select({ id: wikiPages.id, title: wikiPages.title })
       .from(wikiPages)
-      .where(and(eq(wikiPages.tenant_id, tenantId), inArray(wikiPages.id, pageIdList)));
+      .where(
+        and(
+          eq(wikiPages.tenant_id, tenantId),
+          eq(wikiPages.space_id, spaceId),
+          inArray(wikiPages.id, pageIdList),
+        ),
+      );
 
     for (const row of rows) {
       pageMap.set(row.id, row.title);

@@ -379,6 +379,54 @@ describe('GraphifyService', () => {
       expect(resolved.docMap.has('doc-deleted')).toBe(false);
     });
 
+    it('resolveInputScope resolves wiki page ids and titles', async () => {
+      const db = new ScriptedDb();
+      db.queueSelect([
+        { id: 'page-pk-1', title: 'Getting Started' },
+        { id: 'page-pk-2', title: 'API Guide' },
+      ]);
+
+      const resolved = await resolveInputScope(
+        db.asDrizzle(),
+        [
+          createRunRow({
+            stats_json: { input_scope: { page_ids: ['page-pk-1', 'page-pk-2'] } },
+          }),
+        ],
+        TEST_TENANT_ID,
+      );
+
+      expect(resolved.pageMap.get('page-pk-1')).toBe('Getting Started');
+      expect(resolved.pageMap.size).toBe(2);
+      expect(resolved.docMap.size).toBe(0);
+    });
+
+    it('resolveInputScope adds space_id filter', async () => {
+      const db = new ScriptedDb();
+      db.queueSelect([{ id: 'doc-1', filename: 'Plan.pdf' }]);
+      db.queueSelect([{ id: 'page-pk-1', title: 'Getting Started' }]);
+
+      await resolveInputScope(
+        db.asDrizzle(),
+        [
+          createRunRow({
+            stats_json: {
+              input_scope: {
+                source_document_ids: ['doc-1'],
+                page_ids: ['page-pk-1'],
+              },
+            },
+          }),
+        ],
+        TEST_TENANT_ID,
+      );
+
+      expect(db.whereClauses).toHaveLength(2);
+      expect(db.whereClauses.every((clause) => hasEncodedParam(clause, TEST_SPACE_ID, 'space_id'))).toBe(
+        true,
+      );
+    });
+
     it('toGraphifyRunResponse includes resolved source documents and pages', () => {
       const result = toGraphifyRunResponse(
         createRunRow({
@@ -459,6 +507,37 @@ function createAdminContext(): {
     actorRole: 'admin',
     userId: TEST_USER_ID,
   };
+}
+
+function hasEncodedParam(
+  value: unknown,
+  expectedValue: string,
+  expectedEncoderName: string,
+  seen = new Set<object>(),
+): boolean {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  if (seen.has(value)) {
+    return false;
+  }
+  seen.add(value);
+
+  const record = value as Record<PropertyKey, unknown>;
+  const encoder = record.encoder;
+  if (
+    record.value === expectedValue &&
+    typeof encoder === 'object' &&
+    encoder !== null &&
+    (encoder as Record<PropertyKey, unknown>).name === expectedEncoderName
+  ) {
+    return true;
+  }
+
+  return Reflect.ownKeys(record).some((key) =>
+    hasEncodedParam(record[key], expectedValue, expectedEncoderName, seen),
+  );
 }
 
 function createRunRow(overrides: Partial<GraphifyRunRow> = {}): GraphifyRunRow {
