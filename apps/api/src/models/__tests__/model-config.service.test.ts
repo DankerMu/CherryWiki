@@ -1,5 +1,5 @@
 import { ErrorCode, model_configs } from '@cherrygraph/shared';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AUDIT_EVENTS } from '../../audit/audit-events.js';
 import { ModelConfigService } from '../model-config.service.js';
@@ -17,6 +17,17 @@ import {
 type ModelConfigRow = typeof model_configs.$inferSelect;
 
 const TEST_MODEL_ID = 'model-1';
+const originalFetch = globalThis.fetch;
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  Object.defineProperty(globalThis, 'fetch', {
+    value: originalFetch,
+    writable: true,
+    configurable: true,
+  });
+});
 
 describe('ModelConfigService', () => {
   it('lists models with API field mapping', async () => {
@@ -198,8 +209,9 @@ describe('ModelConfigService', () => {
     expect(db.updates).toHaveLength(0);
   });
 
-  it('returns reachable when connectivity test resolves the secret', async () => {
+  it('tests chat model connectivity with valid URL and key', async () => {
     const { service, db } = createServiceContext();
+    const fetchMock = mockFetchResponse(200);
     db.queueSelect([createModelConfigRow({ encrypted_api_key_ref: 'secret:openai_key' })]);
 
     await withEnv('OPENAI_KEY', 'test-key', async () => {
@@ -210,23 +222,218 @@ describe('ModelConfigService', () => {
       );
 
       expect(result.reachable).toBe(true);
-      expect(result.latency_ms).toBeGreaterThanOrEqual(1);
+      expect(result.latency_ms).toBeGreaterThan(0);
       expect(result.error).toBeUndefined();
+    });
+    const { url, init } = getFirstFetchCall(fetchMock);
+    expect(url).toBe('https://api.openai.com/v1/chat/completions');
+    expect(init.method).toBe('POST');
+    expect(init.headers).toEqual({
+      Authorization: 'Bearer test-key',
+      'Content-Type': 'application/json',
+    });
+    expect(init.body).toBe(
+      JSON.stringify({
+        model: 'gpt-4.1',
+        messages: [{ role: 'user', content: 'ping' }],
+        max_tokens: 1,
+      }),
+    );
+  });
+
+  it('returns unreachable when chat model fetch hits a network error', async () => {
+    const { service, db } = createServiceContext();
+    const fetchMock = mockFetchError(new TypeError('network error'));
+    db.queueSelect([createModelConfigRow({ encrypted_api_key_ref: 'secret:openai_key' })]);
+
+    await withEnv('OPENAI_KEY', 'test-key', async () => {
+      const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+      expect(result.reachable).toBe(false);
+      expect(result.error).toContain('network error');
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns authentication failure when chat model probe returns 401', async () => {
+    const { service, db } = createServiceContext();
+    mockFetchResponse(401);
+    db.queueSelect([createModelConfigRow({ encrypted_api_key_ref: 'secret:openai_key' })]);
+
+    await withEnv('OPENAI_KEY', 'invalid-key', async () => {
+      const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          reachable: false,
+          error: 'Authentication failed (HTTP 401)',
+        }),
+      );
     });
   });
 
-  it('returns SECRET_NOT_FOUND when connectivity secret cannot be resolved', async () => {
+  it('tests embedding model connectivity through the embeddings endpoint', async () => {
     const { service, db } = createServiceContext();
-    db.queueSelect([createModelConfigRow({ encrypted_api_key_ref: 'secret:missing_key' })]);
+    const fetchMock = mockFetchResponse(200);
+    db.queueSelect([
+      createModelConfigRow({
+        model_id: 'text-embedding-3-large',
+        model_type: 'embedding',
+        encrypted_api_key_ref: 'secret:openai_key',
+      }),
+    ]);
 
-    await withEnv('MISSING_KEY', undefined, async () => {
-      const err = await getRejectedHttpException(
-        service.testConnectivity(TEST_MODEL_ID, {}, createContext()),
-      );
+    await withEnv('OPENAI_KEY', 'test-key', async () => {
+      const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
 
-      expect(err.getStatus()).toBe(422);
-      expect(getHttpExceptionCode(err)).toBe(ErrorCode.SECRET_NOT_FOUND);
+      expect(result.reachable).toBe(true);
+      expect(result.error).toBeUndefined();
     });
+    const { url, init } = getFirstFetchCall(fetchMock);
+    expect(url).toBe('https://api.openai.com/v1/embeddings');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBe(JSON.stringify({ model: 'text-embedding-3-large', input: 'test' }));
+  });
+
+  it('tests rerank model connectivity through the rerank endpoint', async () => {
+    const { service, db } = createServiceContext();
+    const fetchMock = mockFetchResponse(200);
+    db.queueSelect([
+      createModelConfigRow({
+        model_id: 'bge-reranker-large',
+        model_type: 'rerank',
+        encrypted_api_key_ref: 'secret:openai_key',
+      }),
+    ]);
+
+    await withEnv('OPENAI_KEY', 'test-key', async () => {
+      const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+      expect(result.reachable).toBe(true);
+      expect(result.error).toBeUndefined();
+    });
+    const { url, init } = getFirstFetchCall(fetchMock);
+    expect(url).toBe('https://api.openai.com/v1/rerank');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBe(JSON.stringify({ model: 'bge-reranker-large', query: 'test', documents: ['test'] }));
+  });
+
+  it('returns unreachable when rerank probe returns 500', async () => {
+    const { service, db } = createServiceContext();
+    mockFetchResponse(500);
+    db.queueSelect([
+      createModelConfigRow({
+        model_type: 'rerank',
+        encrypted_api_key_ref: 'secret:openai_key',
+      }),
+    ]);
+
+    await withEnv('OPENAI_KEY', 'test-key', async () => {
+      const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          reachable: false,
+          error: 'HTTP 500',
+        }),
+      );
+    });
+  });
+
+  it('falls back to MODEL_API_BASE_URL when model base_url is absent', async () => {
+    const { service, db } = createServiceContext();
+    const fetchMock = mockFetchResponse(200);
+    db.queueSelect([
+      createModelConfigRow({
+        base_url: null,
+        encrypted_api_key_ref: 'secret:openai_key',
+      }),
+    ]);
+
+    await withEnv('OPENAI_KEY', 'test-key', async () => {
+      await withEnv('MODEL_API_BASE_URL', 'https://fallback.example.com/v1', async () => {
+        const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+        expect(result.reachable).toBe(true);
+      });
+    });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://fallback.example.com/v1/chat/completions');
+  });
+
+  it('returns no base URL configured without fetching when model and env URL are absent', async () => {
+    const { service, db } = createServiceContext();
+    const fetchMock = mockFetchResponse(200);
+    db.queueSelect([
+      createModelConfigRow({
+        base_url: null,
+        encrypted_api_key_ref: 'secret:openai_key',
+      }),
+    ]);
+
+    await withEnv('OPENAI_KEY', 'test-key', async () => {
+      await withEnv('MODEL_API_BASE_URL', undefined, async () => {
+        const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+        expect(result).toEqual(
+          expect.objectContaining({
+            reachable: false,
+            error: 'No base URL configured',
+          }),
+        );
+      });
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('returns no API key configured without fetching when key ref is null', async () => {
+    const { service, db } = createServiceContext();
+    const fetchMock = mockFetchResponse(200);
+    db.queueSelect([createModelConfigRow({ encrypted_api_key_ref: null })]);
+
+    const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        reachable: false,
+        error: 'No API key configured',
+      }),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('returns no API key configured without fetching when key ref is empty string', async () => {
+    const { service, db } = createServiceContext();
+    const fetchMock = mockFetchResponse(200);
+    db.queueSelect([createModelConfigRow({ encrypted_api_key_ref: '' })]);
+
+    const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        reachable: false,
+        error: 'No API key configured',
+      }),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('returns timeout-specific error when probe aborts after 10 seconds', async () => {
+    vi.useFakeTimers();
+    const { service, db } = createServiceContext();
+    const fetchMock = mockFetchTimeout();
+    db.queueSelect([createModelConfigRow({ encrypted_api_key_ref: 'secret:openai_key' })]);
+
+    await withEnv('OPENAI_KEY', 'test-key', async () => {
+      const resultPromise = service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+      await vi.advanceTimersByTimeAsync(10000);
+      const result = await resultPromise;
+
+      expect(result.reachable).toBe(false);
+      expect(result.latency_ms).toBe(10000);
+      expect(result.error).toContain('timed out');
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('returns MODEL_NOT_FOUND when connectivity test target is missing', async () => {
@@ -241,8 +448,9 @@ describe('ModelConfigService', () => {
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.MODEL_NOT_FOUND);
   });
 
-  it('records admin.model.test audit for connectivity tests', async () => {
+  it('records admin.model.test audit with reachable=true for successful connectivity tests', async () => {
     const { service, db, audit } = createServiceContext();
+    mockFetchResponse(200);
     db.queueSelect([createModelConfigRow({ encrypted_api_key_ref: 'secret:openai_key' })]);
 
     await withEnv('OPENAI_KEY', 'test-key', async () => {
@@ -263,7 +471,84 @@ describe('ModelConfigService', () => {
       reachable: true,
     });
   });
+
+  it('records admin.model.test audit with reachable=false and error for failed tests', async () => {
+    const { service, db, audit } = createServiceContext();
+    mockFetchError(new TypeError('network error'));
+    db.queueSelect([createModelConfigRow({ encrypted_api_key_ref: 'secret:openai_key' })]);
+
+    await withEnv('OPENAI_KEY', 'test-key', async () => {
+      await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+    });
+
+    expect(findAuditMetadata(audit, AUDIT_EVENTS.ADMIN_MODEL_TEST, TEST_MODEL_ID)).toMatchObject({
+      model_id: 'gpt-4.1',
+      reachable: false,
+      error: 'network error',
+    });
+  });
 });
+
+type FetchMock = ReturnType<typeof vi.fn<(...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>>>;
+
+function mockFetchResponse(status: number): FetchMock {
+  const fetchMock = vi.fn<(...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>>(() =>
+    Promise.resolve(new Response(null, { status })),
+  );
+  setFetchMock(fetchMock);
+  return fetchMock;
+}
+
+function mockFetchError(error: Error): FetchMock {
+  const fetchMock = vi.fn<(...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>>(() =>
+    Promise.reject(error),
+  );
+  setFetchMock(fetchMock);
+  return fetchMock;
+}
+
+function mockFetchTimeout(): FetchMock {
+  const fetchMock = vi.fn<(...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>>(
+    (_input, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(new DOMException('The operation was aborted.', 'AbortError'));
+        });
+      }),
+  );
+  setFetchMock(fetchMock);
+  return fetchMock;
+}
+
+function setFetchMock(fetchMock: FetchMock): void {
+  Object.defineProperty(globalThis, 'fetch', {
+    value: fetchMock,
+    writable: true,
+    configurable: true,
+  });
+}
+
+function getFirstFetchCall(fetchMock: FetchMock): { url: string; init: RequestInit } {
+  const firstCall = fetchMock.mock.calls[0];
+  if (firstCall === undefined) {
+    throw new Error('Expected fetch to be called');
+  }
+
+  const [input, init] = firstCall;
+  return { url: fetchInputToUrl(input), init: init ?? {} };
+}
+
+function fetchInputToUrl(input: Parameters<typeof fetch>[0]): string {
+  if (typeof input === 'string') {
+    return input;
+  }
+
+  if (input instanceof URL) {
+    return input.toString();
+  }
+
+  return input.url;
+}
 
 function createServiceContext(): {
   service: ModelConfigService;
