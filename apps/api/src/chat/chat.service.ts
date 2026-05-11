@@ -1296,7 +1296,7 @@ export class ChatService {
     try {
       const results = await Promise.allSettled(
         prepared.spaceIds.map((spaceId) =>
-          this.graphService?.searchNodes(
+          this.graphService!.searchNodes(
             {
               q: prepared.message,
               space_id: spaceId,

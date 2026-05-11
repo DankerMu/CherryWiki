@@ -86,7 +86,7 @@ describe('Agent routing', () => {
     );
 
     expect(events.at(-1)).toEqual({ type: 'message.completed', database_mode: 'unavailable_multi_space' });
-    expect(agent.sendTurn).toHaveBeenCalledWith(
+    expect(agent.sendTurn).toHaveBeenCalledWith( // eslint-disable-line @typescript-eslint/unbound-method
       'session-1',
       'space-a',
       'run a deep analysis',
