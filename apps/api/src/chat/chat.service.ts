@@ -9,14 +9,18 @@ import {
   type EmbeddingProvider,
   type EmbeddingProviderConfig,
 } from '@cherrygraph/ai-core';
+import { ROLE_PERMISSIONS, ROLES, normalizeRole } from '@cherrygraph/auth-core';
 import {
   ErrorCode,
   answerCitations,
   chatMessages,
+  chatSessionSpaces,
   chatSessions,
+  group_members,
   indexSnapshots,
   modelUsageLogs,
   model_configs,
+  space_permissions,
   retrievalTraces,
   spaces,
 } from '@cherrygraph/shared';
@@ -28,7 +32,7 @@ import {
   type SourceChainJson,
   type VectorSearchFn,
 } from '@cherrygraph/rag-core';
-import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { randomUUID } from 'node:crypto';
@@ -91,9 +95,13 @@ export type ChatAuditContext = {
 
 export type StreamCompletionInput = {
   tenantId: string;
-  spaceId: string;
+  spaceId?: string;
+  spaceIds?: string[];
   userId: string;
   userGroupIds: string[];
+  actorRole?: string;
+  actorPermissions?: string[];
+  spacePermissions?: Record<string, string[]>;
   message: string;
   sessionId?: string;
   enableDeepAnalysis?: boolean;
@@ -112,10 +120,17 @@ export type ChatStreamEvent =
   | { type: 'message.completed' }
   | { type: 'error'; code: string; message: string };
 
+export type SpaceDisplayInfo = {
+  id: string;
+  name: string;
+};
+
 export type ChatSessionResponse = {
   id: string;
   tenant_id: string;
   space_id: string;
+  space_ids: string[];
+  space_details: SpaceDisplayInfo[];
   user_id: string;
   title: string | null;
   created_at: Date;
@@ -159,6 +174,8 @@ export type RagPrompt = {
 type PreparedCompletion = {
   tenantId: string;
   space: SpaceRow;
+  spaces: SpaceRow[];
+  spaceIds: string[];
   session: ChatSessionRow;
   userId: string;
   userGroupIds: string[];
@@ -249,8 +266,14 @@ export class ChatService {
       ((config: EmbeddingProviderConfig): EmbeddingProvider => new OpenAIEmbeddingProvider(config));
   }
 
-  async createSession(tenantId: string, spaceId: string, userId: string): Promise<string> {
+  async createSession(
+    tenantId: string,
+    spaceId: string,
+    userId: string,
+    spaceIds: string[] = [spaceId],
+  ): Promise<string> {
     const now = new Date();
+    const normalizedSpaceIds = uniqueNonEmptyStrings(spaceIds.length > 0 ? spaceIds : [spaceId]);
     const [created] = await this.db
       .insert(chatSessions)
       .values({
@@ -268,6 +291,16 @@ export class ChatService {
       throw new Error('Failed to create chat session');
     }
 
+    await this.db.insert(chatSessionSpaces).values(
+      normalizedSpaceIds.map((selectedSpaceId, position) => ({
+        session_id: created.id,
+        tenant_id: tenantId,
+        space_id: selectedSpaceId,
+        position,
+        created_at: now,
+      })),
+    );
+
     return created.id;
   }
 
@@ -283,21 +316,39 @@ export class ChatService {
     const limit = normalizePositiveInt(limitInput, DEFAULT_LIMIT, MAX_LIMIT);
     const where = and(
       eq(chatSessions.tenant_id, tenantId),
-      eq(chatSessions.space_id, spaceId),
       eq(chatSessions.user_id, userId),
+      eq(chatSessionSpaces.tenant_id, tenantId),
+      eq(chatSessionSpaces.space_id, spaceId),
     );
 
     const rows = await this.db
-      .select()
+      .select({
+        id: chatSessions.id,
+        tenant_id: chatSessions.tenant_id,
+        space_id: chatSessions.space_id,
+        user_id: chatSessions.user_id,
+        title: chatSessions.title,
+        created_at: chatSessions.created_at,
+        updated_at: chatSessions.updated_at,
+      })
       .from(chatSessions)
+      .innerJoin(chatSessionSpaces, eq(chatSessionSpaces.session_id, chatSessions.id))
       .where(where)
       .orderBy(desc(chatSessions.updated_at))
       .limit(limit)
       .offset((page - 1) * limit);
-    const [countRow] = await this.db.select({ total: count() }).from(chatSessions).where(where);
+    const [countRow] = await this.db
+      .select({ total: count() })
+      .from(chatSessions)
+      .innerJoin(chatSessionSpaces, eq(chatSessionSpaces.session_id, chatSessions.id))
+      .where(where);
+    const spaceInfoBySession = await this.loadSpaceInfoForSessions(rows);
 
     return paginatedResponse(
-      rows.map(toChatSessionResponse),
+      rows.map((row) => {
+        const spaceInfo = spaceInfoBySession.get(row.id);
+        return toChatSessionResponse(row, spaceInfo?.spaceIds, spaceInfo?.spaceDetails);
+      }),
       buildPaginationMeta(page, limit, normalizeCount(countRow?.total)),
     );
   }
@@ -308,7 +359,7 @@ export class ChatService {
     userId: string,
     spaceId?: string,
   ): Promise<ChatSessionDetailResponse> {
-    const session = await this.requireSession(tenantId, sessionId, userId, spaceId);
+    const { session, spaceIds, spaceDetails } = await this.requireSession(tenantId, sessionId, userId, spaceId);
     const messages = await this.db
       .select()
       .from(chatMessages)
@@ -316,7 +367,7 @@ export class ChatService {
       .orderBy(asc(chatMessages.created_at));
 
     return {
-      ...toChatSessionResponse(session),
+      ...toChatSessionResponse(session, spaceIds, spaceDetails),
       messages: messages.map(toChatMessageResponse),
     };
   }
@@ -327,7 +378,7 @@ export class ChatService {
     userId: string,
     spaceId?: string,
   ): Promise<{ deleted: true }> {
-    const session = await this.requireSession(tenantId, sessionId, userId, spaceId);
+    const { session } = await this.requireSession(tenantId, sessionId, userId, spaceId);
     await this.db.delete(chatSessions).where(eq(chatSessions.id, session.id));
     await this.agentService?.close(session.id).catch(() => undefined);
 
@@ -437,9 +488,42 @@ export class ChatService {
   }
 
   async streamCompletion(input: StreamCompletionInput): Promise<AsyncIterable<ChatStreamEvent>> {
-    const space = await this.requireSpace(input.tenantId, input.spaceId);
+    const requestedSpaceIds = this.normalizeSpaceScope({
+      ...(input.spaceId !== undefined ? { space_id: input.spaceId } : {}),
+      ...(input.spaceIds !== undefined ? { space_ids: input.spaceIds } : {}),
+    });
+    const primarySpaceId = input.spaceId ?? requestedSpaceIds[0];
+    if (primarySpaceId === undefined) {
+      throwApiError(ErrorCode.VALIDATION_ERROR, 'At least one Space is required', HttpStatus.BAD_REQUEST);
+    }
+    const creatingSession = input.sessionId === undefined || input.sessionId.trim().length === 0;
+    const preauthorizedSpaceIds = creatingSession ? requestedSpaceIds : undefined;
+    let preauthorizedSpaces: SpaceRow[] | undefined;
+    if (preauthorizedSpaceIds !== undefined) {
+      preauthorizedSpaces = await this.requireSpaces(input.tenantId, preauthorizedSpaceIds);
+      await this.assertChatUseOnSpaces(input, preauthorizedSpaceIds);
+    }
     const chatModel = await this.resolveEnabledModel(input.tenantId, 'chat', ErrorCode.NO_CHAT_MODEL_CONFIGURED);
-    const session = await this.resolveSession(input.tenantId, input.spaceId, input.userId, input.sessionId);
+    const { session, spaceIds } = await this.resolveSession(
+      input.tenantId,
+      primarySpaceId,
+      input.userId,
+      input.sessionId,
+      requestedSpaceIds,
+      input.spaceIds !== undefined,
+    );
+    const spaces = preauthorizedSpaces !== undefined
+      && preauthorizedSpaceIds !== undefined
+      && sameStringArray(spaceIds, preauthorizedSpaceIds)
+      ? preauthorizedSpaces
+      : await this.requireSpaces(input.tenantId, spaceIds);
+    if (preauthorizedSpaces === undefined || !sameStringArray(spaceIds, preauthorizedSpaceIds ?? [])) {
+      await this.assertChatUseOnSpaces(input, spaceIds);
+    }
+    const space = spaces.find((candidate) => candidate.id === primarySpaceId) ?? spaces[0];
+    if (space === undefined) {
+      throwApiError(ErrorCode.SPACE_NOT_FOUND, 'Space not found', HttpStatus.NOT_FOUND);
+    }
     const history = await this.loadRecentHistory(session.id);
 
     await this.persistMessage(session.id, 'user', input.message, countTokens(input.message, chatModel.model_id));
@@ -447,6 +531,8 @@ export class ChatService {
     const prepared: PreparedCompletion = {
       tenantId: input.tenantId,
       space,
+      spaces,
+      spaceIds,
       session,
       userId: input.userId,
       userGroupIds: input.userGroupIds,
@@ -552,7 +638,7 @@ export class ChatService {
     const agentOptions: AgentSpawnOptions = {
       tenantId: prepared.tenantId,
       userId: prepared.userId,
-      allowedSpaces: [{ id: prepared.space.id, name: prepared.space.name }],
+      allowedSpaces: prepared.spaces.map((space) => ({ id: space.id, name: space.name })),
       enableDatabase,
     };
 
@@ -763,18 +849,29 @@ export class ChatService {
     spaceId: string,
     userId: string,
     sessionId: string | undefined,
-  ): Promise<ChatSessionRow> {
+    requestedSpaceIds: string[],
+    explicitScope: boolean,
+  ): Promise<{ session: ChatSessionRow; spaceIds: string[] }> {
     if (sessionId === undefined || sessionId.trim().length === 0) {
-      const createdSessionId = await this.createSession(tenantId, spaceId, userId);
+      const createdSessionId = await this.createSession(tenantId, spaceId, userId, requestedSpaceIds);
       const session = await this.findSessionById(tenantId, createdSessionId);
       if (session === undefined) {
         throw new Error('Created chat session could not be loaded');
       }
 
-      return session;
+      return { session, spaceIds: requestedSpaceIds };
     }
 
-    return this.requireSession(tenantId, sessionId, userId, spaceId);
+    const result = await this.requireSession(tenantId, sessionId, userId, spaceId);
+    if (explicitScope && !sameStringArray(result.spaceIds, requestedSpaceIds)) {
+      throwApiError(
+        ErrorCode.SESSION_SPACE_SCOPE_MISMATCH,
+        'Chat session Space scope cannot be changed',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    return result;
   }
 
   private async requireSession(
@@ -782,7 +879,7 @@ export class ChatService {
     sessionId: string,
     userId: string,
     spaceId: string | undefined,
-  ): Promise<ChatSessionRow> {
+  ): Promise<{ session: ChatSessionRow; spaceIds: string[]; spaceDetails: SpaceDisplayInfo[] }> {
     const session = await this.findSessionById(tenantId, sessionId);
     if (session === undefined) {
       throwApiError(ErrorCode.SESSION_NOT_FOUND, 'Chat session was not found', HttpStatus.NOT_FOUND);
@@ -792,11 +889,12 @@ export class ChatService {
       throwApiError(ErrorCode.PERMISSION_DENIED, 'Cannot access another user chat session', HttpStatus.FORBIDDEN);
     }
 
-    if (spaceId !== undefined && session.space_id !== spaceId) {
+    const { spaceIds, spaceDetails } = await this.loadSessionSpaceInfo(session);
+    if (spaceId !== undefined && !spaceIds.includes(spaceId)) {
       throwApiError(ErrorCode.SESSION_NOT_FOUND, 'Chat session was not found', HttpStatus.NOT_FOUND);
     }
 
-    return session;
+    return { session, spaceIds, spaceDetails };
   }
 
   private async findSessionById(tenantId: string, sessionId: string): Promise<ChatSessionRow | undefined> {
@@ -807,6 +905,80 @@ export class ChatService {
       .limit(1);
 
     return session;
+  }
+
+  private async loadSessionSpaceInfo(
+    session: ChatSessionRow,
+  ): Promise<{ spaceIds: string[]; spaceDetails: SpaceDisplayInfo[] }> {
+    const rows = await this.db
+      .select({ space_id: chatSessionSpaces.space_id, space_name: spaces.name })
+      .from(chatSessionSpaces)
+      .innerJoin(
+        spaces,
+        and(eq(spaces.tenant_id, chatSessionSpaces.tenant_id), eq(spaces.id, chatSessionSpaces.space_id)),
+      )
+      .where(and(eq(chatSessionSpaces.tenant_id, session.tenant_id), eq(chatSessionSpaces.session_id, session.id)))
+      .orderBy(asc(chatSessionSpaces.position));
+
+    if (rows.length === 0) {
+      return {
+        spaceIds: [session.space_id],
+        spaceDetails: [{ id: session.space_id, name: session.space_id }],
+      };
+    }
+
+    return {
+      spaceIds: rows.map((row) => row.space_id),
+      spaceDetails: rows.map((row) => ({
+        id: row.space_id,
+        name: typeof row.space_name === 'string' ? row.space_name : row.space_id,
+      })),
+    };
+  }
+
+  private async loadSpaceInfoForSessions(
+    sessions: ChatSessionRow[],
+  ): Promise<Map<string, { spaceIds: string[]; spaceDetails: SpaceDisplayInfo[] }>> {
+    const bySession = new Map<string, { spaceIds: string[]; spaceDetails: SpaceDisplayInfo[] }>();
+    if (sessions.length === 0) {
+      return bySession;
+    }
+
+    const sessionIds = sessions.map((session) => session.id);
+    const rows = await this.db
+      .select({
+        session_id: chatSessionSpaces.session_id,
+        space_id: chatSessionSpaces.space_id,
+        space_name: spaces.name,
+      })
+      .from(chatSessionSpaces)
+      .innerJoin(
+        spaces,
+        and(eq(spaces.tenant_id, chatSessionSpaces.tenant_id), eq(spaces.id, chatSessionSpaces.space_id)),
+      )
+      .where(inArray(chatSessionSpaces.session_id, sessionIds))
+      .orderBy(asc(chatSessionSpaces.session_id), asc(chatSessionSpaces.position));
+
+    for (const row of rows) {
+      const sessionInfo = bySession.get(row.session_id) ?? { spaceIds: [], spaceDetails: [] };
+      sessionInfo.spaceIds.push(row.space_id);
+      sessionInfo.spaceDetails.push({
+        id: row.space_id,
+        name: typeof row.space_name === 'string' ? row.space_name : row.space_id,
+      });
+      bySession.set(row.session_id, sessionInfo);
+    }
+
+    for (const session of sessions) {
+      if (!bySession.has(session.id)) {
+        bySession.set(session.id, {
+          spaceIds: [session.space_id],
+          spaceDetails: [{ id: session.space_id, name: session.space_id }],
+        });
+      }
+    }
+
+    return bySession;
   }
 
   private async loadRecentHistory(sessionId: string): Promise<ChatMessageRow[]> {
@@ -832,6 +1004,117 @@ export class ChatService {
     }
 
     return space;
+  }
+
+  private async requireSpaces(tenantId: string, spaceIds: string[]): Promise<SpaceRow[]> {
+    const resolved: SpaceRow[] = [];
+    for (const spaceId of spaceIds) {
+      resolved.push(await this.requireSpace(tenantId, spaceId));
+    }
+
+    return resolved;
+  }
+
+  private normalizeSpaceScope(dto: { space_id?: string; space_ids?: string[] }): string[] {
+    const primarySpaceId = normalizeSpaceId(dto.space_id);
+    const providedSpaceIds = dto.space_ids;
+
+    if (providedSpaceIds !== undefined && providedSpaceIds.length > 10) {
+      throwApiError(ErrorCode.VALIDATION_ERROR, 'At most 10 Spaces can be selected', HttpStatus.BAD_REQUEST);
+    }
+
+    if (providedSpaceIds !== undefined && providedSpaceIds.length > 0) {
+      const normalized = uniqueNonEmptyStrings(providedSpaceIds);
+      if (normalized.length !== providedSpaceIds.length && providedSpaceIds.some((spaceId) => normalizeSpaceId(spaceId) === undefined)) {
+        throwApiError(ErrorCode.VALIDATION_ERROR, 'Space IDs must be non-empty strings', HttpStatus.BAD_REQUEST);
+      }
+      if (normalized.length === 0) {
+        throwApiError(ErrorCode.VALIDATION_ERROR, 'At least one Space is required', HttpStatus.BAD_REQUEST);
+      }
+      if (primarySpaceId !== undefined && !normalized.includes(primarySpaceId)) {
+        throwApiError(ErrorCode.VALIDATION_ERROR, 'space_id must be included in space_ids', HttpStatus.BAD_REQUEST);
+      }
+      if (normalized.length > 10) {
+        throwApiError(ErrorCode.VALIDATION_ERROR, 'At most 10 Spaces can be selected', HttpStatus.BAD_REQUEST);
+      }
+
+      return normalized;
+    }
+
+    if (primarySpaceId !== undefined) {
+      return [primarySpaceId];
+    }
+
+    throwApiError(ErrorCode.VALIDATION_ERROR, 'At least one Space is required', HttpStatus.BAD_REQUEST);
+  }
+
+  private async assertChatUseOnSpaces(input: StreamCompletionInput, spaceIds: string[]): Promise<void> {
+    if (
+      input.actorRole === undefined &&
+      input.actorPermissions === undefined &&
+      input.spacePermissions === undefined
+    ) {
+      return;
+    }
+
+    const role = input.actorRole === undefined ? undefined : normalizeRole(input.actorRole);
+    if (role === ROLES.OWNER || role === ROLES.ADMIN) {
+      return;
+    }
+
+    const rolePermissions = role === undefined ? [] : [...ROLE_PERMISSIONS[role]];
+    if (!rolePermissions.includes('chat:use')) {
+      throwApiError(ErrorCode.PERMISSION_DENIED, 'Permission denied', HttpStatus.FORBIDDEN);
+    }
+
+    const missingSpaceIds: string[] = [];
+    for (const spaceId of spaceIds) {
+      const directPermissions = input.spacePermissions?.[spaceId];
+      if (directPermissions !== undefined) {
+        if (!permissionSetSatisfiesChatUse(directPermissions)) {
+          throwApiError(ErrorCode.PERMISSION_DENIED, 'Permission denied', HttpStatus.FORBIDDEN);
+        }
+        continue;
+      }
+
+      missingSpaceIds.push(spaceId);
+    }
+
+    if (missingSpaceIds.length === 0 || input.actorRole === undefined) {
+      return;
+    }
+
+    if (input.userGroupIds.length === 0) {
+      throwApiError(ErrorCode.PERMISSION_DENIED, 'Permission denied', HttpStatus.FORBIDDEN);
+    }
+
+    const rows = await this.db
+      .select({
+        space_id: space_permissions.space_id,
+        permission: space_permissions.permission,
+      })
+      .from(group_members)
+      .innerJoin(
+        space_permissions,
+        and(
+          eq(space_permissions.tenant_id, group_members.tenant_id),
+          eq(space_permissions.group_id, group_members.group_id),
+        ),
+      )
+      .where(
+        and(
+          eq(group_members.tenant_id, input.tenantId),
+          eq(group_members.user_id, input.userId),
+          inArray(group_members.group_id, input.userGroupIds),
+          inArray(space_permissions.space_id, missingSpaceIds),
+          inArray(space_permissions.permission, ['chat:use', 'space:admin']),
+        ),
+      );
+    const allowed = new Set(rows.map((row) => row.space_id));
+
+    if (missingSpaceIds.some((spaceId) => !allowed.has(spaceId))) {
+      throwApiError(ErrorCode.PERMISSION_DENIED, 'Permission denied', HttpStatus.FORBIDDEN);
+    }
   }
 
   private async resolveEnabledModel(tenantId: string, modelType: 'chat' | 'embedding', missingCode: string): Promise<ModelConfigRow> {
@@ -980,7 +1263,7 @@ export class ChatService {
       tenant_id: prepared.tenantId,
       user_id: prepared.userId,
       conversation_id: prepared.session.id,
-      space_ids: [prepared.space.id],
+      space_ids: prepared.spaceIds,
       query: prepared.message,
       retrieval_mode: normalizeRetrievalMode(retrievalMode),
       candidates_json: context.trace.candidates,
@@ -1108,6 +1391,7 @@ export class ChatService {
       metadata_json: {
         user_id: prepared.userId,
         space_id: prepared.space.id,
+        space_ids: prepared.spaceIds,
         session_id: prepared.session.id,
         prompt_tokens: usage.prompt_tokens,
         completion_tokens: usage.completion_tokens,
@@ -1342,11 +1626,18 @@ function formatCitationDisplayText(result: RetrievalResult): string {
   return result.sectionTitle === null ? result.pageTitle : `${result.pageTitle} / ${result.sectionTitle}`;
 }
 
-function toChatSessionResponse(row: ChatSessionRow): ChatSessionResponse {
+function toChatSessionResponse(
+  row: ChatSessionRow,
+  spaceIds?: string[],
+  spaceDetails?: SpaceDisplayInfo[],
+): ChatSessionResponse {
+  const ids = spaceIds ?? [row.space_id];
   return {
     id: row.id,
     tenant_id: row.tenant_id,
     space_id: row.space_id,
+    space_ids: ids,
+    space_details: spaceDetails ?? ids.map((id) => ({ id, name: id })),
     user_id: row.user_id,
     title: row.title,
     created_at: row.created_at,
@@ -1434,6 +1725,40 @@ function normalizeSourceChainJson(value: unknown): SourceChainJson {
 
 function normalizeStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function normalizeSpaceId(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  return normalized.length === 0 ? undefined : normalized;
+}
+
+function uniqueNonEmptyStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const value of values) {
+    const normalized = normalizeSpaceId(value);
+    if (normalized === undefined || seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    result.push(normalized);
+  }
+
+  return result;
+}
+
+function sameStringArray(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function permissionSetSatisfiesChatUse(permissions: readonly string[]): boolean {
+  return permissions.includes('chat:use') || permissions.includes('space:admin');
 }
 
 function isEdgeConfidence(value: unknown): value is SourceChainJson['edge_confidences'][number] {

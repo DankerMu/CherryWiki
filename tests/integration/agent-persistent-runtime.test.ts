@@ -241,9 +241,18 @@ function createAgentService(manager: SessionManager): AgentService {
 }
 
 function queueExistingSessionPrelude(db: ScriptedChatDb, sessionId: string): void {
-  db.queueSelect([createSpaceRow()]);
   db.queueSelect([createModelRow({ model_type: 'chat' })]);
   db.queueSelect([createSessionRow({ id: sessionId })]);
+  db.queueSelect([
+    {
+      session_id: sessionId,
+      tenant_id: TEST_TENANT_ID,
+      space_id: TEST_SPACE_ID,
+      position: 0,
+      created_at: new Date('2026-05-01T00:00:00.000Z'),
+    },
+  ]);
+  db.queueSelect([createSpaceRow()]);
   db.queueSelect([createMessageRow({ id: 'history-1', session_id: sessionId, role: 'assistant' })]);
   db.queueInsert([createMessageRow({ id: uniqueId('user-message'), session_id: sessionId, role: 'user' })]);
 }

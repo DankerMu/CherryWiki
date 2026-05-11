@@ -8,8 +8,10 @@ import { ChatService, type ChatAuditContext, type ChatStreamEvent } from './chat
 type RequestWithAuth = {
   user?: AuthenticatedRequestUser & {
     permissions?: string[];
+    space_permissions?: Record<string, string[]>;
   };
   permissions?: string[];
+  space_permissions?: Record<string, string[]>;
   ip?: string;
   headers?: Record<string, string | string[] | undefined>;
   id?: string;
@@ -40,15 +42,22 @@ export class ChatController {
     @Res() reply: SseReply,
   ): Promise<void> {
     const user = getAuthenticatedUser(request);
+    const actorPermissions = request.permissions ?? user.permissions;
+    const candidateSpacePermissions = request.space_permissions ?? user.space_permissions;
+    const spacePermissions = isSpacePermissionMap(candidateSpacePermissions) ? candidateSpacePermissions : undefined;
     const events = await this.chatService.streamCompletion({
       tenantId: user.tenant_id,
-      spaceId: dto.space_id,
       userId: user.sub,
       userGroupIds: user.group_ids,
+      actorRole: user.role,
       message: dto.message,
       enableDeepAnalysis: dto.enable_deep_analysis === true,
       enableDatabase: dto.enable_database === true,
       auditContext: buildAuditContext(request),
+      ...(actorPermissions !== undefined ? { actorPermissions } : {}),
+      ...(spacePermissions !== undefined ? { spacePermissions } : {}),
+      ...(dto.space_id !== undefined ? { spaceId: dto.space_id } : {}),
+      ...(dto.space_ids !== undefined ? { spaceIds: dto.space_ids } : {}),
       ...(dto.retrieval_mode !== undefined ? { retrievalMode: dto.retrieval_mode } : {}),
       ...(dto.session_id !== undefined ? { sessionId: dto.session_id } : {}),
     });
@@ -222,4 +231,14 @@ function buildAuditContext(request: RequestWithAuth): ChatAuditContext {
     ...(typeof requestId === 'string' ? { requestId } : {}),
     ...(request.id !== undefined ? { requestId: request.id } : {}),
   };
+}
+
+function isSpacePermissionMap(value: unknown): value is Record<string, string[]> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    Object.values(value).every((permissions) =>
+      Array.isArray(permissions) && permissions.every((permission) => typeof permission === 'string'),
+    )
+  );
 }

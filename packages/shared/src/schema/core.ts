@@ -858,6 +858,26 @@ export const chatSessions = pgTable(
   ],
 );
 
+export const chatSessionSpaces = pgTable(
+  'chat_session_spaces',
+  {
+    session_id: text('session_id')
+      .notNull()
+      .references(() => chatSessions.id, { onDelete: 'cascade' }),
+    tenant_id: text('tenant_id').notNull(),
+    space_id: text('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    position: integer('position').notNull().default(0),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.session_id, table.space_id] }),
+    index('idx_chat_session_spaces_tenant_space').on(table.tenant_id, table.space_id, table.session_id),
+    index('idx_chat_session_spaces_position').on(table.session_id, table.position),
+  ],
+);
+
 export const agentSessions = pgTable(
   'agent_sessions',
   {
