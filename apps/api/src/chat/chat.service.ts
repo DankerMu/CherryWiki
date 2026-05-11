@@ -73,6 +73,7 @@ type ChatUsage = {
   completion_tokens: number;
   total_tokens: number;
 };
+type DatabaseMode = 'enabled' | 'disabled' | 'unavailable_multi_space';
 
 export type Intent =
   | 'relationship_explanation'
@@ -117,7 +118,7 @@ export type ChatStreamEvent =
   | { type: 'usage'; usage: ChatUsage }
   | { type: 'agent.tool_use'; id?: string; name: string; input: Record<string, unknown> }
   | { type: 'chart.data'; data: Record<string, unknown> }
-  | { type: 'message.completed' }
+  | { type: 'message.completed'; database_mode?: DatabaseMode }
   | { type: 'error'; code: string; message: string };
 
 export type SpaceDisplayInfo = {
@@ -643,7 +644,9 @@ export class ChatService {
     }
 
     const visibleDatabaseConfig = normalizeDatabaseConfig(prepared.space.database_config);
+    const databaseSuppressed = prepared.spaceIds.length > 1 && input.enableDatabase === true;
     const enableDatabase = prepared.spaceIds.length === 1 && input.enableDatabase === true && visibleDatabaseConfig.enabled;
+    const databaseMode: DatabaseMode = databaseSuppressed ? 'unavailable_multi_space' : enableDatabase ? 'enabled' : 'disabled';
     const databaseConfig = enableDatabase
       ? await decryptSpaceDatabaseConfig(this.db, prepared.space.database_config)
       : visibleDatabaseConfig;
@@ -708,11 +711,14 @@ export class ChatService {
 
           const assistant = await this.persistMessage(prepared.session.id, 'assistant', assistantText, usage.completion_tokens, [], {
             source: 'agent',
+            database_mode: databaseMode,
           });
           void this.maybeGenerateTitle(prepared, input.message, assistantText);
           yield { type: 'usage', usage };
-          yield { type: 'message.completed' };
-          this.auditCompletion(prepared, usage, 0, false, assistant.id);
+          yield databaseSuppressed
+            ? { type: 'message.completed', database_mode: databaseMode }
+            : { type: 'message.completed' };
+          this.auditCompletion(prepared, usage, 0, false, assistant.id, { database_mode: databaseMode });
           return;
         }
 
@@ -1190,16 +1196,7 @@ export class ChatService {
     prepared: PreparedCompletion,
     spaceSnapshots: Array<{ spaceId: string; snapshot: IndexSnapshotRow }>,
   ): Promise<RetrievedContext> {
-    const firstSnapshot = spaceSnapshots[0]?.snapshot;
-    if (firstSnapshot === undefined) {
-      return emptyRetrievedContext();
-    }
-
-    const embeddingModel = await this.resolveSnapshotEmbeddingModel(prepared.tenantId, firstSnapshot);
-    const embeddingProvider = this.embeddingProviderFactory(toEmbeddingProviderConfig(embeddingModel));
-    const [queryEmbedding] = await embeddingProvider.embedBatch([prepared.message]);
-
-    if (queryEmbedding === undefined || queryEmbedding.length === 0) {
+    if (spaceSnapshots.length === 0) {
       return emptyRetrievedContext();
     }
 
@@ -1210,30 +1207,59 @@ export class ChatService {
     };
     const vectorSearch = this.createVectorSearchFn();
     const bm25Search = this.createBm25SearchFn();
-    const snapshotsBySpace = Object.fromEntries(
-      spaceSnapshots.map(({ spaceId, snapshot }) => [spaceId, snapshot.id]),
-    );
-    const results = await retrieve(
-      {
-        query: prepared.message,
-        queryEmbedding,
-        tenantId: prepared.tenantId,
-        spaceIds: prepared.spaceIds,
-        userGroupIds: prepared.userGroupIds,
-        snapshotsBySpace,
-        topK: RETRIEVAL_TOP_K,
-      },
-      async (params) => {
-        const hits = await vectorSearch(params);
-        candidates.vector.push(...hits);
-        return hits;
-      },
-      async (params) => {
-        const hits = await bm25Search(params);
-        candidates.bm25.push(...hits);
-        return hits;
-      },
-    );
+    const modelGroups = new Map<string, Array<{ spaceId: string; snapshot: IndexSnapshotRow }>>();
+
+    for (const entry of spaceSnapshots) {
+      const group = modelGroups.get(entry.snapshot.embedding_model_id) ?? [];
+      group.push(entry);
+      modelGroups.set(entry.snapshot.embedding_model_id, group);
+    }
+
+    let results: RetrievalResult[] = [];
+
+    for (const groupSnapshots of modelGroups.values()) {
+      const firstSnapshot = groupSnapshots[0]?.snapshot;
+      if (firstSnapshot === undefined) {
+        continue;
+      }
+
+      const embeddingModel = await this.resolveSnapshotEmbeddingModel(prepared.tenantId, firstSnapshot);
+      const embeddingProvider = this.embeddingProviderFactory(toEmbeddingProviderConfig(embeddingModel));
+      const [queryEmbedding] = await embeddingProvider.embedBatch([prepared.message]);
+
+      if (queryEmbedding === undefined || queryEmbedding.length === 0) {
+        continue;
+      }
+
+      const snapshotsBySpace = Object.fromEntries(
+        groupSnapshots.map(({ spaceId, snapshot }) => [spaceId, snapshot.id]),
+      );
+      const groupResults = await retrieve(
+        {
+          query: prepared.message,
+          queryEmbedding,
+          tenantId: prepared.tenantId,
+          spaceIds: Object.keys(snapshotsBySpace),
+          userGroupIds: prepared.userGroupIds,
+          snapshotsBySpace,
+          topK: RETRIEVAL_TOP_K,
+        },
+        async (params) => {
+          const hits = await vectorSearch(params);
+          candidates.vector.push(...hits);
+          return hits;
+        },
+        async (params) => {
+          const hits = await bm25Search(params);
+          candidates.bm25.push(...hits);
+          return hits;
+        },
+      );
+
+      results.push(...groupResults);
+    }
+
+    results = results.sort((left, right) => right.score - left.score).slice(0, RETRIEVAL_TOP_K);
 
     return {
       results,
@@ -1432,6 +1458,7 @@ export class ChatService {
     retrievalCount: number,
     hasCitations: boolean,
     assistantMessageId?: string,
+    metadata: Record<string, unknown> = {},
   ): void {
     this.auditService.push({
       tenant_id: prepared.tenantId,
@@ -1453,6 +1480,7 @@ export class ChatService {
         retrieval_count: retrievalCount,
         has_citations: hasCitations,
         ...(assistantMessageId !== undefined ? { assistant_message_id: assistantMessageId } : {}),
+        ...metadata,
       },
     });
   }

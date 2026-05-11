@@ -180,6 +180,38 @@ describe('retrieve', () => {
     expect(results).toHaveLength(2);
   });
 
+  it('ranks multi-space hits by search score regardless of callback resolution order', async () => {
+    const params = {
+      ...baseParams,
+      spaceIds: ['space-fast', 'space-slow'],
+      snapshotsBySpace: { 'space-fast': 'snapshot-fast', 'space-slow': 'snapshot-slow' },
+      topK: 2,
+    };
+    const bm25Search: Bm25SearchFn = () => Promise.resolve([]);
+    const slowHighScoreVectorSearch: VectorSearchFn = async (received) => {
+      if (received.spaceId === 'space-slow') {
+        await delay(5);
+        return [makeHit('high-score', 0.95, false, received.spaceId)];
+      }
+
+      return [makeHit('low-score', 0.1, false, received.spaceId)];
+    };
+    const fastHighScoreVectorSearch: VectorSearchFn = async (received) => {
+      if (received.spaceId === 'space-fast') {
+        await delay(5);
+        return [makeHit('low-score', 0.1, false, received.spaceId)];
+      }
+
+      return [makeHit('high-score', 0.95, false, received.spaceId)];
+    };
+
+    const slowHighScoreResults = await retrieve(params, slowHighScoreVectorSearch, bm25Search);
+    const fastHighScoreResults = await retrieve(params, fastHighScoreVectorSearch, bm25Search);
+
+    expect(slowHighScoreResults.map((result) => result.chunkId)).toEqual(['high-score', 'low-score']);
+    expect(fastHighScoreResults.map((result) => result.chunkId)).toEqual(['high-score', 'low-score']);
+  });
+
   it('ignores spaces without activated snapshots', async () => {
     const searchedSpaces: string[] = [];
 
@@ -216,6 +248,12 @@ function makeHit(chunkId: string, score: number, injectionRisk = false, spaceId 
     pageTitle: `Page ${chunkId}`,
     sectionTitle: `Section ${chunkId}`,
   };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function scoreFor(results: Array<{ chunkId: string; score: number }>, chunkId: string): number {

@@ -100,6 +100,9 @@ export async function retrieve(
     }),
   );
 
+  allVectorHits.sort((left, right) => right.score - left.score);
+  allBm25Hits.sort((left, right) => right.score - left.score);
+
   return rrfFuse(allVectorHits, allBm25Hits, { topK });
 }
 

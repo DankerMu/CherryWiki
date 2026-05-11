@@ -13,7 +13,7 @@ import {
   model_configs,
   spaces,
 } from '@cherrygraph/shared';
-import type { ChatChunk, ChatCompletionParams, ChatProvider, EmbeddingProvider } from '@cherrygraph/ai-core';
+import type { ChatChunk, ChatCompletionParams, ChatProvider, EmbeddingProvider, EmbeddingProviderConfig } from '@cherrygraph/ai-core';
 import type { RetrievalResult } from '@cherrygraph/rag-core';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { describe, expect, it, vi } from 'vitest';
@@ -621,6 +621,66 @@ describe('ChatService streamCompletion', () => {
     );
   });
 
+  it('embeds once per snapshot embedding model when retrieving across Spaces', async () => {
+    const db = new ScriptedChatDb();
+    const audit = { push: vi.fn<(entry: AuditEntry) => void>() };
+    const providerA = new ScriptedEmbeddingProvider([[0.11, 0.12]]);
+    const providerB = new ScriptedEmbeddingProvider([[0.21, 0.22]]);
+    const providersByModelId = new Map<string, ScriptedEmbeddingProvider>([
+      ['text-embedding-a', providerA],
+      ['text-embedding-b', providerB],
+    ]);
+    const embeddingFactory = vi.fn((config: EmbeddingProviderConfig) => {
+      const provider = providersByModelId.get(config.modelId);
+      if (provider === undefined) {
+        throw new Error(`Unexpected embedding model ${config.modelId}`);
+      }
+
+      return provider;
+    });
+    const service = new ChatService(
+      db.asDrizzle(),
+      audit as unknown as AuditService,
+      vi.fn(() => new ScriptedChatProvider([])),
+      embeddingFactory,
+    );
+    const prepared = {
+      tenantId: TEST_TENANT_ID,
+      userId: TEST_USER_ID,
+      userGroupIds: [TEST_GROUP_ID],
+      message: 'How is SSO configured?',
+      chatModel: createModelRow({ model_type: 'chat' }),
+      space: createSpaceRow({ id: 'space-a' }),
+      spaces: [createSpaceRow({ id: 'space-a' }), createSpaceRow({ id: 'space-b' })],
+      spaceIds: ['space-a', 'space-b'],
+      session: createSessionRow({ space_id: 'space-a' }),
+      history: [],
+      auditContext: {},
+    };
+    const retrieveContext = (service as unknown as {
+      retrieveContext: (
+        preparedCompletion: typeof prepared,
+        snapshots: Array<{ spaceId: string; snapshot: IndexSnapshotRow }>,
+      ) => Promise<{ results: RetrievalResult[] }>;
+    }).retrieveContext.bind(service);
+    db.queueSelect([createModelRow({ id: 'embed-model-a', model_id: 'text-embedding-a', model_type: 'embedding' })]);
+    db.queueExecute([createSearchRow({ id: 'chunk-a', wiki_page_pk: 'wiki-page-a', page_title: 'Auth A' })]);
+    db.queueExecute([]);
+    db.queueSelect([createModelRow({ id: 'embed-model-b', model_id: 'text-embedding-b', model_type: 'embedding' })]);
+    db.queueExecute([createSearchRow({ id: 'chunk-b', wiki_page_pk: 'wiki-page-b', page_title: 'Auth B' })]);
+    db.queueExecute([]);
+
+    const context = await retrieveContext(prepared, [
+      { spaceId: 'space-a', snapshot: createSnapshotRow({ id: 'snapshot-a', space_id: 'space-a', embedding_model_id: 'embed-model-a' }) },
+      { spaceId: 'space-b', snapshot: createSnapshotRow({ id: 'snapshot-b', space_id: 'space-b', embedding_model_id: 'embed-model-b' }) },
+    ]);
+
+    expect(embeddingFactory.mock.calls.map(([config]) => config.modelId)).toEqual(['text-embedding-a', 'text-embedding-b']);
+    expect(providerA.calls).toEqual([['How is SSO configured?']]);
+    expect(providerB.calls).toEqual([['How is SSO configured?']]);
+    expect(context.results.map((result) => result.spaceId)).toEqual(['space-a', 'space-b']);
+  });
+
   it('passes real user groups to graph hint retrieval without fabricating space permissions', async () => {
     const chatProvider = new ScriptedChatProvider([
       { type: 'content', delta: 'Use the graph hint.' },
@@ -1004,9 +1064,12 @@ function isChunkBatchList(chunks: ChatChunk[] | ChatChunk[][]): chunks is ChatCh
 }
 
 class ScriptedEmbeddingProvider implements EmbeddingProvider {
+  readonly calls: string[][] = [];
+
   constructor(private readonly embeddings: number[][] = [[0.1, 0.2]]) {}
 
-  embedBatch(): Promise<number[][]> {
+  embedBatch(inputs: string[]): Promise<number[][]> {
+    this.calls.push(inputs);
     return Promise.resolve(this.embeddings);
   }
 

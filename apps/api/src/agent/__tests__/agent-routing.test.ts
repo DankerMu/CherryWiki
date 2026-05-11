@@ -72,7 +72,7 @@ describe('Agent routing', () => {
     db.queueInsert([createMessageRow({ id: 'user-message', role: 'user' })]);
     db.queueInsert([createMessageRow({ id: 'assistant-message', role: 'assistant' })]);
 
-    await collectAsync(
+    const events = await collectAsync(
       await service.streamCompletion({
         tenantId: TEST_TENANT_ID,
         spaceId: 'space-a',
@@ -85,6 +85,7 @@ describe('Agent routing', () => {
       }),
     );
 
+    expect(events.at(-1)).toEqual({ type: 'message.completed', database_mode: 'unavailable_multi_space' });
     expect(agent.sendTurn).toHaveBeenCalledWith(
       'session-1',
       'space-a',
@@ -98,6 +99,9 @@ describe('Agent routing', () => {
       }),
     );
     expect((agent.sendTurn as ReturnType<typeof vi.fn>).mock.calls[0]?.[3]).not.toHaveProperty('databaseConfig');
+    expect([...db.inserts].reverse().find((insert) => insert.table === chatMessages)?.value).toMatchObject({
+      metadata_json: { source: 'agent', database_mode: 'unavailable_multi_space' },
+    });
   });
 
   it('propagates Agent errors as chat SSE errors', async () => {
