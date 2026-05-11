@@ -12,6 +12,7 @@ export type ChatCitation = {
   index: number;
   chunk_id: string;
   wiki_page_pk: string;
+  space_id?: string;
   page_id?: string;
   section_id: string | null;
   relevance_score: number;
@@ -76,7 +77,14 @@ export type ChatApiMessage = {
 
 export type ChatApiSessionDetail = {
   id: string;
+  space_ids?: string[];
+  space_details?: SpaceDisplayInfo[];
   messages: ChatApiMessage[];
+};
+
+export type SpaceDisplayInfo = {
+  id: string;
+  name: string;
 };
 
 export class ChatStreamError extends Error {
@@ -93,18 +101,20 @@ export class ChatStreamError extends Error {
 
 type UseChatStreamParams = {
   spaceId: string;
+  spaceIds?: string[];
   accessToken: string | null;
   onSession?: (sessionId: string) => void;
 };
 
 export type SendMessageOptions = {
   sessionId?: string | null;
+  spaceIds?: string[];
   enableDeepAnalysis?: boolean;
   enableDatabase?: boolean;
   retrievalMode?: RetrievalMode;
 };
 
-export function useChatStream({ spaceId, accessToken, onSession }: UseChatStreamParams) {
+export function useChatStream({ spaceId, spaceIds, accessToken, onSession }: UseChatStreamParams) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -153,6 +163,7 @@ export function useChatStream({ spaceId, accessToken, onSession }: UseChatStream
       }
 
       const requestSessionId = options.sessionId ?? sessionId;
+      const requestSpaceIds = normalizeSpaceIds(spaceId, options.spaceIds ?? spaceIds);
       const retrievalMode = options.retrievalMode ?? DEFAULT_RETRIEVAL_MODE;
       const agentPath =
         options.enableDeepAnalysis === true || options.enableDatabase === true || isAgentRetrievalMode(retrievalMode);
@@ -165,6 +176,7 @@ export function useChatStream({ spaceId, accessToken, onSession }: UseChatStream
         enableDeepAnalysis: options.enableDeepAnalysis === true,
         enableDatabase: options.enableDatabase === true,
         retrievalMode,
+        spaceIds: requestSpaceIds,
       };
       isStreamingRef.current = true;
       setIsStreaming(true);
@@ -216,6 +228,7 @@ export function useChatStream({ spaceId, accessToken, onSession }: UseChatStream
           headers: buildStreamHeaders(accessToken),
           body: JSON.stringify({
             space_id: spaceId,
+            space_ids: requestSpaceIds,
             message: content,
             retrieval_mode: retrievalMode,
             ...(requestSessionId !== null && requestSessionId.length > 0 ? { session_id: requestSessionId } : {}),
@@ -311,7 +324,7 @@ export function useChatStream({ spaceId, accessToken, onSession }: UseChatStream
         setIsStreaming(false);
       }
     },
-    [accessToken, onSession, sessionId, spaceId],
+    [accessToken, onSession, sessionId, spaceId, spaceIds],
   );
 
   const retry = useCallback(async (): Promise<void> => {
@@ -360,7 +373,7 @@ export function isAgentRetrievalMode(mode: RetrievalMode): boolean {
   return mode === 'graph_rag' || mode === 'path_first' || mode === 'community_first';
 }
 
-export function getChatErrorMessage(error: ChatStreamError | null): string | null {
+export function getChatErrorMessage(error: ChatStreamError | null, selectedSpaceCount = 1): string | null {
   if (error === null) {
     return null;
   }
@@ -370,7 +383,15 @@ export function getChatErrorMessage(error: ChatStreamError | null): string | nul
   }
 
   if (error.code === 'NO_INDEXED_CONTENT') {
-    return '知识库正在构建中，请稍后再试';
+    return selectedSpaceCount > 1 ? '所选空间的知识库正在构建中，请稍后再试' : '知识库正在构建中，请稍后再试';
+  }
+
+  if (error.code === 'SESSION_SPACE_SCOPE_MISMATCH') {
+    return '当前会话的空间范围已锁定。如需更改空间，请新建对话。';
+  }
+
+  if (error.status === 403 || error.code === 'FORBIDDEN' || error.code === 'SPACE_PERMISSION_DENIED') {
+    return '部分空间权限已变化，请刷新空间列表后重试';
   }
 
   if (error.code === 'STREAM_INTERRUPTED') {
@@ -625,7 +646,7 @@ function normalizeCitationArray(value: unknown): ChatCitation[] {
   return value.map(normalizeCitation).filter((citation): citation is ChatCitation => citation !== null);
 }
 
-function normalizeCitation(value: unknown): ChatCitation | null {
+export function normalizeCitation(value: unknown): ChatCitation | null {
   if (!isRecord(value)) {
     return null;
   }
@@ -637,6 +658,8 @@ function normalizeCitation(value: unknown): ChatCitation | null {
   const sourceChainJson = readRecord(value, 'source_chain_json') ?? {};
   const displayText = readString(value, 'display_text') ?? readString(value, 'page_title') ?? 'Source';
   const pageTitle = readString(value, 'page_title') ?? displayText;
+  const citationSpaceId = readString(value, 'space_id');
+  const pageId = readString(value, 'page_id');
 
   if (index === null || wikiPagePk.length === 0) {
     return null;
@@ -646,6 +669,8 @@ function normalizeCitation(value: unknown): ChatCitation | null {
     index,
     chunk_id: chunkId,
     wiki_page_pk: wikiPagePk,
+    ...(citationSpaceId !== null ? { space_id: citationSpaceId } : {}),
+    ...(pageId !== null ? { page_id: pageId } : {}),
     section_id: readString(value, 'section_id'),
     relevance_score: relevanceScore ?? 0,
     source_chain_json: sourceChainJson,
@@ -654,6 +679,23 @@ function normalizeCitation(value: unknown): ChatCitation | null {
     section_title: readString(value, 'section_title'),
     fallback: readBoolean(value, 'fallback') ?? false,
   };
+}
+
+function normalizeSpaceIds(primarySpaceId: string, selectedSpaceIds: string[] | undefined): string[] {
+  const normalized: string[] = [];
+  const add = (value: string | undefined) => {
+    const trimmed = value?.trim() ?? '';
+    if (trimmed.length > 0 && !normalized.includes(trimmed)) {
+      normalized.push(trimmed);
+    }
+  };
+
+  add(primarySpaceId);
+  for (const selectedSpaceId of selectedSpaceIds ?? []) {
+    add(selectedSpaceId);
+  }
+
+  return normalized;
 }
 
 function normalizeUsage(value: unknown): ChatUsage | null {

@@ -5,7 +5,7 @@ import { Navigate, useNavigate, useParams } from 'react-router';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
 import { Alert, Button, Collapse, Empty, Input, List, Popconfirm, Result, Select, Spin, Tag } from 'antd';
-import { CloseOutlined, DeleteOutlined, MenuOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons';
+import { CloseOutlined, DeleteOutlined, LockOutlined, MenuOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons';
 import ChatChart from '../components/ChatChart.js';
 import { ConfidenceBadge } from '../components/ConfidenceBadge.js';
 import GraphPathViewer, { type GraphPathData, type GraphPathEdge, type GraphPathNode } from '../components/GraphPathViewer.js';
@@ -23,16 +23,24 @@ import {
   type ChatToolUsePart,
   type RetrievalMode,
   type SendMessageOptions,
+  type SpaceDisplayInfo,
 } from '../hooks/useChatStream.js';
 import { api } from '../lib/api.js';
-import { useAuth } from '../lib/auth.js';
+import { useAuth, type AuthUser } from '../lib/auth.js';
 import NotFound from './NotFound.js';
 
 type ChatSession = {
   id: string;
   title: string | null;
+  space_ids?: string[];
+  space_details?: SpaceDisplayInfo[];
   updated_at: string;
   created_at: string;
+};
+
+type AvailableChatSpace = {
+  id: string;
+  name: string;
 };
 
 type MessageInputProps = {
@@ -42,6 +50,15 @@ type MessageInputProps = {
   settings?: ChatSettings;
   databaseAvailable?: boolean;
   onSettingsChange?: (settings: ChatSettings) => void;
+};
+
+type SpaceSelectorProps = {
+  availableSpaces: AvailableChatSpace[];
+  selectedSpaceIds: string[];
+  primarySpaceId: string;
+  locked: boolean;
+  onChange: (spaceIds: string[]) => void;
+  onStartNewSession: () => void;
 };
 
 type SessionSidebarProps = {
@@ -56,6 +73,7 @@ type SessionSidebarProps = {
 type ChatMessageBubbleProps = {
   message: ChatMessage;
   spaceId: string;
+  spaceNameById?: Record<string, string>;
 };
 
 type ChatSettings = {
@@ -81,11 +99,33 @@ export default function Chat() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [availableSpaces, setAvailableSpaces] = useState<AvailableChatSpace[]>([]);
+  const [spaceRefreshVersion, setSpaceRefreshVersion] = useState(0);
+  const [selectedSpaceIds, setSelectedSpaceIds] = useState<string[]>(() => normalizeSelectedSpaceIds(spaceId, [spaceId]));
   const [spaceDatabaseEnabled, setSpaceDatabaseEnabled] = useState(false);
-  const [chatSettings, setChatSettings] = useState<ChatSettings>(() => loadChatSettings(spaceId));
+  const selectedSpaceSettingsKey = useMemo(() => getChatSettingsKey(selectedSpaceIds), [selectedSpaceIds]);
+  const [chatSettingsState, setChatSettingsState] = useState<{ storageKey: string; settings: ChatSettings }>(() => {
+    const initialSpaceIds = normalizeSelectedSpaceIds(spaceId, [spaceId]);
+    return {
+      storageKey: getChatSettingsKey(initialSpaceIds),
+      settings: loadChatSettings(initialSpaceIds),
+    };
+  });
+  const chatSettingsKeyRef = useRef(chatSettingsState.storageKey);
+  const chatSettings =
+    chatSettingsState.storageKey === selectedSpaceSettingsKey
+      ? chatSettingsState.settings
+      : loadChatSettings(selectedSpaceIds);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const sessionSwitchRef = useRef(0);
+  const spaceNameById = useMemo(() => {
+    const names: Record<string, string> = {};
+    for (const space of availableSpaces) {
+      names[space.id] = space.name;
+    }
+    return names;
+  }, [availableSpaces]);
 
   const loadSessions = useCallback(
     async (background = false) => {
@@ -131,6 +171,7 @@ export default function Chat() {
     startNewSession,
   } = useChatStream({
     spaceId,
+    spaceIds: selectedSpaceIds,
     accessToken,
     onSession: () => {
       void loadSessions(true);
@@ -142,12 +183,68 @@ export default function Chat() {
   }, [loadSessions]);
 
   useEffect(() => {
-    setChatSettings(loadChatSettings(spaceId));
+    setSelectedSpaceIds(normalizeSelectedSpaceIds(spaceId, [spaceId]));
   }, [spaceId]);
 
   useEffect(() => {
-    saveChatSettings(spaceId, chatSettings);
-  }, [chatSettings, spaceId]);
+    if (chatSettingsKeyRef.current !== selectedSpaceSettingsKey) {
+      chatSettingsKeyRef.current = selectedSpaceSettingsKey;
+      setChatSettingsState({
+        storageKey: selectedSpaceSettingsKey,
+        settings: loadChatSettings(selectedSpaceIds),
+      });
+    }
+  }, [selectedSpaceIds, selectedSpaceSettingsKey]);
+
+  useEffect(() => {
+    if (chatSettingsState.storageKey === selectedSpaceSettingsKey) {
+      saveChatSettings(selectedSpaceIds, chatSettingsState.settings);
+    }
+  }, [chatSettingsState, selectedSpaceIds, selectedSpaceSettingsKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAvailableSpaces(): Promise<void> {
+      if (!isAuthenticated || spaceId.length === 0) {
+        setAvailableSpaces([]);
+        return;
+      }
+
+      try {
+        const response = await api.getWrapped<Array<AvailableChatSpace & { status?: string }>>('/spaces', {
+          per_page: 100,
+          sort: 'name',
+        });
+        if (cancelled) return;
+        const spaces = response.data
+          .filter((space) => (space.status ?? 'active') === 'active')
+          .filter((space) => hasSpacePermission(space.id, 'chat:use'))
+          .map((space) => ({ id: space.id, name: space.name }));
+        setAvailableSpaces(ensureSpaceOption(spaces, spaceId, getKnownSpaceName(user, spaceId)));
+      } catch {
+        if (!cancelled) {
+          setAvailableSpaces(ensureSpaceOption(getUserChatSpaces(user, hasSpacePermission), spaceId, getKnownSpaceName(user, spaceId)));
+        }
+      }
+    }
+
+    void loadAvailableSpaces();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasSpacePermission, isAuthenticated, spaceId, spaceRefreshVersion, user]);
+
+  useEffect(() => {
+    setSelectedSpaceIds((current) => {
+      const authorized = new Set(availableSpaces.map((space) => space.id));
+      return normalizeSelectedSpaceIds(
+        spaceId,
+        current.filter((id) => id === spaceId || authorized.has(id)),
+      );
+    });
+  }, [availableSpaces, spaceId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -178,10 +275,16 @@ export default function Chat() {
   }, [isAuthenticated, spaceId]);
 
   useEffect(() => {
-    if (!spaceDatabaseEnabled && chatSettings.enableDatabase) {
-      setChatSettings((current) => ({ ...current, enableDatabase: false }));
+    if ((!spaceDatabaseEnabled || selectedSpaceIds.length > 1) && chatSettings.enableDatabase) {
+      updateChatSettings({ ...chatSettings, enableDatabase: false });
     }
-  }, [chatSettings.enableDatabase, spaceDatabaseEnabled]);
+  }, [chatSettings.enableDatabase, selectedSpaceIds.length, spaceDatabaseEnabled]);
+
+  useEffect(() => {
+    if (streamError?.status === 403 || streamError?.code === 'SPACE_PERMISSION_DENIED') {
+      setSpaceRefreshVersion((version) => version + 1);
+    }
+  }, [streamError]);
 
   useEffect(() => {
     if (typeof messagesEndRef.current?.scrollIntoView === 'function') {
@@ -217,6 +320,8 @@ export default function Chat() {
         `/spaces/${encodeURIComponent(spaceId)}/chat/sessions/${encodeURIComponent(nextSessionId)}`,
       );
       if (sessionSwitchRef.current !== switchVersion) return;
+      setAvailableSpaces((current) => mergeSpaceOptions(current, detail.space_details ?? []));
+      setSelectedSpaceIds(normalizeSelectedSpaceIds(spaceId, detail.space_ids ?? [spaceId]));
       loadSession(detail);
     } catch (err) {
       if (sessionSwitchRef.current !== switchVersion) return;
@@ -234,6 +339,7 @@ export default function Chat() {
       setSessions((current) => current.filter((item) => item.id !== session.id));
       if (session.id === sessionId) {
         startNewSession();
+        setSelectedSpaceIds(normalizeSelectedSpaceIds(spaceId, [spaceId]));
       }
     } catch (err) {
       setSessionsError(getErrorMessage(err));
@@ -242,14 +348,24 @@ export default function Chat() {
 
   function newChat(): void {
     startNewSession();
+    setSelectedSpaceIds(normalizeSelectedSpaceIds(spaceId, [spaceId]));
     setIsMobileSidebarOpen(false);
+  }
+
+  function updateChatSettings(settings: ChatSettings): void {
+    chatSettingsKeyRef.current = selectedSpaceSettingsKey;
+    setChatSettingsState({
+      storageKey: selectedSpaceSettingsKey,
+      settings,
+    });
   }
 
   async function handleSend(message: string, settings: ChatSettings): Promise<void> {
     const options: SendMessageOptions = {
       sessionId,
+      spaceIds: selectedSpaceIds,
       enableDeepAnalysis: settings.enableDeepAnalysis,
-      enableDatabase: spaceDatabaseEnabled && settings.enableDatabase,
+      enableDatabase: selectedSpaceIds.length === 1 && spaceDatabaseEnabled && settings.enableDatabase,
       retrievalMode: settings.retrievalMode,
     };
 
@@ -257,7 +373,7 @@ export default function Chat() {
     await loadSessions(true);
   }
 
-  const chatErrorMessage = getChatErrorMessage(streamError);
+  const chatErrorMessage = getChatErrorMessage(streamError, selectedSpaceIds.length);
 
   return (
     <div className="chat-page">
@@ -316,9 +432,11 @@ export default function Chat() {
 
         <section className="chat-message-list" aria-label={t('chat.messagesLabel')}>
           {messages.length === 0 ? (
-            <Empty description={t('chat.emptyConversation')} />
+            <Empty description={selectedSpaceIds.length > 1 ? t('chat.emptyMultiSpaceConversation') : t('chat.emptyConversation')} />
           ) : (
-            messages.map((message) => <ChatMessageBubble key={message.id} message={message} spaceId={spaceId} />)
+            messages.map((message) => (
+              <ChatMessageBubble key={message.id} message={message} spaceId={spaceId} spaceNameById={spaceNameById} />
+            ))
           )}
           <div ref={messagesEndRef} />
         </section>
@@ -340,16 +458,109 @@ export default function Chat() {
           </div>
         ) : null}
 
+        <SpaceSelector
+          availableSpaces={availableSpaces}
+          selectedSpaceIds={selectedSpaceIds}
+          primarySpaceId={spaceId}
+          locked={sessionId !== null}
+          onChange={setSelectedSpaceIds}
+          onStartNewSession={newChat}
+        />
         <MessageInput
           disabled={isStreaming}
           isStreaming={isStreaming}
           settings={chatSettings}
-          databaseAvailable={spaceDatabaseEnabled}
-          onSettingsChange={setChatSettings}
+          databaseAvailable={selectedSpaceIds.length === 1 && spaceDatabaseEnabled}
+          onSettingsChange={updateChatSettings}
           onSend={handleSend}
         />
       </main>
     </div>
+  );
+}
+
+export function SpaceSelector({
+  availableSpaces,
+  selectedSpaceIds,
+  primarySpaceId,
+  locked,
+  onChange,
+  onStartNewSession,
+}: SpaceSelectorProps) {
+  const { t } = useTranslation();
+  const spaceNameById = useMemo(() => {
+    const names: Record<string, string> = {};
+    for (const space of availableSpaces) {
+      names[space.id] = space.name;
+    }
+    return names;
+  }, [availableSpaces]);
+
+  const selectedIds = normalizeSelectedSpaceIds(primarySpaceId, selectedSpaceIds);
+  const options = availableSpaces.map((space) => ({
+    value: space.id,
+    label: space.name,
+    disabled: space.id === primarySpaceId,
+  }));
+
+  return (
+    <section className="chat-space-selector-panel" aria-label={t('chat.spaceSelectorLabel')}>
+      <div className="chat-space-selector-header">
+        <label htmlFor="chat-space-selector">{t('chat.spaceSelectorLabel')}</label>
+        {locked ? (
+          <span className="chat-scope-lock">
+            <LockOutlined />
+            {t('chat.scopeLocked')}
+          </span>
+        ) : null}
+      </div>
+      <div className="chat-space-selector-row">
+        <Select
+          id="chat-space-selector"
+          aria-label={t('chat.spaceSelectorLabel')}
+          mode="multiple"
+          disabled={locked}
+          value={selectedIds}
+          options={options}
+          placeholder={t('chat.spaceSelectorPlaceholder')}
+          className="chat-space-selector"
+          popupMatchSelectWidth={false}
+          optionFilterProp="label"
+          tagRender={({ label, value, closable, onClose }) => {
+            const isPrimary = value === primarySpaceId;
+            return (
+              <Tag
+                closable={!locked && !isPrimary && closable}
+                onClose={onClose}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                {...(isPrimary ? { color: 'blue' } : {})}
+              >
+                {isPrimary ? t('chat.primarySpaceTag', { name: label }) : label}
+              </Tag>
+            );
+          }}
+          onChange={(nextIds) => {
+            onChange(normalizeSelectedSpaceIds(primarySpaceId, nextIds));
+          }}
+        />
+        {locked ? (
+          <Button size="small" icon={<PlusOutlined />} onClick={onStartNewSession}>
+            {t('chat.changeScopeNewChat')}
+          </Button>
+        ) : null}
+      </div>
+      {selectedIds.length > 1 ? (
+        <p className="chat-space-selector-help">
+          {t('chat.multiSpaceSelected', {
+            count: selectedIds.length,
+            names: selectedIds.map((id) => spaceNameById[id] ?? id).join('、'),
+          })}
+        </p>
+      ) : null}
+    </section>
   );
 }
 
@@ -520,6 +731,7 @@ export function SessionSidebar({
           dataSource={sessions}
           renderItem={(session) => {
             const title = getSessionTitle(session);
+            const spaceCount = session.space_ids?.length ?? 1;
             return (
               <List.Item
                 className={`chat-session-item${session.id === activeSessionId ? ' active' : ''}`}
@@ -548,8 +760,13 @@ export function SessionSidebar({
                 ]}
               >
                 <List.Item.Meta
-                  title={title}
-                  description={formatDate(session.updated_at)}
+                  title={
+                    <span className="chat-session-title">
+                      <span>{title}</span>
+                      {spaceCount > 1 ? <Tag color="purple">{t('chat.multiSpaceBadge', { count: spaceCount })}</Tag> : null}
+                    </span>
+                  }
+                  description={formatSessionDescription(session)}
                 />
               </List.Item>
             );
@@ -560,7 +777,7 @@ export function SessionSidebar({
   );
 }
 
-export function ChatMessageBubble({ message, spaceId }: ChatMessageBubbleProps) {
+export function ChatMessageBubble({ message, spaceId, spaceNameById = {} }: ChatMessageBubbleProps) {
   const { t } = useTranslation();
 
   return (
@@ -578,7 +795,7 @@ export function ChatMessageBubble({ message, spaceId }: ChatMessageBubbleProps) 
               ) : null
             )}
             <ChatMessageParts parts={message.parts} />
-            <CitationPanel citations={message.citations} spaceId={spaceId} />
+            <CitationPanel citations={message.citations} spaceId={spaceId} spaceNameById={spaceNameById} />
             <CompletionIndicator message={message} />
           </>
         ) : (
@@ -639,7 +856,15 @@ function AssistantMarkdown({ content, citations, spaceId }: { content: string; c
   );
 }
 
-function CitationPanel({ citations, spaceId }: { citations: ChatCitation[]; spaceId: string }) {
+function CitationPanel({
+  citations,
+  spaceId,
+  spaceNameById,
+}: {
+  citations: ChatCitation[];
+  spaceId: string;
+  spaceNameById: Record<string, string>;
+}) {
   const { t } = useTranslation();
   const navigate = useNavigate();
 
@@ -656,6 +881,8 @@ function CitationPanel({ citations, spaceId }: { citations: ChatCitation[]; spac
           {citations.map((citation) => {
             const graphEdgeIds = getCitationStringArray(citation, 'graph_edge_ids');
             const graphPath = getCitationGraphPath(citation);
+            const citationSpaceId = citation.space_id ?? spaceId;
+            const citationSpaceName = spaceNameById[citationSpaceId] ?? citationSpaceId;
             return (
               <li key={`${citation.index}-${citation.chunk_id || citation.wiki_page_pk}`}>
                 <div className="chat-citation-entry">
@@ -671,6 +898,7 @@ function CitationPanel({ citations, spaceId }: { citations: ChatCitation[]; spac
                       <strong>{citation.page_title}</strong>
                       <small>{citation.section_title ?? t('chat.noSection')}</small>
                     </span>
+                    {citationSpaceId !== spaceId ? <Tag color="geekblue">{t('chat.sourceSpace', { name: citationSpaceName })}</Tag> : null}
                     <ConfidenceBadge label={getCitationConfidenceLabel(citation)} />
                     <Tag>{formatCitationScore(citation.relevance_score)}</Tag>
                   </button>
@@ -835,12 +1063,12 @@ function normalizeRetrievalMode(value: string): RetrievalMode {
   return validValues.includes(value as RetrievalMode) ? (value as RetrievalMode) : DEFAULT_RETRIEVAL_MODE;
 }
 
-function loadChatSettings(spaceId: string): ChatSettings {
-  if (typeof window === 'undefined' || spaceId.length === 0) {
+function loadChatSettings(spaceIds: string[]): ChatSettings {
+  if (typeof window === 'undefined' || spaceIds.length === 0) {
     return DEFAULT_CHAT_SETTINGS;
   }
 
-  const raw = window.sessionStorage.getItem(getChatSettingsKey(spaceId));
+  const raw = window.sessionStorage.getItem(getChatSettingsKey(spaceIds));
   if (raw === null) {
     return DEFAULT_CHAT_SETTINGS;
   }
@@ -861,16 +1089,16 @@ function loadChatSettings(spaceId: string): ChatSettings {
   }
 }
 
-function saveChatSettings(spaceId: string, settings: ChatSettings): void {
-  if (typeof window === 'undefined' || spaceId.length === 0) {
+function saveChatSettings(spaceIds: string[], settings: ChatSettings): void {
+  if (typeof window === 'undefined' || spaceIds.length === 0) {
     return;
   }
 
-  window.sessionStorage.setItem(getChatSettingsKey(spaceId), JSON.stringify(settings));
+  window.sessionStorage.setItem(getChatSettingsKey(spaceIds), JSON.stringify(settings));
 }
 
-function getChatSettingsKey(spaceId: string): string {
-  return `cherry-chat-settings:${spaceId}`;
+function getChatSettingsKey(spaceIds: string[]): string {
+  return `cherry-chat-settings:${[...spaceIds].sort().join(',')}`;
 }
 
 function isSpaceDatabaseEnabled(value: unknown): boolean {
@@ -1077,6 +1305,62 @@ function sortSessions(sessions: ChatSession[]): ChatSession[] {
   return [...sessions].sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime());
 }
 
+function normalizeSelectedSpaceIds(primarySpaceId: string, selectedSpaceIds: string[]): string[] {
+  const normalized: string[] = [];
+  const add = (value: string | undefined) => {
+    const trimmed = value?.trim() ?? '';
+    if (trimmed.length > 0 && !normalized.includes(trimmed)) {
+      normalized.push(trimmed);
+    }
+  };
+
+  add(primarySpaceId);
+  for (const selectedSpaceId of selectedSpaceIds) {
+    add(selectedSpaceId);
+  }
+
+  return normalized;
+}
+
+function ensureSpaceOption(spaces: AvailableChatSpace[], spaceId: string, fallbackName: string): AvailableChatSpace[] {
+  const normalized = mergeSpaceOptions(spaces, [{ id: spaceId, name: fallbackName }]);
+  return normalized.sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'));
+}
+
+function mergeSpaceOptions(spaces: AvailableChatSpace[], incoming: SpaceDisplayInfo[]): AvailableChatSpace[] {
+  const byId = new Map<string, AvailableChatSpace>();
+  for (const space of spaces) {
+    if (space.id.length > 0) {
+      byId.set(space.id, space);
+    }
+  }
+  for (const space of incoming) {
+    if (space.id.length > 0 && space.name.length > 0) {
+      byId.set(space.id, { id: space.id, name: space.name });
+    }
+  }
+  return [...byId.values()];
+}
+
+function getUserChatSpaces(
+  user: AuthUser | null,
+  hasSpacePermission: (spaceId: string, permission: string) => boolean,
+): AvailableChatSpace[] {
+  return (user?.spaces ?? [])
+    .filter((space) => hasSpacePermission(space.id, 'chat:use'))
+    .map((space) => ({ id: space.id, name: space.name }));
+}
+
+function getKnownSpaceName(user: AuthUser | null, spaceId: string): string {
+  return user?.spaces?.find((space) => space.id === spaceId)?.name ?? spaceId;
+}
+
+function formatSessionDescription(session: ChatSession): string {
+  const updatedAt = formatDate(session.updated_at);
+  const names = session.space_details?.map((space) => space.name).filter((name) => name.length > 0) ?? [];
+  return names.length > 1 ? `${updatedAt} · ${names.join('、')}` : updatedAt;
+}
+
 function getSessionTitle(session: ChatSession): string {
   if (session.title !== null && session.title.trim().length > 0) {
     return session.title;
@@ -1086,7 +1370,8 @@ function getSessionTitle(session: ChatSession): string {
 }
 
 function buildCitationPath(spaceId: string, citation: ChatCitation): string {
-  return `/spaces/${encodeURIComponent(spaceId)}/wiki/${encodeURIComponent(getCitationPageId(citation))}`;
+  const citationSpaceId = citation.space_id ?? spaceId;
+  return `/spaces/${encodeURIComponent(citationSpaceId)}/wiki/${encodeURIComponent(getCitationPageId(citation))}`;
 }
 
 export function getCitationPageId(citation: ChatCitation): string {
