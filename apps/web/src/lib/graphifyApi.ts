@@ -13,6 +13,11 @@ export type GraphifyInputScope = {
   source_document_ids?: string[];
 };
 
+export type GraphifyInputScopeResolved = {
+  source_documents: Array<{ id: string; filename: string | null; missing: boolean }>;
+  pages: Array<{ id: string; title: string | null; missing: boolean }>;
+};
+
 export type GraphifyOptions = {
   wiki?: boolean;
   no_viz?: boolean;
@@ -49,6 +54,7 @@ export type GraphifyRun = {
   status: GraphifyRunStatus;
   progress: GraphifyRunProgress | null;
   input_scope: GraphifyInputScope;
+  input_scope_resolved: GraphifyInputScopeResolved;
   result: GraphifyRunResult;
   stats_json?: unknown;
   error_json?: unknown;

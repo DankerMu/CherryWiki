@@ -20,6 +20,7 @@ import {
   GraphifyStatusTabs,
   NewRunDialog,
   formatGraphifyStatsWithT,
+  formatRunLabel,
   formatRunDurationWithT,
   isGraphifyRunActive,
 } from './graphifyUi';
@@ -160,15 +161,18 @@ export default function GraphifyRunsPage() {
     {
       title: t('graphify.space.columns.run'),
       key: 'run',
-      render: (_: unknown, run: GraphifyRun) => (
-        <div>
-          <Typography.Text strong>{run.run_id}</Typography.Text>
-          <br />
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {run.result.report_uri ?? t('graphify.space.noReport')}
-          </Typography.Text>
-        </div>
-      ),
+      render: (_: unknown, run: GraphifyRun) => {
+        const label = formatRunLabel(run, t);
+        return (
+          <div>
+            <Typography.Text strong>{label.primary}</Typography.Text>
+            <br />
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {label.secondary}
+            </Typography.Text>
+          </div>
+        );
+      },
     },
     {
       title: t('graphify.space.columns.status'),

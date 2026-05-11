@@ -16,7 +16,6 @@ import {
 } from '../lib/graphifyApi';
 import {
   GraphifyStatusCell,
-  asRecord,
   formatCount,
   formatJson,
   formatRunDurationWithT,
@@ -356,21 +355,13 @@ function renderBoldMarkdown(text: string, keyPrefix: string): ReactNode[] {
 }
 
 function formatInputScope(run: GraphifyRun, t: (key: string) => string): string {
-  const inputScope = asRecord(run.input_scope);
-  const sourceDocumentIds = readStringArray(inputScope.source_document_ids);
-  const pageIds = readStringArray(inputScope.page_ids);
+  const sourceDocumentNames = run.input_scope_resolved.source_documents
+    .map((sourceDocument) => (sourceDocument.missing ? t('common.deleted') : sourceDocument.filename))
+    .filter((name): name is string => name !== null && name.length > 0);
+  const pageNames = run.input_scope_resolved.pages
+    .map((page) => (page.missing ? t('common.deleted') : page.title))
+    .filter((name): name is string => name !== null && name.length > 0);
+  const names = [...sourceDocumentNames, ...pageNames];
 
-  if (sourceDocumentIds.length > 0) {
-    return sourceDocumentIds.join(', ');
-  }
-
-  if (pageIds.length > 0) {
-    return pageIds.join(', ');
-  }
-
-  return t('graphify.space.detail.overview.allSources');
-}
-
-function readStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+  return names.length > 0 ? names.join(', ') : t('graphify.space.detail.overview.allSources');
 }

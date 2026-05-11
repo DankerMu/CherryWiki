@@ -1,5 +1,6 @@
 import { ExclamationCircleOutlined } from '@ant-design/icons';
 import { Button, Form, Modal, Select, Tag } from 'antd';
+import type { TFunction } from 'i18next';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { formatLabel } from '../components/adminUi';
@@ -113,6 +114,28 @@ export function NewRunDialog({
 
 export function isGraphifyRunActive(run: GraphifyRun): boolean {
   return run.status === 'pending' || run.status === 'running';
+}
+
+export function formatRunLabel(run: GraphifyRun, t: TFunction): { primary: string; secondary: string } {
+  const names = [
+    ...run.input_scope_resolved.source_documents.map((sourceDocument) => (
+      sourceDocument.missing ? t('common.deleted') : sourceDocument.filename
+    )),
+    ...run.input_scope_resolved.pages.map((page) => (
+      page.missing ? t('common.deleted') : page.title
+    )),
+  ].filter((name): name is string => name !== null && name.length > 0);
+
+  const visibleNames = names.slice(0, 3);
+  const overflowCount = names.length - visibleNames.length;
+  const primary = names.length === 0
+    ? formatLabel(run.mode)
+    : `${visibleNames.join(', ')}${overflowCount > 0 ? ` +${overflowCount}` : ''}`;
+
+  return {
+    primary,
+    secondary: run.run_id,
+  };
 }
 
 export function isQuarantined(run: GraphifyRun): boolean {
