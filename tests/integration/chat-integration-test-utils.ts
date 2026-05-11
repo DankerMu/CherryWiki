@@ -99,6 +99,10 @@ export class ScriptedChatDb {
     this.executeResults.push(result);
   }
 
+  transaction<T>(callback: (tx: NodePgDatabase) => Promise<T>): Promise<T> {
+    return callback(this.asDrizzle());
+  }
+
   select(): ScriptedQueryBuilder {
     return new ScriptedQueryBuilder(this, this.selectResults.shift() ?? []);
   }
@@ -143,6 +147,10 @@ class ScriptedQueryBuilder implements PromiseLike<unknown[]> {
   }
 
   leftJoin(): this {
+    return this;
+  }
+
+  innerJoin(): this {
     return this;
   }
 
@@ -243,6 +251,15 @@ export function queueStreamPrelude(
   db.queueSelect([options.space ?? createSpaceRow()]);
   db.queueSelect([options.chatModel ?? createModelRow({ model_type: 'chat' })]);
   db.queueInsert([session]);
+  db.queueInsert([
+    {
+      session_id: session.id,
+      tenant_id: session.tenant_id,
+      space_id: session.space_id,
+      position: 0,
+      created_at: session.created_at,
+    },
+  ]);
   db.queueSelect([session]);
   db.queueSelect(options.history ?? []);
   db.queueInsert([
@@ -444,6 +461,7 @@ export type ChatRequest = {
   headers: Record<string, string>;
   id: string;
   permissions?: string[];
+  space_permissions?: Record<string, string[]>;
   params?: Record<string, string>;
   body?: Record<string, unknown>;
 };
@@ -530,7 +548,11 @@ export async function callControllerAsFetch(
   request: ChatRequest = createRequest(),
 ): Promise<Response> {
   const reply = createSseReply();
-  await controller.streamCompletion(dto, request, reply);
+  const requestWithPermissions =
+    request.space_permissions === undefined
+      ? { ...request, space_permissions: { [dto.space_id]: ['chat:use'] } }
+      : request;
+  await controller.streamCompletion(dto, requestWithPermissions, reply);
 
   return new Response(reply.output.join(''), {
     status: reply.statusCode ?? 500,

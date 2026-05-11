@@ -1,11 +1,33 @@
 import { Type } from 'class-transformer';
-import { IsBoolean, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
 
 export class ChatCompletionDto {
+  @IsOptional()
   @IsString()
   @MinLength(1)
   @MaxLength(200)
-  space_id!: string;
+  space_id?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MinLength(1, { each: true })
+  @MaxLength(200, { each: true })
+  @ArrayMinSize(1)
+  @ArrayMaxSize(10)
+  space_ids?: string[];
 
   @IsOptional()
   @IsString()

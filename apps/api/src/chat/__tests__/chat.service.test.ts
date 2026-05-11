@@ -7,6 +7,7 @@ import {
   ErrorCode,
   answerCitations,
   chatMessages,
+  chatSessionSpaces,
   chatSessions,
   indexSnapshots,
   model_configs,
@@ -31,6 +32,7 @@ import { ChatController } from '../chat.controller.js';
 import { ChatService, type ChatStreamEvent } from '../chat.service.js';
 
 type ChatSessionRow = typeof chatSessions.$inferSelect;
+type ChatSessionSpaceRow = typeof chatSessionSpaces.$inferSelect;
 type ChatMessageRow = typeof chatMessages.$inferSelect;
 type SpaceRow = typeof spaces.$inferSelect;
 type ModelConfigRow = typeof model_configs.$inferSelect;
@@ -41,7 +43,7 @@ describe('ChatService session CRUD', () => {
     const { service, db } = createServiceContext();
     db.queueInsert([createSessionRow({ id: 'session-created' })]);
 
-    const sessionId = await service.createSession(TEST_TENANT_ID, TEST_SPACE_ID, TEST_USER_ID);
+    const sessionId = await service.createSession(TEST_TENANT_ID, TEST_SPACE_ID, TEST_USER_ID, [TEST_SPACE_ID]);
 
     expect(sessionId).toBe('session-created');
     expect(db.inserts[0]?.table).toBe(chatSessions);
@@ -50,6 +52,15 @@ describe('ChatService session CRUD', () => {
       space_id: TEST_SPACE_ID,
       user_id: TEST_USER_ID,
     });
+    expect(db.inserts[1]?.table).toBe(chatSessionSpaces);
+    expect(db.inserts[1]?.value).toEqual([
+      expect.objectContaining({
+        session_id: 'session-created',
+        tenant_id: TEST_TENANT_ID,
+        space_id: TEST_SPACE_ID,
+        position: 0,
+      }),
+    ]);
   });
 
   it('lists user sessions with pagination', async () => {
@@ -57,10 +68,13 @@ describe('ChatService session CRUD', () => {
     db.queueSelect([createSpaceRow()]);
     db.queueSelect([createSessionRow({ id: 'session-2' })]);
     db.queueSelect([{ total: 1 }]);
+    db.queueSelect([createSessionSpaceInfoRow({ session_id: 'session-2' })]);
 
     const result = await service.listSessions(TEST_TENANT_ID, TEST_SPACE_ID, TEST_USER_ID, 1, 10);
 
     expect(result.data.map((session) => session.id)).toEqual(['session-2']);
+    expect(result.data[0]?.space_ids).toEqual([TEST_SPACE_ID]);
+    expect(result.data[0]?.space_details).toEqual([{ id: TEST_SPACE_ID, name: 'Knowledge' }]);
     expect(result.pagination).toEqual({ page: 1, per_page: 10, total: 1, has_next: false });
     expect(db.limitCalls).toContain(10);
   });
@@ -68,11 +82,13 @@ describe('ChatService session CRUD', () => {
   it('gets a session with messages', async () => {
     const { service, db } = createServiceContext();
     db.queueSelect([createSessionRow()]);
+    db.queueSelect([createSessionSpaceInfoRow()]);
     db.queueSelect([createMessageRow({ id: 'message-1', role: 'user', content: 'hello' })]);
 
     const result = await service.getSession(TEST_TENANT_ID, 'session-1', TEST_USER_ID, TEST_SPACE_ID);
 
     expect(result.id).toBe('session-1');
+    expect(result.space_details).toEqual([{ id: TEST_SPACE_ID, name: 'Knowledge' }]);
     expect(result.messages).toEqual([
       expect.objectContaining({
         id: 'message-1',
@@ -97,11 +113,287 @@ describe('ChatService session CRUD', () => {
   it('deletes a session and relies on database cascades for messages and citations', async () => {
     const { service, db } = createServiceContext();
     db.queueSelect([createSessionRow()]);
+    db.queueSelect([createSessionSpaceRow()]);
 
     await expect(service.deleteSession(TEST_TENANT_ID, 'session-1', TEST_USER_ID, TEST_SPACE_ID)).resolves.toEqual({
       deleted: true,
     });
     expect(db.deletes[0]?.table).toBe(chatSessions);
+  });
+});
+
+describe('ChatService multi-space session', () => {
+  it('createSession writes membership rows to chatSessionSpaces', async () => {
+    const { service, db } = createServiceContext();
+    db.queueInsert([createSessionRow({ id: 'session-created' })]);
+
+    await service.createSession(TEST_TENANT_ID, TEST_SPACE_ID, TEST_USER_ID, [TEST_SPACE_ID]);
+
+    expect(db.inserts[1]?.table).toBe(chatSessionSpaces);
+    expect(db.inserts[1]?.value).toEqual([
+      expect.objectContaining({
+        session_id: 'session-created',
+        space_id: TEST_SPACE_ID,
+        position: 0,
+      }),
+    ]);
+  });
+
+  it('createSession with multiple spaceIds writes all membership rows', async () => {
+    const { service, db } = createServiceContext();
+    db.queueInsert([createSessionRow({ id: 'session-created', space_id: 'space-a' })]);
+
+    await service.createSession(TEST_TENANT_ID, 'space-a', TEST_USER_ID, ['space-a', 'space-b']);
+
+    expect(db.inserts[1]?.table).toBe(chatSessionSpaces);
+    expect(db.inserts[1]?.value).toEqual([
+      expect.objectContaining({ session_id: 'session-created', space_id: 'space-a', position: 0 }),
+      expect.objectContaining({ session_id: 'session-created', space_id: 'space-b', position: 1 }),
+    ]);
+  });
+});
+
+describe('Space scope normalization', () => {
+  it('normalizes legacy requests', () => {
+    const { service } = createServiceContext();
+
+    expect(normalizeSpaceScopeForTest(service, { space_id: 'a' })).toEqual(['a']);
+  });
+
+  it('normalizes multi-space requests', () => {
+    const { service } = createServiceContext();
+
+    expect(normalizeSpaceScopeForTest(service, { space_id: 'a', space_ids: ['a', 'b'] })).toEqual(['a', 'b']);
+  });
+
+  it('deduplicates while preserving order', () => {
+    const { service } = createServiceContext();
+
+    expect(normalizeSpaceScopeForTest(service, { space_ids: ['a', 'a', 'b'] })).toEqual(['a', 'b']);
+  });
+
+  it('rejects empty scope', () => {
+    const { service } = createServiceContext();
+
+    expect(() => normalizeSpaceScopeForTest(service, {})).toThrow(HttpException);
+    try {
+      normalizeSpaceScopeForTest(service, {});
+    } catch (err) {
+      expect((err as HttpException).getStatus()).toBe(400);
+      expect(getHttpExceptionCode(err)).toBe(ErrorCode.VALIDATION_ERROR);
+    }
+  });
+
+  it('rejects explicitly empty space_ids array', () => {
+    const { service } = createServiceContext();
+
+    try {
+      normalizeSpaceScopeForTest(service, { space_id: 'a', space_ids: [] });
+    } catch (err) {
+      expect((err as HttpException).getStatus()).toBe(400);
+      expect(getHttpExceptionCode(err)).toBe(ErrorCode.VALIDATION_ERROR);
+      return;
+    }
+
+    throw new Error('Expected empty space_ids to be rejected');
+  });
+
+  it('rejects conflicting primary space', () => {
+    const { service } = createServiceContext();
+
+    try {
+      normalizeSpaceScopeForTest(service, { space_id: 'c', space_ids: ['a', 'b'] });
+    } catch (err) {
+      expect((err as HttpException).getStatus()).toBe(400);
+      expect(getHttpExceptionCode(err)).toBe(ErrorCode.VALIDATION_ERROR);
+      return;
+    }
+
+    throw new Error('Expected conflicting Space scope to be rejected');
+  });
+});
+
+describe('ChatService multi-space sessions', () => {
+  it('session continuation with same scope succeeds', async () => {
+    const { service, db } = createServiceContext();
+    queueExistingCompletion(db, ['space-a', 'space-b']);
+
+    const events = await collectEvents(
+      await service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: 'space-a',
+        spaceIds: ['space-a', 'space-b'],
+        sessionId: 'session-1',
+        userId: TEST_USER_ID,
+        userGroupIds: [TEST_GROUP_ID],
+        message: 'continue',
+      }),
+    );
+
+    expect(events.at(-1)).toEqual({ type: 'message.completed' });
+  });
+
+  it('session continuation with different scope returns SESSION_SPACE_SCOPE_MISMATCH', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createModelRow({ model_type: 'chat' })]);
+    db.queueSelect([createSessionRow({ space_id: 'space-a' })]);
+    db.queueSelect([
+      createSessionSpaceRow({ space_id: 'space-a', position: 0 }),
+      createSessionSpaceRow({ space_id: 'space-b', position: 1 }),
+    ]);
+
+    const err = await getRejectedHttpException(
+      service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: 'space-a',
+        spaceIds: ['space-a', 'space-c'],
+        sessionId: 'session-1',
+        userId: TEST_USER_ID,
+        userGroupIds: [TEST_GROUP_ID],
+        message: 'continue',
+      }),
+    );
+
+    expect(err.getStatus()).toBe(409);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.SESSION_SPACE_SCOPE_MISMATCH);
+    expect(db.inserts).toHaveLength(0);
+  });
+
+  it('session continuation with only space_id uses stored membership', async () => {
+    const { service, db } = createServiceContext();
+    queueExistingCompletion(db, ['space-a', 'space-b']);
+
+    await collectEvents(
+      await service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: 'space-a',
+        sessionId: 'session-1',
+        userId: TEST_USER_ID,
+        userGroupIds: [TEST_GROUP_ID],
+        message: 'continue',
+      }),
+    );
+
+    const retrievalTraceInsert = db.inserts.find((insert) => insert.table === chatMessages && isRecordForTest(insert.value) && insert.value.role === 'assistant');
+    expect(retrievalTraceInsert).toBeDefined();
+  });
+
+  it('listSessions returns sessions where queried space is a member', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createSpaceRow({ id: 'space-b' })]);
+    db.queueSelect([createSessionRow({ id: 'session-1', space_id: 'space-a' })]);
+    db.queueSelect([{ total: 1 }]);
+    db.queueSelect([
+      createSessionSpaceInfoRow({
+        session_id: 'session-1',
+        space_id: 'space-a',
+        space_name: 'Space A',
+        position: 0,
+      }),
+      createSessionSpaceInfoRow({
+        session_id: 'session-1',
+        space_id: 'space-b',
+        space_name: 'Space B',
+        position: 1,
+      }),
+    ]);
+
+    const result = await service.listSessions(TEST_TENANT_ID, 'space-b', TEST_USER_ID, 1, 10);
+
+    expect(result.data.map((session) => session.id)).toEqual(['session-1']);
+    expect(result.data[0]?.space_ids).toEqual(['space-a', 'space-b']);
+    expect(result.data[0]?.space_details).toEqual([
+      { id: 'space-a', name: 'Space A' },
+      { id: 'space-b', name: 'Space B' },
+    ]);
+  });
+
+  it('listSessions excludes sessions where queried space is not a member', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createSpaceRow({ id: 'space-b' })]);
+    db.queueSelect([]);
+    db.queueSelect([{ total: 0 }]);
+
+    const result = await service.listSessions(TEST_TENANT_ID, 'space-b', TEST_USER_ID, 1, 10);
+
+    expect(result.data).toEqual([]);
+    expect(result.pagination.total).toBe(0);
+  });
+
+  it('getSession from member space succeeds', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createSessionRow({ space_id: 'space-a' })]);
+    db.queueSelect([
+      createSessionSpaceInfoRow({ space_id: 'space-a', space_name: 'Space A', position: 0 }),
+      createSessionSpaceInfoRow({ space_id: 'space-b', space_name: 'Space B', position: 1 }),
+    ]);
+    db.queueSelect([createMessageRow({ role: 'user', content: 'hello' })]);
+
+    const result = await service.getSession(TEST_TENANT_ID, 'session-1', TEST_USER_ID, 'space-b');
+
+    expect(result.space_ids).toEqual(['space-a', 'space-b']);
+    expect(result.space_details).toEqual([
+      { id: 'space-a', name: 'Space A' },
+      { id: 'space-b', name: 'Space B' },
+    ]);
+    expect(result.messages).toHaveLength(1);
+  });
+
+  it('getSession from non-member space returns 404', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createSessionRow({ space_id: 'space-a' })]);
+    db.queueSelect([createSessionSpaceRow({ space_id: 'space-a' })]);
+
+    const err = await getRejectedHttpException(
+      service.getSession(TEST_TENANT_ID, 'session-1', TEST_USER_ID, 'space-b'),
+    );
+
+    expect(err.getStatus()).toBe(404);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.SESSION_NOT_FOUND);
+  });
+
+  it('deleteSession from member space succeeds with cascade', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createSessionRow({ space_id: 'space-a' })]);
+    db.queueSelect([
+      createSessionSpaceRow({ space_id: 'space-a', position: 0 }),
+      createSessionSpaceRow({ space_id: 'space-b', position: 1 }),
+    ]);
+
+    await expect(service.deleteSession(TEST_TENANT_ID, 'session-1', TEST_USER_ID, 'space-b')).resolves.toEqual({
+      deleted: true,
+    });
+    expect(db.deletes[0]?.table).toBe(chatSessions);
+  });
+
+  it('returns 403 if access to one member space is revoked', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createModelRow({ model_type: 'chat' })]);
+    db.queueSelect([createSessionRow({ space_id: 'space-a' })]);
+    db.queueSelect([
+      createSessionSpaceRow({ space_id: 'space-a', position: 0 }),
+      createSessionSpaceRow({ space_id: 'space-b', position: 1 }),
+    ]);
+    db.queueSelect([createSpaceRow({ id: 'space-a' })]);
+    db.queueSelect([createSpaceRow({ id: 'space-b' })]);
+    db.queueSelect([]);
+
+    const err = await getRejectedHttpException(
+      service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: 'space-a',
+        sessionId: 'session-1',
+        userId: TEST_USER_ID,
+        userGroupIds: [TEST_GROUP_ID],
+        actorRole: 'viewer',
+        spacePermissions: { 'space-a': ['chat:use'] },
+        message: 'continue',
+      }),
+    );
+
+    expect(err.getStatus()).toBe(403);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.PERMISSION_DENIED);
+    expect(db.inserts).toHaveLength(0);
   });
 });
 
@@ -642,6 +934,19 @@ function queuePreparedCompletion(db: ScriptedChatDb, options: { space?: SpaceRow
   db.queueInsert([createMessageRow({ id: 'user-message', role: 'user' })]);
 }
 
+function queueExistingCompletion(db: ScriptedChatDb, spaceIds: string[]): void {
+  db.queueSelect([createModelRow({ model_type: 'chat' })]);
+  db.queueSelect([createSessionRow({ space_id: spaceIds[0] ?? TEST_SPACE_ID })]);
+  db.queueSelect(spaceIds.map((spaceId, position) => createSessionSpaceRow({ space_id: spaceId, position })));
+  for (const spaceId of spaceIds) {
+    db.queueSelect([createSpaceRow({ id: spaceId })]);
+  }
+  db.queueSelect([]);
+  db.queueInsert([createMessageRow({ id: 'user-message', role: 'user' })]);
+  db.queueSelect([]);
+  db.queueInsert([createMessageRow({ id: 'assistant-no-hit', role: 'assistant', content: NO_HIT_MESSAGE })]);
+}
+
 class ScriptedChatDb {
   readonly inserts: Array<{ table?: unknown; value?: unknown }> = [];
   readonly updates: Array<{ table?: unknown; value?: unknown }> = [];
@@ -666,6 +971,10 @@ class ScriptedChatDb {
 
   queueExecute(result: unknown[]): void {
     this.executeResults.push(result);
+  }
+
+  transaction<T>(callback: (tx: NodePgDatabase) => Promise<T>): Promise<T> {
+    return callback(this.asDrizzle());
   }
 
   select(): ScriptedQueryBuilder {
@@ -711,6 +1020,10 @@ class ScriptedQueryBuilder implements PromiseLike<unknown[]> {
   }
 
   leftJoin(): this {
+    return this;
+  }
+
+  innerJoin(): this {
     return this;
   }
 
@@ -784,6 +1097,28 @@ function createSessionRow(overrides: Partial<ChatSessionRow> = {}): ChatSessionR
     created_at: new Date('2026-05-01T00:00:00.000Z'),
     updated_at: new Date('2026-05-01T00:00:00.000Z'),
     ...overrides,
+  };
+}
+
+function createSessionSpaceRow(overrides: Partial<ChatSessionSpaceRow> = {}): ChatSessionSpaceRow {
+  return {
+    session_id: 'session-1',
+    tenant_id: TEST_TENANT_ID,
+    space_id: TEST_SPACE_ID,
+    position: 0,
+    created_at: new Date('2026-05-01T00:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+function createSessionSpaceInfoRow(
+  overrides: Partial<ChatSessionSpaceRow> & { space_name?: string } = {},
+): ChatSessionSpaceRow & { space_name: string } {
+  const { space_name: spaceName = 'Knowledge', ...rowOverrides } = overrides;
+
+  return {
+    ...createSessionSpaceRow(rowOverrides),
+    space_name: spaceName,
   };
 }
 
@@ -932,6 +1267,17 @@ function findTitleUpdate(db: ScriptedChatDb): { title: unknown } | undefined {
   }
 
   return undefined;
+}
+
+function normalizeSpaceScopeForTest(
+  service: ChatService,
+  input: { space_id?: string; space_ids?: string[] },
+): string[] {
+  return (service as unknown as { normalizeSpaceScope: (dto: typeof input) => string[] }).normalizeSpaceScope(input);
+}
+
+function isRecordForTest(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 async function* toAsyncIterable<T>(items: T[]): AsyncIterable<T> {
