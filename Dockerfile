@@ -48,15 +48,19 @@ RUN cp -r /app/schemas /deploy/api/schemas && \
 FROM base AS api
 COPY --from=deploy /deploy/api /app
 ENV PATH="/app/node_modules/.bin:$PATH"
+RUN addgroup --system --gid 1001 appgroup \
+    && adduser --system --uid 1001 --ingroup appgroup appuser
+USER appuser
 EXPOSE 8080
 CMD ["sh", "-c", "drizzle-kit migrate && node --import tsx schemas/seed.ts && exec node dist/main.js"]
 
 # ============================================================
 # Target: web (nginx serving static build)
 # ============================================================
-FROM nginx:alpine AS web
+FROM nginx:1.28.3-alpine AS web
 COPY ops/nginx/nginx-prod-web.conf /etc/nginx/nginx.conf
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
+USER nginx
 EXPOSE 80
 
 # ============================================================
@@ -96,5 +100,8 @@ CMD ["python", "-m", "src"]
 # ============================================================
 FROM base AS indexer-worker
 COPY --from=deploy /deploy/indexer-worker /app
+RUN addgroup --system --gid 1001 appgroup \
+    && adduser --system --uid 1001 --ingroup appgroup appuser
+USER appuser
 EXPOSE 9093
 CMD ["node", "dist/main.js"]
