@@ -122,6 +122,10 @@ export async function bootstrap(): Promise<void> {
     },
   });
   const permissionReconcileTimer = startPermissionReconcileTimer(db, bridgeClient);
+  const spaceReconcileTimer = startSpaceReconcileTimer(
+    db as SpaceProvisionDeps['db'],
+    queues.spaceProvision,
+  );
 
   const healthServer = await startHealthServer(
     {
@@ -134,7 +138,15 @@ export async function bootstrap(): Promise<void> {
     healthPort,
   );
 
-  const shutdown = createShutdownHandler(queues, workers, connection, pool, healthServer, permissionReconcileTimer);
+  const shutdown = createShutdownHandler(
+    queues,
+    workers,
+    connection,
+    pool,
+    healthServer,
+    permissionReconcileTimer,
+    spaceReconcileTimer,
+  );
   process.once('SIGTERM', shutdown);
   process.once('SIGINT', shutdown);
   console.log(`${WORKER_NAME}: started`, { healthPort });
@@ -215,6 +227,17 @@ function startPermissionReconcileTimer(
   }, 60 * 60 * 1000);
 }
 
+function startSpaceReconcileTimer(
+  db: SpaceProvisionDeps['db'],
+  queue: BridgeWorkerQueues['spaceProvision'],
+): ReturnType<typeof setInterval> {
+  return setInterval(() => {
+    void reconcileSpaces(db, queue).catch((error: unknown) => {
+      console.error(`${WORKER_NAME}: space reconcile failed`, error);
+    });
+  }, 10 * 60 * 1000);
+}
+
 function parseHealthPort(value: string | undefined): number {
   if (value === undefined || value.trim() === '') {
     return 9090;
@@ -235,6 +258,7 @@ function createShutdownHandler(
   pool: PgPool,
   healthServer: Server,
   permissionReconcileTimer: ReturnType<typeof setInterval>,
+  spaceReconcileTimer: ReturnType<typeof setInterval>,
 ): () => void {
   let shuttingDown = false;
 
@@ -244,7 +268,15 @@ function createShutdownHandler(
     }
 
     shuttingDown = true;
-    void shutdown(queues, workers, connection, pool, healthServer, permissionReconcileTimer);
+    void shutdown(
+      queues,
+      workers,
+      connection,
+      pool,
+      healthServer,
+      permissionReconcileTimer,
+      spaceReconcileTimer,
+    );
   };
 }
 
@@ -255,6 +287,7 @@ async function shutdown(
   pool: PgPool,
   healthServer: Server,
   permissionReconcileTimer: ReturnType<typeof setInterval>,
+  spaceReconcileTimer: ReturnType<typeof setInterval>,
 ): Promise<void> {
   let shutdownFailed = false;
   const queueList = [
@@ -274,6 +307,7 @@ async function shutdown(
   try {
     console.log(`${WORKER_NAME}: shutting down`);
     clearInterval(permissionReconcileTimer);
+    clearInterval(spaceReconcileTimer);
     const results = await Promise.allSettled([
       ...workerList.map((worker) => worker.close()),
       ...queueList.map((queue) => queue.close()),

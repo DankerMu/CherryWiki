@@ -1,5 +1,5 @@
 import type { Job } from 'bullmq';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 import { spaces } from '@cherrygraph/shared';
@@ -49,10 +49,25 @@ async function writeBackDocmostSpaceId(
   data: SpaceProvisionJobData,
   docmostSpaceId: string,
 ): Promise<void> {
-  await db
+  const updated = await db
     .update(spaces)
     .set({ docmost_space_id: docmostSpaceId, updated_at: new Date() })
-    .where(and(eq(spaces.id, data.spaceId), eq(spaces.tenant_id, data.tenantId)));
+    .where(
+      and(
+        eq(spaces.id, data.spaceId),
+        eq(spaces.tenant_id, data.tenantId),
+        isNull(spaces.docmost_space_id),
+      ),
+    )
+    .returning({ id: spaces.id });
+
+  if (updated.length === 0) {
+    console.info('space-provision: skipped docmost_space_id writeback; mapping already exists', {
+      spaceId: data.spaceId,
+      tenantId: data.tenantId,
+      docmostSpaceId,
+    });
+  }
 }
 
 function readJobData(data: unknown): SpaceProvisionJobData {

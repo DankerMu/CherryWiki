@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull } from 'drizzle-orm';
 
 import { spaces } from '@cherrygraph/shared';
 
@@ -24,19 +24,43 @@ type UnmappedSpaceRow = {
   spaceSlug: string;
 };
 
+const SPACE_RECONCILE_BATCH_SIZE = 50;
+
 export async function reconcileSpaces(
   db: DrizzleDatabase,
   queue: SpaceProvisionQueue,
 ): Promise<number> {
-  const unmappedSpaces = await loadUnmappedSpaces(db);
-  const results = await Promise.allSettled(
-    unmappedSpaces.map((space) => enqueueSpaceProvision(queue, space)),
-  );
+  let enqueuedCount = 0;
+  let cursor: string | undefined;
 
-  return results.filter((result) => result.status === 'fulfilled').length;
+  for (;;) {
+    const unmappedSpaces = await loadUnmappedSpaces(db, cursor);
+    if (unmappedSpaces.length === 0) {
+      return enqueuedCount;
+    }
+
+    const results = await Promise.allSettled(
+      unmappedSpaces.map((space) => enqueueSpaceProvision(queue, space)),
+    );
+    enqueuedCount += results.filter((result) => result.status === 'fulfilled').length;
+
+    cursor = unmappedSpaces[unmappedSpaces.length - 1]?.spaceId;
+  }
 }
 
-async function loadUnmappedSpaces(db: DatabaseClient): Promise<UnmappedSpaceRow[]> {
+async function loadUnmappedSpaces(
+  db: DatabaseClient,
+  afterSpaceId?: string,
+): Promise<UnmappedSpaceRow[]> {
+  const predicates = [
+    eq(spaces.status, 'active'),
+    isNull(spaces.docmost_space_id),
+  ];
+
+  if (afterSpaceId !== undefined) {
+    predicates.push(gt(spaces.id, afterSpaceId));
+  }
+
   return db
     .select({
       spaceId: spaces.id,
@@ -45,7 +69,9 @@ async function loadUnmappedSpaces(db: DatabaseClient): Promise<UnmappedSpaceRow[
       spaceSlug: spaces.slug,
     })
     .from(spaces)
-    .where(and(eq(spaces.status, 'active'), isNull(spaces.docmost_space_id)));
+    .where(and(...predicates))
+    .orderBy(asc(spaces.id))
+    .limit(SPACE_RECONCILE_BATCH_SIZE);
 }
 
 async function enqueueSpaceProvision(

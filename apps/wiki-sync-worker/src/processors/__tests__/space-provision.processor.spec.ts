@@ -28,6 +28,28 @@ describe('space-provision processor', () => {
     ]);
   });
 
+  it('treats an already-mapped space as successful writeback', async () => {
+    const db = new SpaceProvisionTestDb({
+      spaces: [createSpace({ docmost_space_id: 'docmost-space-existing' })],
+    });
+    const bridgeClient = createBridgeClient();
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+
+    await runProcessor(db, bridgeClient);
+
+    expect(db.spaceUpdates).toHaveLength(0);
+    expect(info).toHaveBeenCalledWith(
+      'space-provision: skipped docmost_space_id writeback; mapping already exists',
+      expect.objectContaining({
+        spaceId: 'space-1',
+        tenantId: 'tenant-1',
+        docmostSpaceId: 'docmost-space-1',
+      }),
+    );
+
+    info.mockRestore();
+  });
+
   it('throws on bridge failure', async () => {
     const db = new SpaceProvisionTestDb();
     const bridgeClient = createBridgeClient(new Error('upstream down'));
@@ -60,6 +82,23 @@ describe('space-provision processor', () => {
       { jobId: 'tenant-1:space-1' },
     );
   });
+
+  it('reconcileSpaces enqueues unmapped spaces in batches', async () => {
+    const unmappedSpaces = Array.from({ length: 51 }, (_, index) =>
+      createSpace({
+        id: `space-${String(index + 1).padStart(2, '0')}`,
+        docmost_space_id: null,
+        status: 'active',
+      }),
+    );
+    const db = new SpaceProvisionTestDb({ spaces: unmappedSpaces });
+    const queue = { add: vi.fn(() => Promise.resolve()) };
+
+    await expect(reconcileSpaces(db.asDb(), queue)).resolves.toBe(51);
+
+    expect(queue.add).toHaveBeenCalledTimes(51);
+    expect(db.selectPageCount).toBe(3);
+  });
 });
 
 type SpaceRow = typeof spaces.$inferSelect;
@@ -67,6 +106,7 @@ type SpaceRow = typeof spaces.$inferSelect;
 class SpaceProvisionTestDb {
   spaces: SpaceRow[];
   spaceUpdates: Array<Partial<typeof spaces.$inferInsert>> = [];
+  selectPageCount = 0;
 
   constructor(options: Partial<{ spaces: SpaceRow[] }> = {}) {
     this.spaces = options.spaces ?? [createSpace()];
@@ -75,16 +115,21 @@ class SpaceProvisionTestDb {
   select(): unknown {
     return {
       from: (table: unknown) => {
-        const resolveRows = (): unknown[] => {
+        const resolveRows = (limit?: number): unknown[] => {
           if (table === spaces) {
-            return this.spaces
+            const rows = this.spaces
               .filter((space) => space.status === 'active' && space.docmost_space_id === null)
+              .sort((left, right) => left.id.localeCompare(right.id))
               .map((space) => ({
                 spaceId: space.id,
                 tenantId: space.tenant_id,
                 spaceName: space.name,
                 spaceSlug: space.slug,
               }));
+
+            const offset = this.selectPageCount * (limit ?? rows.length);
+            this.selectPageCount += 1;
+            return rows.slice(offset, limit === undefined ? undefined : offset + limit);
           }
 
           return [];
@@ -98,12 +143,25 @@ class SpaceProvisionTestDb {
   update(table: unknown): unknown {
     return {
       set: (values: Partial<typeof spaces.$inferInsert>) => ({
-        where: (): Promise<void> => {
-          if (table === spaces) {
-            this.spaceUpdates.push(values);
-          }
-          return Promise.resolve();
-        },
+        where: () => ({
+          returning: (): Promise<Array<{ id: string }>> => {
+            const space = this.spaces.find(
+              (candidate) =>
+                candidate.id === 'space-1' &&
+                candidate.tenant_id === 'tenant-1' &&
+                candidate.docmost_space_id === null,
+            );
+
+            if (table === spaces && space !== undefined) {
+              this.spaceUpdates.push(values);
+              space.docmost_space_id = values.docmost_space_id ?? null;
+              space.updated_at = values.updated_at ?? space.updated_at;
+              return Promise.resolve([{ id: space.id }]);
+            }
+
+            return Promise.resolve([]);
+          },
+        }),
       }),
     };
   }
@@ -114,9 +172,20 @@ class SpaceProvisionTestDb {
 }
 
 class SelectBuilder {
-  constructor(private readonly resolveRows: () => unknown[]) {}
+  private limitValue: number | undefined;
+
+  constructor(private readonly resolveRows: (limit?: number) => unknown[]) {}
 
   where(): this {
+    return this;
+  }
+
+  orderBy(): this {
+    return this;
+  }
+
+  limit(value: number): this {
+    this.limitValue = value;
     return this;
   }
 
@@ -124,7 +193,7 @@ class SelectBuilder {
     onfulfilled?: ((value: unknown[]) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
   ): Promise<TResult1 | TResult2> {
-    return Promise.resolve(this.resolveRows()).then(onfulfilled, onrejected);
+    return Promise.resolve(this.resolveRows(this.limitValue)).then(onfulfilled, onrejected);
   }
 }
 
