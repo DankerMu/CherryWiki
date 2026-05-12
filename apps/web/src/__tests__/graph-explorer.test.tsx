@@ -248,6 +248,23 @@ describe('SpaceGraphExplorerPage', () => {
     expect(screen.getByText('Run Graphify').closest('a')).toHaveAttribute('href', '/spaces/space-1/graphify');
   });
 
+  it('shows graph UI when graph nodes exist without an active graphify run', async () => {
+    apiMocks.get.mockImplementation((path) => {
+      if (path === '/spaces/space-1') {
+        return Promise.resolve(createSpaceDetail({ active_graphify_run_id: null }));
+      }
+      if (path === '/spaces/space-1/stats') {
+        return Promise.resolve(createSpaceStats({ node_count: 5 }));
+      }
+      return Promise.reject(new Error(`Unexpected API path: ${path}`));
+    });
+
+    renderPage();
+
+    expect(await screen.findByTestId('graph-canvas')).toBeInTheDocument();
+    expect(screen.queryByText('No active graph yet')).not.toBeInTheDocument();
+  });
+
   it('shows an error state when the API fails', async () => {
     searchGraphNodesMock.mockRejectedValue(new Error('Graph API failed'));
 
