@@ -112,7 +112,6 @@
 {
   "data": {
     "access_token": "eyJ...",
-    "refresh_token": "rt_...",
     "expires_in": 3600,
     "user": {
       "id": "usr_001",
@@ -124,6 +123,8 @@
   }
 }
 ```
+
+响应同时设置 `Set-Cookie: refresh_token=...; HttpOnly; Secure; SameSite=Lax; Path=/api/auth; Max-Age=604800`。浏览器端 refresh token 仅通过 HttpOnly Cookie 保存，不在 JSON body 中返回。
 
 错误码：
 
@@ -140,7 +141,7 @@
 | 权限点 | 已认证即可 |
 | 审计动作 | `auth.logout` |
 
-输入：无（Bearer token 即可）
+输入：无（Bearer token + 自动携带的 `refresh_token` Cookie）。如果 Cookie 存在，服务端撤销对应 refresh session；无 Cookie 时仍清理 Cookie 并返回成功。
 
 输出：`{ "data": { "success": true } }`
 
@@ -174,16 +175,10 @@
 
 | 项目 | 说明 |
 |---|---|
-| 权限点 | 无（用 refresh_token） |
+| 权限点 | 无（用 `refresh_token` HttpOnly Cookie） |
 | 审计动作 | `auth.token_refresh` |
 
-输入：
-
-```json
-{
-  "refresh_token": "rt_..."
-}
-```
+输入：无 JSON body。浏览器通过 `credentials: include` 自动携带 `refresh_token` Cookie。
 
 输出：
 
@@ -191,11 +186,12 @@
 {
   "data": {
     "access_token": "eyJ...",
-    "refresh_token": "rt_new...",
     "expires_in": 3600
   }
 }
 ```
+
+响应同时轮换 `Set-Cookie: refresh_token=...; HttpOnly; Secure; SameSite=Lax; Path=/api/auth; Max-Age=604800`。
 
 错误码：
 
@@ -203,6 +199,12 @@
 |---|---|
 | `INVALID_REFRESH_TOKEN` | refresh token 无效或已过期 |
 | `TOKEN_REVOKED` | 已被撤销 |
+
+### Auth refresh/logout 迁移说明
+
+- 浏览器客户端不得读取、缓存或提交 JSON body 中的 `refresh_token`；登录和刷新响应 body 只包含 `access_token`、`expires_in` 以及登录时的 `user`。
+- 前端请求 `/api/auth/login`、`/api/auth/refresh`、`/api/auth/logout` 必须使用 `credentials: include`，由浏览器自动管理 `refresh_token` Cookie。
+- 旧客户端如果仍依赖 body `refresh_token` 刷新或登出，需要迁移到 Cookie Jar；当前浏览器 Auth API 不保留 JSON body refresh-token 模式。若未来恢复机器客户端 body token 模式，必须使用独立端点或在 OpenAPI 中作为非浏览器模式单独声明。
 
 ---
 
@@ -2419,7 +2421,7 @@ GET /api/internal/bridge/spaces/{docmost_space_id}/sync-status
 | `/api/auth/login` | POST | 无（公开） |
 | `/api/auth/logout` | POST | 已认证 |
 | `/api/auth/me` | GET | 已认证 |
-| `/api/auth/refresh` | POST | 无（用 refresh_token） |
+| `/api/auth/refresh` | POST | 无（用 `refresh_token` HttpOnly Cookie） |
 | `/api/auth/password/change` | POST | 已认证 |
 | `/api/auth/sessions` | GET | 已认证 |
 | `/api/auth/sessions/{id}` | DELETE | 已认证（仅自己） |

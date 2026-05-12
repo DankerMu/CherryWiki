@@ -18,7 +18,12 @@ import type { IncomingHttpHeaders } from 'node:http';
 
 import { RateLimit } from '../common/guards/rate-limit.guard.js';
 import { getRequestIdFromRequest } from '../common/middleware/request-context.middleware.js';
-import { AuthService, type AuthRequestMetadata } from './auth.service.js';
+import {
+  AuthService,
+  type AuthRequestMetadata,
+  type LoginResponse,
+  type TokenPairResponse,
+} from './auth.service.js';
 import { SessionService, type SessionSummary } from './session.service.js';
 
 class LoginDto {
@@ -30,20 +35,6 @@ class LoginDto {
   @IsNotEmpty()
   @MaxLength(128)
   password!: string;
-}
-
-class RefreshDto {
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(4096)
-  refresh_token!: string;
-}
-
-class LogoutDto {
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(4096)
-  refresh_token!: string;
 }
 
 class ChangePasswordDto {
@@ -61,6 +52,7 @@ class ChangePasswordDto {
 type RequestWithAuth = {
   user?: AuthenticatedRequestUser;
   headers?: IncomingHttpHeaders;
+  cookies?: Record<string, string | undefined>;
   ip?: string;
   request_id?: string;
   raw?: {
@@ -102,10 +94,10 @@ export class AuthController {
     @Body() body: LoginDto,
     @Req() request: RequestWithAuth,
     @Res({ passthrough: true }) response: CookieResponse,
-  ): Promise<Awaited<ReturnType<AuthService['login']>>> {
+  ): Promise<LoginResponse> {
     const result = await this.authService.login(body, getRequestMetadata(request));
-    setRefreshCookie(response, result.refresh_token);
-    return result;
+    setRefreshCookie(response, result.refreshToken);
+    return toLoginResponse(result);
   }
 
   @Public()
@@ -113,29 +105,40 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Post('refresh')
   async refresh(
-    @Body() body: RefreshDto,
     @Req() request: RequestWithAuth,
     @Res({ passthrough: true }) response: CookieResponse,
-  ): Promise<Awaited<ReturnType<AuthService['refresh']>>> {
-    const result = await this.authService.refresh(body.refresh_token, getRequestMetadata(request));
-    setRefreshCookie(response, result.refresh_token);
-    return result;
+  ): Promise<TokenPairResponse> {
+    const refreshToken = getRefreshTokenCookie(request);
+    if (refreshToken === undefined) {
+      throw new HttpException(
+        {
+          code: ErrorCode.INVALID_REFRESH_TOKEN,
+          message: 'Refresh token cookie is required',
+        },
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
+    const result = await this.authService.refresh(refreshToken, getRequestMetadata(request));
+    setRefreshCookie(response, result.refreshToken);
+    return toTokenPairResponse(result);
   }
 
   @HttpCode(HttpStatus.OK)
   @Post('logout')
   async logout(
-    @Body() body: LogoutDto,
     @Req() request: RequestWithAuth,
     @Res({ passthrough: true }) response: CookieResponse,
   ): Promise<{ success: true }> {
-    const result = await this.authService.logout(
-      getAuthenticatedUser(request),
-      body,
-      getRequestMetadata(request),
-    );
-    clearRefreshCookie(response);
-    return result;
+    try {
+      return await this.authService.logout(
+        getAuthenticatedUser(request),
+        { refreshToken: getRefreshTokenCookie(request) },
+        getRequestMetadata(request),
+      );
+    } finally {
+      clearRefreshCookie(response);
+    }
   }
 
   @Get('me')
@@ -182,6 +185,21 @@ export class AuthController {
   }
 }
 
+function toLoginResponse(result: Awaited<ReturnType<AuthService['login']>>): LoginResponse {
+  return {
+    access_token: result.access_token,
+    expires_in: result.expires_in,
+    user: result.user,
+  };
+}
+
+function toTokenPairResponse(result: Awaited<ReturnType<AuthService['refresh']>>): TokenPairResponse {
+  return {
+    access_token: result.access_token,
+    expires_in: result.expires_in,
+  };
+}
+
 function getAuthenticatedUser(request: RequestWithAuth): AuthenticatedRequestUser {
   if (request.user === undefined) {
     throw new HttpException(
@@ -222,6 +240,49 @@ function clearRefreshCookie(response: CookieResponse): void {
     'Set-Cookie',
     `${REFRESH_COOKIE_NAME}=; Max-Age=0; Path=/api/auth; HttpOnly; Secure; SameSite=Lax`,
   );
+}
+
+function getRefreshTokenCookie(request: RequestWithAuth): string | undefined {
+  const cookieValue = request.cookies?.[REFRESH_COOKIE_NAME] ?? parseCookieHeader(request)[REFRESH_COOKIE_NAME];
+  if (cookieValue === undefined || cookieValue.trim().length === 0) {
+    return undefined;
+  }
+
+  return cookieValue;
+}
+
+function parseCookieHeader(request: RequestWithAuth): Record<string, string> {
+  const header = (request.headers ?? request.raw?.headers)?.cookie;
+  const rawCookie = Array.isArray(header) ? header.join(';') : header;
+  if (typeof rawCookie !== 'string' || rawCookie.trim().length === 0) {
+    return {};
+  }
+
+  const cookies: Record<string, string> = {};
+  for (const part of rawCookie.split(';')) {
+    const separatorIndex = part.indexOf('=');
+    if (separatorIndex <= 0) {
+      continue;
+    }
+
+    const name = part.slice(0, separatorIndex).trim();
+    const rawValue = part.slice(separatorIndex + 1).trim();
+    if (name.length === 0 || name in cookies) {
+      continue;
+    }
+
+    cookies[name] = safeDecodeURIComponent(rawValue);
+  }
+
+  return cookies;
+}
+
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function setResponseHeader(response: CookieResponse, name: string, value: string): void {

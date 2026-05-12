@@ -68,7 +68,7 @@ describe('AuthService', () => {
       groups: ['group-1'],
     });
     expect(typeof result.access_token).toBe('string');
-    expect(typeof result.refresh_token).toBe('string');
+    expect(typeof result.refreshToken).toBe('string');
 
     const accessPayload = await verifyToken(result.access_token, TEST_JWT_SECRET);
     expect(accessPayload).toMatchObject({
@@ -81,7 +81,7 @@ describe('AuthService', () => {
     });
 
     const insertedSession = requireRecord(db.inserts[0]);
-    expect(insertedSession.refresh_token_hash).toBe(hashRefreshToken(result.refresh_token));
+    expect(insertedSession.refresh_token_hash).toBe(hashRefreshToken(result.refreshToken));
     expect(insertedSession.user_id).toBe(TEST_USER_ID);
 
     const userUpdate = requireRecord(db.updates[0]);
@@ -222,8 +222,8 @@ describe('AuthService', () => {
     const result = await service.refresh(oldRefreshToken, { request_id: 'req-refresh' });
 
     expect(result.expires_in).toBe(3600);
-    expect(result.refresh_token).not.toBe(oldRefreshToken);
-    const newRefreshPayload = await verifyToken(result.refresh_token, TEST_JWT_SECRET);
+    expect(result.refreshToken).not.toBe(oldRefreshToken);
+    const newRefreshPayload = await verifyToken(result.refreshToken, TEST_JWT_SECRET);
     const insertedSession = requireRecord(db.inserts[0]);
     expect(newRefreshPayload.session_id).toBe(insertedSession.id);
 
@@ -295,7 +295,7 @@ describe('AuthService', () => {
 
     const result = await service.logout(
       createAuthenticatedUser(),
-      { refresh_token: refreshToken },
+      { refreshToken },
       { request_id: 'req-logout' },
     );
 
@@ -311,13 +311,10 @@ describe('AuthService', () => {
     );
   });
 
-  it('rejects logout without a refresh token', async () => {
+  it('allows logout without a refresh token', async () => {
     const { service } = createServiceContext();
 
-    const err = await getRejectedHttpException(service.logout(createAuthenticatedUser()));
-
-    expect(err.getStatus()).toBe(401);
-    expect(getHttpExceptionCode(err)).toBe(ErrorCode.INVALID_REFRESH_TOKEN);
+    await expect(service.logout(createAuthenticatedUser())).resolves.toEqual({ success: true });
   });
 
   it('changes password with the correct current password and records auth.password_change', async () => {

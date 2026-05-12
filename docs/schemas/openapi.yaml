@@ -112,15 +112,8 @@ components:
       type: object
       properties:
         access_token: { type: string }
-        refresh_token: { type: string }
         expires_in: { type: integer }
         user: { $ref: '#/components/schemas/User' }
-
-    RefreshRequest:
-      type: object
-      required: [refresh_token]
-      properties:
-        refresh_token: { type: string }
 
     # --- User ---
     User:
@@ -1100,6 +1093,7 @@ paths:
   /auth/login:
     post:
       summary: Login
+      description: Browser login returns an access token in the JSON body and sets the refresh token as an HttpOnly `refresh_token` cookie.
       tags: [Auth]
       security: []
       requestBody:
@@ -1109,7 +1103,11 @@ paths:
             schema: { $ref: '#/components/schemas/LoginRequest' }
       responses:
         '200':
-          description: Login successful
+          description: Login successful. The refresh token is set in the `Set-Cookie` header and is not included in the JSON body.
+          headers:
+            Set-Cookie:
+              description: HttpOnly `refresh_token` cookie scoped to `/api/auth`.
+              schema: { type: string }
           content:
             application/json:
               schema:
@@ -1123,10 +1121,15 @@ paths:
   /auth/logout:
     post:
       summary: Logout
+      description: Browser logout revokes the refresh session identified by the `refresh_token` cookie when present and clears that cookie. The request body is empty.
       tags: [Auth]
       responses:
         '200':
-          description: Logged out
+          description: Logged out. The refresh cookie is cleared even when no refresh cookie was present.
+          headers:
+            Set-Cookie:
+              description: Expired HttpOnly `refresh_token` cookie.
+              schema: { type: string }
           content:
             application/json:
               schema:
@@ -1156,16 +1159,16 @@ paths:
   /auth/refresh:
     post:
       summary: Refresh token
+      description: Browser refresh reads the HttpOnly `refresh_token` cookie, rotates it, and returns only a new access token in the JSON body. No JSON request body is required or used.
       tags: [Auth]
       security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/RefreshRequest' }
       responses:
         '200':
-          description: Token refreshed
+          description: Token refreshed. The rotated refresh token is set in the `Set-Cookie` header and is not included in the JSON body.
+          headers:
+            Set-Cookie:
+              description: Rotated HttpOnly `refresh_token` cookie scoped to `/api/auth`.
+              schema: { type: string }
           content:
             application/json:
               schema:
