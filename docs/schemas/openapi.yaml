@@ -1431,6 +1431,7 @@ paths:
                 type: object
                 properties:
                   data: { $ref: '#/components/schemas/SourceDocument' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
         '404': { $ref: '#/components/responses/NotFoundError' }
 
   /uploads/{source_document_id}/status:
@@ -1448,6 +1449,7 @@ paths:
                 type: object
                 properties:
                   data: { $ref: '#/components/schemas/IngestionStatus' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
         '404': { $ref: '#/components/responses/NotFoundError' }
 
   /uploads/{source_document_id}/reprocess:
@@ -1465,14 +1467,15 @@ paths:
               properties:
                 reason: { type: string }
       responses:
-        '202':
-          description: Reprocess job created
+        '200':
+          description: Reprocess initiated
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   data: { $ref: '#/components/schemas/SourceDocument' }
+        '403': { $ref: '#/components/responses/ForbiddenError' }
         '404': { $ref: '#/components/responses/NotFoundError' }
         '409':
           description: Reprocess already running

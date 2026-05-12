@@ -123,18 +123,11 @@ export class RbacGuard implements CanActivate {
     const rolePermissions = new Set<string>(ROLE_PERMISSIONS[role]);
 
     if (spaceId === undefined && requiredPermissions.some(isSpaceScopedPermission)) {
-      if (canDeferSpaceReadToResourceAcl(requiredPermissions, rolePermissions)) {
+      if (requiredPermissions.every((permission) => rolePermissions.has(permission))) {
         return true;
       }
 
-      if (
-        role !== ROLES.ADMIN ||
-        !requiredPermissions.every((permission) => isSpaceScopedPermission(permission) || rolePermissions.has(permission))
-      ) {
-        throwPermissionDenied();
-      }
-
-      return true;
+      throwPermissionDenied();
     }
 
     const requestPermissions = await getRequestPermissions(request, user, spaceId, requiredPermissions, this.resolver);
@@ -190,13 +183,6 @@ function permissionSetSatisfies(grantedPermissions: readonly string[], requiredP
   }
 
   return grantedPermissions.includes(requiredPermission) || grantedPermissions.includes('space:admin');
-}
-
-function canDeferSpaceReadToResourceAcl(
-  requiredPermissions: readonly string[],
-  rolePermissions: ReadonlySet<string>,
-): boolean {
-  return requiredPermissions.every((permission) => permission === 'space:read' && rolePermissions.has(permission));
 }
 
 type ApiTokenScopeDenial = {
