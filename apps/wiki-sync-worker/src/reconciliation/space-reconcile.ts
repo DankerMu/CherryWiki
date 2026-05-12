@@ -21,6 +21,8 @@ export type SpaceProvisionQueue = {
 type SpaceProvisionJob = {
   isFailed: () => Promise<boolean>;
   remove: () => Promise<void>;
+  attemptsMade?: number;
+  finishedOn?: number;
 };
 
 type UnmappedSpaceRow = {
@@ -83,6 +85,9 @@ async function loadUnmappedSpaces(
     .limit(SPACE_RECONCILE_BATCH_SIZE);
 }
 
+const MAX_RECONCILE_RETRIES = 10;
+const MIN_RETRY_AGE_MS = 5 * 60 * 1000;
+
 async function enqueueSpaceProvision(
   queue: SpaceProvisionQueue,
   space: UnmappedSpaceRow,
@@ -92,11 +97,22 @@ async function enqueueSpaceProvision(
 
   if (existing !== null && existing !== undefined) {
     const isFailed = await existing.isFailed();
-    if (isFailed) {
-      await existing.remove();
-    } else {
+    if (!isFailed) {
       return false;
     }
+
+    if ((existing.attemptsMade ?? 0) >= MAX_RECONCILE_RETRIES) {
+      return false;
+    }
+
+    const failedAge = existing.finishedOn
+      ? Date.now() - existing.finishedOn
+      : Infinity;
+    if (failedAge < MIN_RETRY_AGE_MS) {
+      return false;
+    }
+
+    await existing.remove();
   }
 
   await queue.add('space.provision', space, {
