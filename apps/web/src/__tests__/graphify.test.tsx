@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { GraphifyRun } from '../lib/graphifyApi.js';
 import GraphifyRunDetailPage from '../pages/GraphifyRunDetailPage.js';
 import GraphifyRunsPage from '../pages/GraphifyRunsPage.js';
+import { formatRunLabel } from '../pages/graphifyUi.js';
 
 type GetWrappedMock = (path: string, query?: Record<string, unknown>) => Promise<unknown>;
 type PostMock = (path: string, body?: unknown) => Promise<unknown>;
@@ -124,6 +125,39 @@ describe('GraphifyRunDetailPage', () => {
     });
     expect(screen.queryByText('Cancel Run')).not.toBeInTheDocument();
     expect(screen.queryByText('Retry Run')).not.toBeInTheDocument();
+  });
+});
+
+describe('formatRunLabel', () => {
+  const t = ((key: string) => (key === 'common.status.deleted' ? 'Deleted' : key)) as Parameters<
+    typeof formatRunLabel
+  >[1];
+
+  it('falls back to space name and mode when resolved names are empty', () => {
+    const label = formatRunLabel(buildRun({ mode: 'full' }), t, { 'space-1': 'Research Space' });
+
+    expect(label).toEqual({ primary: 'Research Space · Full', secondary: 'run-1' });
+  });
+
+  it('falls back to mode when resolved names and space name are unavailable', () => {
+    const label = formatRunLabel(buildRun({ mode: 'incremental' }), t);
+
+    expect(label).toEqual({ primary: 'Incremental', secondary: 'run-1' });
+  });
+
+  it('uses resolved document and page names ahead of the space fallback', () => {
+    const label = formatRunLabel(
+      buildRun({
+        input_scope_resolved: {
+          source_documents: [{ id: 'doc-1', filename: 'Plan.pdf', missing: false }],
+          pages: [{ id: 'page-1', title: 'Overview', missing: false }],
+        },
+      }),
+      t,
+      { 'space-1': 'Research Space' },
+    );
+
+    expect(label).toEqual({ primary: 'Plan.pdf, Overview', secondary: 'run-1' });
   });
 });
 

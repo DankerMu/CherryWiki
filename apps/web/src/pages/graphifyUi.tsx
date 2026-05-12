@@ -116,7 +116,11 @@ export function isGraphifyRunActive(run: GraphifyRun): boolean {
   return run.status === 'pending' || run.status === 'running';
 }
 
-export function formatRunLabel(run: GraphifyRun, t: TFunction): { primary: string; secondary: string } {
+export function formatRunLabel(
+  run: GraphifyRun,
+  t: TFunction,
+  spaceNameById?: Record<string, string>,
+): { primary: string; secondary: string } {
   const names = [
     ...run.input_scope_resolved.source_documents.map((sourceDocument) => (
       sourceDocument.missing ? t('common.status.deleted') : sourceDocument.filename
@@ -128,9 +132,13 @@ export function formatRunLabel(run: GraphifyRun, t: TFunction): { primary: strin
 
   const visibleNames = names.slice(0, 3);
   const overflowCount = names.length - visibleNames.length;
-  const primary = names.length === 0
-    ? formatLabel(run.mode)
-    : `${visibleNames.join(', ')}${overflowCount > 0 ? ` +${overflowCount}` : ''}`;
+  let primary: string;
+  if (names.length > 0) {
+    primary = `${visibleNames.join(', ')}${overflowCount > 0 ? ` +${overflowCount}` : ''}`;
+  } else {
+    const spaceName = spaceNameById?.[run.space_id];
+    primary = spaceName ? `${spaceName} · ${formatLabel(run.mode)}` : formatLabel(run.mode);
+  }
 
   return {
     primary,
