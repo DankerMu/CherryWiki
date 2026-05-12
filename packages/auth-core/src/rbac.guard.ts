@@ -73,11 +73,20 @@ export class RbacGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
+    const request = context.switchToHttp().getRequest<RequestWithAuth>();
+
     if (requiredPermissions === undefined || requiredPermissions.length === 0) {
+      const user = request.user === undefined ? undefined : getValidatedRequestUser(request.user);
+      if (user !== undefined && isApiTokenRequestUser(user)) {
+        throw new ForbiddenException({
+          code: ErrorCode.PERMISSION_DENIED,
+          message: 'API token cannot access routes without explicit permission scope',
+        });
+      }
+
       return true;
     }
 
-    const request = context.switchToHttp().getRequest<RequestWithAuth>();
     const user = getValidatedRequestUser(request.user);
 
     const tokenScopeDenial = getApiTokenScopeDenial(user, requiredPermissions);
@@ -90,7 +99,7 @@ export class RbacGuard implements CanActivate {
           required_permission: tokenScopeDenial.requiredPermission,
         }),
       );
-      throwPermissionDenied({ denied_scope: tokenScopeDenial.deniedScope });
+      throwPermissionDenied();
     }
 
     const role = normalizeRole(user.role);

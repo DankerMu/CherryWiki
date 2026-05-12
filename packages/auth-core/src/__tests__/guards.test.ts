@@ -188,6 +188,40 @@ describe('RbacGuard', () => {
     ).resolves.toBe(true);
   });
 
+  it('throws 403 for an API token on a route without explicit permissions', async () => {
+    const guard = new RbacGuard(new Reflector());
+
+    const error = await getRejectedHttpException(
+      guard.canActivate(
+        createContext({
+          request: {
+            params: {},
+            user: createApiTokenRequestUser({ scopes: ['mcp:invoke'] }),
+          },
+        }),
+      ),
+    );
+
+    expect(error.getStatus()).toBe(403);
+    expect(getHttpExceptionCode(error)).toBe(ErrorCode.PERMISSION_DENIED);
+    expect(getHttpExceptionMessage(error)).toBe('API token cannot access routes without explicit permission scope');
+  });
+
+  it('allows a JWT session user on a route without explicit permissions', async () => {
+    const guard = new RbacGuard(new Reflector());
+
+    await expect(
+      guard.canActivate(
+        createContext({
+          request: {
+            params: {},
+            user: createRequestUser(),
+          },
+        }),
+      ),
+    ).resolves.toBe(true);
+  });
+
   it('allows an API token when both token scope and role permission match', async () => {
     const guard = new RbacGuard(new Reflector());
     const handler = withPermissions(['admin:user_manage']);
@@ -223,7 +257,8 @@ describe('RbacGuard', () => {
 
     expect(error.getStatus()).toBe(403);
     expect(getHttpExceptionCode(error)).toBe(ErrorCode.PERMISSION_DENIED);
-    expect(getHttpExceptionDetails(error)).toEqual({ denied_scope: 'admin:user_manage' });
+    expect(getHttpExceptionDetails(error)).toBeUndefined();
+    expect(getHttpExceptionResponse(error)).not.toHaveProperty('denied_scope');
   });
 
   it('throws 403 when an owner API token lacks the admin REST scope', async () => {
@@ -502,11 +537,21 @@ async function getRejectedHttpException(promise: Promise<unknown>): Promise<Http
 }
 
 function getHttpExceptionCode(error: HttpException): unknown {
-  const response = error.getResponse();
+  const response = getHttpExceptionResponse(error);
   return isRecord(response) ? response.code : undefined;
 }
 
+function getHttpExceptionMessage(error: HttpException): unknown {
+  const response = getHttpExceptionResponse(error);
+  return isRecord(response) ? response.message : undefined;
+}
+
 function getHttpExceptionDetails(error: HttpException): unknown {
-  const response = error.getResponse();
+  const response = getHttpExceptionResponse(error);
   return isRecord(response) ? response.details : undefined;
+}
+
+function getHttpExceptionResponse(error: HttpException): unknown {
+  const response = error.getResponse();
+  return response;
 }
