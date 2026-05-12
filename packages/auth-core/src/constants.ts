@@ -19,6 +19,38 @@ export const PERMISSION_POINTS = [
 
 export type PermissionPoint = (typeof PERMISSION_POINTS)[number];
 
+/**
+ * REST API token scope mapping.
+ *
+ * Ordinary REST route permission points use the same string as the required API
+ * token scope. For example, an upload route decorated with `upload:create`
+ * requires an API token containing `upload:create`; an admin user-management
+ * route requires `admin:user_manage`; a graphify run route requires
+ * `graphify:run`.
+ *
+ * MCP scopes such as `mcp:invoke` are intentionally absent from this table.
+ * They are enforced by the MCP policy layer only and do not authorize REST
+ * routes.
+ */
+export const REST_API_TOKEN_SCOPE_BY_PERMISSION = {
+  'space:read': 'space:read',
+  'space:view': 'space:view',
+  'space:edit': 'space:edit',
+  'space:admin': 'space:admin',
+  'upload:create': 'upload:create',
+  'upload:read': 'upload:read',
+  'wiki:publish': 'wiki:publish',
+  'wiki:rollback': 'wiki:rollback',
+  'graphify:run': 'graphify:run',
+  'graphify:view': 'graphify:view',
+  'chat:use': 'chat:use',
+  'model:use': 'model:use',
+  admin: 'admin',
+  'admin:user_manage': 'admin:user_manage',
+  'admin:model_manage': 'admin:model_manage',
+  'admin:audit_view': 'admin:audit_view',
+} as const satisfies Record<PermissionPoint, PermissionPoint>;
+
 export const ROLES = {
   OWNER: 'owner',
   ADMIN: 'admin',
@@ -116,4 +148,8 @@ export function isPermissionPoint(permission: string): permission is PermissionP
 
 export function isSpaceScopedPermission(permission: string): permission is (typeof SPACE_SCOPED_PERMISSIONS)[number] {
   return (SPACE_SCOPED_PERMISSIONS as readonly string[]).includes(permission);
+}
+
+export function getRestApiTokenScopeForPermission(permission: string): PermissionPoint | undefined {
+  return isPermissionPoint(permission) ? REST_API_TOKEN_SCOPE_BY_PERMISSION[permission] : undefined;
 }

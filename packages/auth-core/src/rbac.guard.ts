@@ -2,6 +2,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   Optional,
   UnauthorizedException,
   type CanActivate,
@@ -13,11 +14,13 @@ import { ErrorCode } from '@cherrygraph/shared';
 import {
   ROLE_PERMISSIONS,
   ROLES,
+  getRestApiTokenScopeForPermission,
   isSpaceScopedPermission,
   normalizeRole,
   type Role,
 } from './constants.js';
 import { PERMISSIONS_METADATA_KEY } from './permissions.decorator.js';
+import { PUBLIC_METADATA_KEY } from './public.decorator.js';
 
 export const SPACE_PERMISSION_RESOLVER = Symbol('SPACE_PERMISSION_RESOLVER');
 
@@ -40,6 +43,8 @@ type RequestUser = {
   group_ids: string[];
   permissions?: string[];
   space_permissions?: Record<string, string[]>;
+  scopes?: string[];
+  token_id?: string;
 };
 
 type RequestWithAuth = {
@@ -57,6 +62,8 @@ type RequestWithAuth = {
 
 @Injectable()
 export class RbacGuard implements CanActivate {
+  private readonly logger = new Logger(RbacGuard.name);
+
   constructor(
     private readonly reflector: Reflector,
     @Optional() @Inject(SPACE_PERMISSION_RESOLVER) private readonly resolver?: SpacePermissionResolver,
@@ -67,12 +74,41 @@ export class RbacGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
+    const request = context.switchToHttp().getRequest<RequestWithAuth>();
+
     if (requiredPermissions === undefined || requiredPermissions.length === 0) {
+      const isPublic =
+        this.reflector.getAllAndOverride<boolean>(PUBLIC_METADATA_KEY, [context.getHandler(), context.getClass()]) ===
+        true;
+      if (isPublic) {
+        return true;
+      }
+
+      const user = request.user === undefined ? undefined : getValidatedRequestUser(request.user);
+      if (user !== undefined && isApiTokenRequestUser(user)) {
+        throw new ForbiddenException({
+          code: ErrorCode.PERMISSION_DENIED,
+          message: 'API token cannot access routes without explicit permission scope',
+        });
+      }
+
       return true;
     }
 
-    const request = context.switchToHttp().getRequest<RequestWithAuth>();
     const user = getValidatedRequestUser(request.user);
+
+    const tokenScopeDenial = getApiTokenScopeDenial(user, requiredPermissions);
+    if (tokenScopeDenial !== undefined) {
+      this.logger.debug(
+        JSON.stringify({
+          reason: 'api_token_scope_denied',
+          token_id: tokenScopeDenial.tokenId,
+          denied_scope: tokenScopeDenial.deniedScope,
+          required_permission: tokenScopeDenial.requiredPermission,
+        }),
+      );
+      throwPermissionDenied();
+    }
 
     const role = normalizeRole(user.role);
     if (role === ROLES.OWNER) {
@@ -161,6 +197,35 @@ function canDeferSpaceReadToResourceAcl(
   rolePermissions: ReadonlySet<string>,
 ): boolean {
   return requiredPermissions.every((permission) => permission === 'space:read' && rolePermissions.has(permission));
+}
+
+type ApiTokenScopeDenial = {
+  tokenId: string;
+  deniedScope: string;
+  requiredPermission: string;
+};
+
+function getApiTokenScopeDenial(
+  user: RequestUser,
+  requiredPermissions: readonly string[],
+): ApiTokenScopeDenial | undefined {
+  if (!isApiTokenRequestUser(user)) {
+    return undefined;
+  }
+
+  const tokenScopes = new Set(user.scopes);
+  for (const permission of requiredPermissions) {
+    const requiredScope = getRestApiTokenScopeForPermission(permission);
+    if (requiredScope === undefined || !tokenScopes.has(requiredScope)) {
+      return {
+        tokenId: user.token_id,
+        deniedScope: requiredScope ?? permission,
+        requiredPermission: permission,
+      };
+    }
+  }
+
+  return undefined;
 }
 
 async function getRequestPermissions(
@@ -263,7 +328,20 @@ function getValidatedRequestUser(user: unknown): RequestUser {
     requestUser.space_permissions = user.space_permissions;
   }
 
+  if (user.scopes !== undefined || user.token_id !== undefined) {
+    if (!isStringArray(user.scopes) || !isNonEmptyString(user.token_id)) {
+      throwUnauthenticated();
+    }
+
+    requestUser.scopes = user.scopes;
+    requestUser.token_id = user.token_id;
+  }
+
   return requestUser;
+}
+
+function isApiTokenRequestUser(user: RequestUser): user is RequestUser & { scopes: string[]; token_id: string } {
+  return user.scopes !== undefined && user.token_id !== undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -289,9 +367,10 @@ function throwUnauthenticated(): never {
   });
 }
 
-function throwPermissionDenied(): never {
+function throwPermissionDenied(details?: Record<string, unknown>): never {
   throw new ForbiddenException({
     code: ErrorCode.PERMISSION_DENIED,
     message: 'Permission denied',
+    ...(details !== undefined ? { details } : {}),
   });
 }

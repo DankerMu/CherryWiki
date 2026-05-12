@@ -997,26 +997,27 @@ components:
     # --- Phase 4: API Tokens ---
     ApiToken:
       type: object
+      required: [id, name, token_prefix, scopes, last_used_at, expires_at, created_at]
       properties:
         id: { type: string }
-        user_id: { type: string }
         name: { type: string }
         token_prefix: { type: string, description: "First 8 chars of the token for identification" }
         scopes: { type: array, items: { type: string } }
-        last_used_at: { type: string, format: date-time }
-        expires_at: { type: string, format: date-time }
-        revoked_at: { type: string, format: date-time }
+        last_used_at: { type: [string, 'null'], format: date-time }
+        expires_at: { type: [string, 'null'], format: date-time }
         created_at: { type: string, format: date-time }
 
     ApiTokenCreated:
       type: object
+      required: [id, name, raw_token, token_prefix, scopes, last_used_at, expires_at, created_at]
       properties:
         id: { type: string }
         name: { type: string }
         raw_token: { type: string, description: "Full token — shown only once at creation" }
         token_prefix: { type: string }
         scopes: { type: array, items: { type: string } }
-        expires_at: { type: string, format: date-time }
+        last_used_at: { type: [string, 'null'], format: date-time }
+        expires_at: { type: [string, 'null'], format: date-time }
         created_at: { type: string, format: date-time }
 
     CreateApiTokenRequest:
@@ -1024,7 +1025,7 @@ components:
       required: [name, scopes]
       properties:
         name: { type: string }
-        scopes: { type: array, items: { type: string }, description: "e.g. mcp:invoke, graph:read, wiki:read" }
+        scopes: { type: array, items: { type: string }, description: "REST permissions require same-named scopes, e.g. admin:user_manage, upload:create, graphify:run. MCP scopes such as mcp:invoke are MCP-only." }
         expires_in_days: { type: integer, minimum: 1, maximum: 365, description: "Token TTL in days; omit for non-expiring" }
 
     # --- Phase 4: MCP ---
@@ -3161,10 +3162,9 @@ paths:
       summary: List API tokens
       tags: [ApiTokens]
       parameters:
-        - { $ref: '#/components/parameters/pageParam' }
-        - { $ref: '#/components/parameters/perPageParam' }
-        - { name: user_id, in: query, schema: { type: string } }
-        - { name: include_revoked, in: query, schema: { type: boolean, default: false } }
+        - name: include_revoked
+          in: query
+          schema: { type: string, enum: ['true', 'false'], default: 'false' }
       responses:
         '200':
           description: API tokens (masked)
