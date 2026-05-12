@@ -95,7 +95,7 @@ export class DocmostBootstrapService {
 
       if (bootstrapResponse.ok) {
         getApiLogger().info(
-          { email: config.adminEmail, workspace_name: payload.workspaceName },
+          { workspace_name: payload.workspaceName },
           'Docmost workspace bootstrap completed',
         );
         return true;
@@ -223,13 +223,8 @@ function isWorkspaceInitialized(health: BridgeHealthResponse): boolean {
 
 async function fetchWithTimeout(input: string, init: RequestInit): Promise<Response> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), DOCMOST_BOOTSTRAP_FETCH_TIMEOUT_MS);
-
-  try {
-    return await fetch(input, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timeout);
-  }
+  setTimeout(() => controller.abort(), DOCMOST_BOOTSTRAP_FETCH_TIMEOUT_MS);
+  return fetch(input, { ...init, signal: controller.signal });
 }
 
 function generateBootstrapPassword(): string {
