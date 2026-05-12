@@ -49,6 +49,7 @@ export type GraphifyRunResult = {
 export type GraphifyRun = {
   run_id: string;
   space_id: string;
+  space_name?: string;
   mode: GraphifyRunMode;
   trigger_type: GraphifyTriggerType;
   status: GraphifyRunStatus;

@@ -1,5 +1,5 @@
 import { JobStatus, jobs, type JobRow } from '@cherrygraph/job-core';
-import { ErrorCode, graphReports, graphifyRuns } from '@cherrygraph/shared';
+import { ErrorCode, graphReports, graphifyRuns, spaces } from '@cherrygraph/shared';
 import { describe, expect, it } from 'vitest';
 
 import type { AuditEntry } from '../../audit/audit.service.js';
@@ -80,7 +80,7 @@ describe('GraphifyService', () => {
 
   it('listRuns returns a paginated response with status filters', async () => {
     const { service, db } = createServiceContext();
-    db.queueSelect([createRunRow({ status: 'succeeded' })]);
+    db.queueSelect([{ run: createRunRow({ status: 'succeeded' }), space_name: 'Research Space' }]);
     db.queueSelect([{ total: 1 }]);
 
     const result = await service.listRuns(
@@ -91,11 +91,13 @@ describe('GraphifyService', () => {
     expect(result.data).toEqual([
       expect.objectContaining({
         run_id: 'run-1',
+        space_name: 'Research Space',
         status: 'succeeded',
       }),
     ]);
     expect(result.pagination).toEqual({ page: 1, per_page: 10, total: 1, has_next: false });
     expect(db.limitCalls).toContain(10);
+    expect(db.selectFields[0]).toEqual({ run: graphifyRuns, space_name: spaces.name });
   });
 
   it('getRun returns GRAPHIFY_RUN_NOT_FOUND for missing runs', async () => {

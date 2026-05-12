@@ -81,6 +81,7 @@ export type GraphifyRunsQuery = {
 export type GraphifyRunResponse = {
   run_id: string;
   space_id: string;
+  space_name?: string;
   mode: string;
   trigger_type: string;
   status: string;
@@ -146,6 +147,7 @@ export type GraphifyCompletionPayload = {
 
 type GraphifySortField = 'created_at' | 'started_at' | 'completed_at' | 'status' | 'mode' | 'trigger_type';
 type GraphifyPermission = 'graphify:view' | 'graphify:run';
+export type GraphifyRunRowWithSpaceName = GraphifyRunRow & { space_name?: string | null };
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PER_PAGE = 20;
@@ -206,15 +208,20 @@ export class GraphifyService {
     const where = buildRunsWhere(tenantId, query, accessibleSpaceIds);
     const order = buildRunOrder(query.sort ?? '-created_at');
 
-    const rows = await this.db
-      .select()
+    const rowsWithSpaceName = await this.db
+      .select({ run: graphifyRuns, space_name: spaces.name })
       .from(graphifyRuns)
+      .leftJoin(spaces, and(eq(spaces.id, graphifyRuns.space_id), eq(spaces.tenant_id, tenantId)))
       .where(where)
       .orderBy(order)
       .limit(perPage)
       .offset((page - 1) * perPage);
     const [countRow] = await this.db.select({ total: count() }).from(graphifyRuns).where(where);
 
+    const rows: GraphifyRunRowWithSpaceName[] = rowsWithSpaceName.map((row) => ({
+      ...row.run,
+      space_name: row.space_name,
+    }));
     const resolved = await resolveInputScope(this.db, rows, tenantId);
 
     return paginatedResponse(
@@ -902,7 +909,7 @@ export async function resolveInputScope(
 }
 
 export function toGraphifyRunResponse(
-  run: GraphifyRunRow,
+  run: GraphifyRunRowWithSpaceName,
   resolved: { docMap: Map<string, string>; pageMap: Map<string, string> } = {
     docMap: new Map(),
     pageMap: new Map(),
@@ -915,6 +922,7 @@ export function toGraphifyRunResponse(
   return {
     run_id: run.id,
     space_id: run.space_id,
+    ...(run.space_name !== undefined && run.space_name !== null ? { space_name: run.space_name } : {}),
     mode: run.mode,
     trigger_type: run.trigger_type,
     status: run.status,
