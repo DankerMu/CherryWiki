@@ -108,12 +108,30 @@ components:
         email: { type: string, format: email }
         password: { type: string, minLength: 8 }
 
-    TokenResponse:
+    BrowserLoginResponse:
       type: object
+      required: [access_token, expires_in, user]
       properties:
         access_token: { type: string }
         expires_in: { type: integer }
-        user: { $ref: '#/components/schemas/User' }
+        user:
+          type: object
+          required: [id, email, name, role, groups]
+          properties:
+            id: { type: string }
+            email: { type: string, format: email }
+            name: { type: string }
+            role: { type: string, enum: [owner, admin, space_admin, editor, viewer, auditor] }
+            groups:
+              type: array
+              items: { type: string }
+
+    BrowserRefreshResponse:
+      type: object
+      required: [access_token, expires_in]
+      properties:
+        access_token: { type: string }
+        expires_in: { type: integer }
 
     # --- User ---
     User:
@@ -1113,7 +1131,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  data: { $ref: '#/components/schemas/TokenResponse' }
+                  data: { $ref: '#/components/schemas/BrowserLoginResponse' }
                   meta: { $ref: '#/components/schemas/Meta' }
         '401': { $ref: '#/components/responses/UnauthorizedError' }
         '429': { $ref: '#/components/responses/RateLimitError' }
@@ -1174,7 +1192,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  data: { $ref: '#/components/schemas/TokenResponse' }
+                  data: { $ref: '#/components/schemas/BrowserRefreshResponse' }
         '401': { $ref: '#/components/responses/UnauthorizedError' }
 
   /auth/password/change:

@@ -185,6 +185,18 @@ describe('AuthController', () => {
     expect(getErrorPayload(response.text).code).toBe(ErrorCode.INVALID_REFRESH_TOKEN);
   });
 
+  it('POST /api/auth/refresh rejects duplicate refresh cookies', async () => {
+    app = await createTestApp();
+
+    const response = await request(app.getHttpAdapter().getInstance().server)
+      .post('/api/auth/refresh')
+      .set('Cookie', 'refresh_token=first-refresh-token; refresh_token=second-refresh-token')
+      .expect(401);
+
+    expect(getErrorPayload(response.text).code).toBe(ErrorCode.INVALID_REFRESH_TOKEN);
+    expect(authServiceMock.refresh).not.toHaveBeenCalled();
+  });
+
   it('POST /api/auth/logout requires auth and returns success', async () => {
     app = await createTestApp();
     authServiceMock.logout.mockResolvedValue({ success: true });

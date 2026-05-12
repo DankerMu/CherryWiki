@@ -10,6 +10,7 @@ import {
   Post,
   Req,
   Res,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { Public, type AuthenticatedRequestUser } from '@cherrygraph/auth-core';
 import { ErrorCode } from '@cherrygraph/shared';
@@ -243,12 +244,41 @@ function clearRefreshCookie(response: CookieResponse): void {
 }
 
 function getRefreshTokenCookie(request: RequestWithAuth): string | undefined {
+  if (countCookieHeaderEntries(request, REFRESH_COOKIE_NAME) > 1) {
+    throw new UnauthorizedException({
+      code: ErrorCode.INVALID_REFRESH_TOKEN,
+      message: 'Multiple refresh token cookies are not allowed',
+    });
+  }
+
   const cookieValue = request.cookies?.[REFRESH_COOKIE_NAME] ?? parseCookieHeader(request)[REFRESH_COOKIE_NAME];
   if (cookieValue === undefined || cookieValue.trim().length === 0) {
     return undefined;
   }
 
   return cookieValue;
+}
+
+function countCookieHeaderEntries(request: RequestWithAuth, cookieName: string): number {
+  const header = (request.headers ?? request.raw?.headers)?.cookie;
+  const rawCookie = Array.isArray(header) ? header.join(';') : header;
+  if (typeof rawCookie !== 'string' || rawCookie.trim().length === 0) {
+    return 0;
+  }
+
+  let count = 0;
+  for (const part of rawCookie.split(';')) {
+    const separatorIndex = part.indexOf('=');
+    if (separatorIndex <= 0) {
+      continue;
+    }
+
+    if (part.slice(0, separatorIndex).trim() === cookieName) {
+      count += 1;
+    }
+  }
+
+  return count;
 }
 
 function parseCookieHeader(request: RequestWithAuth): Record<string, string> {
