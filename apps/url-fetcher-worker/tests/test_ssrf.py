@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from src.errors import SsrfBlockedError
-from src.ssrf import IpValidator
+from src.ssrf import IpValidator, parse_blocked_cidrs
 
 
 @pytest.mark.parametrize(
@@ -50,3 +50,10 @@ def test_default_ranges_still_apply_without_custom_cidrs() -> None:
         IpValidator().validate_ip("10.1.2.3", target_url="http://target.test")
 
     assert exc.value.metadata["block_reason"] == "private_ip_rfc1918"
+
+
+def test_parse_blocked_cidrs_rejects_empty_parsed_value() -> None:
+    with pytest.raises(ValueError) as exc:
+        parse_blocked_cidrs(",")
+
+    assert "produced zero valid CIDRs" in str(exc.value)

@@ -83,10 +83,14 @@ def _parse_float_env(name: str, default: float) -> float:
 
 
 def _parse_bool_env(name: str, default: bool = False) -> bool:
-    value = os.environ.get(name)
-    if value is None or value.strip() == "":
+    value = os.environ.get(name, "").strip().lower()
+    if not value:
         return default
-    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    if value in {"true", "1", "yes"}:
+        return True
+    if value in {"false", "0", "no"}:
+        return False
+    raise ValueError(f"{name} must be true/false/1/0/yes/no, got: {value!r}")
 
 
 def _build_fetcher_from_env() -> UrlFetcher:

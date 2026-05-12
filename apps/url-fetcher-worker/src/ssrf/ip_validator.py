@@ -120,6 +120,11 @@ def parse_blocked_cidrs(value: str | None) -> tuple[str, ...] | None:
     if value is None or value.strip() == "":
         return None
     cidrs = tuple(item.strip() for item in value.split(",") if item.strip())
+    if not cidrs:
+        raise ValueError(
+            "SSRF_BLOCKED_CIDRS is set but produced zero valid CIDRs from: "
+            f"{value!r}"
+        )
     for cidr in cidrs:
         ipaddress.ip_network(cidr, strict=False)
     return cidrs

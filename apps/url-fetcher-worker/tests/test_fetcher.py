@@ -13,6 +13,7 @@ from src.errors import (
     SsrfBlockedError,
 )
 from src.fetcher import UrlFetcher
+from src.main import _build_fetcher_from_env
 from src.ssrf import ResolvedAddress
 
 
@@ -156,6 +157,20 @@ def test_proxy_required_unreachable_proxy_fails_closed() -> None:
         "http": "http://127.0.0.1:1",
         "https": "http://127.0.0.1:1",
     }
+
+
+def test_invalid_proxy_required_env_value_fails_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EGRESS_PROXY_REQUIRED", "ture")
+
+    with pytest.raises(ValueError) as exc:
+        _build_fetcher_from_env()
+
+    assert (
+        str(exc.value)
+        == "EGRESS_PROXY_REQUIRED must be true/false/1/0/yes/no, got: 'ture'"
+    )
 
 
 class FakeResolver:
