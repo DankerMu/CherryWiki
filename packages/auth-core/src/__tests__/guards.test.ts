@@ -188,6 +188,147 @@ describe('RbacGuard', () => {
     ).resolves.toBe(true);
   });
 
+  it('allows an API token when both token scope and role permission match', async () => {
+    const guard = new RbacGuard(new Reflector());
+    const handler = withPermissions(['admin:user_manage']);
+
+    await expect(
+      guard.canActivate(
+        createContext({
+          handler,
+          request: {
+            params: {},
+            user: createApiTokenRequestUser({ role: ROLES.ADMIN, scopes: ['admin:user_manage'] }),
+          },
+        }),
+      ),
+    ).resolves.toBe(true);
+  });
+
+  it('throws 403 when an API token role matches but the token scope is missing', async () => {
+    const guard = new RbacGuard(new Reflector());
+    const handler = withPermissions(['admin:user_manage']);
+
+    const error = await getRejectedHttpException(
+      guard.canActivate(
+        createContext({
+          handler,
+          request: {
+            params: {},
+            user: createApiTokenRequestUser({ role: ROLES.ADMIN, scopes: ['admin:audit_view'] }),
+          },
+        }),
+      ),
+    );
+
+    expect(error.getStatus()).toBe(403);
+    expect(getHttpExceptionCode(error)).toBe(ErrorCode.PERMISSION_DENIED);
+    expect(getHttpExceptionDetails(error)).toEqual({ denied_scope: 'admin:user_manage' });
+  });
+
+  it('throws 403 when an owner API token lacks the admin REST scope', async () => {
+    const guard = new RbacGuard(new Reflector());
+    const handler = withPermissions(['admin:user_manage']);
+
+    await expect(
+      guard.canActivate(
+        createContext({
+          handler,
+          request: {
+            params: {},
+            user: createApiTokenRequestUser({ role: ROLES.OWNER, scopes: ['upload:create'] }),
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('does not let an MCP-only scope satisfy a REST admin permission', async () => {
+    const guard = new RbacGuard(new Reflector());
+    const handler = withPermissions(['admin:user_manage']);
+
+    await expect(
+      guard.canActivate(
+        createContext({
+          handler,
+          request: {
+            params: {},
+            user: createApiTokenRequestUser({ role: ROLES.OWNER, scopes: ['mcp:invoke'] }),
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('checks upload and graphify REST scopes independently for API tokens', async () => {
+    const guard = new RbacGuard(new Reflector(), {
+      getPermissionsForUser() {
+        return Promise.resolve(['upload:create', 'graphify:run']);
+      },
+    });
+
+    await expect(
+      guard.canActivate(
+        createContext({
+          handler: withPermissions(['upload:create']),
+          request: {
+            params: { spaceId: 'space-1' },
+            user: createApiTokenRequestUser({ role: ROLES.EDITOR, scopes: ['upload:create'] }),
+          },
+        }),
+      ),
+    ).resolves.toBe(true);
+
+    await expect(
+      guard.canActivate(
+        createContext({
+          handler: withPermissions(['graphify:run']),
+          request: {
+            params: { spaceId: 'space-1' },
+            user: createApiTokenRequestUser({ role: ROLES.EDITOR, scopes: ['upload:create'] }),
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('keeps JWT session RBAC behavior free of token scope checks', async () => {
+    const guard = new RbacGuard(new Reflector());
+    const handler = withPermissions(['admin:user_manage']);
+
+    await expect(
+      guard.canActivate(
+        createContext({
+          handler,
+          request: {
+            params: {},
+            user: createRequestUser({ role: ROLES.OWNER }),
+          },
+        }),
+      ),
+    ).resolves.toBe(true);
+  });
+
+  it('allows an API token with all required REST scopes', async () => {
+    const guard = new RbacGuard(new Reflector());
+    const handler = withPermissions(['admin', 'admin:user_manage']);
+
+    await expect(
+      guard.canActivate(
+        createContext({
+          handler,
+          request: {
+            params: {},
+            user: createApiTokenRequestUser({
+              role: ROLES.ADMIN,
+              scopes: ['admin', 'admin:user_manage'],
+            }),
+          },
+        }),
+      ),
+    ).resolves.toBe(true);
+  });
+
   it('uses body space_id for space-scoped chat permissions', async () => {
     let resolverInput: SpacePermissionResolverInput | undefined;
     const guard = new RbacGuard(new Reflector(), {
@@ -334,6 +475,38 @@ function createRequestUser(overrides: Partial<AuthenticatedRequestUser> = {}): A
   };
 }
 
+function createApiTokenRequestUser(
+  overrides: Partial<AuthenticatedRequestUser & { scopes: string[]; token_id: string }> = {},
+): AuthenticatedRequestUser & { scopes: string[]; token_id: string } {
+  return {
+    ...createRequestUser({ role: ROLES.ADMIN }),
+    scopes: ['admin:user_manage'],
+    token_id: 'api-token-1',
+    ...overrides,
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+async function getRejectedHttpException(promise: Promise<unknown>): Promise<HttpException> {
+  try {
+    await promise;
+  } catch (err) {
+    expect(err).toBeInstanceOf(HttpException);
+    return err as HttpException;
+  }
+
+  throw new Error('Expected promise to reject with HttpException');
+}
+
+function getHttpExceptionCode(error: HttpException): unknown {
+  const response = error.getResponse();
+  return isRecord(response) ? response.code : undefined;
+}
+
+function getHttpExceptionDetails(error: HttpException): unknown {
+  const response = error.getResponse();
+  return isRecord(response) ? response.details : undefined;
 }
