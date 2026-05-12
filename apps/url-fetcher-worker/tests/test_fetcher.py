@@ -121,9 +121,7 @@ def test_read_timeout_maps_to_request_timeout() -> None:
 
 
 def test_proxy_url_configured_routes_requests_through_proxy() -> None:
-    session = FakeSession(
-        [FakeResponse(200, b"hello", {"content-type": "text/plain"})]
-    )
+    session = FakeSession([FakeResponse(200, b"hello", {"content-type": "text/plain"})])
     fetcher = UrlFetcher(
         resolver=FakeResolver({"example.com": ["93.184.216.34"]}),
         session=session,
