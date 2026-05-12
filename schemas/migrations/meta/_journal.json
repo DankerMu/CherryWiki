@@ -120,6 +120,13 @@
       "when": 1778570051286,
       "tag": "0016_bored_lethal_legion",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1778599997328,
+      "tag": "0017_index_snapshot_building_lock",
+      "breakpoints": true
     }
   ]
 }

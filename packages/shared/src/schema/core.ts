@@ -14,6 +14,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
 import type { PgTableExtraConfigValue } from 'drizzle-orm/pg-core';
@@ -768,6 +769,9 @@ export const indexSnapshots = pgTable(
   (table) => [
     index('idx_index_snapshots_space').on(table.tenant_id, table.space_id, table.status),
     index('idx_index_snapshots_active').on(table.space_id, table.activated_at.desc()),
+    uniqueIndex('idx_index_snapshots_one_building_per_space')
+      .on(table.tenant_id, table.space_id)
+      .where(sql`${table.status} = 'building'`),
   ],
 );
 

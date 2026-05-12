@@ -106,7 +106,7 @@ export class IndexerWorker extends AbstractBullMQWorker<IndexerBullMQPayload, In
         scope: payload.scope,
       });
 
-      if (await this.checkBuildingExists(payload.space_id)) {
+      if (await this.checkBuildingExists(payload.tenant_id, payload.space_id)) {
         throw new IndexingInProgressError(payload.space_id);
       }
 
@@ -140,8 +140,7 @@ export class IndexerWorker extends AbstractBullMQWorker<IndexerBullMQPayload, In
         new Date(),
       );
 
-      await this.markSnapshotReady(snapshot.id, chunkPlans.length);
-      await this.activateSnapshot(snapshot.id, payload.space_id);
+      await this.activateSnapshot(snapshot.id, payload.space_id, chunkPlans.length);
       activationCommitted = true;
       await this.recordProgress(job.id, {
         stage: 'snapshot_activated',
@@ -156,15 +155,15 @@ export class IndexerWorker extends AbstractBullMQWorker<IndexerBullMQPayload, In
       await this.recordFailureProgress(job.id, error);
 
       if (snapshotId !== undefined && !activationCommitted) {
-        await this.resetSnapshotToBuilding(snapshotId);
+        await this.markSnapshotFailed(snapshotId);
       }
 
       throw error;
     }
   }
 
-  protected checkBuildingExists(spaceId: string): Promise<boolean> {
-    return SnapshotManager.checkBuildingExists(this.db, spaceId);
+  protected checkBuildingExists(tenantId: string, spaceId: string): Promise<boolean> {
+    return SnapshotManager.checkBuildingExists(this.db, tenantId, spaceId);
   }
 
   protected async resolveEmbeddingModel(tenantId: string): Promise<ModelConfigRow> {
@@ -350,16 +349,12 @@ export class IndexerWorker extends AbstractBullMQWorker<IndexerBullMQPayload, In
       .returning();
   }
 
-  protected markSnapshotReady(snapshotId: string, chunkCount: number): Promise<void> {
-    return SnapshotManager.markSnapshotReady(this.db, snapshotId, chunkCount);
+  protected activateSnapshot(snapshotId: string, spaceId: string, chunkCount: number): Promise<void> {
+    return SnapshotManager.activateSnapshot(this.db, snapshotId, spaceId, chunkCount);
   }
 
-  protected activateSnapshot(snapshotId: string, spaceId: string): Promise<void> {
-    return SnapshotManager.activateSnapshot(this.db, snapshotId, spaceId);
-  }
-
-  protected resetSnapshotToBuilding(snapshotId: string): Promise<void> {
-    return SnapshotManager.markSnapshotBuilding(this.db, snapshotId);
+  protected markSnapshotFailed(snapshotId: string): Promise<void> {
+    return SnapshotManager.markSnapshotFailed(this.db, snapshotId);
   }
 
   private resolveTargetPage(payload: IndexerPayload, pages: PublishedPageRow[]): PublishedPageRow | undefined {

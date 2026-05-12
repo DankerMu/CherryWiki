@@ -7,9 +7,10 @@ import type { JobDatabase } from '@cherrygraph/job-core';
 export type IndexSnapshotRow = typeof indexSnapshots.$inferSelect;
 
 const BUILDING_STATUS = 'building';
-const READY_STATUS = 'ready';
 const ACTIVATED_STATUS = 'activated';
 const SUPERSEDED_STATUS = 'superseded';
+const FAILED_STATUS = 'failed';
+const STALE_BUILDING_SNAPSHOT_MS = 2 * 60 * 60 * 1000;
 
 export class SnapshotManager {
   static async createSnapshot(
@@ -41,7 +42,7 @@ export class SnapshotManager {
     return snapshot;
   }
 
-  static async activateSnapshot(db: JobDatabase, snapshotId: string, spaceId: string): Promise<void> {
+  static async activateSnapshot(db: JobDatabase, snapshotId: string, spaceId: string, chunkCount: number): Promise<void> {
     const now = new Date();
 
     await db.transaction(async (tx) => {
@@ -49,6 +50,7 @@ export class SnapshotManager {
         .update(indexSnapshots)
         .set({
           status: ACTIVATED_STATUS,
+          chunk_count: chunkCount,
           activated_at: now,
         })
         .where(eq(indexSnapshots.id, snapshotId))
@@ -79,32 +81,51 @@ export class SnapshotManager {
     });
   }
 
-  static async checkBuildingExists(db: JobDatabase, spaceId: string): Promise<boolean> {
+  static async checkBuildingExists(db: JobDatabase, tenantId: string, spaceId: string): Promise<boolean> {
     const [snapshot] = await db
-      .select({ id: indexSnapshots.id })
+      .select({ id: indexSnapshots.id, created_at: indexSnapshots.created_at })
       .from(indexSnapshots)
-      .where(and(eq(indexSnapshots.space_id, spaceId), eq(indexSnapshots.status, BUILDING_STATUS)))
+      .where(
+        and(
+          eq(indexSnapshots.tenant_id, tenantId),
+          eq(indexSnapshots.space_id, spaceId),
+          eq(indexSnapshots.status, BUILDING_STATUS),
+        ),
+      )
       .limit(1);
 
-    return snapshot !== undefined;
-  }
+    if (snapshot === undefined) {
+      return false;
+    }
 
-  static async markSnapshotReady(db: JobDatabase, snapshotId: string, chunkCount: number): Promise<void> {
+    if (Date.now() - snapshot.created_at.getTime() <= STALE_BUILDING_SNAPSHOT_MS) {
+      return true;
+    }
+
     await db
       .update(indexSnapshots)
       .set({
-        status: READY_STATUS,
-        chunk_count: chunkCount,
+        status: FAILED_STATUS,
+        activated_at: null,
       })
-      .where(eq(indexSnapshots.id, snapshotId))
+      .where(and(eq(indexSnapshots.id, snapshot.id), eq(indexSnapshots.status, BUILDING_STATUS)))
       .returning();
+
+    console.warn('indexer-worker: recovered stale building index snapshot', {
+      tenant_id: tenantId,
+      space_id: spaceId,
+      snapshot_id: snapshot.id,
+      created_at: snapshot.created_at.toISOString(),
+    });
+
+    return false;
   }
 
-  static async markSnapshotBuilding(db: JobDatabase, snapshotId: string): Promise<void> {
+  static async markSnapshotFailed(db: JobDatabase, snapshotId: string): Promise<void> {
     await db
       .update(indexSnapshots)
       .set({
-        status: BUILDING_STATUS,
+        status: FAILED_STATUS,
         activated_at: null,
       })
       .where(eq(indexSnapshots.id, snapshotId))
