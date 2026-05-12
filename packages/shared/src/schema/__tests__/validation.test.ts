@@ -210,8 +210,8 @@ describe('Zod schema validation', () => {
   it('validates index snapshot status lifecycle values', () => {
     expect(schema.indexSnapshotStatusSchema.safeParse('activated').success).toBe(true);
     expect(schema.indexSnapshotStatusSchema.safeParse('superseded').success).toBe(true);
+    expect(schema.indexSnapshotStatusSchema.safeParse('failed').success).toBe(true);
     expect(schema.indexSnapshotStatusSchema.safeParse('active').success).toBe(false);
-    expect(schema.indexSnapshotStatusSchema.safeParse('failed').success).toBe(false);
   });
 });
 

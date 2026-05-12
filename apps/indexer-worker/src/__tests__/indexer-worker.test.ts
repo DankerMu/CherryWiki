@@ -132,7 +132,7 @@ describe('IndexerWorker', () => {
 
     await expect(failingWorker.run(createJob())).rejects.toThrow('activation failed');
     expect(failingWorker.activeSnapshotId).toBe('old-snapshot');
-    expect(failingWorker.snapshots.at(-1)?.status).toBe('building');
+    expect(failingWorker.snapshots.at(-1)?.status).toBe('failed');
   });
 
   it('does not reset the snapshot when a failure occurs after activation commits', async () => {
@@ -150,7 +150,7 @@ describe('IndexerWorker', () => {
     expect(worker.snapshots.find((snapshot) => snapshot.id === 'old-snapshot')?.status).toBe('superseded');
   });
 
-  it('4.T7 isolates embedding failures from the active snapshot', async () => {
+  it('4.T7 isolates embedding failures from the active snapshot and marks the failed snapshot terminal', async () => {
     worker.snapshots = [createSnapshot('old-snapshot', 'activated')];
     worker.activeSnapshotId = 'old-snapshot';
     worker.pages = [createPublishedPage('page-1', 'hello')];
@@ -159,16 +159,47 @@ describe('IndexerWorker', () => {
     await expect(worker.run(createJob())).rejects.toThrow('embedding unavailable');
 
     expect(worker.activeSnapshotId).toBe('old-snapshot');
-    expect(worker.snapshots.at(-1)?.status).toBe('building');
+    expect(worker.snapshots.at(-1)?.status).toBe('failed');
     expect(worker.insertedChunks.every((chunk) => chunk.index_status === 'pending')).toBe(true);
   });
 
   it('4.T8 rejects concurrent indexing for the same space', async () => {
-    worker.buildingExists = true;
+    worker.snapshots = [createSnapshot('building-snapshot', 'building')];
     worker.pages = [createPublishedPage('page-1', 'hello')];
 
     await expect(worker.run(createJob())).rejects.toMatchObject({ code: 'INDEXING_IN_PROGRESS' });
-    expect(worker.snapshots).toHaveLength(0);
+    expect(worker.snapshots).toHaveLength(1);
+  });
+
+  it('allows different spaces to build independently', async () => {
+    worker.snapshots = [createSnapshot('space-1-building', 'building')];
+    worker.pages = [createPublishedPage('space-2-page', 'hello', 'published', { spaceId: 'space-2' })];
+
+    await expect(
+      worker.run(
+        createJob({
+          space_id: 'space-2',
+          payload_json: createPayload({ space_id: 'space-2' }),
+        }),
+      ),
+    ).resolves.toMatchObject({ chunk_count: 1 });
+
+    expect(worker.snapshots.find((snapshot) => snapshot.space_id === 'space-2')?.status).toBe('activated');
+    expect(worker.snapshots.find((snapshot) => snapshot.id === 'space-1-building')?.status).toBe('building');
+  });
+
+  it('allows reindex after a failed snapshot leaves building state', async () => {
+    worker.snapshots = [createSnapshot('failed-snapshot', 'failed')];
+    worker.pages = [createPublishedPage('page-1', 'hello')];
+
+    const result = await worker.run(createJob());
+
+    expect(result.chunk_count).toBe(1);
+    expect(worker.snapshots.find((snapshot) => snapshot.id === 'failed-snapshot')?.status).toBe('failed');
+    expect(worker.snapshots.at(-1)).toMatchObject({
+      id: result.snapshot_id,
+      status: 'activated',
+    });
   });
 
   it('4.T9 records progress events for each indexing stage', async () => {
@@ -280,10 +311,14 @@ class HarnessIndexerWorker extends IndexerWorker {
     return Promise.resolve();
   }
 
-  protected override checkBuildingExists(spaceId: string): Promise<boolean> {
-    void spaceId;
-
-    return Promise.resolve(this.buildingExists);
+  protected override checkBuildingExists(tenantId: string, spaceId: string): Promise<boolean> {
+    return Promise.resolve(
+      this.buildingExists ||
+        this.snapshots.some(
+          (snapshot) =>
+            snapshot.tenant_id === tenantId && snapshot.space_id === spaceId && snapshot.status === 'building',
+        ),
+    );
   }
 
   protected override resolveEmbeddingModel(tenantId: string): Promise<ModelConfigRow> {
@@ -322,7 +357,12 @@ class HarnessIndexerWorker extends IndexerWorker {
   }
 
   protected override loadPublishedPages(payload: IndexerPayload): Promise<PageRow[]> {
-    const publishedPages = this.pages.filter((row) => row.version.status === 'published');
+    const publishedPages = this.pages.filter(
+      (row) =>
+        row.page.tenant_id === payload.tenant_id &&
+        row.page.space_id === payload.space_id &&
+        row.version.status === 'published',
+    );
     if (payload.scope === 'single_page') {
       return Promise.resolve(publishedPages.filter((row) => row.page.page_id === payload.page_id));
     }
@@ -420,11 +460,12 @@ class HarnessIndexerWorker extends IndexerWorker {
     return Promise.resolve();
   }
 
-  protected override resetSnapshotToBuilding(snapshotId: string): Promise<void> {
+  protected override markSnapshotFailed(snapshotId: string): Promise<void> {
     const snapshot = this.snapshots.find((item) => item.id === snapshotId);
     if (snapshot !== undefined) {
-      snapshot.status = 'building';
+      snapshot.status = 'failed';
       snapshot.activated_at = null;
+      this.statusTransitions.push({ snapshotId, status: 'failed' });
     }
 
     return Promise.resolve();
@@ -514,12 +555,20 @@ function createPayload(overrides: Partial<IndexerPayload> = {}): IndexerPayload 
   };
 }
 
-function createPublishedPage(pageId: string, content: string, status = 'published'): PageRow {
+function createPublishedPage(
+  pageId: string,
+  content: string,
+  status = 'published',
+  overrides: { tenantId?: string; spaceId?: string } = {},
+): PageRow {
+  const tenantId = overrides.tenantId ?? 'tenant-1';
+  const spaceId = overrides.spaceId ?? 'space-1';
+
   return {
     page: {
       id: `${pageId}-pk`,
-      tenant_id: 'tenant-1',
-      space_id: 'space-1',
+      tenant_id: tenantId,
+      space_id: spaceId,
       page_id: pageId,
       title: pageId,
       slug: pageId,
@@ -534,8 +583,8 @@ function createPublishedPage(pageId: string, content: string, status = 'publishe
     },
     version: {
       id: `${pageId}-version`,
-      tenant_id: 'tenant-1',
-      space_id: 'space-1',
+      tenant_id: tenantId,
+      space_id: spaceId,
       wiki_page_pk: `${pageId}-pk`,
       page_id: pageId,
       version_no: 1,

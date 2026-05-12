@@ -10,6 +10,7 @@ const BUILDING_STATUS = 'building';
 const READY_STATUS = 'ready';
 const ACTIVATED_STATUS = 'activated';
 const SUPERSEDED_STATUS = 'superseded';
+const FAILED_STATUS = 'failed';
 
 export class SnapshotManager {
   static async createSnapshot(
@@ -79,11 +80,17 @@ export class SnapshotManager {
     });
   }
 
-  static async checkBuildingExists(db: JobDatabase, spaceId: string): Promise<boolean> {
+  static async checkBuildingExists(db: JobDatabase, tenantId: string, spaceId: string): Promise<boolean> {
     const [snapshot] = await db
       .select({ id: indexSnapshots.id })
       .from(indexSnapshots)
-      .where(and(eq(indexSnapshots.space_id, spaceId), eq(indexSnapshots.status, BUILDING_STATUS)))
+      .where(
+        and(
+          eq(indexSnapshots.tenant_id, tenantId),
+          eq(indexSnapshots.space_id, spaceId),
+          eq(indexSnapshots.status, BUILDING_STATUS),
+        ),
+      )
       .limit(1);
 
     return snapshot !== undefined;
@@ -100,11 +107,11 @@ export class SnapshotManager {
       .returning();
   }
 
-  static async markSnapshotBuilding(db: JobDatabase, snapshotId: string): Promise<void> {
+  static async markSnapshotFailed(db: JobDatabase, snapshotId: string): Promise<void> {
     await db
       .update(indexSnapshots)
       .set({
-        status: BUILDING_STATUS,
+        status: FAILED_STATUS,
         activated_at: null,
       })
       .where(eq(indexSnapshots.id, snapshotId))

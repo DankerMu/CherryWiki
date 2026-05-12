@@ -215,6 +215,28 @@ describe('Drizzle core schema', () => {
     expect(schema.embeddings.embedding.getSQLType()).toBe('vector');
   });
 
+  it('defines index snapshot lifecycle indexes', () => {
+    expect(indexColumns(schema.indexSnapshots, 'idx_index_snapshots_space')).toEqual([
+      'tenant_id',
+      'space_id',
+      'status',
+    ]);
+    expect(indexColumns(schema.indexSnapshots, 'idx_index_snapshots_active')).toEqual(['space_id', 'activated_at']);
+
+    const tableConfig = getTableConfig(schema.indexSnapshots);
+    const buildingIndex = tableConfig.indexes.find(
+      (candidate) => candidate.config.name === 'idx_index_snapshots_one_building_per_space',
+    );
+
+    expect(buildingIndex).toBeDefined();
+    expect(buildingIndex?.config.unique).toBe(true);
+    expect(indexColumns(schema.indexSnapshots, 'idx_index_snapshots_one_building_per_space')).toEqual([
+      'tenant_id',
+      'space_id',
+    ]);
+    expect(buildingIndex?.config.where).toBeDefined();
+  });
+
   it('defines Phase 4 governance, API token, and MCP tables', () => {
     expect(schema.feedbackItems.payload_json.getSQLType()).toBe('jsonb');
     expect(schema.feedbackItems.payload_json.notNull).toBe(true);

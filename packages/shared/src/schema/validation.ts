@@ -53,7 +53,7 @@ export const confidenceLabelSchema = z.enum(['EXTRACTED', 'INFERRED', 'AMBIGUOUS
 export const blockOwnerSchema = z.enum(['graphify', 'human', 'locked']);
 export const proposalTypeSchema = z.enum(['conflict', 'deprecation', 'new_page']);
 export const proposalStatusSchema = z.enum(['pending', 'accepted', 'rejected']);
-export const indexSnapshotStatusSchema = z.enum(['building', 'ready', 'activated', 'superseded']);
+export const indexSnapshotStatusSchema = z.enum(['building', 'ready', 'activated', 'superseded', 'failed']);
 export const chunkIndexStatusSchema = z4.enum(['pending', 'indexed']);
 export const syncStatusSchema = z.union([
   z.enum(['synced', 'sync_pending', 'conflict_required']),
