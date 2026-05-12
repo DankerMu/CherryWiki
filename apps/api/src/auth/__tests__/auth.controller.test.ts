@@ -16,9 +16,9 @@ import {
   type ChangePasswordInput,
   type CurrentUserResponse,
   type LoginInput,
-  type LoginResponse,
+  type LoginResult,
   type LogoutInput,
-  type TokenPairResponse,
+  type TokenPairResult,
 } from '../auth.service.js';
 import {
   SessionService,
@@ -30,11 +30,11 @@ import { TEST_EMAIL, TEST_JWT_SECRET, TEST_TENANT_ID, TEST_USER_ID } from './aut
 
 type AuthServiceMock = {
   login: ReturnType<
-    typeof vi.fn<(input: LoginInput, metadata?: AuthRequestMetadata) => Promise<LoginResponse>>
+    typeof vi.fn<(input: LoginInput, metadata?: AuthRequestMetadata) => Promise<LoginResult>>
   >;
   refresh: ReturnType<
     typeof vi.fn<
-      (refreshToken: string, metadata?: AuthRequestMetadata) => Promise<TokenPairResponse>
+      (refreshToken: string, metadata?: AuthRequestMetadata) => Promise<TokenPairResult>
     >
   >;
   logout: ReturnType<
@@ -103,7 +103,7 @@ describe('AuthController', () => {
     expect(metadata).toEqual({ limit: 30, windowSec: 60, mode: 'ip' });
   });
 
-  it('POST /api/auth/login returns the token pair and user payload with status 200', async () => {
+  it('POST /api/auth/login sets the refresh cookie and omits it from the body', async () => {
     app = await createTestApp();
     authServiceMock.login.mockResolvedValue(createLoginResponse());
 
@@ -115,7 +115,6 @@ describe('AuthController', () => {
     const body = parseJsonObject(response.text);
     expect(body.data).toMatchObject({
       access_token: 'access-token',
-      refresh_token: 'refresh-token',
       expires_in: 3600,
       user: {
         id: TEST_USER_ID,
@@ -125,6 +124,7 @@ describe('AuthController', () => {
         groups: ['group-1'],
       },
     });
+    expect(body.data).not.toHaveProperty('refresh_token');
     expect(response.headers['set-cookie']?.[0]).toContain('refresh_token=refresh-token');
     expect(authServiceMock.login).toHaveBeenCalledWith(
       expect.objectContaining({ email: TEST_EMAIL, password: 'Correct1!' }),
@@ -132,28 +132,40 @@ describe('AuthController', () => {
     );
   });
 
-  it('POST /api/auth/refresh returns a rotated token pair', async () => {
+  it('POST /api/auth/refresh accepts a cookie and rotates it without returning it in the body', async () => {
     app = await createTestApp();
     authServiceMock.refresh.mockResolvedValue({
       access_token: 'new-access-token',
-      refresh_token: 'new-refresh-token',
+      refreshToken: 'new-refresh-token',
       expires_in: 3600,
     });
 
     const response = await request(app.getHttpAdapter().getInstance().server)
       .post('/api/auth/refresh')
-      .send({ refresh_token: 'old-refresh-token' })
+      .set('Cookie', ['refresh_token=old-refresh-token'])
       .expect(200);
 
     expect(parseJsonObject(response.text).data).toMatchObject({
       access_token: 'new-access-token',
-      refresh_token: 'new-refresh-token',
       expires_in: 3600,
     });
+    expect(parseJsonObject(response.text).data).not.toHaveProperty('refresh_token');
     expect(response.headers['set-cookie']?.[0]).toContain('refresh_token=new-refresh-token');
+    expect(authServiceMock.refresh).toHaveBeenCalledWith('old-refresh-token', expect.any(Object));
   });
 
-  it('POST /api/auth/refresh maps invalid refresh tokens to 401', async () => {
+  it('POST /api/auth/refresh requires a refresh cookie', async () => {
+    app = await createTestApp();
+
+    const response = await request(app.getHttpAdapter().getInstance().server)
+      .post('/api/auth/refresh')
+      .expect(401);
+
+    expect(getErrorPayload(response.text).code).toBe(ErrorCode.INVALID_REFRESH_TOKEN);
+    expect(authServiceMock.refresh).not.toHaveBeenCalled();
+  });
+
+  it('POST /api/auth/refresh maps invalid refresh cookies to 401', async () => {
     app = await createTestApp();
     authServiceMock.refresh.mockRejectedValue(
       new HttpException(
@@ -167,10 +179,22 @@ describe('AuthController', () => {
 
     const response = await request(app.getHttpAdapter().getInstance().server)
       .post('/api/auth/refresh')
-      .send({ refresh_token: 'bad-refresh-token' })
+      .set('Cookie', ['refresh_token=bad-refresh-token'])
       .expect(401);
 
     expect(getErrorPayload(response.text).code).toBe(ErrorCode.INVALID_REFRESH_TOKEN);
+  });
+
+  it('POST /api/auth/refresh rejects duplicate refresh cookies', async () => {
+    app = await createTestApp();
+
+    const response = await request(app.getHttpAdapter().getInstance().server)
+      .post('/api/auth/refresh')
+      .set('Cookie', 'refresh_token=first-refresh-token; refresh_token=second-refresh-token')
+      .expect(401);
+
+    expect(getErrorPayload(response.text).code).toBe(ErrorCode.INVALID_REFRESH_TOKEN);
+    expect(authServiceMock.refresh).not.toHaveBeenCalled();
   });
 
   it('POST /api/auth/logout requires auth and returns success', async () => {
@@ -185,28 +209,35 @@ describe('AuthController', () => {
     const response = await request(app.getHttpAdapter().getInstance().server)
       .post('/api/auth/logout')
       .set('Authorization', `Bearer ${await createAccessToken()}`)
-      .send({ refresh_token: 'refresh-token' })
+      .set('Cookie', ['refresh_token=refresh-token'])
       .expect(200);
 
     expect(parseJsonObject(response.text).data).toEqual({ success: true });
+    expect(response.headers['set-cookie']?.[0]).toContain('refresh_token=');
+    expect(response.headers['set-cookie']?.[0]).toContain('Max-Age=0');
     expect(authServiceMock.logout).toHaveBeenCalledWith(
       expect.objectContaining({ sub: TEST_USER_ID, tenant_id: TEST_TENANT_ID }),
-      expect.objectContaining({ refresh_token: 'refresh-token' }),
+      expect.objectContaining({ refreshToken: 'refresh-token' }),
       expect.any(Object),
     );
   });
 
-  it('POST /api/auth/logout requires a refresh token', async () => {
+  it('POST /api/auth/logout works without a refresh cookie', async () => {
     app = await createTestApp();
+    authServiceMock.logout.mockResolvedValue({ success: true });
 
     const response = await request(app.getHttpAdapter().getInstance().server)
       .post('/api/auth/logout')
       .set('Authorization', `Bearer ${await createAccessToken()}`)
-      .send({})
-      .expect(422);
+      .expect(200);
 
-    expect(getErrorPayload(response.text).code).toBe(ErrorCode.VALIDATION_ERROR);
-    expect(authServiceMock.logout).not.toHaveBeenCalled();
+    expect(parseJsonObject(response.text).data).toEqual({ success: true });
+    expect(response.headers['set-cookie']?.[0]).toContain('Max-Age=0');
+    expect(authServiceMock.logout).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: TEST_USER_ID, tenant_id: TEST_TENANT_ID }),
+      expect.objectContaining({ refreshToken: undefined }),
+      expect.any(Object),
+    );
   });
 
   it('GET /api/auth/me requires auth and returns the current user shape', async () => {
@@ -320,10 +351,10 @@ function createSessionServiceMock(): SessionServiceMock {
   };
 }
 
-function createLoginResponse(): LoginResponse {
+function createLoginResponse(): LoginResult {
   return {
     access_token: 'access-token',
-    refresh_token: 'refresh-token',
+    refreshToken: 'refresh-token',
     expires_in: 3600,
     user: {
       id: TEST_USER_ID,

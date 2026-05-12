@@ -108,19 +108,30 @@ components:
         email: { type: string, format: email }
         password: { type: string, minLength: 8 }
 
-    TokenResponse:
+    BrowserLoginResponse:
       type: object
+      required: [access_token, expires_in, user]
       properties:
         access_token: { type: string }
-        refresh_token: { type: string }
         expires_in: { type: integer }
-        user: { $ref: '#/components/schemas/User' }
+        user:
+          type: object
+          required: [id, email, name, role, groups]
+          properties:
+            id: { type: string }
+            email: { type: string, format: email }
+            name: { type: string }
+            role: { type: string, enum: [owner, admin, space_admin, editor, viewer, auditor] }
+            groups:
+              type: array
+              items: { type: string }
 
-    RefreshRequest:
+    BrowserRefreshResponse:
       type: object
-      required: [refresh_token]
+      required: [access_token, expires_in]
       properties:
-        refresh_token: { type: string }
+        access_token: { type: string }
+        expires_in: { type: integer }
 
     # --- User ---
     User:
@@ -1100,6 +1111,7 @@ paths:
   /auth/login:
     post:
       summary: Login
+      description: Browser login returns an access token in the JSON body and sets the refresh token as an HttpOnly `refresh_token` cookie.
       tags: [Auth]
       security: []
       requestBody:
@@ -1109,13 +1121,17 @@ paths:
             schema: { $ref: '#/components/schemas/LoginRequest' }
       responses:
         '200':
-          description: Login successful
+          description: Login successful. The refresh token is set in the `Set-Cookie` header and is not included in the JSON body.
+          headers:
+            Set-Cookie:
+              description: HttpOnly `refresh_token` cookie scoped to `/api/auth`.
+              schema: { type: string }
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  data: { $ref: '#/components/schemas/TokenResponse' }
+                  data: { $ref: '#/components/schemas/BrowserLoginResponse' }
                   meta: { $ref: '#/components/schemas/Meta' }
         '401': { $ref: '#/components/responses/UnauthorizedError' }
         '429': { $ref: '#/components/responses/RateLimitError' }
@@ -1123,10 +1139,15 @@ paths:
   /auth/logout:
     post:
       summary: Logout
+      description: Browser logout revokes the refresh session identified by the `refresh_token` cookie when present and clears that cookie. The request body is empty.
       tags: [Auth]
       responses:
         '200':
-          description: Logged out
+          description: Logged out. The refresh cookie is cleared even when no refresh cookie was present.
+          headers:
+            Set-Cookie:
+              description: Expired HttpOnly `refresh_token` cookie.
+              schema: { type: string }
           content:
             application/json:
               schema:
@@ -1156,22 +1177,22 @@ paths:
   /auth/refresh:
     post:
       summary: Refresh token
+      description: Browser refresh reads the HttpOnly `refresh_token` cookie, rotates it, and returns only a new access token in the JSON body. No JSON request body is required or used.
       tags: [Auth]
       security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/RefreshRequest' }
       responses:
         '200':
-          description: Token refreshed
+          description: Token refreshed. The rotated refresh token is set in the `Set-Cookie` header and is not included in the JSON body.
+          headers:
+            Set-Cookie:
+              description: Rotated HttpOnly `refresh_token` cookie scoped to `/api/auth`.
+              schema: { type: string }
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  data: { $ref: '#/components/schemas/TokenResponse' }
+                  data: { $ref: '#/components/schemas/BrowserRefreshResponse' }
         '401': { $ref: '#/components/responses/UnauthorizedError' }
 
   /auth/password/change:

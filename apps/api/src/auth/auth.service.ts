@@ -44,7 +44,6 @@ export type LoginInput = {
 
 export type LoginResponse = {
   access_token: string;
-  refresh_token: string;
   expires_in: number;
   user: {
     id: string;
@@ -57,12 +56,19 @@ export type LoginResponse = {
 
 export type TokenPairResponse = {
   access_token: string;
-  refresh_token: string;
   expires_in: number;
 };
 
 export type LogoutInput = {
-  refresh_token: string;
+  refreshToken?: string | undefined;
+};
+
+export type LoginResult = LoginResponse & {
+  refreshToken: string;
+};
+
+export type TokenPairResult = TokenPairResponse & {
+  refreshToken: string;
 };
 
 export type ChangePasswordInput = {
@@ -138,7 +144,7 @@ export class AuthService {
     @Optional() @Inject(AUTH_CORE_OPTIONS) private readonly options?: AuthCoreOptions,
   ) {}
 
-  async login(input: LoginInput, metadata: AuthRequestMetadata = {}): Promise<LoginResponse> {
+  async login(input: LoginInput, metadata: AuthRequestMetadata = {}): Promise<LoginResult> {
     const email = normalizeEmail(input.email);
     const tenantId = await this.resolveTenantId();
 
@@ -195,7 +201,7 @@ export class AuthService {
 
     return {
       access_token: tokens.accessToken,
-      refresh_token: tokens.refreshToken,
+      refreshToken: tokens.refreshToken,
       expires_in: ACCESS_TOKEN_EXPIRES_IN_SECONDS,
       user: {
         id: user.id,
@@ -210,7 +216,7 @@ export class AuthService {
   async refresh(
     refreshToken: string,
     metadata: AuthRequestMetadata = {},
-  ): Promise<TokenPairResponse> {
+  ): Promise<TokenPairResult> {
     const claims = await this.verifyRefreshToken(refreshToken);
     const tokenHash = hashRefreshToken(refreshToken);
     const session = await this.sessionService.findSessionById(claims.session_id);
@@ -285,21 +291,21 @@ export class AuthService {
 
     return {
       access_token: rotation.tokens.accessToken,
-      refresh_token: rotation.tokens.refreshToken,
+      refreshToken: rotation.tokens.refreshToken,
       expires_in: ACCESS_TOKEN_EXPIRES_IN_SECONDS,
     };
   }
 
   async logout(
     user: AuthenticatedRequestUser,
-    input: Partial<LogoutInput> = {},
+    input: LogoutInput = {},
     metadata: AuthRequestMetadata = {},
   ): Promise<{ success: true }> {
     const now = new Date();
-    const refreshToken = input.refresh_token;
+    const refreshToken = input.refreshToken;
 
     if (refreshToken === undefined || refreshToken.trim().length === 0) {
-      throwAuthError(ErrorCode.INVALID_REFRESH_TOKEN, 'Invalid refresh token');
+      return { success: true };
     }
 
     const claims = await this.verifyRefreshToken(refreshToken);

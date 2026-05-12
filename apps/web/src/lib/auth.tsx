@@ -24,7 +24,6 @@ export type AuthUser = {
 
 type LoginResponse = {
   access_token: string;
-  refresh_token?: string;
   expires_in: number;
   user: AuthUser;
 };
@@ -40,7 +39,6 @@ type CurrentUserResponse = {
 
 type TokenPairResponse = {
   access_token: string;
-  refresh_token?: string;
   expires_in: number;
 };
 
