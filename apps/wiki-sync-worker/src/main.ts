@@ -231,10 +231,22 @@ function startSpaceReconcileTimer(
   db: SpaceProvisionDeps['db'],
   queue: BridgeWorkerQueues['spaceProvision'],
 ): ReturnType<typeof setInterval> {
+  let isReconciling = false;
+
   return setInterval(() => {
-    void reconcileSpaces(db, queue).catch((error: unknown) => {
-      console.error(`${WORKER_NAME}: space reconcile failed`, error);
-    });
+    if (isReconciling) {
+      console.warn(`${WORKER_NAME}: skipped space reconcile; previous run still active`);
+      return;
+    }
+
+    isReconciling = true;
+    void reconcileSpaces(db, queue)
+      .catch((error: unknown) => {
+        console.error(`${WORKER_NAME}: space reconcile failed`, error);
+      })
+      .finally(() => {
+        isReconciling = false;
+      });
   }, 10 * 60 * 1000);
 }
 

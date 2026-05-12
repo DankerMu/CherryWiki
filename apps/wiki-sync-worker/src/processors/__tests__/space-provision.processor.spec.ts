@@ -67,7 +67,7 @@ describe('space-provision processor', () => {
         createSpace({ id: 'space-3', docmost_space_id: null, status: 'archived' }),
       ],
     });
-    const queue = { add: vi.fn(() => Promise.resolve()) };
+    const queue = createSpaceProvisionQueue();
 
     await expect(reconcileSpaces(db.asDb(), queue)).resolves.toBe(1);
 
@@ -92,12 +92,38 @@ describe('space-provision processor', () => {
       }),
     );
     const db = new SpaceProvisionTestDb({ spaces: unmappedSpaces });
-    const queue = { add: vi.fn(() => Promise.resolve()) };
+    const queue = createSpaceProvisionQueue();
 
     await expect(reconcileSpaces(db.asDb(), queue)).resolves.toBe(51);
 
     expect(queue.add).toHaveBeenCalledTimes(51);
     expect(db.selectPageCount).toBe(3);
+  });
+
+  it('reconcileSpaces removes failed existing jobs before re-enqueueing', async () => {
+    const db = new SpaceProvisionTestDb();
+    const existingJob = createSpaceProvisionJob({ failed: true });
+    const queue = createSpaceProvisionQueue(existingJob);
+
+    await expect(reconcileSpaces(db.asDb(), queue)).resolves.toBe(1);
+
+    expect(existingJob.remove).toHaveBeenCalledOnce();
+    expect(queue.add).toHaveBeenCalledWith(
+      'space.provision',
+      expect.objectContaining({ spaceId: 'space-1', tenantId: 'tenant-1' }),
+      { jobId: 'tenant-1:space-1' },
+    );
+  });
+
+  it('reconcileSpaces skips non-failed existing jobs', async () => {
+    const db = new SpaceProvisionTestDb();
+    const existingJob = createSpaceProvisionJob({ failed: false });
+    const queue = createSpaceProvisionQueue(existingJob);
+
+    await expect(reconcileSpaces(db.asDb(), queue)).resolves.toBe(0);
+
+    expect(existingJob.remove).not.toHaveBeenCalled();
+    expect(queue.add).not.toHaveBeenCalled();
   });
 });
 
@@ -223,6 +249,20 @@ function createBridgeClient(error?: Error): SpaceProvisionBridgeClient {
         ? Promise.resolve({ docmost_space_id: 'docmost-space-1' })
         : Promise.reject(error),
     ),
+  };
+}
+
+function createSpaceProvisionQueue(existingJob?: ReturnType<typeof createSpaceProvisionJob>) {
+  return {
+    add: vi.fn(() => Promise.resolve()),
+    getJob: vi.fn(() => Promise.resolve(existingJob)),
+  };
+}
+
+function createSpaceProvisionJob(options: { failed: boolean }) {
+  return {
+    isFailed: vi.fn(() => Promise.resolve(options.failed)),
+    remove: vi.fn(() => Promise.resolve()),
   };
 }
 

@@ -15,6 +15,12 @@ export type SpaceProvisionQueue = {
     data: SpaceProvisionJobData,
     opts: { jobId: string },
   ) => Promise<unknown>;
+  getJob: (jobId: string) => Promise<SpaceProvisionJob | null | undefined>;
+};
+
+type SpaceProvisionJob = {
+  isFailed: () => Promise<boolean>;
+  remove: () => Promise<void>;
 };
 
 type UnmappedSpaceRow = {
@@ -42,7 +48,10 @@ export async function reconcileSpaces(
     const results = await Promise.allSettled(
       unmappedSpaces.map((space) => enqueueSpaceProvision(queue, space)),
     );
-    enqueuedCount += results.filter((result) => result.status === 'fulfilled').length;
+    enqueuedCount += results.filter(
+      (result): result is PromiseFulfilledResult<true> =>
+        result.status === 'fulfilled' && result.value,
+    ).length;
 
     cursor = unmappedSpaces[unmappedSpaces.length - 1]?.spaceId;
   }
@@ -77,8 +86,21 @@ async function loadUnmappedSpaces(
 async function enqueueSpaceProvision(
   queue: SpaceProvisionQueue,
   space: UnmappedSpaceRow,
-): Promise<void> {
+): Promise<boolean> {
+  const jobId = `${space.tenantId}:${space.spaceId}`;
+  const existing = await queue.getJob(jobId);
+
+  if (existing !== null && existing !== undefined) {
+    const isFailed = await existing.isFailed();
+    if (isFailed) {
+      await existing.remove();
+    } else {
+      return false;
+    }
+  }
+
   await queue.add('space.provision', space, {
-    jobId: `${space.tenantId}:${space.spaceId}`,
+    jobId,
   });
+  return true;
 }
