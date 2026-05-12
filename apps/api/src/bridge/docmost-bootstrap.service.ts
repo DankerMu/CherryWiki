@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { createHash, createHmac, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 
 import { getApiLogger } from '../common/logger/logger.module.js';
+import { UserService } from '../users/user.service.js';
+
+const DOCMOST_BOOTSTRAP_FETCH_TIMEOUT_MS = 10_000;
 
 type BridgeHealthResponse = {
   workspace_initialized?: unknown;
@@ -15,17 +18,36 @@ type BootstrapPayload = {
   password: string;
 };
 
+type BootstrapConfig = {
+  baseUrl: string;
+  secret: string;
+  adminEmail: string;
+  adminPassword: string;
+};
+
+type ConfigResolution =
+  | { status: 'ready'; config: BootstrapConfig }
+  | { status: 'disabled' }
+  | { status: 'pending' };
+
 @Injectable()
 export class DocmostBootstrapService {
+  constructor(private readonly userService?: UserService) {}
+
   async bootstrapIfNeeded(): Promise<boolean> {
-    const config = this.getConfig();
-    if (config === undefined) {
+    const configResolution = await this.getConfig();
+    if (configResolution.status === 'disabled') {
       return true;
     }
 
+    if (configResolution.status === 'pending') {
+      return false;
+    }
+
+    const config = configResolution.config;
     try {
       const healthPath = '/api/internal/bridge/health';
-      const healthResponse = await fetch(`${config.baseUrl}${healthPath}`, {
+      const healthResponse = await fetchWithTimeout(`${config.baseUrl}${healthPath}`, {
         method: 'GET',
         headers: createBridgeHeaders({
           secret: config.secret,
@@ -57,7 +79,7 @@ export class DocmostBootstrapService {
       };
       const body = JSON.stringify(payload);
       const bootstrapPath = '/api/internal/bridge/bootstrap';
-      const bootstrapResponse = await fetch(`${config.baseUrl}${bootstrapPath}`, {
+      const bootstrapResponse = await fetchWithTimeout(`${config.baseUrl}${bootstrapPath}`, {
         method: 'POST',
         headers: {
           ...createBridgeHeaders({
@@ -99,36 +121,52 @@ export class DocmostBootstrapService {
     }
   }
 
-  private getConfig():
-    | {
-        baseUrl: string;
-        secret: string;
-        adminEmail: string;
-        adminPassword: string;
-      }
-    | undefined {
+  private async getConfig(): Promise<ConfigResolution> {
     const baseUrl = process.env.DOCMOST_BASE_URL?.trim().replace(/\/+$/, '');
     const secret = process.env.DOCMOST_BRIDGE_SECRET?.trim();
     const adminEmail = process.env.DOCMOST_ADMIN_EMAIL?.trim();
-    const adminPassword = process.env.DOCMOST_ADMIN_PASSWORD?.trim();
+    const adminPassword =
+      process.env.DOCMOST_ADMIN_PASSWORD?.trim() || generateBootstrapPassword();
 
-    if (!baseUrl) {
-      return undefined;
-    }
-
-    if (!secret || !adminEmail || !adminPassword) {
+    if (!baseUrl || !secret) {
       getApiLogger().warn(
         {
+          docmost_base_url_present: Boolean(baseUrl),
           docmost_bridge_secret_present: Boolean(secret),
-          docmost_admin_email_present: Boolean(adminEmail),
-          docmost_admin_password_present: Boolean(adminPassword),
         },
         'Docmost workspace bootstrap is not configured',
       );
-      return undefined;
+      return { status: 'disabled' };
     }
 
-    return { baseUrl, secret, adminEmail, adminPassword };
+    const resolvedAdminEmail = adminEmail || (await this.getFirstAdminEmail());
+    if (!resolvedAdminEmail) {
+      getApiLogger().warn(
+        {
+          docmost_admin_email_present: Boolean(adminEmail),
+          cherry_admin_user_present: false,
+        },
+        'Docmost workspace bootstrap is waiting for a Cherry admin user',
+      );
+      return { status: 'pending' };
+    }
+
+    return {
+      status: 'ready',
+      config: { baseUrl, secret, adminEmail: resolvedAdminEmail, adminPassword },
+    };
+  }
+
+  private async getFirstAdminEmail(): Promise<string | undefined> {
+    try {
+      return (await this.userService?.findFirstAdminUser())?.email;
+    } catch (err) {
+      getApiLogger().warn(
+        { err: toSafeErrorMessage(err) },
+        'Docmost workspace bootstrap admin fallback lookup failed',
+      );
+      return undefined;
+    }
   }
 }
 
@@ -181,6 +219,21 @@ function isWorkspaceInitialized(health: BridgeHealthResponse): boolean {
   }
 
   return false;
+}
+
+async function fetchWithTimeout(input: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DOCMOST_BOOTSTRAP_FETCH_TIMEOUT_MS);
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function generateBootstrapPassword(): string {
+  return randomBytes(32).toString('base64url');
 }
 
 function toSafeErrorMessage(err: unknown): string {

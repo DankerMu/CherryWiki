@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getApiLogger } from '../../common/logger/logger.module.js';
+import type { UserService } from '../../users/user.service.js';
 import { BridgeModule } from '../bridge.module.js';
 import { DocmostBootstrapService } from '../docmost-bootstrap.service.js';
 
@@ -23,6 +24,7 @@ describe('DocmostBootstrapService', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     restoreEnv();
@@ -44,6 +46,10 @@ describe('DocmostBootstrapService', () => {
       'https://docmost.example.com/api/internal/bridge/bootstrap',
     );
     const bootstrapInit = fetchCall(fetchMock, 1)[1] as RequestInit;
+    expect((fetchCall(fetchMock, 0)[1] as RequestInit).signal).toBeInstanceOf(
+      AbortSignal,
+    );
+    expect(bootstrapInit.signal).toBeInstanceOf(AbortSignal);
     expect(bootstrapInit.method).toBe('POST');
     if (typeof bootstrapInit.body !== 'string') {
       throw new Error('Expected JSON bootstrap request body');
@@ -80,6 +86,80 @@ describe('DocmostBootstrapService', () => {
       'Docmost workspace bootstrap skipped',
     );
   });
+
+  it('aborts a stalled health check and returns false', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementationOnce((_url, init) => {
+      const signal = (init as RequestInit).signal;
+      return new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => {
+          reject(new DOMException('This operation was aborted', 'AbortError'));
+        });
+      });
+    });
+    const service = new DocmostBootstrapService();
+
+    const result = service.bootstrapIfNeeded();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await expect(result).resolves.toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const healthInit = fetchCall(fetchMock, 0)[1] as RequestInit;
+    expect(healthInit.signal?.aborted).toBe(true);
+  });
+
+  it('aborts a stalled bootstrap POST and returns false', async () => {
+    vi.useFakeTimers();
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ workspace_initialized: false }))
+      .mockImplementationOnce((_url, init) => {
+        const signal = (init as RequestInit).signal;
+        return new Promise<Response>((_resolve, reject) => {
+          signal?.addEventListener('abort', () => {
+            reject(new DOMException('This operation was aborted', 'AbortError'));
+          });
+        });
+      });
+    const service = new DocmostBootstrapService();
+
+    const result = service.bootstrapIfNeeded();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await expect(result).resolves.toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const bootstrapInit = fetchCall(fetchMock, 1)[1] as RequestInit;
+    expect(bootstrapInit.signal?.aborted).toBe(true);
+  });
+
+  it('uses the first Cherry admin user when DOCMOST_ADMIN_EMAIL is unset', async () => {
+    delete process.env.DOCMOST_ADMIN_EMAIL;
+    const userService = {
+      findFirstAdminUser: vi.fn().mockResolvedValue({
+        id: 'admin-1',
+        email: 'owner@cherrywiki.local',
+        name: 'Owner',
+        role: 'owner',
+      }),
+    };
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ workspace_initialized: false }))
+      .mockResolvedValueOnce(jsonResponse({ workspace_id: 'workspace-1', user_id: 'user-1' }));
+    const service = new DocmostBootstrapService(userService as unknown as UserService);
+
+    await expect(service.bootstrapIfNeeded()).resolves.toBe(true);
+
+    expect(userService.findFirstAdminUser).toHaveBeenCalledTimes(1);
+    const bootstrapInit = fetchCall(fetchMock, 1)[1] as RequestInit;
+    if (typeof bootstrapInit.body !== 'string') {
+      throw new Error('Expected JSON bootstrap request body');
+    }
+    expect(JSON.parse(bootstrapInit.body)).toEqual({
+      workspaceName: 'CherryWiki',
+      name: 'Admin',
+      email: 'owner@cherrywiki.local',
+      password: 'changeme-initial-setup',
+    });
+  });
 });
 
 describe('BridgeModule Docmost bootstrap lifecycle', () => {
@@ -102,7 +182,7 @@ describe('BridgeModule Docmost bootstrap lifecycle', () => {
     expect(bootstrapIfNeeded).toHaveBeenCalledTimes(1);
   });
 
-  it('retries after the initial bootstrap failure', async () => {
+  it('retries with bounded backoff after the initial bootstrap failure', async () => {
     vi.useFakeTimers();
     const bootstrapIfNeeded = vi.fn().mockResolvedValue(false);
     const service = { bootstrapIfNeeded } as Pick<
@@ -116,6 +196,40 @@ describe('BridgeModule Docmost bootstrap lifecycle', () => {
 
     await vi.advanceTimersByTimeAsync(60_000);
     expect(bootstrapIfNeeded).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(bootstrapIfNeeded).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(240_000);
+    expect(bootstrapIfNeeded).toHaveBeenCalledTimes(4);
+    module.onModuleDestroy();
+  });
+
+  it('continues retrying past the previous retry cap', async () => {
+    vi.useFakeTimers();
+    const bootstrapIfNeeded = vi.fn().mockResolvedValue(false);
+    const service = { bootstrapIfNeeded } as Pick<
+      DocmostBootstrapService,
+      'bootstrapIfNeeded'
+    >;
+    const module = new BridgeModule(service as DocmostBootstrapService);
+
+    await module.onApplicationBootstrap();
+    for (const delay of [
+      60_000,
+      120_000,
+      240_000,
+      300_000,
+      300_000,
+      300_000,
+      300_000,
+      300_000,
+      300_000,
+      300_000,
+      300_000,
+    ]) {
+      await vi.advanceTimersByTimeAsync(delay);
+    }
+
+    expect(bootstrapIfNeeded).toHaveBeenCalledTimes(12);
     module.onModuleDestroy();
   });
 });

@@ -88,9 +88,11 @@ services:
       MODEL_API_KEY: ${MODEL_API_KEY:-dev-model-key}
       DEFAULT_CHAT_MODEL: ${DEFAULT_CHAT_MODEL:-gpt-4.1}
       DEFAULT_EMBEDDING_MODEL: ${DEFAULT_EMBEDDING_MODEL:-text-embedding-3-large}
-      DOCMOST_BASE_URL: ${DOCMOST_BASE_URL:-http://localhost:3000}
+      DOCMOST_BASE_URL: ${DOCMOST_BASE_URL:-http://docmost:3000}
       DOCMOST_BRIDGE_SECRET: ${DOCMOST_BRIDGE_SECRET:-dev-docmost-bridge-secret}
       DOCMOST_BRIDGE_SECRET_NEXT: ${DOCMOST_BRIDGE_SECRET_NEXT:-}
+      DOCMOST_ADMIN_EMAIL: ${DOCMOST_ADMIN_EMAIL:-admin@cherrywiki.local}
+      DOCMOST_ADMIN_PASSWORD: ${DOCMOST_ADMIN_PASSWORD:-changeme-initial-setup}
       AGENT_ANTHROPIC_API_KEY: ${AGENT_ANTHROPIC_API_KEY:-}
       AGENT_ANTHROPIC_BASE_URL: ${AGENT_ANTHROPIC_BASE_URL:-}
       AGENT_ANTHROPIC_MODEL: ${AGENT_ANTHROPIC_MODEL:-deepseek-v4-flash}
@@ -479,7 +481,7 @@ services:
     restart: unless-stopped
     working_dir: /app
     command: >-
-      sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm build && node apps/wiki-sync-worker/dist/main.js"
+      sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm --filter @cherrygraph/shared --filter @cherrygraph/wiki-core --filter wiki-sync-worker build && node apps/wiki-sync-worker/dist/main.js"
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://cherrygraph:cherrygraph_dev@postgres:5432/cherrygraph}
       REDIS_URL: ${COMPOSE_REDIS_URL:-redis://redis:6379}
