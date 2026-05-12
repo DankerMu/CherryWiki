@@ -52,6 +52,7 @@ export const users = pgTable(
     password_hash: text('password_hash').notNull(),
     role: text('role').notNull().default('viewer'),
     status: text('status').notNull().default('active'),
+    docmost_user_id: text('docmost_user_id'),
     permission_version: bigint('permission_version', { mode: 'number' }).notNull().default(1),
     last_login_at: timestamp('last_login_at', { withTimezone: true }),
     created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

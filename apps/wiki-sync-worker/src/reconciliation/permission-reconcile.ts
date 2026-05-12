@@ -3,7 +3,7 @@ import { isNotNull } from 'drizzle-orm';
 import { spaces } from '@cherrygraph/shared';
 
 import {
-  loadSpacePermissionMembers,
+  loadSpacePermissionMemberState,
   logPermissionAuditEvent,
   type DrizzleDatabase,
   type PermissionMember,
@@ -20,6 +20,7 @@ type ReconcileSpaceRow = {
   spaceId: string;
   tenantId: string;
   docmostSpaceId: string | null;
+  permissionVersion: number;
 };
 
 export async function reconcilePermissions(
@@ -51,16 +52,28 @@ async function runPermissionReconcile(
     }
 
     try {
-      const expected = await loadSpacePermissionMembers(db, {
+      const expectedState = await loadSpacePermissionMemberState(db, {
         spaceId: space.spaceId,
         tenantId: space.tenantId,
       });
+      if (expectedState.pendingDocmostUserCount > 0) {
+        console.info(`Permission sync deferred: ${expectedState.pendingDocmostUserCount} users pending Docmost sync`, {
+          spaceId: space.spaceId,
+          tenantId: space.tenantId,
+        });
+        continue;
+      }
+
+      const expected = expectedState.members;
       const actual = await bridgeClient.getPermissions?.(space.docmostSpaceId);
       if (actual !== undefined && permissionMembersEqual(expected, actual)) {
         continue;
       }
 
-      await bridgeClient.pushPermissions(space.docmostSpaceId, expected);
+      await bridgeClient.pushPermissions(space.docmostSpaceId, expected, {
+        version: space.permissionVersion,
+        source: 'cherry_api',
+      });
       fixed += 1;
       await logPermissionAuditEvent(db, {
         tenantId: space.tenantId,
@@ -97,6 +110,7 @@ async function loadSyncedSpaces(db: DatabaseClient): Promise<ReconcileSpaceRow[]
       spaceId: spaces.id,
       tenantId: spaces.tenant_id,
       docmostSpaceId: spaces.docmost_space_id,
+      permissionVersion: spaces.permission_version,
     })
     .from(spaces)
     .where(isNotNull(spaces.docmost_space_id));

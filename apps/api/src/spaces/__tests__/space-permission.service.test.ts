@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AUDIT_EVENTS } from '../../audit/audit-events.js';
 import { GroupService } from '../../groups/group.service.js';
@@ -69,6 +69,28 @@ describe('Space permission management', () => {
     );
   });
 
+  it('enqueues permission sync after replacing space permissions', async () => {
+    const bridgeQueue = {
+      enqueuePermissionSyncJob: vi.fn(() => Promise.resolve()),
+    };
+    const { service, db } = createServiceContext({ bridgeQueue });
+    db.queueSelect([{ id: TEST_SPACE_ID }]);
+    db.queueSelect([{ id: TEST_GROUP_ID }]);
+    db.queueSelect([]);
+    db.queueSelect([{ group_id: TEST_GROUP_ID, name: 'Editors', permission: 'space:view' }]);
+
+    await service.replaceSpacePermissions(
+      TEST_SPACE_ID,
+      { permissions: [{ group_id: TEST_GROUP_ID, permissions: ['space:view'] }] },
+      createContext(),
+    );
+
+    expect(bridgeQueue.enqueuePermissionSyncJob).toHaveBeenCalledWith({
+      tenantId: TEST_TENANT_ID,
+      spaceId: TEST_SPACE_ID,
+    });
+  });
+
   it('replaces space permissions to revoke a group and writes revoke trail', async () => {
     const { service, db, audit, redis } = createServiceContext();
     db.queueSelect([{ id: TEST_SPACE_ID }]);
@@ -103,7 +125,9 @@ describe('Space permission management', () => {
   });
 });
 
-function createServiceContext(): {
+function createServiceContext(
+  overrides: { bridgeQueue?: { enqueuePermissionSyncJob: ReturnType<typeof vi.fn> } } = {},
+): {
   service: GroupService;
   db: ScriptedDb;
   audit: ReturnType<typeof createAuditMock>;
@@ -112,7 +136,12 @@ function createServiceContext(): {
   const db = new ScriptedDb();
   const audit = createAuditMock();
   const redis = createRedisMock();
-  const service = new GroupService(db.asDrizzle(), audit.service, redis);
+  const service = new GroupService(
+    db.asDrizzle(),
+    audit.service,
+    redis,
+    overrides.bridgeQueue as never,
+  );
 
   return { service, db, audit, redis };
 }

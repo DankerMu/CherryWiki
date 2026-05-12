@@ -63,4 +63,14 @@
 - [ ] 4.7 Cherry API: `bridge-permission-hooks.ts` 当前仅是 helper 函数，未接入任何 mutation 路径。在 `GroupService` 成员变更和 `SpaceService` 权限变更的 commit 后显式调用 `BridgeQueueService.enqueuePermissionSyncJob()`
 - [ ] 4.8 Cherry API: `GroupModule` 和 `SpaceModule` 添加 `imports: [BridgeModule]`
 - [ ] 4.9 Wiki-sync worker: 修改 `reconcilePermissions` 在 worker 启动时立即执行一次（当前仅 hourly timer）
-- [ ] 4.10 测试：创建用户 → Docmost 可见；Group 成员变更 → Docmost Space 权限更新；启动时权限对账
+- [ ] 4.10 测试（Docmost Fork 端）：
+  - [ ] 4.10.1 POST /api/internal/bridge/users 创建新用户（返回 201 + docmost_user_id）
+  - [ ] 4.10.2 POST /api/internal/bridge/users 已存在 email → 返回现有用户（幂等）
+  - [ ] 4.10.3 POST /api/internal/bridge/users 缺少 email → 400
+- [ ] 4.11 测试（Cherry API 端）：
+  - [ ] 4.11.1 用户创建后 enqueue user-sync job
+  - [ ] 4.11.2 GroupService 成员变更后 enqueue permission-sync job
+  - [ ] 4.11.3 SpaceService 权限变更后 enqueue permission-sync job
+- [ ] 4.12 测试（Wiki-sync worker 端）：
+  - [ ] 4.12.1 user-sync processor 调用 Bridge 创建用户
+  - [ ] 4.12.2 reconcilePermissions 在启动时立即执行

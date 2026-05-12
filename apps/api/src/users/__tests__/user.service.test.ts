@@ -1,12 +1,13 @@
 import { group_members, ErrorCode, sessions, users } from '@cherrygraph/shared';
 import { inspect } from 'node:util';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AUDIT_EVENTS } from '../../audit/audit-events.js';
 import { UserService } from '../user.service.js';
 import {
   TEST_ACTOR_ID,
   TEST_GROUP_ID,
+  TEST_SPACE_ID,
   TEST_TENANT_ID,
   TEST_USER_ID,
   ScriptedDb,
@@ -90,6 +91,29 @@ describe('UserService', () => {
         resource_type: 'user',
       }),
     );
+  });
+
+  it('enqueues user sync after creating a user', async () => {
+    const bridgeQueue = createBridgeQueueMock();
+    const { service, db } = createServiceContext({ bridgeQueue });
+
+    await service.createUser(
+      {
+        email: 'USER@example.com ',
+        name: 'Test User',
+        password: 'Correct1!',
+        role: 'editor',
+      },
+      createContext(),
+    );
+
+    const insertedUserId = String(requireRecord(db.inserts[0]?.value).id);
+    expect(bridgeQueue.enqueueUserSyncJob).toHaveBeenCalledWith({
+      tenantId: TEST_TENANT_ID,
+      userId: insertedUserId,
+      email: 'user@example.com',
+      name: 'Test User',
+    });
   });
 
   it('maps duplicate user email to USER_EMAIL_CONFLICT', async () => {
@@ -229,6 +253,24 @@ describe('UserService', () => {
     );
   });
 
+  it('enqueues permission sync for spaces affected by a disabled user', async () => {
+    const bridgeQueue = createBridgeQueueMock();
+    const { service, db } = createServiceContext({ bridgeQueue });
+    db.queueSelect([createUserRow({ status: 'active' })]);
+    db.queueUpdate([createUserRow({ status: 'disabled' })]);
+    db.queueSelect([{ space_id: TEST_SPACE_ID }]);
+    db.queueSelect([]);
+
+    await service.updateUser(TEST_USER_ID, { status: 'disabled' }, createContext());
+
+    await vi.waitFor(() => {
+      expect(bridgeQueue.enqueuePermissionSyncJob).toHaveBeenCalledWith({
+        tenantId: TEST_TENANT_ID,
+        spaceId: TEST_SPACE_ID,
+      });
+    });
+  });
+
   it('re-enables a user and records admin.user.update', async () => {
     const { service, db, audit, session, redis } = createServiceContext();
     db.queueSelect([createUserRow({ status: 'disabled' })]);
@@ -290,6 +332,21 @@ describe('UserService', () => {
     );
   });
 
+  it('enqueues permission sync for spaces affected by a deleted user', async () => {
+    const bridgeQueue = createBridgeQueueMock();
+    const { service, db } = createServiceContext({ bridgeQueue });
+    db.queueSelect([createUserRow({ status: 'active' })]);
+    db.queueSelect([{ space_id: TEST_SPACE_ID }]);
+    db.queueUpdate([createUserRow({ status: 'deleted', permission_version: 2 })]);
+
+    await service.deleteUser(TEST_USER_ID, createContext());
+
+    expect(bridgeQueue.enqueuePermissionSyncJob).toHaveBeenCalledWith({
+      tenantId: TEST_TENANT_ID,
+      spaceId: TEST_SPACE_ID,
+    });
+  });
+
   it('denies deleting yourself', async () => {
     const { service, db } = createServiceContext();
     db.queueSelect([createUserRow({ id: TEST_ACTOR_ID })]);
@@ -337,7 +394,9 @@ describe('UserService', () => {
   });
 });
 
-function createServiceContext(): {
+function createServiceContext(
+  overrides: { bridgeQueue?: ReturnType<typeof createBridgeQueueMock> } = {},
+): {
   service: UserService;
   db: ScriptedDb;
   audit: ReturnType<typeof createAuditMock>;
@@ -348,9 +407,25 @@ function createServiceContext(): {
   const audit = createAuditMock();
   const session = createSessionMock();
   const redis = createRedisMock();
-  const service = new UserService(db.asDrizzle(), audit.service, session.service, redis);
+  const service = new UserService(
+    db.asDrizzle(),
+    audit.service,
+    session.service,
+    redis,
+    overrides.bridgeQueue as never,
+  );
 
   return { service, db, audit, session, redis };
+}
+
+function createBridgeQueueMock(): {
+  enqueueUserSyncJob: ReturnType<typeof vi.fn<() => Promise<void>>>;
+  enqueuePermissionSyncJob: ReturnType<typeof vi.fn<() => Promise<void>>>;
+} {
+  return {
+    enqueueUserSyncJob: vi.fn(() => Promise.resolve()),
+    enqueuePermissionSyncJob: vi.fn(() => Promise.resolve()),
+  };
 }
 
 function createContext(

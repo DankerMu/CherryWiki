@@ -14,6 +14,7 @@ describe('wiki-sync-worker health server', () => {
         'attachment-sync': { getWaitingCount: vi.fn(() => Promise.resolve(4)) },
         'docmost-push': { getWaitingCount: vi.fn(() => Promise.resolve(3)) },
         'space-provision': { getWaitingCount: vi.fn(() => Promise.resolve(5)) },
+        'user-sync': { getWaitingCount: vi.fn(() => Promise.resolve(6)) },
       },
       0,
     );
@@ -34,6 +35,7 @@ describe('wiki-sync-worker health server', () => {
           'attachment-sync': 4,
           'docmost-push': 3,
           'space-provision': 5,
+          'user-sync': 6,
         },
       });
     } finally {

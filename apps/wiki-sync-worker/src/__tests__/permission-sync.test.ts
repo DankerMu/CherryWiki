@@ -29,20 +29,33 @@ describe('permission-sync processor', () => {
   it('pushes collapsed space permissions to Docmost', async () => {
     const db = new PermissionSyncTestDb();
     db.permissionRows = [
-      { userId: 'user-admin', email: 'admin@example.com', cherryRole: 'space:admin' },
-      { userId: 'user-writer', email: 'writer@example.com', cherryRole: 'space:edit' },
-      { userId: 'user-reader', email: 'reader@example.com', cherryRole: 'space:view' },
-      { userId: 'user-writer', email: 'writer@example.com', cherryRole: 'space:view' },
+      { userId: 'docmost-admin', email: 'admin@example.com', cherryRole: 'space:admin' },
+      { userId: 'docmost-writer', email: 'writer@example.com', cherryRole: 'space:edit' },
+      { userId: 'docmost-reader', email: 'reader@example.com', cherryRole: 'space:view' },
+      { userId: 'docmost-writer', email: 'writer@example.com', cherryRole: 'space:view' },
     ];
     const bridgeClient = createBridgeClient();
 
     await runProcessor(db, bridgeClient);
 
     expect(bridgeClient.pushPermissions).toHaveBeenCalledWith('docmost-space-1', [
-      { userId: 'user-admin', email: 'admin@example.com', role: 'admin' },
-      { userId: 'user-reader', email: 'reader@example.com', role: 'reader' },
-      { userId: 'user-writer', email: 'writer@example.com', role: 'writer' },
-    ]);
+      { userId: 'docmost-admin', email: 'admin@example.com', role: 'admin' },
+      { userId: 'docmost-reader', email: 'reader@example.com', role: 'reader' },
+      { userId: 'docmost-writer', email: 'writer@example.com', role: 'writer' },
+    ], { version: 1, source: 'cherry_api' });
+  });
+
+  it('defers permission pushes while active users are pending Docmost sync', async () => {
+    const db = new PermissionSyncTestDb();
+    db.permissionRows = [
+      { userId: 'docmost-admin', email: 'admin@example.com', cherryRole: 'space:admin' },
+      { userId: null, email: 'unsynced@example.com', cherryRole: 'space:view' },
+    ];
+    const bridgeClient = createBridgeClient();
+
+    await runProcessor(db, bridgeClient);
+
+    expect(bridgeClient.pushPermissions).not.toHaveBeenCalled();
   });
 
   it('skips spaces that have not been synced to Docmost', async () => {
@@ -101,8 +114,8 @@ describe('permission-sync processor', () => {
     await expect(reconcilePermissions(db.asDb(), bridgeClient)).resolves.toEqual({ fixed: 1, errors: 0 });
 
     expect(bridgeClient.pushPermissions).toHaveBeenCalledWith('docmost-space-1', [
-      { userId: 'user-admin', email: 'admin@example.com', role: 'admin' },
-    ]);
+      { userId: 'docmost-admin', email: 'admin@example.com', role: 'admin' },
+    ], { version: 1, source: 'cherry_api' });
     expect(db.auditRows.at(-1)).toMatchObject({ action: 'permission_consistency_fixed' });
   });
 
@@ -112,7 +125,7 @@ describe('permission-sync processor', () => {
       pushPermissions: vi.fn<PermissionSyncBridgeClient['pushPermissions']>(() => Promise.resolve()),
       getPermissions: vi.fn(() =>
         Promise.resolve<PermissionMember[]>([
-          { userId: 'user-admin', email: 'admin@example.com', role: 'admin' },
+          { userId: 'docmost-admin', email: 'admin@example.com', role: 'admin' },
         ]),
       ),
     };
@@ -129,8 +142,8 @@ type AuditLogInsert = typeof audit_logs.$inferInsert;
 
 class PermissionSyncTestDb {
   spaces: SpaceRow[];
-  permissionRows: Array<{ userId: string; email: string; cherryRole: string }> = [
-    { userId: 'user-admin', email: 'admin@example.com', cherryRole: 'space:admin' },
+  permissionRows: Array<{ userId: string | null; email: string; cherryRole: string }> = [
+    { userId: 'docmost-admin', email: 'admin@example.com', cherryRole: 'space:admin' },
   ];
   auditRows: AuditLogInsert[] = [];
 
@@ -150,13 +163,18 @@ class PermissionSyncTestDb {
                   spaceId: space.id,
                   tenantId: space.tenant_id,
                   docmostSpaceId: space.docmost_space_id,
+                  permissionVersion: space.permission_version,
                 }));
             }
 
             const space = this.spaces.find((row) => row.id === 'space-1');
             return space === undefined
               ? []
-              : [{ tenantId: space.tenant_id, docmostSpaceId: space.docmost_space_id }];
+              : [{
+                  tenantId: space.tenant_id,
+                  docmostSpaceId: space.docmost_space_id,
+                  permissionVersion: space.permission_version,
+                }];
           }
 
           if (table === space_permissions) {

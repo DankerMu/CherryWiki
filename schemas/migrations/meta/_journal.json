@@ -113,6 +113,13 @@
       "when": 1778474334921,
       "tag": "0015_white_silver_centurion",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1778570051286,
+      "tag": "0016_bored_lethal_legion",
+      "breakpoints": true
     }
   ]
 }

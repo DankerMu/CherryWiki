@@ -97,6 +97,7 @@ describe('GroupService', () => {
     db.queueSelect([createGroupRow()]);
     db.queueSelect([{ id: TEST_USER_ID }, { id: 'user-2' }]);
     db.queueSelect([{ user_id: TEST_USER_ID }]);
+    db.queueSelect([{ space_id: TEST_SPACE_ID, permission: 'space:view' }]);
     db.queueSelect([createGroupRow()]);
     db.queueSelect([{ group_id: TEST_GROUP_ID, member_count: 2 }]);
     db.queueSelect([]);
@@ -132,6 +133,7 @@ describe('GroupService', () => {
     db.queueSelect([createGroupRow()]);
     db.queueSelect([{ id: TEST_USER_ID }, { id: 'user-2' }]);
     db.queueSelect([{ user_id: TEST_USER_ID }]);
+    db.queueSelect([{ space_id: TEST_SPACE_ID, permission: 'space:view' }]);
     db.queueSelect([createGroupRow()]);
     db.queueSelect([{ group_id: TEST_GROUP_ID, member_count: 2 }]);
     db.queueSelect([]);
@@ -163,6 +165,7 @@ describe('GroupService', () => {
     db.queueSelect([createGroupRow()]);
     db.queueSelect([{ id: TEST_USER_ID }]);
     db.queueSelect([{ user_id: TEST_USER_ID }, { user_id: 'user-2' }]);
+    db.queueSelect([{ space_id: TEST_SPACE_ID, permission: 'space:view' }]);
     db.queueSelect([createGroupRow()]);
     db.queueSelect([{ group_id: TEST_GROUP_ID, member_count: 1 }]);
     db.queueSelect([]);
@@ -216,6 +219,31 @@ describe('GroupService', () => {
         space_id: TEST_SPACE_ID,
       }),
     );
+  });
+
+  it('enqueues permission sync after group member changes for affected spaces', async () => {
+    const bridgeQueue = {
+      enqueuePermissionSyncJob: vi.fn(() => Promise.resolve()),
+    };
+    const { service, db } = createServiceContext({ bridgeQueue });
+    db.queueSelect([createGroupRow()]);
+    db.queueSelect([{ id: TEST_USER_ID }, { id: 'user-2' }]);
+    db.queueSelect([{ user_id: TEST_USER_ID }]);
+    db.queueSelect([{ space_id: TEST_SPACE_ID, permission: 'space:view' }]);
+    db.queueSelect([createGroupRow()]);
+    db.queueSelect([{ group_id: TEST_GROUP_ID, member_count: 2 }]);
+    db.queueSelect([]);
+
+    await service.updateGroup(
+      TEST_GROUP_ID,
+      { member_ids: [TEST_USER_ID, 'user-2'] },
+      createContext(),
+    );
+
+    expect(bridgeQueue.enqueuePermissionSyncJob).toHaveBeenCalledWith({
+      tenantId: TEST_TENANT_ID,
+      spaceId: TEST_SPACE_ID,
+    });
   });
 
   it('updates a group by removing a space permission with revoke trail', async () => {
@@ -365,7 +393,9 @@ describe('GroupService', () => {
   });
 });
 
-function createServiceContext(): {
+function createServiceContext(
+  overrides: { bridgeQueue?: { enqueuePermissionSyncJob: ReturnType<typeof vi.fn> } } = {},
+): {
   service: GroupService;
   db: ScriptedDb;
   audit: ReturnType<typeof createAuditMock>;
@@ -374,7 +404,12 @@ function createServiceContext(): {
   const db = new ScriptedDb();
   const audit = createAuditMock();
   const redis = createRedisMock();
-  const service = new GroupService(db.asDrizzle(), audit.service, redis);
+  const service = new GroupService(
+    db.asDrizzle(),
+    audit.service,
+    redis,
+    overrides.bridgeQueue as never,
+  );
 
   return { service, db, audit, redis };
 }

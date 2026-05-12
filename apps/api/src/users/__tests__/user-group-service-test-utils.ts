@@ -239,6 +239,7 @@ export function createUserRow(overrides: Partial<UserRow> = {}): UserRow {
     password_hash: 'password-hash',
     role: 'viewer',
     status: 'active',
+    docmost_user_id: null,
     permission_version: 1,
     last_login_at: null,
     created_at: new Date('2026-04-01T00:00:00.000Z'),

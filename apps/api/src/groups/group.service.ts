@@ -25,6 +25,8 @@ import {
 import { getApiLogger } from '../common/logger/logger.module.js';
 import { REDIS_CLIENT } from '../common/redis/redis.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
+import { BridgeQueueService } from '../bridge/bridge-queue.service.js';
+import { enqueuePermissionSync } from '../bridge/bridge-permission-hooks.js';
 
 type GroupDatabase = NodePgDatabase;
 type GroupRow = typeof groups.$inferSelect;
@@ -112,6 +114,7 @@ export class GroupService {
     @Inject(DRIZZLE) private readonly db: GroupDatabase,
     private readonly auditService: AuditService,
     @Optional() @Inject(REDIS_CLIENT) private readonly redis?: RedisPublisher,
+    @Optional() private readonly bridgeQueueService?: BridgeQueueService,
   ) {}
 
   async listGroups(
@@ -213,6 +216,7 @@ export class GroupService {
       for (const spaceId of affectedSpaces) {
         await this.publishSpacePermissionChanged(tenantId, spaceId);
       }
+      this.enqueuePermissionSyncForSpaces(tenantId, affectedSpaces);
 
       this.auditService.push({
         tenant_id: tenantId,
@@ -256,6 +260,7 @@ export class GroupService {
     const now = new Date();
     const memberChanges: MemberChange[] = [];
     const permissionChanges: PermissionChange[] = [];
+    const memberChangeAffectedSpaceIds = new Set<string>();
 
     try {
       await this.db.transaction(async (tx) => {
@@ -276,6 +281,10 @@ export class GroupService {
           const diff = diffMembers(currentMemberIds, nextMemberIds);
           memberChanges.push(...diff);
           if (diff.length > 0) {
+            const groupPermissions = await getGroupSpacePermissionMap(txDb, tenantId, groupId);
+            for (const spaceId of groupPermissions.keys()) {
+              memberChangeAffectedSpaceIds.add(spaceId);
+            }
             await replaceGroupMembers(txDb, tenantId, groupId, nextMemberIds, now);
             await incrementUsersPermissionVersion(
               txDb,
@@ -363,6 +372,11 @@ export class GroupService {
       });
     }
 
+    this.enqueuePermissionSyncForSpaces(tenantId, [
+      ...memberChangeAffectedSpaceIds,
+      ...permissionChanges.map((change) => change.spaceId),
+    ]);
+
     return this.getGroupResponse(tenantId, groupId);
   }
 
@@ -413,6 +427,7 @@ export class GroupService {
     for (const spaceId of affectedSpaceIds) {
       await this.publishSpacePermissionChanged(tenantId, spaceId);
     }
+    this.enqueuePermissionSyncForSpaces(tenantId, affectedSpaceIds);
 
     for (const memberId of memberIds) {
       await this.publishUserPermissionChanged(tenantId, memberId);
@@ -491,6 +506,7 @@ export class GroupService {
 
     if (permissionChanges.length > 0) {
       await this.publishSpacePermissionChanged(tenantId, spaceId);
+      this.enqueuePermissionSyncForSpaces(tenantId, [spaceId]);
     }
 
     for (const change of permissionChanges) {
@@ -650,6 +666,28 @@ export class GroupService {
     } catch (err) {
       getApiLogger().warn({ err, redis_channel: channel }, 'Redis publish failed');
     }
+  }
+
+  private enqueuePermissionSyncForSpaces(tenantId: string, spaceIds: string[]): void {
+    if (this.bridgeQueueService === undefined) {
+      return;
+    }
+
+    const uniqueSpaceIds = [...new Set(spaceIds)].filter((spaceId) => spaceId.length > 0);
+    if (uniqueSpaceIds.length === 0) {
+      return;
+    }
+
+    void Promise.all(
+      uniqueSpaceIds.map((spaceId) =>
+        enqueuePermissionSync(this.bridgeQueueService as BridgeQueueService, spaceId, tenantId),
+      ),
+    ).catch((err: unknown) => {
+      getApiLogger().warn(
+        { err: toSafeErrorMessage(err), space_ids: uniqueSpaceIds },
+        'Docmost permission sync enqueue failed',
+      );
+    });
   }
 }
 
@@ -1189,6 +1227,10 @@ function normalizePerPage(value: number | undefined): number {
 function normalizeCount(value: unknown): number {
   const parsed = typeof value === 'bigint' ? Number(value) : Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toSafeErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function isUniqueViolation(err: unknown, constraint: string): boolean {

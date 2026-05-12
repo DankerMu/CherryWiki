@@ -190,7 +190,7 @@ describe('wiki sync integration flows with mocked infrastructure', () => {
       { userId: 'admin-user', email: 'admin@example.com', role: 'admin' },
       { userId: 'editor-user', email: 'editor@example.com', role: 'writer' },
       { userId: 'reader-user', email: 'reader@example.com', role: 'reader' },
-    ]);
+    ], { version: 1, source: 'cherry_api' });
   });
 
   it('coalesces stale page events so only one version is created', async () => {
@@ -418,13 +418,18 @@ class PermissionFlowDb {
                 spaceId: space.id,
                 tenantId: space.tenant_id,
                 docmostSpaceId: space.docmost_space_id,
+                permissionVersion: space.permission_version,
               }));
             }
 
             const space = this.spaces[0];
             return space === undefined
               ? []
-              : [{ tenantId: space.tenant_id, docmostSpaceId: space.docmost_space_id }];
+              : [{
+                  tenantId: space.tenant_id,
+                  docmostSpaceId: space.docmost_space_id,
+                  permissionVersion: space.permission_version,
+                }];
           }
           if (table === space_permissions) {
             return this.permissionRows;

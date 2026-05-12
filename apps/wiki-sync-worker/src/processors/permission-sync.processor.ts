@@ -20,9 +20,18 @@ export interface PermissionSyncDeps {
 }
 
 export interface PermissionSyncBridgeClient {
-  pushPermissions(docmostSpaceId: string, members: PermissionMember[]): Promise<void>;
+  pushPermissions(
+    docmostSpaceId: string,
+    members: PermissionMember[],
+    opts?: PermissionPushOptions,
+  ): Promise<void>;
   getPermissions?(docmostSpaceId: string): Promise<PermissionMember[]>;
 }
+
+export type PermissionPushOptions = {
+  version: number;
+  source: 'cherry_api';
+};
 
 export interface PermissionMember {
   userId: string;
@@ -36,15 +45,23 @@ export type PermissionSyncJobData = {
 };
 
 type SpacePermissionRow = {
-  userId: string;
+  userId: string | null;
   email: string;
   cherryRole: string;
 };
 
+export type SpacePermissionMemberState = {
+  members: PermissionMember[];
+  pendingDocmostUserCount: number;
+};
+
 type PushSpacePermissionsResult = {
   pushed: boolean;
+  deferred?: boolean;
   tenantId?: string;
   docmostSpaceId?: string;
+  version?: number;
+  pendingDocmostUserCount?: number;
   members: PermissionMember[];
 };
 
@@ -89,16 +106,37 @@ export async function pushSpacePermissions(
     return { pushed: false, members: [] };
   }
 
-  const members = await loadSpacePermissionMembers(db, {
+  const memberState = await loadSpacePermissionMemberState(db, {
     spaceId: data.spaceId,
     tenantId: space.tenantId,
   });
-  await bridgeClient.pushPermissions(space.docmostSpaceId, members);
+  if (memberState.pendingDocmostUserCount > 0) {
+    console.info(`Permission sync deferred: ${memberState.pendingDocmostUserCount} users pending Docmost sync`, {
+      spaceId: data.spaceId,
+      tenantId: space.tenantId,
+    });
+    return {
+      pushed: false,
+      deferred: true,
+      tenantId: space.tenantId,
+      docmostSpaceId: space.docmostSpaceId,
+      version: space.permissionVersion,
+      pendingDocmostUserCount: memberState.pendingDocmostUserCount,
+      members: memberState.members,
+    };
+  }
+
+  const members = memberState.members;
+  await bridgeClient.pushPermissions(space.docmostSpaceId, members, {
+    version: space.permissionVersion,
+    source: 'cherry_api',
+  });
 
   return {
     pushed: true,
     tenantId: space.tenantId,
     docmostSpaceId: space.docmostSpaceId,
+    version: space.permissionVersion,
     members,
   };
 }
@@ -107,9 +145,16 @@ export async function loadSpacePermissionMembers(
   db: DatabaseClient,
   data: { spaceId: string; tenantId: string },
 ): Promise<PermissionMember[]> {
+  return (await loadSpacePermissionMemberState(db, data)).members;
+}
+
+export async function loadSpacePermissionMemberState(
+  db: DatabaseClient,
+  data: { spaceId: string; tenantId: string },
+): Promise<SpacePermissionMemberState> {
   const rows = await db
     .select({
-      userId: users.id,
+      userId: users.docmost_user_id,
       email: users.email,
       cherryRole: space_permissions.permission,
     })
@@ -129,6 +174,7 @@ export async function loadSpacePermissionMembers(
       and(
         eq(space_permissions.tenant_id, data.tenantId),
         eq(space_permissions.space_id, data.spaceId),
+        eq(users.status, 'active'),
       ),
     );
 
@@ -159,13 +205,17 @@ export async function logPermissionAuditEvent(
 async function loadPermissionSyncSpace(
   db: DatabaseClient,
   data: PermissionSyncJobData,
-): Promise<{ tenantId: string; docmostSpaceId: string | null } | undefined> {
+): Promise<{ tenantId: string; docmostSpaceId: string | null; permissionVersion: number } | undefined> {
   const where =
     data.tenantId === undefined
       ? eq(spaces.id, data.spaceId)
       : and(eq(spaces.id, data.spaceId), eq(spaces.tenant_id, data.tenantId));
   const [space] = await db
-    .select({ tenantId: spaces.tenant_id, docmostSpaceId: spaces.docmost_space_id })
+    .select({
+      tenantId: spaces.tenant_id,
+      docmostSpaceId: spaces.docmost_space_id,
+      permissionVersion: spaces.permission_version,
+    })
     .from(spaces)
     .where(where)
     .limit(1);
@@ -173,10 +223,16 @@ async function loadPermissionSyncSpace(
   return space;
 }
 
-function collapsePermissionRows(rows: SpacePermissionRow[]): PermissionMember[] {
+function collapsePermissionRows(rows: SpacePermissionRow[]): SpacePermissionMemberState {
   const membersByUserId = new Map<string, PermissionMember>();
+  const pendingDocmostUserIds = new Set<string>();
 
   for (const row of rows) {
+    if (row.userId === null) {
+      pendingDocmostUserIds.add(row.email);
+      continue;
+    }
+
     if (row.email.length === 0) {
       continue;
     }
@@ -194,7 +250,10 @@ function collapsePermissionRows(rows: SpacePermissionRow[]): PermissionMember[] 
     });
   }
 
-  return [...membersByUserId.values()].sort((left, right) => left.email.localeCompare(right.email));
+  return {
+    members: [...membersByUserId.values()].sort((left, right) => left.email.localeCompare(right.email)),
+    pendingDocmostUserCount: pendingDocmostUserIds.size,
+  };
 }
 
 function normalizeCherryRole(permission: string): string {
