@@ -13,7 +13,7 @@ import {
   jobs,
   type JobRow,
 } from '@cherrygraph/job-core';
-import { ErrorCode, graphifyRuns } from '@cherrygraph/shared';
+import { ErrorCode, graphifyRuns, spaces } from '@cherrygraph/shared';
 import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
@@ -688,6 +688,11 @@ export class InternalJobsService {
       }
 
       if (this.bridgeQueueService !== undefined) {
+        const hasDocmostMapping = await this.hasDocmostSpaceMapping(completedRun.space_id, job.id, runId);
+        if (!hasDocmostMapping) {
+          return;
+        }
+
         try {
           await this.bridgeQueueService.enqueueDocmostPushJob({
             runId,
@@ -724,6 +729,31 @@ export class InternalJobsService {
         { err, job_id: job.id, run_id: runId },
         'Graphify job succeeded but API post-completion pipeline failed — run may require manual reconciliation',
       );
+    }
+  }
+
+  private async hasDocmostSpaceMapping(spaceId: string, jobId: string, runId: string): Promise<boolean> {
+    try {
+      const [space] = await this.db
+        .select({ docmost_space_id: spaces.docmost_space_id })
+        .from(spaces)
+        .where(eq(spaces.id, spaceId));
+
+      if (space?.docmost_space_id !== null && space?.docmost_space_id !== undefined) {
+        return true;
+      }
+
+      getApiLogger().info(
+        { job_id: jobId, run_id: runId, space_id: spaceId },
+        'Docmost push skipped: space not mapped to Docmost',
+      );
+      return false;
+    } catch (err) {
+      getApiLogger().warn(
+        { err, job_id: jobId, run_id: runId, space_id: spaceId },
+        'Docmost push skipped: failed to check space Docmost mapping',
+      );
+      return false;
     }
   }
 
