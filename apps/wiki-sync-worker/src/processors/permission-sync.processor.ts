@@ -20,9 +20,18 @@ export interface PermissionSyncDeps {
 }
 
 export interface PermissionSyncBridgeClient {
-  pushPermissions(docmostSpaceId: string, members: PermissionMember[]): Promise<void>;
+  pushPermissions(
+    docmostSpaceId: string,
+    members: PermissionMember[],
+    opts?: PermissionPushOptions,
+  ): Promise<void>;
   getPermissions?(docmostSpaceId: string): Promise<PermissionMember[]>;
 }
+
+export type PermissionPushOptions = {
+  version: number;
+  source: 'cherry_api';
+};
 
 export interface PermissionMember {
   userId: string;
@@ -45,6 +54,7 @@ type PushSpacePermissionsResult = {
   pushed: boolean;
   tenantId?: string;
   docmostSpaceId?: string;
+  version?: number;
   members: PermissionMember[];
 };
 
@@ -93,12 +103,16 @@ export async function pushSpacePermissions(
     spaceId: data.spaceId,
     tenantId: space.tenantId,
   });
-  await bridgeClient.pushPermissions(space.docmostSpaceId, members);
+  await bridgeClient.pushPermissions(space.docmostSpaceId, members, {
+    version: space.permissionVersion,
+    source: 'cherry_api',
+  });
 
   return {
     pushed: true,
     tenantId: space.tenantId,
     docmostSpaceId: space.docmostSpaceId,
+    version: space.permissionVersion,
     members,
   };
 }
@@ -159,13 +173,17 @@ export async function logPermissionAuditEvent(
 async function loadPermissionSyncSpace(
   db: DatabaseClient,
   data: PermissionSyncJobData,
-): Promise<{ tenantId: string; docmostSpaceId: string | null } | undefined> {
+): Promise<{ tenantId: string; docmostSpaceId: string | null; permissionVersion: number } | undefined> {
   const where =
     data.tenantId === undefined
       ? eq(spaces.id, data.spaceId)
       : and(eq(spaces.id, data.spaceId), eq(spaces.tenant_id, data.tenantId));
   const [space] = await db
-    .select({ tenantId: spaces.tenant_id, docmostSpaceId: spaces.docmost_space_id })
+    .select({
+      tenantId: spaces.tenant_id,
+      docmostSpaceId: spaces.docmost_space_id,
+      permissionVersion: spaces.permission_version,
+    })
     .from(spaces)
     .where(where)
     .limit(1);

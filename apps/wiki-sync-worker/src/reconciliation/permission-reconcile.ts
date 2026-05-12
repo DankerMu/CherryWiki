@@ -20,6 +20,7 @@ type ReconcileSpaceRow = {
   spaceId: string;
   tenantId: string;
   docmostSpaceId: string | null;
+  permissionVersion: number;
 };
 
 export async function reconcilePermissions(
@@ -60,7 +61,10 @@ async function runPermissionReconcile(
         continue;
       }
 
-      await bridgeClient.pushPermissions(space.docmostSpaceId, expected);
+      await bridgeClient.pushPermissions(space.docmostSpaceId, expected, {
+        version: space.permissionVersion,
+        source: 'cherry_api',
+      });
       fixed += 1;
       await logPermissionAuditEvent(db, {
         tenantId: space.tenantId,
@@ -97,6 +101,7 @@ async function loadSyncedSpaces(db: DatabaseClient): Promise<ReconcileSpaceRow[]
       spaceId: spaces.id,
       tenantId: spaces.tenant_id,
       docmostSpaceId: spaces.docmost_space_id,
+      permissionVersion: spaces.permission_version,
     })
     .from(spaces)
     .where(isNotNull(spaces.docmost_space_id));

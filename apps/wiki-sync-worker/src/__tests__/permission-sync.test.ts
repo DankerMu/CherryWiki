@@ -42,7 +42,7 @@ describe('permission-sync processor', () => {
       { userId: 'user-admin', email: 'admin@example.com', role: 'admin' },
       { userId: 'user-reader', email: 'reader@example.com', role: 'reader' },
       { userId: 'user-writer', email: 'writer@example.com', role: 'writer' },
-    ]);
+    ], { version: 1, source: 'cherry_api' });
   });
 
   it('skips spaces that have not been synced to Docmost', async () => {
@@ -102,7 +102,7 @@ describe('permission-sync processor', () => {
 
     expect(bridgeClient.pushPermissions).toHaveBeenCalledWith('docmost-space-1', [
       { userId: 'user-admin', email: 'admin@example.com', role: 'admin' },
-    ]);
+    ], { version: 1, source: 'cherry_api' });
     expect(db.auditRows.at(-1)).toMatchObject({ action: 'permission_consistency_fixed' });
   });
 
@@ -150,13 +150,18 @@ class PermissionSyncTestDb {
                   spaceId: space.id,
                   tenantId: space.tenant_id,
                   docmostSpaceId: space.docmost_space_id,
+                  permissionVersion: space.permission_version,
                 }));
             }
 
             const space = this.spaces.find((row) => row.id === 'space-1');
             return space === undefined
               ? []
-              : [{ tenantId: space.tenant_id, docmostSpaceId: space.docmost_space_id }];
+              : [{
+                  tenantId: space.tenant_id,
+                  docmostSpaceId: space.docmost_space_id,
+                  permissionVersion: space.permission_version,
+                }];
           }
 
           if (table === space_permissions) {

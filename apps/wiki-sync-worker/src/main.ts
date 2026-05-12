@@ -30,6 +30,11 @@ import {
   createSpaceProvisionProcessor,
   type SpaceProvisionDeps,
 } from './processors/space-provision.processor.js';
+import {
+  BRIDGE_USER_SYNC_QUEUE,
+  createUserSyncProcessor,
+  type UserSyncDeps,
+} from './processors/user-sync.processor.js';
 
 const WORKER_NAME = 'wiki-sync-worker';
 const PAGE_SYNC_QUEUE = 'bridge-page-sync';
@@ -67,6 +72,7 @@ type BridgeWorkerQueues = {
   attachmentSync: BullQueue;
   docmostPush: BullQueue;
   spaceProvision: BullQueue;
+  userSync: BullQueue;
 };
 
 type BridgeWorkers = {
@@ -74,6 +80,7 @@ type BridgeWorkers = {
   permissionSync: BullWorker;
   docmostPush: BullWorker;
   spaceProvision: BullWorker;
+  userSync: BullWorker;
 };
 
 export async function bootstrap(): Promise<void> {
@@ -99,6 +106,7 @@ export async function bootstrap(): Promise<void> {
   const bridgeBaseUrl = process.env.DOCMOST_BRIDGE_BASE_URL ?? process.env.DOCMOST_BASE_URL ?? 'http://localhost:3000';
   const bridgeSecret = process.env.DOCMOST_BRIDGE_SECRET ?? process.env.DOCMOST_BRIDGE_TOKEN ?? '';
   const bridgeClient = createBridgeClient(bridgeBaseUrl, bridgeSecret);
+  await runStartupPermissionReconciliation(db as PermissionSyncDeps['db'], bridgeClient);
   const workers = createWorkers(connection, {
     pageSync: {
       db,
@@ -120,6 +128,9 @@ export async function bootstrap(): Promise<void> {
       db,
       bridgeClient,
     },
+    userSync: {
+      bridgeClient,
+    },
   });
   const permissionReconcileTimer = startPermissionReconcileTimer(db, bridgeClient);
   const spaceReconcileTimer = startSpaceReconcileTimer(
@@ -134,6 +145,7 @@ export async function bootstrap(): Promise<void> {
       'attachment-sync': queues.attachmentSync,
       'docmost-push': queues.docmostPush,
       'space-provision': queues.spaceProvision,
+      'user-sync': queues.userSync,
     },
     healthPort,
   );
@@ -159,6 +171,7 @@ function createQueues(connection: IORedis): BridgeWorkerQueues {
     attachmentSync: new Queue(ATTACHMENT_SYNC_QUEUE, { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS }),
     docmostPush: new Queue(DOCMOST_PUSH_QUEUE, { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS }),
     spaceProvision: new Queue(BRIDGE_SPACE_PROVISION_QUEUE, { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS }),
+    userSync: new Queue(BRIDGE_USER_SYNC_QUEUE, { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS }),
   };
 }
 
@@ -169,6 +182,7 @@ function createWorkers(
     permissionSync: PermissionSyncDeps;
     docmostPush: DocmostPushDeps;
     spaceProvision: SpaceProvisionDeps;
+    userSync: UserSyncDeps;
   },
 ): BridgeWorkers {
   const pageSync = new Worker(PAGE_SYNC_QUEUE, createPageSyncProcessor(deps.pageSync), {
@@ -199,6 +213,14 @@ function createWorkers(
       concurrency: 1,
     },
   );
+  const userSync = new Worker(
+    BRIDGE_USER_SYNC_QUEUE,
+    createUserSyncProcessor(deps.userSync),
+    {
+      connection,
+      concurrency: 1,
+    },
+  );
 
   pageSync.on('error', (error) => {
     console.error(`${WORKER_NAME}: page-sync worker error`, error);
@@ -212,8 +234,22 @@ function createWorkers(
   spaceProvision.on('error', (error) => {
     console.error(`${WORKER_NAME}: space-provision worker error`, error);
   });
+  userSync.on('error', (error) => {
+    console.error(`${WORKER_NAME}: user-sync worker error`, error);
+  });
 
-  return { pageSync, permissionSync, docmostPush, spaceProvision };
+  return { pageSync, permissionSync, docmostPush, spaceProvision, userSync };
+}
+
+export async function runStartupPermissionReconciliation(
+  db: PermissionSyncDeps['db'],
+  bridgeClient: PermissionSyncDeps['bridgeClient'],
+): Promise<void> {
+  try {
+    await reconcilePermissions(db, bridgeClient);
+  } catch (error) {
+    console.error(`${WORKER_NAME}: startup permission reconcile failed`, error);
+  }
 }
 
 function startPermissionReconcileTimer(
@@ -308,12 +344,14 @@ async function shutdown(
     queues.attachmentSync,
     queues.docmostPush,
     queues.spaceProvision,
+    queues.userSync,
   ];
   const workerList = [
     workers.pageSync,
     workers.permissionSync,
     workers.docmostPush,
     workers.spaceProvision,
+    workers.userSync,
   ];
 
   try {

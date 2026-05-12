@@ -1,6 +1,6 @@
 import { group_members, ErrorCode, sessions, users } from '@cherrygraph/shared';
 import { inspect } from 'node:util';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AUDIT_EVENTS } from '../../audit/audit-events.js';
 import { UserService } from '../user.service.js';
@@ -90,6 +90,31 @@ describe('UserService', () => {
         resource_type: 'user',
       }),
     );
+  });
+
+  it('enqueues user sync after creating a user', async () => {
+    const bridgeQueue = {
+      enqueueUserSyncJob: vi.fn(() => Promise.resolve()),
+    };
+    const { service, db } = createServiceContext({ bridgeQueue });
+
+    await service.createUser(
+      {
+        email: 'USER@example.com ',
+        name: 'Test User',
+        password: 'Correct1!',
+        role: 'editor',
+      },
+      createContext(),
+    );
+
+    const insertedUserId = String(requireRecord(db.inserts[0]?.value).id);
+    expect(bridgeQueue.enqueueUserSyncJob).toHaveBeenCalledWith({
+      tenantId: TEST_TENANT_ID,
+      userId: insertedUserId,
+      email: 'user@example.com',
+      name: 'Test User',
+    });
   });
 
   it('maps duplicate user email to USER_EMAIL_CONFLICT', async () => {
@@ -337,7 +362,9 @@ describe('UserService', () => {
   });
 });
 
-function createServiceContext(): {
+function createServiceContext(
+  overrides: { bridgeQueue?: { enqueueUserSyncJob: ReturnType<typeof vi.fn> } } = {},
+): {
   service: UserService;
   db: ScriptedDb;
   audit: ReturnType<typeof createAuditMock>;
@@ -348,7 +375,13 @@ function createServiceContext(): {
   const audit = createAuditMock();
   const session = createSessionMock();
   const redis = createRedisMock();
-  const service = new UserService(db.asDrizzle(), audit.service, session.service, redis);
+  const service = new UserService(
+    db.asDrizzle(),
+    audit.service,
+    session.service,
+    redis,
+    overrides.bridgeQueue as never,
+  );
 
   return { service, db, audit, session, redis };
 }

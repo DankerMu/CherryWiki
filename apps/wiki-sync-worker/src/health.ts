@@ -10,6 +10,7 @@ export type WikiSyncHealthQueues = {
   'attachment-sync': PendingQueue;
   'docmost-push': PendingQueue;
   'space-provision': PendingQueue;
+  'user-sync': PendingQueue;
 };
 
 export type WikiSyncHealthPayload = {
@@ -20,6 +21,7 @@ export type WikiSyncHealthPayload = {
     'attachment-sync': number;
     'docmost-push': number;
     'space-provision': number;
+    'user-sync': number;
   };
 };
 
@@ -44,12 +46,13 @@ export function createHealthServer(queues: WikiSyncHealthQueues): Server {
 }
 
 export async function buildHealthPayload(queues: WikiSyncHealthQueues): Promise<WikiSyncHealthPayload> {
-  const [pageSync, permissionSync, attachmentSync, docmostPush, spaceProvision] = await Promise.all([
+  const [pageSync, permissionSync, attachmentSync, docmostPush, spaceProvision, userSync] = await Promise.all([
     queues['page-sync'].getWaitingCount(),
     queues['permission-sync'].getWaitingCount(),
     queues['attachment-sync'].getWaitingCount(),
     queues['docmost-push'].getWaitingCount(),
     queues['space-provision'].getWaitingCount(),
+    queues['user-sync'].getWaitingCount(),
   ]);
 
   return {
@@ -60,6 +63,7 @@ export async function buildHealthPayload(queues: WikiSyncHealthQueues): Promise<
       'attachment-sync': attachmentSync,
       'docmost-push': docmostPush,
       'space-provision': spaceProvision,
+      'user-sync': userSync,
     },
   };
 }

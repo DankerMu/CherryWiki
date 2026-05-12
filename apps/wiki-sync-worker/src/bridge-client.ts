@@ -3,6 +3,7 @@ import { createHash, createHmac, randomUUID } from 'node:crypto';
 import type { DocmostPushBridgeClient } from './processors/docmost-push.processor.js';
 import type { PermissionSyncBridgeClient } from './processors/permission-sync.processor.js';
 import type { SpaceProvisionBridgeClient } from './processors/space-provision.processor.js';
+import type { UserSyncBridgeClient } from './processors/user-sync.processor.js';
 
 export class BridgeClientHttpError extends Error {
   constructor(
@@ -17,10 +18,42 @@ export class BridgeClientHttpError extends Error {
 export function createBridgeClient(
   baseUrl: string,
   secret: string,
-): DocmostPushBridgeClient & PermissionSyncBridgeClient & SpaceProvisionBridgeClient {
+): DocmostPushBridgeClient & PermissionSyncBridgeClient & SpaceProvisionBridgeClient & UserSyncBridgeClient {
   const normalizedBaseUrl = baseUrl.replace(/\/+$/, '');
 
   return {
+    async syncUser(input) {
+      const path = '/api/internal/bridge/users';
+      const body = JSON.stringify({
+        email: input.email,
+        name: input.name,
+        cherry_user_id: input.cherry_user_id,
+      });
+      const response = await fetch(`${normalizedBaseUrl}${path}`, {
+        method: 'POST',
+        headers: {
+          ...createBridgeHeaders(secret, 'POST', path, body),
+          'content-type': 'application/json',
+        },
+        body,
+      });
+
+      if (!response.ok) {
+        throw new BridgeClientHttpError(
+          `Bridge user sync failed for Cherry user ${input.cherry_user_id}: HTTP ${response.status}`,
+          response.status,
+        );
+      }
+
+      const payload = readRecord(await response.json());
+      const docmostUserId = readString(payload.docmost_user_id);
+      if (docmostUserId === undefined) {
+        throw new Error('Bridge user sync response did not include docmost_user_id');
+      }
+
+      return { docmost_user_id: docmostUserId };
+    },
+
     async provisionSpace(input) {
       const path = '/api/internal/bridge/spaces';
       const body = JSON.stringify({
@@ -112,9 +145,16 @@ export function createBridgeClient(
       return { markdown };
     },
 
-    async pushPermissions(docmostSpaceId, members) {
+    async pushPermissions(docmostSpaceId, members, opts) {
       const path = `/api/internal/bridge/spaces/${encodeURIComponent(docmostSpaceId)}/permissions`;
-      const body = JSON.stringify({ members });
+      const body = JSON.stringify({
+        groups: members.map((member) => ({
+          group_id: member.userId,
+          permissions: [docmostRoleToPermission(member.role)],
+        })),
+        version: opts?.version ?? Date.now(),
+        source: opts?.source ?? 'cherry_api',
+      });
       const response = await fetch(
         `${normalizedBaseUrl}${path}`,
         {
@@ -209,4 +249,14 @@ function readPermissionMember(value: unknown): Array<{ userId: string; email: st
 
 function readPermissionRole(value: unknown): 'admin' | 'writer' | 'reader' | undefined {
   return value === 'admin' || value === 'writer' || value === 'reader' ? value : undefined;
+}
+
+function docmostRoleToPermission(role: 'admin' | 'writer' | 'reader'): 'admin' | 'edit' | 'view' {
+  if (role === 'admin') {
+    return 'admin';
+  }
+  if (role === 'writer') {
+    return 'edit';
+  }
+  return 'view';
 }

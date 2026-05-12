@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 
 import { getApiLogger } from '../common/logger/logger.module.js';
@@ -32,7 +32,7 @@ type ConfigResolution =
 
 @Injectable()
 export class DocmostBootstrapService {
-  constructor(private readonly userService?: UserService) {}
+  constructor(@Optional() private readonly userService?: UserService) {}
 
   async bootstrapIfNeeded(): Promise<boolean> {
     const configResolution = await this.getConfig();

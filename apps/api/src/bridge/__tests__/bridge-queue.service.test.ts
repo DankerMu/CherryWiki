@@ -7,6 +7,7 @@ import {
   BRIDGE_PAGE_SYNC_QUEUE,
   BRIDGE_PERMISSION_SYNC_QUEUE,
   BRIDGE_SPACE_PROVISION_QUEUE,
+  BRIDGE_USER_SYNC_QUEUE,
   BridgeQueueService,
 } from '../bridge-queue.service.js';
 
@@ -129,6 +130,28 @@ describe('BridgeQueueService', () => {
         spaceSlug: 'research',
       },
       { jobId: 'tenant-1:space-1' },
+    );
+  });
+
+  it('enqueues user sync jobs with tenant-user deduplication', async () => {
+    const service = createService();
+
+    await service.enqueueUserSyncJob({
+      tenantId: 'tenant-1',
+      userId: 'user-1',
+      email: 'user@example.com',
+      name: 'Test User',
+    });
+
+    expect(queueByName(BRIDGE_USER_SYNC_QUEUE).add).toHaveBeenCalledWith(
+      'user.sync',
+      {
+        tenantId: 'tenant-1',
+        userId: 'user-1',
+        email: 'user@example.com',
+        name: 'Test User',
+      },
+      { jobId: 'tenant-1:user-1' },
     );
   });
 

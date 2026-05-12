@@ -12,13 +12,15 @@ export const BRIDGE_PERMISSION_SYNC_QUEUE = 'bridge-permission-sync';
 export const BRIDGE_ATTACHMENT_SYNC_QUEUE = 'bridge-attachment-sync';
 export const BRIDGE_DOCMOST_PUSH_QUEUE = 'bridge-docmost-push';
 export const BRIDGE_SPACE_PROVISION_QUEUE = 'bridge-space-provision';
+export const BRIDGE_USER_SYNC_QUEUE = 'bridge-user-sync';
 
 export type BridgeQueueName =
   | typeof BRIDGE_PAGE_SYNC_QUEUE
   | typeof BRIDGE_PERMISSION_SYNC_QUEUE
   | typeof BRIDGE_ATTACHMENT_SYNC_QUEUE
   | typeof BRIDGE_DOCMOST_PUSH_QUEUE
-  | typeof BRIDGE_SPACE_PROVISION_QUEUE;
+  | typeof BRIDGE_SPACE_PROVISION_QUEUE
+  | typeof BRIDGE_USER_SYNC_QUEUE;
 
 export type BridgeQueueJobData = {
   bridgeEventId: string;
@@ -46,6 +48,13 @@ export type SpaceProvisionJobData = {
   spaceSlug: string;
 };
 
+export type UserSyncJobData = {
+  userId: string;
+  email: string;
+  name: string;
+  tenantId: string;
+};
+
 const DEFAULT_JOB_OPTIONS: JobsOptions = {
   attempts: 3,
   backoff: {
@@ -62,7 +71,16 @@ export class BridgeQueueService implements OnModuleDestroy {
   private readonly ownsConnection: boolean;
   private readonly disabled: boolean;
   private readonly queues: Partial<
-    Record<BridgeQueueName, Queue<BridgeQueueJobData | DocmostPushJobData | PermissionSyncJobData | SpaceProvisionJobData>>
+    Record<
+      BridgeQueueName,
+      Queue<
+        | BridgeQueueJobData
+        | DocmostPushJobData
+        | PermissionSyncJobData
+        | SpaceProvisionJobData
+        | UserSyncJobData
+      >
+    >
   >;
 
   constructor(@Optional() @Inject(REDIS_CLIENT) redis?: OptionalRedisClient) {
@@ -101,6 +119,10 @@ export class BridgeQueueService implements OnModuleDestroy {
         defaultJobOptions: DEFAULT_JOB_OPTIONS,
       }),
       [BRIDGE_SPACE_PROVISION_QUEUE]: new Queue(BRIDGE_SPACE_PROVISION_QUEUE, {
+        connection,
+        defaultJobOptions: DEFAULT_JOB_OPTIONS,
+      }),
+      [BRIDGE_USER_SYNC_QUEUE]: new Queue(BRIDGE_USER_SYNC_QUEUE, {
         connection,
         defaultJobOptions: DEFAULT_JOB_OPTIONS,
       }),
@@ -162,6 +184,20 @@ export class BridgeQueueService implements OnModuleDestroy {
     });
   }
 
+  async enqueueUserSyncJob(jobData: UserSyncJobData): Promise<void> {
+    if (this.disabled) {
+      getApiLogger().warn(
+        { redis_configured: false },
+        'BullMQ dispatch disabled — no Redis configured',
+      );
+      return;
+    }
+
+    await this.getQueue(BRIDGE_USER_SYNC_QUEUE).add('user.sync', jobData, {
+      jobId: `${jobData.tenantId}:${jobData.userId}`,
+    });
+  }
+
   async onModuleDestroy(): Promise<void> {
     if (this.disabled) {
       return;
@@ -183,7 +219,13 @@ export class BridgeQueueService implements OnModuleDestroy {
 
   private getQueue(
     queueName: BridgeQueueName,
-  ): Queue<BridgeQueueJobData | DocmostPushJobData | PermissionSyncJobData | SpaceProvisionJobData> {
+  ): Queue<
+    | BridgeQueueJobData
+    | DocmostPushJobData
+    | PermissionSyncJobData
+    | SpaceProvisionJobData
+    | UserSyncJobData
+  > {
     const queue = this.queues[queueName];
     if (queue === undefined) {
       throw new Error(`Bridge queue is not initialized: ${queueName}`);

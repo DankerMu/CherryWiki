@@ -17,6 +17,7 @@ import { getApiLogger } from '../common/logger/logger.module.js';
 import { REDIS_CLIENT } from '../common/redis/redis.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { SessionService } from '../auth/session.service.js';
+import { BridgeQueueService } from '../bridge/bridge-queue.service.js';
 
 type UserDatabase = NodePgDatabase;
 type UserRow = typeof users.$inferSelect;
@@ -97,6 +98,7 @@ export class UserService {
     private readonly auditService: AuditService,
     private readonly sessionService: SessionService,
     @Optional() @Inject(REDIS_CLIENT) private readonly redis?: RedisPublisher,
+    @Optional() private readonly bridgeQueueService?: BridgeQueueService,
   ) {}
 
   async listUsers(
@@ -188,6 +190,18 @@ export class UserService {
           role: created.role,
           groups: groupIds,
         },
+      });
+
+      void this.bridgeQueueService?.enqueueUserSyncJob({
+        userId: created.id,
+        email: created.email,
+        name: created.display_name,
+        tenantId,
+      }).catch((err: unknown) => {
+        getApiLogger().warn(
+          { err: toSafeErrorMessage(err), user_id: created.id },
+          'Docmost user sync enqueue failed',
+        );
       });
 
       return toAdminUserResponse(created, groupIds);
@@ -607,6 +621,10 @@ function normalizeStatusOrThrow(status: string): string {
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+function toSafeErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function normalizeIdList(values: string[]): string[] {

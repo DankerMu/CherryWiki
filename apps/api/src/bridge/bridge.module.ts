@@ -1,4 +1,4 @@
-import { Module, type OnApplicationBootstrap, type OnModuleDestroy } from '@nestjs/common';
+import { forwardRef, Module, type OnApplicationBootstrap, type OnModuleDestroy } from '@nestjs/common';
 
 import { AuditModule } from '../audit/audit.module.js';
 import { UserModule } from '../users/user.module.js';
@@ -13,7 +13,7 @@ const DOCMOST_BOOTSTRAP_RETRY_INTERVAL_MS = 60_000;
 const DOCMOST_BOOTSTRAP_MAX_RETRY_INTERVAL_MS = 300_000;
 
 @Module({
-  imports: [AuditModule, UserModule],
+  imports: [AuditModule, forwardRef(() => UserModule)],
   controllers: [BridgeEventController],
   providers: [
     BridgeAuthGuard,
