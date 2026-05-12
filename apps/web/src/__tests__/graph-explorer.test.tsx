@@ -8,7 +8,7 @@ import i18n from '../i18n';
 import { ThemeProvider } from '../theme/ThemeProvider';
 import SpaceGraphExplorerPage from '../pages/graph/SpaceGraphExplorerPage';
 import * as graphApi from '../lib/graphApi';
-import type { GraphCanvasData } from '../pages/graph/GraphCanvas';
+import { GRAPH_NODE_TYPE_COLORS, truncateNodeLabel, type GraphCanvasData } from '../pages/graph/GraphCanvas.js';
 import type { GraphCommunity, GraphEdge, GraphNode } from '../lib/graphApi';
 
 type ApiGetMock = (path: string, query?: Record<string, unknown>) => Promise<unknown>;
@@ -50,49 +50,72 @@ vi.mock('../lib/graphApi', async (importOriginal) => {
   };
 });
 
-vi.mock('../pages/graph/GraphCanvas', () => ({
-  default: ({
-    graphData,
-    activeCommunityId,
-    onNodeSelect,
-    onEdgeSelect,
-  }: {
-    graphData: GraphCanvasData;
-    activeCommunityId: string | null;
-    onNodeSelect: (nodeId: string) => void;
-    onEdgeSelect: (edgeId: string) => void;
-  }) => (
-    <div data-testid="graph-canvas" data-node-count={graphData.nodes.length} data-edge-count={graphData.links.length}>
-      {graphData.nodes.length === 0 ? <span>No graph data loaded. Search for a node or run Graphify for this space.</span> : null}
-      {graphData.nodes.map((node) => (
-        <button
-          key={node.id}
-          type="button"
-          data-testid={`graph-node-${node.id}`}
-          data-highlighted={activeCommunityId === node.community_id ? 'true' : 'false'}
-          onClick={() => onNodeSelect(node.id)}
-        >
-          {node.label}
-        </button>
-      ))}
-      {graphData.links.map((edge) => (
-        <button key={edge.id} type="button" data-testid={`graph-edge-${edge.id}`} onClick={() => onEdgeSelect(edge.id)}>
-          {edge.relationship}
-        </button>
-      ))}
-    </div>
-  ),
-  GRAPH_NODE_TYPE_COLORS: {
-    concept: '#2563eb',
-    entity: '#059669',
-    default: '#64748b',
-  },
-  getGraphNodeTypeColor: () => '#2563eb',
-}));
+vi.mock('../pages/graph/GraphCanvas', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../pages/graph/GraphCanvas.js')>();
+
+  return {
+    ...actual,
+    default: ({
+      graphData,
+      activeCommunityId,
+      onNodeSelect,
+      onEdgeSelect,
+    }: {
+      graphData: GraphCanvasData;
+      activeCommunityId: string | null;
+      onNodeSelect: (nodeId: string) => void;
+      onEdgeSelect: (edgeId: string) => void;
+    }) => (
+      <div data-testid="graph-canvas" data-node-count={graphData.nodes.length} data-edge-count={graphData.links.length}>
+        {graphData.nodes.length === 0 ? <span>No graph data loaded. Search for a node or run Graphify for this space.</span> : null}
+        {graphData.nodes.map((node) => (
+          <button
+            key={node.id}
+            type="button"
+            data-testid={`graph-node-${node.id}`}
+            data-highlighted={activeCommunityId === node.community_id ? 'true' : 'false'}
+            onClick={() => onNodeSelect(node.id)}
+          >
+            {node.label}
+          </button>
+        ))}
+        {graphData.links.map((edge) => (
+          <button key={edge.id} type="button" data-testid={`graph-edge-${edge.id}`} onClick={() => onEdgeSelect(edge.id)}>
+            {edge.relationship}
+          </button>
+        ))}
+      </div>
+    ),
+  };
+});
 
 const searchGraphNodesMock = vi.mocked(graphApi.searchGraphNodes);
 const getGraphNeighborsMock = vi.mocked(graphApi.getGraphNeighbors);
 const getGraphCommunitiesMock = vi.mocked(graphApi.getGraphCommunities);
+
+describe('GraphCanvas color config', () => {
+  it('defines colors for all standard node types', () => {
+    const requiredTypes = ['concept', 'entity', 'document', 'topic', 'person', 'organization', 'default'];
+
+    for (const type of requiredTypes) {
+      expect(GRAPH_NODE_TYPE_COLORS[type]).toBeDefined();
+      expect(GRAPH_NODE_TYPE_COLORS[type]).toMatch(/^#[0-9a-fA-F]{6}$/);
+    }
+  });
+});
+
+describe('truncateNodeLabel', () => {
+  it('returns short labels unchanged', () => {
+    expect(truncateNodeLabel('short')).toBe('short');
+  });
+
+  it('truncates labels beyond 18 characters', () => {
+    const long = 'This is a very long label name';
+
+    expect(truncateNodeLabel(long)).toBe('This is a very lon…');
+    expect(truncateNodeLabel(long).length).toBe(19);
+  });
+});
 
 describe('SpaceGraphExplorerPage', () => {
   beforeEach(async () => {
