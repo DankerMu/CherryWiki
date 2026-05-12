@@ -31,4 +31,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ src/
 
 EXPOSE 9094
+USER graphify
 CMD ["python", "-m", "src"]

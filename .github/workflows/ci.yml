@@ -152,6 +152,16 @@ jobs:
       - name: Validate Docker Compose
         run: docker compose config --quiet
 
+      - name: Validate Production Compose
+        env:
+          POSTGRES_PASSWORD: ci-postgres-password
+          JWT_SECRET: ci-jwt-secret-minimum-32-characters
+          ADMIN_PASSWORD: ci-admin-password
+          MINIO_ACCESS_KEY: ci-minio-access-key
+          MINIO_SECRET_KEY: ci-minio-secret-key
+          WORKER_API_KEY: ci-worker-api-key
+        run: docker compose -f docker-compose.prod.yml config --quiet
+
       - name: Verify Dockerfiles build (syntax only)
         run: |
           status=0
@@ -160,6 +170,15 @@ jobs:
               echo "Checking $f..."
               docker buildx build --check -f "$f" "$(dirname "$f")" || status=1
             fi
+          done
+          exit $status
+
+      - name: Verify root Dockerfile production targets (syntax only)
+        run: |
+          status=0
+          for target in api web ingestion-worker url-fetcher-worker indexer-worker; do
+            echo "Checking Dockerfile target $target..."
+            docker buildx build --check -f Dockerfile --target "$target" . || status=1
           done
           exit $status
 
