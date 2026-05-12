@@ -1,0 +1,122 @@
+import { and, asc, eq, gt, isNull } from 'drizzle-orm';
+
+import { spaces } from '@cherrygraph/shared';
+
+import type {
+  DrizzleDatabase,
+  SpaceProvisionJobData,
+} from '../processors/space-provision.processor.js';
+
+type DatabaseClient = Pick<DrizzleDatabase, 'select'>;
+
+export type SpaceProvisionQueue = {
+  add: (
+    name: string,
+    data: SpaceProvisionJobData,
+    opts: { jobId: string },
+  ) => Promise<unknown>;
+  getJob: (jobId: string) => Promise<SpaceProvisionJob | null | undefined>;
+};
+
+type SpaceProvisionJob = {
+  isFailed: () => Promise<boolean>;
+  remove: () => Promise<void>;
+  attemptsMade?: number;
+  finishedOn?: number;
+};
+
+type UnmappedSpaceRow = {
+  spaceId: string;
+  tenantId: string;
+  spaceName: string;
+  spaceSlug: string;
+};
+
+const SPACE_RECONCILE_BATCH_SIZE = 50;
+
+export async function reconcileSpaces(
+  db: DrizzleDatabase,
+  queue: SpaceProvisionQueue,
+): Promise<number> {
+  let enqueuedCount = 0;
+  let cursor: string | undefined;
+
+  for (;;) {
+    const unmappedSpaces = await loadUnmappedSpaces(db, cursor);
+    if (unmappedSpaces.length === 0) {
+      return enqueuedCount;
+    }
+
+    const results = await Promise.allSettled(
+      unmappedSpaces.map((space) => enqueueSpaceProvision(queue, space)),
+    );
+    enqueuedCount += results.filter(
+      (result): result is PromiseFulfilledResult<true> =>
+        result.status === 'fulfilled' && result.value,
+    ).length;
+
+    cursor = unmappedSpaces[unmappedSpaces.length - 1]?.spaceId;
+  }
+}
+
+async function loadUnmappedSpaces(
+  db: DatabaseClient,
+  afterSpaceId?: string,
+): Promise<UnmappedSpaceRow[]> {
+  const predicates = [
+    eq(spaces.status, 'active'),
+    isNull(spaces.docmost_space_id),
+  ];
+
+  if (afterSpaceId !== undefined) {
+    predicates.push(gt(spaces.id, afterSpaceId));
+  }
+
+  return db
+    .select({
+      spaceId: spaces.id,
+      tenantId: spaces.tenant_id,
+      spaceName: spaces.name,
+      spaceSlug: spaces.slug,
+    })
+    .from(spaces)
+    .where(and(...predicates))
+    .orderBy(asc(spaces.id))
+    .limit(SPACE_RECONCILE_BATCH_SIZE);
+}
+
+const MAX_RECONCILE_RETRIES = 10;
+const MIN_RETRY_AGE_MS = 5 * 60 * 1000;
+
+async function enqueueSpaceProvision(
+  queue: SpaceProvisionQueue,
+  space: UnmappedSpaceRow,
+): Promise<boolean> {
+  const jobId = `${space.tenantId}:${space.spaceId}`;
+  const existing = await queue.getJob(jobId);
+
+  if (existing !== null && existing !== undefined) {
+    const isFailed = await existing.isFailed();
+    if (!isFailed) {
+      return false;
+    }
+
+    if ((existing.attemptsMade ?? 0) >= MAX_RECONCILE_RETRIES) {
+      return false;
+    }
+
+    const failedAge = existing.finishedOn
+      ? Date.now() - existing.finishedOn
+      : Infinity;
+    if (failedAge < MIN_RETRY_AGE_MS) {
+      return false;
+    }
+
+    await existing.remove();
+  }
+
+  await queue.add('space.provision', space, {
+    jobId,
+  });
+  return true;
+}

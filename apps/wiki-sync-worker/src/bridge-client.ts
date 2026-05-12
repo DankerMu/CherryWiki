@@ -1,5 +1,8 @@
+import { createHash, createHmac, randomUUID } from 'node:crypto';
+
 import type { DocmostPushBridgeClient } from './processors/docmost-push.processor.js';
 import type { PermissionSyncBridgeClient } from './processors/permission-sync.processor.js';
+import type { SpaceProvisionBridgeClient } from './processors/space-provision.processor.js';
 
 export class BridgeClientHttpError extends Error {
   constructor(
@@ -14,25 +17,58 @@ export class BridgeClientHttpError extends Error {
 export function createBridgeClient(
   baseUrl: string,
   secret: string,
-): DocmostPushBridgeClient & PermissionSyncBridgeClient {
+): DocmostPushBridgeClient & PermissionSyncBridgeClient & SpaceProvisionBridgeClient {
   const normalizedBaseUrl = baseUrl.replace(/\/+$/, '');
-  const headers = secret.length > 0 ? { Authorization: `Bearer ${secret}` } : {};
 
   return {
+    async provisionSpace(input) {
+      const path = '/api/internal/bridge/spaces';
+      const body = JSON.stringify({
+        name: input.name,
+        slug: input.slug,
+        cherry_space_id: input.cherry_space_id,
+      });
+      const response = await fetch(`${normalizedBaseUrl}${path}`, {
+        method: 'POST',
+        headers: {
+          ...createBridgeHeaders(secret, 'POST', path, body),
+          'content-type': 'application/json',
+        },
+        body,
+      });
+
+      if (!response.ok) {
+        throw new BridgeClientHttpError(
+          `Bridge space provision failed for Cherry space ${input.cherry_space_id}: HTTP ${response.status}`,
+          response.status,
+        );
+      }
+
+      const payload = readRecord(await response.json());
+      const docmostSpaceId = readString(payload.docmost_space_id);
+      if (docmostSpaceId === undefined) {
+        throw new Error('Bridge space provision response did not include docmost_space_id');
+      }
+
+      return { docmost_space_id: docmostSpaceId };
+    },
+
     async importPage(pageId, markdown, opts) {
+      const path = `/api/internal/bridge/pages/${encodeURIComponent(pageId)}/import`;
+      const body = JSON.stringify({
+        markdown,
+        overwrite_policy: opts.overwritePolicy,
+        ...(opts.expectedHash !== undefined ? { expected_hash: opts.expectedHash } : {}),
+      });
       const response = await fetch(
-        `${normalizedBaseUrl}/api/internal/bridge/pages/${encodeURIComponent(pageId)}/import`,
+        `${normalizedBaseUrl}${path}`,
         {
           method: 'PUT',
           headers: {
-            ...headers,
+            ...createBridgeHeaders(secret, 'PUT', path, body),
             'content-type': 'application/json',
           },
-          body: JSON.stringify({
-            markdown,
-            overwrite_policy: opts.overwritePolicy,
-            ...(opts.expectedHash !== undefined ? { expected_hash: opts.expectedHash } : {}),
-          }),
+          body,
         },
       );
 
@@ -54,9 +90,10 @@ export function createBridgeClient(
     },
 
     async exportPage(pageId) {
+      const path = `/api/internal/bridge/pages/${encodeURIComponent(pageId)}/export?format=markdown`;
       const response = await fetch(
-        `${normalizedBaseUrl}/api/internal/bridge/pages/${encodeURIComponent(pageId)}/export?format=markdown`,
-        { headers },
+        `${normalizedBaseUrl}${path}`,
+        { headers: createBridgeHeaders(secret, 'GET', path, '') },
       );
 
       if (!response.ok) {
@@ -76,15 +113,17 @@ export function createBridgeClient(
     },
 
     async pushPermissions(docmostSpaceId, members) {
+      const path = `/api/internal/bridge/spaces/${encodeURIComponent(docmostSpaceId)}/permissions`;
+      const body = JSON.stringify({ members });
       const response = await fetch(
-        `${normalizedBaseUrl}/api/internal/bridge/spaces/${encodeURIComponent(docmostSpaceId)}/permissions`,
+        `${normalizedBaseUrl}${path}`,
         {
           method: 'PUT',
           headers: {
-            ...headers,
+            ...createBridgeHeaders(secret, 'PUT', path, body),
             'content-type': 'application/json',
           },
-          body: JSON.stringify({ members }),
+          body,
         },
       );
 
@@ -97,9 +136,10 @@ export function createBridgeClient(
     },
 
     async getPermissions(docmostSpaceId) {
+      const path = `/api/internal/bridge/spaces/${encodeURIComponent(docmostSpaceId)}/permissions`;
       const response = await fetch(
-        `${normalizedBaseUrl}/api/internal/bridge/spaces/${encodeURIComponent(docmostSpaceId)}/permissions`,
-        { headers },
+        `${normalizedBaseUrl}${path}`,
+        { headers: createBridgeHeaders(secret, 'GET', path, '') },
       );
 
       if (!response.ok) {
@@ -113,6 +153,30 @@ export function createBridgeClient(
       const rawMembers = Array.isArray(payload) ? payload : readArray(readRecord(payload).members);
       return rawMembers.flatMap(readPermissionMember);
     },
+  };
+}
+
+function createBridgeHeaders(
+  secret: string,
+  method: string,
+  path: string,
+  body: string,
+): Record<string, string> {
+  if (secret.length === 0) {
+    return {};
+  }
+
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const nonce = randomUUID();
+  const bodyHash = createHash('sha256').update(body).digest('hex');
+  const payload = [timestamp, nonce, method.toUpperCase(), path, bodyHash].join('\n');
+  const signature = createHmac('sha256', secret).update(payload).digest('hex');
+
+  return {
+    Authorization: `Bearer ${secret}`,
+    'X-Bridge-Timestamp': timestamp,
+    'X-Bridge-Nonce': nonce,
+    'X-Bridge-Signature': `sha256=${signature}`,
   };
 }
 

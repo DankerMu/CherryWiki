@@ -6,6 +6,7 @@ import {
   BRIDGE_ATTACHMENT_SYNC_QUEUE,
   BRIDGE_PAGE_SYNC_QUEUE,
   BRIDGE_PERMISSION_SYNC_QUEUE,
+  BRIDGE_SPACE_PROVISION_QUEUE,
   BridgeQueueService,
 } from '../bridge-queue.service.js';
 
@@ -105,6 +106,28 @@ describe('BridgeQueueService', () => {
     expect(queueByName(BRIDGE_PERMISSION_SYNC_QUEUE).add).toHaveBeenCalledWith(
       'permission.sync',
       { tenantId: 'tenant-1', spaceId: 'space-1' },
+      { jobId: 'tenant-1:space-1' },
+    );
+  });
+
+  it('enqueues space provision jobs with tenant-space deduplication', async () => {
+    const service = createService();
+
+    await service.enqueueSpaceProvisionJob({
+      tenantId: 'tenant-1',
+      spaceId: 'space-1',
+      spaceName: 'Research',
+      spaceSlug: 'research',
+    });
+
+    expect(queueByName(BRIDGE_SPACE_PROVISION_QUEUE).add).toHaveBeenCalledWith(
+      'space.provision',
+      {
+        tenantId: 'tenant-1',
+        spaceId: 'space-1',
+        spaceName: 'Research',
+        spaceSlug: 'research',
+      },
       { jobId: 'tenant-1:space-1' },
     );
   });
