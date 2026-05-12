@@ -241,6 +241,44 @@ describe('UploadCenter', () => {
       expect(getRequestUrls(fetchMock)).toContain('/api/spaces/space-1/uploads?page=1&per_page=20&source_type=url&search=roadmap&sort=-updated_at');
     });
   });
+
+  it('ignores stale upload drawer status responses after selection changes', async () => {
+    const statusRequests = stubUploadDrawerRaceApi();
+
+    renderUploadCenter();
+
+    expect(await screen.findByText('doc-a.md')).toBeInTheDocument();
+    const detailsButtons = screen.getAllByRole('button', { name: 'Details' });
+
+    fireEvent.click(detailsButtons[0]!);
+    await waitFor(() => expect(screen.getAllByText('doc-a.md').length).toBeGreaterThan(1));
+
+    fireEvent.click(detailsButtons[1]!);
+    await waitFor(() => expect(screen.getAllByText('doc-b.md').length).toBeGreaterThan(1));
+
+    statusRequests.get('doc-b')?.resolve(jsonResponse({ data: buildStatus({ source_document_id: 'doc-b', status: 'parsed', progress_percent: 100 }) }));
+    await waitFor(() => expect(screen.getAllByText('Parsed').length).toBeGreaterThan(0));
+
+    statusRequests
+      .get('doc-a')
+      ?.resolve(
+        jsonResponse({
+          data: buildStatus({
+            source_document_id: 'doc-a',
+            status: 'parse_failed',
+            progress_percent: 65,
+            error_json: {
+              error_type: 'stale_doc_a',
+              error_message: 'A stale failure should not render',
+            },
+          }),
+        }),
+      );
+
+    await waitFor(() => expect(screen.getAllByText('doc-b.md').length).toBeGreaterThan(1));
+    expect(screen.queryByText('A stale failure should not render')).not.toBeInTheDocument();
+    expect(screen.queryByText('stale_doc_a')).not.toBeInTheDocument();
+  });
 });
 
 describe('UploadDetail', () => {
@@ -436,6 +474,63 @@ function stubUploadListApi() {
   });
   vi.stubGlobal('fetch', fetchMock);
   return fetchMock;
+}
+
+function stubUploadDrawerRaceApi() {
+  const statusRequests = new Map<string, Deferred<Response>>();
+  statusRequests.set('doc-a', createDeferred<Response>());
+  statusRequests.set('doc-b', createDeferred<Response>());
+
+  const fetchMock = vi.fn<typeof fetch>((input, init) => {
+    const path = getRequestPath(input);
+    if (path === '/api/spaces/space-1/uploads' && init?.method === 'GET') {
+      return Promise.resolve(
+        jsonResponse({
+          data: [
+            buildUpload({ id: 'doc-a', filename: 'doc-a.md', status: 'uploaded' }),
+            buildUpload({ id: 'doc-b', filename: 'doc-b.md', status: 'uploaded' }),
+          ],
+          meta: {
+            pagination: {
+              page: 1,
+              per_page: 20,
+              total: 2,
+              has_next: false,
+            },
+          },
+        }),
+      );
+    }
+
+    if (path === '/api/uploads/doc-a/status' && init?.method === 'GET') {
+      return statusRequests.get('doc-a')!.promise;
+    }
+
+    if (path === '/api/uploads/doc-b/status' && init?.method === 'GET') {
+      return statusRequests.get('doc-b')!.promise;
+    }
+
+    return Promise.resolve(jsonResponse({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404));
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return statusRequests;
+}
+
+type Deferred<T> = {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason?: unknown) => void;
+};
+
+function createDeferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+
+  return { promise, resolve, reject };
 }
 
 function stubReprocessApi() {

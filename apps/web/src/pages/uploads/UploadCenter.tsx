@@ -47,6 +47,8 @@ export default function UploadCenter() {
   const [selectedUploadId, setSelectedUploadId] = useState<string | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<UploadStatus | null>(null);
   const requestSeqRef = useRef(0);
+  const selectionSeqRef = useRef(0);
+  const selectedUploadIdRef = useRef<string | null>(null);
 
   const loadUploads = useCallback(
     async (background = false) => {
@@ -117,6 +119,8 @@ export default function UploadCenter() {
   }, [searchInput]);
 
   useEffect(() => {
+    selectionSeqRef.current++;
+    selectedUploadIdRef.current = null;
     setSelectedUploadId(null);
     setSelectedStatus(null);
     setPage(1);
@@ -139,11 +143,12 @@ export default function UploadCenter() {
       }),
     );
     setSelectedStatus((current) => {
-      if (current === null) {
+      const selectedId = selectedUploadIdRef.current;
+      if (selectedId === null) {
         return current;
       }
 
-      return statuses.find((status) => status.source_document_id === current.source_document_id) ?? current;
+      return statuses.find((status) => status.source_document_id === selectedId) ?? current;
     });
   }, []);
 
@@ -158,11 +163,17 @@ export default function UploadCenter() {
     [selectedUploadId, uploads],
   );
 
-  const loadUploadStatus = useCallback(async (uploadId: string) => {
+  const loadUploadStatus = useCallback(async (uploadId: string, selectionSeq = selectionSeqRef.current) => {
     try {
       const status = await api.get<UploadStatus>(`/uploads/${encodeURIComponent(uploadId)}/status`);
+      if (selectionSeq !== selectionSeqRef.current || selectedUploadIdRef.current !== uploadId) {
+        return;
+      }
       setSelectedStatus(status);
     } catch (err) {
+      if (selectionSeq !== selectionSeqRef.current || selectedUploadIdRef.current !== uploadId) {
+        return;
+      }
       setError(getErrorMessage(err));
     }
   }, []);
@@ -300,9 +311,11 @@ export default function UploadCenter() {
           }}
           onPageChange={setPage}
           onSelectUpload={(upload) => {
+            const selectionSeq = ++selectionSeqRef.current;
+            selectedUploadIdRef.current = upload.id;
             setSelectedUploadId(upload.id);
             setSelectedStatus(null);
-            void loadUploadStatus(upload.id);
+            void loadUploadStatus(upload.id, selectionSeq);
           }}
         />
       )}
@@ -312,6 +325,8 @@ export default function UploadCenter() {
         upload={selectedUpload}
         status={selectedStatus}
         onClose={() => {
+          selectionSeqRef.current++;
+          selectedUploadIdRef.current = null;
           setSelectedUploadId(null);
           setSelectedStatus(null);
         }}

@@ -102,14 +102,14 @@ export default function SpaceGraphExplorerPage() {
 
     void (async () => {
       try {
-        const [space, stats] = await Promise.all([
+        const [, stats] = await Promise.all([
           api.get<AdminSpaceDetail>(`/spaces/${encodeURIComponent(spaceId)}`),
           api.get<SpaceStatsResponse>(`/spaces/${encodeURIComponent(spaceId)}/stats`),
         ]);
         if (spaceSeq !== spaceSeqRef.current) {
           return;
         }
-        setHasEmptyGraph(stats.node_count === 0 || space.active_graphify_run_id === null);
+        setHasEmptyGraph(stats.node_count === 0);
       } catch (err) {
         if (spaceSeq !== spaceSeqRef.current) {
           return;
