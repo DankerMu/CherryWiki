@@ -129,6 +129,7 @@ export async function bootstrap(): Promise<void> {
       bridgeClient,
     },
     userSync: {
+      db,
       bridgeClient,
     },
   });

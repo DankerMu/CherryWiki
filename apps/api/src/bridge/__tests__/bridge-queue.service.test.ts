@@ -99,16 +99,18 @@ describe('BridgeQueueService', () => {
     });
   });
 
-  it('enqueues direct permission sync jobs with tenant-space deduplication', async () => {
+  it('enqueues direct permission sync jobs with versioned job IDs', async () => {
     const service = createService();
 
     await service.enqueuePermissionSyncJob({ tenantId: 'tenant-1', spaceId: 'space-1' });
 
-    expect(queueByName(BRIDGE_PERMISSION_SYNC_QUEUE).add).toHaveBeenCalledWith(
-      'permission.sync',
-      { tenantId: 'tenant-1', spaceId: 'space-1' },
-      { jobId: 'tenant-1:space-1' },
-    );
+    const addCalls = queueByName(BRIDGE_PERMISSION_SYNC_QUEUE).add.mock.calls as Array<
+      [string, { tenantId: string; spaceId: string }, { jobId: string }]
+    >;
+    expect(addCalls).toHaveLength(1);
+    expect(addCalls[0]?.[0]).toBe('permission.sync');
+    expect(addCalls[0]?.[1]).toEqual({ tenantId: 'tenant-1', spaceId: 'space-1' });
+    expect(addCalls[0]?.[2].jobId).toMatch(/^tenant-1:space-1:[0-9a-f-]+$/);
   });
 
   it('enqueues space provision jobs with tenant-space deduplication', async () => {

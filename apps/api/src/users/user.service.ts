@@ -1,6 +1,6 @@
 import { HttpException, HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import { ROLES, hashPassword, normalizeRole, type Role } from '@cherrygraph/auth-core';
-import { ErrorCode, group_members, groups, sessions, tenants, users } from '@cherrygraph/shared';
+import { ErrorCode, group_members, groups, sessions, space_permissions, tenants, users } from '@cherrygraph/shared';
 import { and, asc, count, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { randomUUID } from 'node:crypto';
@@ -18,6 +18,7 @@ import { REDIS_CLIENT } from '../common/redis/redis.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { SessionService } from '../auth/session.service.js';
 import { BridgeQueueService } from '../bridge/bridge-queue.service.js';
+import { enqueuePermissionSync } from '../bridge/bridge-permission-hooks.js';
 
 type UserDatabase = NodePgDatabase;
 type UserRow = typeof users.$inferSelect;
@@ -203,6 +204,7 @@ export class UserService {
           'Docmost user sync enqueue failed',
         );
       });
+      this.enqueuePermissionSyncForGroups(tenantId, groupIds);
 
       return toAdminUserResponse(created, groupIds);
     } catch (err) {
@@ -447,6 +449,45 @@ export class UserService {
     } catch (err) {
       getApiLogger().warn({ err, redis_channel: channel }, 'Redis publish failed');
     }
+  }
+
+  private enqueuePermissionSyncForGroups(tenantId: string, groupIds: string[]): void {
+    if (this.bridgeQueueService === undefined) {
+      return;
+    }
+
+    const uniqueGroupIds = [...new Set(groupIds)].filter((groupId) => groupId.length > 0);
+    if (uniqueGroupIds.length === 0) {
+      return;
+    }
+
+    void this.getSpaceIdsForGroups(tenantId, uniqueGroupIds)
+      .then((spaceIds) =>
+        Promise.all(
+          spaceIds.map((spaceId) =>
+            enqueuePermissionSync(this.bridgeQueueService as BridgeQueueService, spaceId, tenantId),
+          ),
+        ),
+      )
+      .catch((err: unknown) => {
+        getApiLogger().warn(
+          { err: toSafeErrorMessage(err), group_ids: uniqueGroupIds },
+          'Docmost permission sync enqueue failed',
+        );
+      });
+  }
+
+  private async getSpaceIdsForGroups(tenantId: string, groupIds: string[]): Promise<string[]> {
+    if (groupIds.length === 0) {
+      return [];
+    }
+
+    const rows = await this.db
+      .select({ space_id: space_permissions.space_id })
+      .from(space_permissions)
+      .where(and(eq(space_permissions.tenant_id, tenantId), inArray(space_permissions.group_id, groupIds)));
+
+    return [...new Set(rows.map((row) => row.space_id))];
   }
 }
 

@@ -1,8 +1,16 @@
 import type { Job } from 'bullmq';
+import { and, eq, isNull } from 'drizzle-orm';
+import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+
+import { users } from '@cherrygraph/shared';
 
 export const BRIDGE_USER_SYNC_QUEUE = 'bridge-user-sync';
 
+export type DrizzleDatabase = NodePgDatabase;
+type DatabaseClient = Pick<DrizzleDatabase, 'update'>;
+
 export interface UserSyncDeps {
+  db: DrizzleDatabase;
   bridgeClient: UserSyncBridgeClient;
 }
 
@@ -32,12 +40,40 @@ export function createUserSyncProcessor(
       cherry_user_id: data.userId,
     });
 
+    await writeBackDocmostUserId(deps.db, data, result.docmost_user_id);
+
     console.info('user-sync: user synced to Docmost', {
       userId: data.userId,
       tenantId: data.tenantId,
       docmostUserId: result.docmost_user_id,
     });
   };
+}
+
+async function writeBackDocmostUserId(
+  db: DatabaseClient,
+  data: UserSyncJobData,
+  docmostUserId: string,
+): Promise<void> {
+  const updated = await db
+    .update(users)
+    .set({ docmost_user_id: docmostUserId, updated_at: new Date() })
+    .where(
+      and(
+        eq(users.id, data.userId),
+        eq(users.tenant_id, data.tenantId),
+        isNull(users.docmost_user_id),
+      ),
+    )
+    .returning({ id: users.id });
+
+  if (updated.length === 0) {
+    console.info('user-sync: skipped docmost_user_id writeback; mapping already exists', {
+      userId: data.userId,
+      tenantId: data.tenantId,
+      docmostUserId,
+    });
+  }
 }
 
 function readJobData(data: unknown): UserSyncJobData {

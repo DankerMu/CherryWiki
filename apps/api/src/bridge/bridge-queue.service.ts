@@ -1,6 +1,7 @@
 import { Inject, Injectable, Optional, type OnModuleDestroy } from '@nestjs/common';
 import { Queue, type JobsOptions } from 'bullmq';
 import { Redis, type Redis as IORedis } from 'ioredis';
+import { randomUUID } from 'node:crypto';
 
 import type { BridgeEventType } from '@cherrygraph/shared';
 
@@ -166,7 +167,7 @@ export class BridgeQueueService implements OnModuleDestroy {
     }
 
     await this.getQueue(BRIDGE_PERMISSION_SYNC_QUEUE).add('permission.sync', jobData, {
-      jobId: `${jobData.tenantId}:${jobData.spaceId}`,
+      jobId: `${jobData.tenantId}:${jobData.spaceId}:${randomUUID()}`,
     });
   }
 

@@ -15,7 +15,8 @@ describe('user-sync processor', () => {
         Promise.resolve({ docmost_user_id: 'docmost-user-1' }),
       ),
     };
-    const processor = createUserSyncProcessor({ bridgeClient });
+    const db = createDb();
+    const processor = createUserSyncProcessor({ db: db as never, bridgeClient });
 
     await processor({
       data: {
@@ -31,8 +32,21 @@ describe('user-sync processor', () => {
       name: 'Test User',
       cherry_user_id: 'user-1',
     });
+    expect(db.update).toHaveBeenCalled();
   });
 });
+
+function createDb(): { update: ReturnType<typeof vi.fn> } {
+  return {
+    update: vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: vi.fn(() => Promise.resolve([{ id: 'user-1' }])),
+        })),
+      })),
+    })),
+  };
+}
 
 describe('worker startup reconciliation', () => {
   it('runs permission reconciliation immediately at startup', async () => {

@@ -216,6 +216,7 @@ export class GroupService {
       for (const spaceId of affectedSpaces) {
         await this.publishSpacePermissionChanged(tenantId, spaceId);
       }
+      this.enqueuePermissionSyncForSpaces(tenantId, affectedSpaces);
 
       this.auditService.push({
         tenant_id: tenantId,

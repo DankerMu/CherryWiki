@@ -45,7 +45,7 @@ export type PermissionSyncJobData = {
 };
 
 type SpacePermissionRow = {
-  userId: string;
+  userId: string | null;
   email: string;
   cherryRole: string;
 };
@@ -123,7 +123,7 @@ export async function loadSpacePermissionMembers(
 ): Promise<PermissionMember[]> {
   const rows = await db
     .select({
-      userId: users.id,
+      userId: users.docmost_user_id,
       email: users.email,
       cherryRole: space_permissions.permission,
     })
@@ -195,7 +195,7 @@ function collapsePermissionRows(rows: SpacePermissionRow[]): PermissionMember[] 
   const membersByUserId = new Map<string, PermissionMember>();
 
   for (const row of rows) {
-    if (row.email.length === 0) {
+    if (row.userId === null || row.email.length === 0) {
       continue;
     }
 
