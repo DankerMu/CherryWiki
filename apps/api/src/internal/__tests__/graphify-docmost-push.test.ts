@@ -8,7 +8,7 @@ import {
   RedisJobLock,
   type JobRow,
 } from '@cherrygraph/job-core';
-import { graphifyRuns } from '@cherrygraph/shared';
+import { graphifyRuns, spaces } from '@cherrygraph/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { BridgeQueueService } from '../../bridge/bridge-queue.service.js';
@@ -20,7 +20,7 @@ describe('Graphify completion docmost push dispatch', () => {
     vi.restoreAllMocks();
   });
 
-  it('enqueues a docmost-push job when Graphify completion succeeds', async () => {
+  it('enqueues a docmost-push job when Graphify completion succeeds for a mapped space', async () => {
     const context = await runGraphifyCompletion();
 
     expect(context.enqueueSpy).toHaveBeenCalledWith({
@@ -28,6 +28,25 @@ describe('Graphify completion docmost push dispatch', () => {
       spaceId: 'space-1',
       tenantId: 'tenant-1',
     });
+  });
+
+  it('skips docmost-push when Graphify completion succeeds for an unmapped space', async () => {
+    const infoSpy = vi.spyOn(getApiLogger(), 'info').mockImplementation(() => undefined);
+    const context = await runGraphifyCompletion({ docmostSpaceId: null });
+
+    expect(context.enqueueSpy).not.toHaveBeenCalled();
+    expect(context.db.updates).toEqual([]);
+    expect(infoSpy).toHaveBeenCalledWith(
+      { job_id: 'graphify-job-1', run_id: 'run-1', space_id: 'space-1' },
+      'Docmost push skipped: space not mapped to Docmost',
+    );
+  });
+
+  it('does not enqueue docmost-push when Graphify completion does not succeed', async () => {
+    const context = await runGraphifyCompletion({ completedRunStatus: 'failed' });
+
+    expect(context.enqueueSpy).not.toHaveBeenCalled();
+    expect(context.db.updates).toEqual([]);
   });
 
   it('transitions the run from succeeded to docmost_syncing after enqueue', async () => {
@@ -75,14 +94,16 @@ type RunContext = {
 };
 
 type RunOptions = {
+  completedRunStatus?: 'succeeded' | 'failed';
+  docmostSpaceId?: string | null;
   enqueueDocmostPushJob?: () => Promise<void>;
 };
 
 async function runGraphifyCompletion(options: RunOptions = {}): Promise<RunContext> {
-  const db = new GraphifyDocmostDb();
+  const db = new GraphifyDocmostDb(options.docmostSpaceId === undefined ? 'docmost-space-1' : options.docmostSpaceId);
   const redis = createRedisMock();
   const graphifyService = {
-    handleRunCompletion: vi.fn(() => Promise.resolve({ status: 'succeeded', space_id: 'space-1' })),
+    handleRunCompletion: vi.fn(() => Promise.resolve({ status: options.completedRunStatus ?? 'succeeded', space_id: 'space-1' })),
   };
   const enqueueSpy = vi.fn(() => {
     db.operations.push('enqueue');
@@ -151,8 +172,28 @@ class GraphifyDocmostDb {
   readonly updates: Array<{ table: unknown; values: Record<string, unknown> }> = [];
   readonly operations: string[] = [];
 
+  constructor(private readonly docmostSpaceId: string | null) {}
+
   async transaction<T>(callback: (tx: unknown) => Promise<T>): Promise<T> {
     return callback(this);
+  }
+
+  select(): {
+    from: (table: unknown) => {
+      where: () => Promise<Array<{ docmost_space_id: string | null }>>;
+    };
+  } {
+    return {
+      from: (table) => ({
+        where: () => {
+          if (table !== spaces) {
+            return Promise.resolve([]);
+          }
+
+          return Promise.resolve([{ docmost_space_id: this.docmostSpaceId }]);
+        },
+      }),
+    };
   }
 
   update(table: unknown): {

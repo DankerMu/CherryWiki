@@ -47,7 +47,10 @@
 
 - [ ] 3.1 在 `InternalJobsService.handleGraphifyCompletion()` 中（已有 enqueue 调用处），增加 `spaces.docmost_space_id` 检查：仅在非 null 时 enqueue docmost-push
 - [ ] 3.2 确保 InternalJobsService 已注入 SpaceService 或可查询 spaces 表获取 docmost_space_id
-- [ ] 3.3 测试：Graphify 完成（mapped space）→ docmost-push 队列有任务 → Docmost 中出现 wiki 页面；Graphify 完成（unmapped space）→ 无 push 任务
+- [ ] 3.3 测试：
+  - [ ] 3.3.1 Graphify 完成 + docmost_space_id 非 null → enqueueDocmostPushJob 被调用
+  - [ ] 3.3.2 Graphify 完成 + docmost_space_id 为 null → enqueueDocmostPushJob 不被调用
+  - [ ] 3.3.3 Graphify 失败 → 不 enqueue（无论 docmost_space_id 状态）
 
 ## user-permission-sync
 
