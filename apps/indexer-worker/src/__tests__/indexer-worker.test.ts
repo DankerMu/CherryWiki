@@ -19,6 +19,7 @@ import type { IndexSnapshotRow } from '../snapshot-manager.js';
 
 const now = new Date('2026-05-03T00:00:00.000Z');
 const modelConfigId = 'model-config-1';
+const staleBuildingSnapshotMs = 2 * 60 * 60 * 1000;
 
 describe('IndexerWorker', () => {
   let embeddingProvider: MockEmbeddingProvider;
@@ -81,7 +82,7 @@ describe('IndexerWorker', () => {
     expect(worker.insertedChunks[0]?.wiki_page_pk).toBe('published-pk');
   });
 
-  it('4.T4 moves snapshots through ready, activated, and superseded states', async () => {
+  it('4.T4 moves snapshots directly from building to activated and supersedes the previous active snapshot', async () => {
     worker.snapshots = [createSnapshot('old-snapshot', 'activated')];
     worker.activeSnapshotId = 'old-snapshot';
     worker.pages = [createPublishedPage('page-1', 'hello')];
@@ -89,10 +90,11 @@ describe('IndexerWorker', () => {
     const result = await worker.run(createJob());
 
     expect(worker.statusTransitions).toEqual([
-      { snapshotId: result.snapshot_id, status: 'ready' },
       { snapshotId: result.snapshot_id, status: 'activated' },
       { snapshotId: 'old-snapshot', status: 'superseded' },
     ]);
+    expect(worker.statusTransitions.some((transition) => transition.status === 'ready')).toBe(false);
+    expect(worker.snapshots.find((snapshot) => snapshot.id === result.snapshot_id)?.chunk_count).toBe(1);
     expect(worker.snapshots.find((snapshot) => snapshot.id === 'old-snapshot')?.status).toBe('superseded');
   });
 
@@ -169,6 +171,21 @@ describe('IndexerWorker', () => {
 
     await expect(worker.run(createJob())).rejects.toMatchObject({ code: 'INDEXING_IN_PROGRESS' });
     expect(worker.snapshots).toHaveLength(1);
+  });
+
+  it('auto-fails a stale building snapshot and allows a new build to proceed', async () => {
+    worker.snapshots = [
+      createSnapshot('stale-building-snapshot', 'building', {
+        created_at: new Date(now.getTime() - staleBuildingSnapshotMs - 1),
+      }),
+    ];
+    worker.pages = [createPublishedPage('page-1', 'hello')];
+
+    const result = await worker.run(createJob());
+
+    expect(worker.snapshots.find((snapshot) => snapshot.id === 'stale-building-snapshot')?.status).toBe('failed');
+    expect(worker.statusTransitions).toContainEqual({ snapshotId: 'stale-building-snapshot', status: 'failed' });
+    expect(worker.snapshots.find((snapshot) => snapshot.id === result.snapshot_id)?.status).toBe('activated');
   });
 
   it('allows different spaces to build independently', async () => {
@@ -289,6 +306,7 @@ class HarnessIndexerWorker extends IndexerWorker {
   buildingExists = false;
   failActivation = false;
   failProgressStage: string | undefined;
+  currentTime = now;
 
   constructor(readonly mockEmbeddingProvider: MockEmbeddingProvider) {
     super({} as JobDatabase, new RedisStub(), mockEmbeddingProvider, 'indexer-worker-test');
@@ -312,13 +330,27 @@ class HarnessIndexerWorker extends IndexerWorker {
   }
 
   protected override checkBuildingExists(tenantId: string, spaceId: string): Promise<boolean> {
-    return Promise.resolve(
-      this.buildingExists ||
-        this.snapshots.some(
-          (snapshot) =>
-            snapshot.tenant_id === tenantId && snapshot.space_id === spaceId && snapshot.status === 'building',
-        ),
+    if (this.buildingExists) {
+      return Promise.resolve(true);
+    }
+
+    const buildingSnapshot = this.snapshots.find(
+      (snapshot) => snapshot.tenant_id === tenantId && snapshot.space_id === spaceId && snapshot.status === 'building',
     );
+
+    if (buildingSnapshot === undefined) {
+      return Promise.resolve(false);
+    }
+
+    if (this.currentTime.getTime() - buildingSnapshot.created_at.getTime() <= staleBuildingSnapshotMs) {
+      return Promise.resolve(true);
+    }
+
+    buildingSnapshot.status = 'failed';
+    buildingSnapshot.activated_at = null;
+    this.statusTransitions.push({ snapshotId: buildingSnapshot.id, status: 'failed' });
+
+    return Promise.resolve(false);
   }
 
   protected override resolveEmbeddingModel(tenantId: string): Promise<ModelConfigRow> {
@@ -424,18 +456,7 @@ class HarnessIndexerWorker extends IndexerWorker {
     return Promise.resolve([]);
   }
 
-  protected override markSnapshotReady(snapshotId: string, chunkCount: number): Promise<void> {
-    const snapshot = this.snapshots.find((item) => item.id === snapshotId);
-    if (snapshot !== undefined) {
-      snapshot.status = 'ready';
-      snapshot.chunk_count = chunkCount;
-      this.statusTransitions.push({ snapshotId, status: 'ready' });
-    }
-
-    return Promise.resolve();
-  }
-
-  protected override activateSnapshot(snapshotId: string, spaceId: string): Promise<void> {
+  protected override activateSnapshot(snapshotId: string, spaceId: string, chunkCount: number): Promise<void> {
     void spaceId;
 
     if (this.failActivation) {
@@ -445,6 +466,7 @@ class HarnessIndexerWorker extends IndexerWorker {
     const newSnapshot = this.snapshots.find((snapshot) => snapshot.id === snapshotId);
     if (newSnapshot !== undefined) {
       newSnapshot.status = 'activated';
+      newSnapshot.chunk_count = chunkCount;
       newSnapshot.activated_at = now;
       this.statusTransitions.push({ snapshotId: newSnapshot.id, status: 'activated' });
     }

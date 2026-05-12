@@ -140,8 +140,7 @@ export class IndexerWorker extends AbstractBullMQWorker<IndexerBullMQPayload, In
         new Date(),
       );
 
-      await this.markSnapshotReady(snapshot.id, chunkPlans.length);
-      await this.activateSnapshot(snapshot.id, payload.space_id);
+      await this.activateSnapshot(snapshot.id, payload.space_id, chunkPlans.length);
       activationCommitted = true;
       await this.recordProgress(job.id, {
         stage: 'snapshot_activated',
@@ -350,12 +349,8 @@ export class IndexerWorker extends AbstractBullMQWorker<IndexerBullMQPayload, In
       .returning();
   }
 
-  protected markSnapshotReady(snapshotId: string, chunkCount: number): Promise<void> {
-    return SnapshotManager.markSnapshotReady(this.db, snapshotId, chunkCount);
-  }
-
-  protected activateSnapshot(snapshotId: string, spaceId: string): Promise<void> {
-    return SnapshotManager.activateSnapshot(this.db, snapshotId, spaceId);
+  protected activateSnapshot(snapshotId: string, spaceId: string, chunkCount: number): Promise<void> {
+    return SnapshotManager.activateSnapshot(this.db, snapshotId, spaceId, chunkCount);
   }
 
   protected markSnapshotFailed(snapshotId: string): Promise<void> {
