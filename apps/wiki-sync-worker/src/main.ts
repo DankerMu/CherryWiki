@@ -12,6 +12,7 @@ import { closeHealthServer, startHealthServer } from './health.js';
 import { reconcileOnStartup, type ReconciliationDb } from './reconciliation.js';
 import { reconcilePermissions } from './reconciliation/permission-reconcile.js';
 import { reconcileSpaces } from './reconciliation/space-reconcile.js';
+import { reconcileUsers } from './reconciliation/user-reconcile.js';
 import {
   createDocmostPushProcessor,
   type DocmostPushDeps,
@@ -41,6 +42,8 @@ const PAGE_SYNC_QUEUE = 'bridge-page-sync';
 const PERMISSION_SYNC_QUEUE = 'bridge-permission-sync';
 const ATTACHMENT_SYNC_QUEUE = 'bridge-attachment-sync';
 const DOCMOST_PUSH_QUEUE = 'bridge-docmost-push';
+const STARTUP_USER_SYNC_DRAIN_TIMEOUT_MS = 30_000;
+const STARTUP_USER_SYNC_DRAIN_POLL_MS = 1_000;
 
 const PAGE_SYNC_BACKOFF = {
   type: 'custom',
@@ -106,7 +109,7 @@ export async function bootstrap(): Promise<void> {
   const bridgeBaseUrl = process.env.DOCMOST_BRIDGE_BASE_URL ?? process.env.DOCMOST_BASE_URL ?? 'http://localhost:3000';
   const bridgeSecret = process.env.DOCMOST_BRIDGE_SECRET ?? process.env.DOCMOST_BRIDGE_TOKEN ?? '';
   const bridgeClient = createBridgeClient(bridgeBaseUrl, bridgeSecret);
-  await runStartupPermissionReconciliation(db as PermissionSyncDeps['db'], bridgeClient);
+  await queues.permissionSync.pause();
   const workers = createWorkers(connection, {
     pageSync: {
       db,
@@ -133,6 +136,20 @@ export async function bootstrap(): Promise<void> {
       bridgeClient,
     },
   });
+
+  try {
+    const userReconcileCount = await reconcileUsers(db as UserSyncDeps['db'], queues.userSync);
+    if (userReconcileCount > 0) {
+      console.log(`${WORKER_NAME}: enqueued user reconciliation jobs`, {
+        count: userReconcileCount,
+      });
+    }
+    await waitForUserSyncQueueToDrain(queues.userSync);
+    await runStartupPermissionReconciliation(db as PermissionSyncDeps['db'], bridgeClient);
+  } finally {
+    await queues.permissionSync.resume();
+  }
+
   const permissionReconcileTimer = startPermissionReconcileTimer(db, bridgeClient);
   const spaceReconcileTimer = startSpaceReconcileTimer(
     db as SpaceProvisionDeps['db'],
@@ -163,6 +180,42 @@ export async function bootstrap(): Promise<void> {
   process.once('SIGTERM', shutdown);
   process.once('SIGINT', shutdown);
   console.log(`${WORKER_NAME}: started`, { healthPort });
+}
+
+async function waitForUserSyncQueueToDrain(queue: BridgeWorkerQueues['userSync']): Promise<void> {
+  const deadline = Date.now() + STARTUP_USER_SYNC_DRAIN_TIMEOUT_MS;
+
+  for (;;) {
+    const pending = await getPendingUserSyncJobCount(queue);
+    if (pending === 0) {
+      return;
+    }
+
+    if (Date.now() >= deadline) {
+      console.warn(`${WORKER_NAME}: continuing startup with pending user-sync jobs`, {
+        pending,
+      });
+      return;
+    }
+
+    await sleep(STARTUP_USER_SYNC_DRAIN_POLL_MS);
+  }
+}
+
+async function getPendingUserSyncJobCount(queue: BridgeWorkerQueues['userSync']): Promise<number> {
+  const counts = await queue.getJobCounts('waiting', 'active', 'delayed', 'prioritized');
+  return (
+    (counts.waiting ?? 0) +
+    (counts.active ?? 0) +
+    (counts.delayed ?? 0) +
+    (counts.prioritized ?? 0)
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function createQueues(connection: IORedis): BridgeWorkerQueues {

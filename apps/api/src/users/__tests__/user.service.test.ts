@@ -7,6 +7,7 @@ import { UserService } from '../user.service.js';
 import {
   TEST_ACTOR_ID,
   TEST_GROUP_ID,
+  TEST_SPACE_ID,
   TEST_TENANT_ID,
   TEST_USER_ID,
   ScriptedDb,
@@ -93,9 +94,7 @@ describe('UserService', () => {
   });
 
   it('enqueues user sync after creating a user', async () => {
-    const bridgeQueue = {
-      enqueueUserSyncJob: vi.fn(() => Promise.resolve()),
-    };
+    const bridgeQueue = createBridgeQueueMock();
     const { service, db } = createServiceContext({ bridgeQueue });
 
     await service.createUser(
@@ -254,6 +253,24 @@ describe('UserService', () => {
     );
   });
 
+  it('enqueues permission sync for spaces affected by a disabled user', async () => {
+    const bridgeQueue = createBridgeQueueMock();
+    const { service, db } = createServiceContext({ bridgeQueue });
+    db.queueSelect([createUserRow({ status: 'active' })]);
+    db.queueUpdate([createUserRow({ status: 'disabled' })]);
+    db.queueSelect([{ space_id: TEST_SPACE_ID }]);
+    db.queueSelect([]);
+
+    await service.updateUser(TEST_USER_ID, { status: 'disabled' }, createContext());
+
+    await vi.waitFor(() => {
+      expect(bridgeQueue.enqueuePermissionSyncJob).toHaveBeenCalledWith({
+        tenantId: TEST_TENANT_ID,
+        spaceId: TEST_SPACE_ID,
+      });
+    });
+  });
+
   it('re-enables a user and records admin.user.update', async () => {
     const { service, db, audit, session, redis } = createServiceContext();
     db.queueSelect([createUserRow({ status: 'disabled' })]);
@@ -315,6 +332,21 @@ describe('UserService', () => {
     );
   });
 
+  it('enqueues permission sync for spaces affected by a deleted user', async () => {
+    const bridgeQueue = createBridgeQueueMock();
+    const { service, db } = createServiceContext({ bridgeQueue });
+    db.queueSelect([createUserRow({ status: 'active' })]);
+    db.queueSelect([{ space_id: TEST_SPACE_ID }]);
+    db.queueUpdate([createUserRow({ status: 'deleted', permission_version: 2 })]);
+
+    await service.deleteUser(TEST_USER_ID, createContext());
+
+    expect(bridgeQueue.enqueuePermissionSyncJob).toHaveBeenCalledWith({
+      tenantId: TEST_TENANT_ID,
+      spaceId: TEST_SPACE_ID,
+    });
+  });
+
   it('denies deleting yourself', async () => {
     const { service, db } = createServiceContext();
     db.queueSelect([createUserRow({ id: TEST_ACTOR_ID })]);
@@ -363,7 +395,7 @@ describe('UserService', () => {
 });
 
 function createServiceContext(
-  overrides: { bridgeQueue?: { enqueueUserSyncJob: ReturnType<typeof vi.fn> } } = {},
+  overrides: { bridgeQueue?: ReturnType<typeof createBridgeQueueMock> } = {},
 ): {
   service: UserService;
   db: ScriptedDb;
@@ -384,6 +416,16 @@ function createServiceContext(
   );
 
   return { service, db, audit, session, redis };
+}
+
+function createBridgeQueueMock(): {
+  enqueueUserSyncJob: ReturnType<typeof vi.fn<() => Promise<void>>>;
+  enqueuePermissionSyncJob: ReturnType<typeof vi.fn<() => Promise<void>>>;
+} {
+  return {
+    enqueueUserSyncJob: vi.fn(() => Promise.resolve()),
+    enqueuePermissionSyncJob: vi.fn(() => Promise.resolve()),
+  };
 }
 
 function createContext(

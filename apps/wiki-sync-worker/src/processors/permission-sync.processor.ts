@@ -50,11 +50,18 @@ type SpacePermissionRow = {
   cherryRole: string;
 };
 
+export type SpacePermissionMemberState = {
+  members: PermissionMember[];
+  pendingDocmostUserCount: number;
+};
+
 type PushSpacePermissionsResult = {
   pushed: boolean;
+  deferred?: boolean;
   tenantId?: string;
   docmostSpaceId?: string;
   version?: number;
+  pendingDocmostUserCount?: number;
   members: PermissionMember[];
 };
 
@@ -99,10 +106,27 @@ export async function pushSpacePermissions(
     return { pushed: false, members: [] };
   }
 
-  const members = await loadSpacePermissionMembers(db, {
+  const memberState = await loadSpacePermissionMemberState(db, {
     spaceId: data.spaceId,
     tenantId: space.tenantId,
   });
+  if (memberState.pendingDocmostUserCount > 0) {
+    console.info(`Permission sync deferred: ${memberState.pendingDocmostUserCount} users pending Docmost sync`, {
+      spaceId: data.spaceId,
+      tenantId: space.tenantId,
+    });
+    return {
+      pushed: false,
+      deferred: true,
+      tenantId: space.tenantId,
+      docmostSpaceId: space.docmostSpaceId,
+      version: space.permissionVersion,
+      pendingDocmostUserCount: memberState.pendingDocmostUserCount,
+      members: memberState.members,
+    };
+  }
+
+  const members = memberState.members;
   await bridgeClient.pushPermissions(space.docmostSpaceId, members, {
     version: space.permissionVersion,
     source: 'cherry_api',
@@ -121,6 +145,13 @@ export async function loadSpacePermissionMembers(
   db: DatabaseClient,
   data: { spaceId: string; tenantId: string },
 ): Promise<PermissionMember[]> {
+  return (await loadSpacePermissionMemberState(db, data)).members;
+}
+
+export async function loadSpacePermissionMemberState(
+  db: DatabaseClient,
+  data: { spaceId: string; tenantId: string },
+): Promise<SpacePermissionMemberState> {
   const rows = await db
     .select({
       userId: users.docmost_user_id,
@@ -143,6 +174,7 @@ export async function loadSpacePermissionMembers(
       and(
         eq(space_permissions.tenant_id, data.tenantId),
         eq(space_permissions.space_id, data.spaceId),
+        eq(users.status, 'active'),
       ),
     );
 
@@ -191,11 +223,17 @@ async function loadPermissionSyncSpace(
   return space;
 }
 
-function collapsePermissionRows(rows: SpacePermissionRow[]): PermissionMember[] {
+function collapsePermissionRows(rows: SpacePermissionRow[]): SpacePermissionMemberState {
   const membersByUserId = new Map<string, PermissionMember>();
+  const pendingDocmostUserIds = new Set<string>();
 
   for (const row of rows) {
-    if (row.userId === null || row.email.length === 0) {
+    if (row.userId === null) {
+      pendingDocmostUserIds.add(row.email);
+      continue;
+    }
+
+    if (row.email.length === 0) {
       continue;
     }
 
@@ -212,7 +250,10 @@ function collapsePermissionRows(rows: SpacePermissionRow[]): PermissionMember[] 
     });
   }
 
-  return [...membersByUserId.values()].sort((left, right) => left.email.localeCompare(right.email));
+  return {
+    members: [...membersByUserId.values()].sort((left, right) => left.email.localeCompare(right.email)),
+    pendingDocmostUserCount: pendingDocmostUserIds.size,
+  };
 }
 
 function normalizeCherryRole(permission: string): string {

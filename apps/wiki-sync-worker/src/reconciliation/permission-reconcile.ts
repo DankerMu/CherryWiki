@@ -3,7 +3,7 @@ import { isNotNull } from 'drizzle-orm';
 import { spaces } from '@cherrygraph/shared';
 
 import {
-  loadSpacePermissionMembers,
+  loadSpacePermissionMemberState,
   logPermissionAuditEvent,
   type DrizzleDatabase,
   type PermissionMember,
@@ -52,10 +52,19 @@ async function runPermissionReconcile(
     }
 
     try {
-      const expected = await loadSpacePermissionMembers(db, {
+      const expectedState = await loadSpacePermissionMemberState(db, {
         spaceId: space.spaceId,
         tenantId: space.tenantId,
       });
+      if (expectedState.pendingDocmostUserCount > 0) {
+        console.info(`Permission sync deferred: ${expectedState.pendingDocmostUserCount} users pending Docmost sync`, {
+          spaceId: space.spaceId,
+          tenantId: space.tenantId,
+        });
+        continue;
+      }
+
+      const expected = expectedState.members;
       const actual = await bridgeClient.getPermissions?.(space.docmostSpaceId);
       if (actual !== undefined && permissionMembersEqual(expected, actual)) {
         continue;

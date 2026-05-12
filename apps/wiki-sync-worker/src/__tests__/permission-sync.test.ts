@@ -33,7 +33,6 @@ describe('permission-sync processor', () => {
       { userId: 'docmost-writer', email: 'writer@example.com', cherryRole: 'space:edit' },
       { userId: 'docmost-reader', email: 'reader@example.com', cherryRole: 'space:view' },
       { userId: 'docmost-writer', email: 'writer@example.com', cherryRole: 'space:view' },
-      { userId: null, email: 'unsynced@example.com', cherryRole: 'space:admin' },
     ];
     const bridgeClient = createBridgeClient();
 
@@ -44,6 +43,19 @@ describe('permission-sync processor', () => {
       { userId: 'docmost-reader', email: 'reader@example.com', role: 'reader' },
       { userId: 'docmost-writer', email: 'writer@example.com', role: 'writer' },
     ], { version: 1, source: 'cherry_api' });
+  });
+
+  it('defers permission pushes while active users are pending Docmost sync', async () => {
+    const db = new PermissionSyncTestDb();
+    db.permissionRows = [
+      { userId: 'docmost-admin', email: 'admin@example.com', cherryRole: 'space:admin' },
+      { userId: null, email: 'unsynced@example.com', cherryRole: 'space:view' },
+    ];
+    const bridgeClient = createBridgeClient();
+
+    await runProcessor(db, bridgeClient);
+
+    expect(bridgeClient.pushPermissions).not.toHaveBeenCalled();
   });
 
   it('skips spaces that have not been synced to Docmost', async () => {

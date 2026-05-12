@@ -303,6 +303,10 @@ export class UserService {
       await this.publishUserPermissionChanged(tenantId, userId);
     }
 
+    if (changedFields.includes('status')) {
+      this.enqueuePermissionSyncForUserSpaces(tenantId, userId);
+    }
+
     this.auditService.push({
       tenant_id: tenantId,
       ...(context.actorUserId !== undefined ? { actor_user_id: context.actorUserId } : {}),
@@ -336,6 +340,7 @@ export class UserService {
     }
 
     const now = new Date();
+    const affectedSpaceIds = await this.getSpaceIdsForUserGroups(tenantId, userId);
     await this.db.transaction(async (tx) => {
       const txDb = tx as UserDatabase;
       const [deleted] = await txDb
@@ -362,6 +367,7 @@ export class UserService {
     });
 
     await this.publishUserPermissionChanged(tenantId, userId);
+    this.enqueuePermissionSyncForSpaces(tenantId, affectedSpaceIds);
 
     this.auditService.push({
       tenant_id: tenantId,
@@ -477,6 +483,43 @@ export class UserService {
       });
   }
 
+  private enqueuePermissionSyncForUserSpaces(tenantId: string, userId: string): void {
+    if (this.bridgeQueueService === undefined) {
+      return;
+    }
+
+    void this.getSpaceIdsForUserGroups(tenantId, userId)
+      .then((spaceIds) => this.enqueuePermissionSyncForSpaces(tenantId, spaceIds))
+      .catch((err: unknown) => {
+        getApiLogger().warn(
+          { err: toSafeErrorMessage(err), user_id: userId },
+          'Docmost permission sync enqueue failed',
+        );
+      });
+  }
+
+  private enqueuePermissionSyncForSpaces(tenantId: string, spaceIds: string[]): void {
+    if (this.bridgeQueueService === undefined) {
+      return;
+    }
+
+    const uniqueSpaceIds = [...new Set(spaceIds)].filter((spaceId) => spaceId.length > 0);
+    if (uniqueSpaceIds.length === 0) {
+      return;
+    }
+
+    void Promise.all(
+      uniqueSpaceIds.map((spaceId) =>
+        enqueuePermissionSync(this.bridgeQueueService as BridgeQueueService, spaceId, tenantId),
+      ),
+    ).catch((err: unknown) => {
+      getApiLogger().warn(
+        { err: toSafeErrorMessage(err), space_ids: uniqueSpaceIds },
+        'Docmost permission sync enqueue failed',
+      );
+    });
+  }
+
   private async getSpaceIdsForGroups(tenantId: string, groupIds: string[]): Promise<string[]> {
     if (groupIds.length === 0) {
       return [];
@@ -486,6 +529,22 @@ export class UserService {
       .select({ space_id: space_permissions.space_id })
       .from(space_permissions)
       .where(and(eq(space_permissions.tenant_id, tenantId), inArray(space_permissions.group_id, groupIds)));
+
+    return [...new Set(rows.map((row) => row.space_id))];
+  }
+
+  private async getSpaceIdsForUserGroups(tenantId: string, userId: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ space_id: space_permissions.space_id })
+      .from(group_members)
+      .innerJoin(
+        space_permissions,
+        and(
+          eq(group_members.tenant_id, space_permissions.tenant_id),
+          eq(group_members.group_id, space_permissions.group_id),
+        ),
+      )
+      .where(and(eq(group_members.tenant_id, tenantId), eq(group_members.user_id, userId)));
 
     return [...new Set(rows.map((row) => row.space_id))];
   }
