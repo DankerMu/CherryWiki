@@ -66,7 +66,7 @@ type SpaceSelectorProps = {
   selectedSpaceIds: string[];
   primarySpaceId: string;
   locked: boolean;
-  onChange: (spaceIds: string[]) => void;
+  onChange: (spaceIds: string[]) => Promise<void> | void;
   onStartNewSession: () => void;
 };
 
@@ -381,6 +381,31 @@ export default function Chat() {
     });
   }
 
+  async function patchSessionSpaces(nextSessionId: string, nextSpaceIds: string[]): Promise<void> {
+    await api.patch(
+      `/spaces/${encodeURIComponent(spaceId)}/chat/sessions/${encodeURIComponent(nextSessionId)}`,
+      { space_ids: nextSpaceIds },
+    );
+  }
+
+  async function handleSpaceChange(nextSpaceIds: string[]): Promise<void> {
+    const normalizedIds = normalizeSelectedSpaceIds(spaceId, nextSpaceIds);
+    if (sessionId !== null) {
+      const previousIds = selectedSpaceIds;
+      setSelectedSpaceIds(normalizedIds);
+      try {
+        await patchSessionSpaces(sessionId, normalizedIds);
+        await loadSessions(true);
+      } catch {
+        setSelectedSpaceIds(previousIds);
+        void message.error(t('chat.scopeUpdateFailed'));
+      }
+      return;
+    }
+
+    setSelectedSpaceIds(normalizedIds);
+  }
+
   async function handleSend(message: string, settings: ChatSettings): Promise<void> {
     const options: SendMessageOptions = {
       sessionId,
@@ -395,7 +420,7 @@ export default function Chat() {
   }
 
   const chatErrorMessage = getChatErrorMessage(streamError, selectedSpaceIds.length);
-  const selectorLocked = isStreaming || sessionId !== null;
+  const selectorLocked = isStreaming;
 
   return (
     <div className={`chat-page${isSidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
@@ -511,7 +536,7 @@ export default function Chat() {
             selectedSpaceIds={selectedSpaceIds}
             primarySpaceId={spaceId}
             locked={selectorLocked}
-            onChange={setSelectedSpaceIds}
+            onChange={handleSpaceChange}
             onStartNewSession={newChat}
           />
           <MessageInput
@@ -598,7 +623,7 @@ export function SpaceSelector({
               void message.warning(t('chat.spaceSelectorMax'));
               return;
             }
-            onChange(normalizedIds);
+            void onChange(normalizedIds);
           }}
         />
         {locked ? (

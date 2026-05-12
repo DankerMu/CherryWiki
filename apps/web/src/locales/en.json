@@ -916,6 +916,7 @@
     "spaceSelectorPlaceholder": "Add accessible spaces",
     "primarySpaceTag": "{{name}} (primary)",
     "scopeLocked": "Space scope is locked for this session",
+    "scopeUpdateFailed": "Failed to update chat scope",
     "spaceSelectorMax": "Maximum 10 spaces",
     "changeScopeNewChat": "New chat to change",
     "multiSpaceSelected": "{{count}} spaces selected: {{names}}",

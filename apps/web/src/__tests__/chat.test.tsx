@@ -3,6 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router';
+import { message as antdMessage } from 'antd';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '../i18n';
 import i18n from '../i18n';
@@ -34,6 +35,16 @@ const testUser: AuthUser = {
 
 beforeEach(async () => {
   await i18n.changeLanguage('zh-CN');
+  window.matchMedia ??= vi.fn().mockImplementation((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
 });
 
 afterEach(() => {
@@ -209,7 +220,7 @@ describe('Space selector', () => {
       />,
     );
 
-    fireEvent.mouseDown(screen.getByRole('combobox'));
+    fireEvent.mouseDown(getSpaceSelectorCombobox());
     fireEvent.click(await screen.findByText('Space Two'));
 
     expect(onChange).toHaveBeenCalledWith(['space-1', 'space-2']);
@@ -238,7 +249,24 @@ describe('Space selector', () => {
     expect(onChange).toHaveBeenCalledWith(['space-1']);
   });
 
-  it('locks selection during an active session', () => {
+  it('does not lock selection when not streaming', () => {
+    renderWithRouter(
+      <SpaceSelector
+        availableSpaces={[{ id: 'space-1', name: 'Space One' }]}
+        selectedSpaceIds={['space-1']}
+        primarySpaceId="space-1"
+        locked={false}
+        onChange={vi.fn()}
+        onStartNewSession={vi.fn()}
+      />,
+    );
+
+    expect(document.querySelector('.chat-space-selector.ant-select-disabled')).not.toBeInTheDocument();
+    expect(screen.queryByText('当前会话已锁定空间范围')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /新建对话以更改/ })).not.toBeInTheDocument();
+  });
+
+  it('locks selection while streaming', () => {
     renderWithRouter(
       <SpaceSelector
         availableSpaces={[{ id: 'space-1', name: 'Space One' }]}
@@ -270,7 +298,7 @@ describe('Space selector', () => {
       />,
     );
 
-    fireEvent.mouseDown(screen.getByRole('combobox'));
+    fireEvent.mouseDown(getSpaceSelectorCombobox());
 
     const extraOption = await screen.findByTitle('Space 11');
     expect(extraOption.closest('.ant-select-item-option-disabled')).not.toBeNull();
@@ -471,10 +499,11 @@ describe('Phase 3 chat controls and stream events', () => {
     fireEvent.click(await screen.findByText('Multi-space chat'));
 
     expect(await screen.findByText('Space Two')).toBeInTheDocument();
-    expect(screen.getByText('当前会话已锁定空间范围')).toBeInTheDocument();
+    expect(screen.queryByText('当前会话已锁定空间范围')).not.toBeInTheDocument();
+    expect(document.querySelector('.chat-space-selector.ant-select-disabled')).not.toBeInTheDocument();
   });
 
-  it('locks the selector after a session starts', async () => {
+  it('keeps the selector editable after a session starts', async () => {
     stubChatFetch({
       streamEvents: [
         { event: 'session', data: { session_id: 'session-started' } },
@@ -485,8 +514,69 @@ describe('Phase 3 chat controls and stream events', () => {
     renderChatRoute();
     await sendChatMessage('start a scoped session');
 
-    expect(await screen.findByText('当前会话已锁定空间范围')).toBeInTheDocument();
-    expect(document.querySelector('.chat-space-selector.ant-select-disabled')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('当前会话已锁定空间范围')).not.toBeInTheDocument());
+    expect(document.querySelector('.chat-space-selector.ant-select-disabled')).not.toBeInTheDocument();
+  });
+
+  it('rolls back selected spaces when updating an existing session fails', async () => {
+    const errorSpy = vi.spyOn(antdMessage, 'error').mockReturnValue(undefined as never);
+    const fetchState = stubChatFetch({
+      patchSessionSpacesStatus: 500,
+      sessions: [
+        {
+          id: 'session-multi',
+          title: 'Multi-space chat',
+          space_ids: ['space-1', 'space-2'],
+          space_details: [
+            { id: 'space-1', name: 'Space One' },
+            { id: 'space-2', name: 'Space Two' },
+          ],
+          created_at: '2026-05-01T10:00:00.000Z',
+          updated_at: '2026-05-01T11:00:00.000Z',
+        },
+      ],
+      sessionDetails: {
+        'session-multi': {
+          id: 'session-multi',
+          space_ids: ['space-1', 'space-2'],
+          space_details: [
+            { id: 'space-1', name: 'Space One' },
+            { id: 'space-2', name: 'Space Two' },
+          ],
+          messages: [],
+        },
+      },
+      streamEvents: [{ event: 'message.completed', data: {} }],
+    });
+
+    renderChatRoute();
+    fireEvent.click(await screen.findByText('Multi-space chat'));
+    expect(await screen.findByText('Space Two')).toBeInTheDocument();
+
+    const closeButton = document.querySelector('.chat-space-selector .ant-tag-close-icon');
+    expect(closeButton).toBeInTheDocument();
+    fireEvent.click(closeButton!);
+
+    await waitFor(() =>
+      expect(fetchState.calls).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: '/api/spaces/space-1/chat/sessions/session-multi',
+            body: { space_ids: ['space-1'] },
+          }),
+        ]),
+      ),
+    );
+    await waitFor(() => expect(errorSpy).toHaveBeenCalledWith('更新聊天范围失败'));
+
+    await sendChatMessage('continue with original scope');
+
+    await waitFor(() =>
+      expect(getLastChatCompletionBody(fetchState.calls)).toMatchObject({
+        session_id: 'session-multi',
+        space_ids: ['space-1', 'space-2'],
+      }),
+    );
   });
 
   it('sends enable_deep_analysis when the deep analysis toggle is on', async () => {
@@ -672,6 +762,12 @@ function renderWithRouter(element: ReactElement): void {
   render(<MemoryRouter>{element}</MemoryRouter>);
 }
 
+function getSpaceSelectorCombobox(): HTMLInputElement {
+  const combobox = document.querySelector<HTMLInputElement>('.chat-space-selector input[role="combobox"]');
+  expect(combobox).not.toBeNull();
+  return combobox!;
+}
+
 function fireTextareaKeyDown(textarea: HTMLTextAreaElement, init: KeyboardEventInit): void {
   fireEvent(textarea, new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
 }
@@ -759,12 +855,14 @@ function stubChatFetch({
   sessions = [],
   sessionDetails = {},
   streamEvents = [],
+  patchSessionSpacesStatus = 200,
 }: {
   databaseEnabled?: boolean;
   spaces?: StubSpace[];
   sessions?: StubSession[];
   sessionDetails?: Record<string, StubSessionDetail>;
   streamEvents?: StreamEvent[];
+  patchSessionSpacesStatus?: number;
 } = {}): { calls: FetchCall[] } {
   const calls: FetchCall[] = [];
 
@@ -772,7 +870,8 @@ function stubChatFetch({
     'fetch',
     vi.fn<typeof fetch>((input, init) => {
       const path = getRequestPath(input);
-      calls.push({ path, body: parseRequestBody(init?.body) });
+      const requestBody = parseRequestBody(init?.body);
+      calls.push({ path, body: requestBody });
 
       if (path === '/api/spaces') {
         return Promise.resolve(
@@ -792,6 +891,24 @@ function stubChatFetch({
       }
 
       const sessionDetailMatch = path.match(/^\/api\/spaces\/space-1\/chat\/sessions\/([^/]+)$/);
+      if (sessionDetailMatch !== null && init?.method === 'PATCH') {
+        return Promise.resolve(
+          patchSessionSpacesStatus >= 200 && patchSessionSpacesStatus < 300
+            ? jsonResponse({
+                data: {
+                  session_id: decodeURIComponent(sessionDetailMatch[1] ?? ''),
+                  space_ids: isRecord(requestBody) && Array.isArray(requestBody.space_ids) ? requestBody.space_ids : ['space-1'],
+                  space_details: spaces,
+                },
+                meta: { request_id: 'req-patch-session-spaces' },
+              })
+            : jsonResponse(
+                { error: { code: 'INTERNAL_ERROR', message: 'Failed to update chat scope' } },
+                patchSessionSpacesStatus,
+              ),
+        );
+      }
+
       if (sessionDetailMatch !== null) {
         const detail = sessionDetails[decodeURIComponent(sessionDetailMatch[1] ?? '')];
         return Promise.resolve(
@@ -880,6 +997,10 @@ function parseRequestBody(body: BodyInit | null | undefined): unknown {
   } catch {
     return null;
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function getRequestPath(input: RequestInfo | URL): string {

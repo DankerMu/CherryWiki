@@ -111,6 +111,15 @@ export type StreamCompletionInput = {
   auditContext?: ChatAuditContext;
 };
 
+type SpacePermissionCheckInput = {
+  tenantId: string;
+  userId: string;
+  userGroupIds: string[];
+  actorRole?: string;
+  actorPermissions?: string[];
+  spacePermissions?: Record<string, string[]>;
+};
+
 export type ChatStreamEvent =
   | { type: 'session'; session_id: string }
   | { type: 'content'; delta: string }
@@ -309,6 +318,66 @@ export class ChatService {
     });
 
     return sessionId;
+  }
+
+  async updateSessionSpaces(
+    tenantId: string,
+    sessionId: string,
+    userId: string,
+    primarySpaceId: string,
+    requestedSpaceIds: string[],
+    spacePermissions?: Record<string, string[]>,
+    userGroupIds: string[] = [],
+    actorRole?: string,
+  ): Promise<{ session_id: string; space_ids: string[]; space_details: SpaceDisplayInfo[] }> {
+    const normalizedSpaceIds = this.normalizeSpaceScope({
+      space_id: primarySpaceId,
+      space_ids: requestedSpaceIds,
+    });
+    const { session } = await this.requireSession(tenantId, sessionId, userId, primarySpaceId);
+    const spacesForScope = await this.requireSpaces(tenantId, normalizedSpaceIds);
+    await this.assertChatUseOnSpaces(
+      {
+        tenantId,
+        userId,
+        userGroupIds,
+        ...(actorRole !== undefined ? { actorRole } : {}),
+        ...(spacePermissions !== undefined ? { spacePermissions } : {}),
+      },
+      normalizedSpaceIds,
+    );
+
+    const now = new Date();
+    await this.db.transaction(async (tx) => {
+      await tx
+        .delete(chatSessionSpaces)
+        .where(and(eq(chatSessionSpaces.tenant_id, tenantId), eq(chatSessionSpaces.session_id, sessionId)));
+
+      await tx.insert(chatSessionSpaces).values(
+        normalizedSpaceIds.map((spaceId, position) => ({
+          session_id: sessionId,
+          tenant_id: tenantId,
+          space_id: spaceId,
+          position,
+          created_at: now,
+        })),
+      );
+
+      await tx
+        .update(chatSessions)
+        .set({ updated_at: now })
+        .where(and(eq(chatSessions.tenant_id, tenantId), eq(chatSessions.id, sessionId)));
+    });
+
+    const spaceById = new Map(spacesForScope.map((space) => [space.id, space]));
+    return {
+      session_id: session.id,
+      space_ids: normalizedSpaceIds,
+      space_details: normalizedSpaceIds.map((spaceId) => ({
+        id: spaceId,
+        name: spaceById.get(spaceId)?.name ?? spaceId,
+      })),
+    };
   }
 
   async listSessions(
@@ -889,11 +958,7 @@ export class ChatService {
 
     const result = await this.requireSession(tenantId, sessionId, userId, spaceId);
     if (explicitScope && !sameStringArray(result.spaceIds, requestedSpaceIds)) {
-      throwApiError(
-        ErrorCode.SESSION_SPACE_SCOPE_MISMATCH,
-        'Chat session Space scope cannot be changed',
-        HttpStatus.CONFLICT,
-      );
+      return { session: result.session, spaceIds: result.spaceIds };
     }
 
     return result;
@@ -1077,7 +1142,7 @@ export class ChatService {
     throwApiError(ErrorCode.VALIDATION_ERROR, 'At least one Space is required', HttpStatus.BAD_REQUEST);
   }
 
-  private async assertChatUseOnSpaces(input: StreamCompletionInput, spaceIds: string[]): Promise<void> {
+  private async assertChatUseOnSpaces(input: SpacePermissionCheckInput, spaceIds: string[]): Promise<void> {
     if (
       input.actorRole === undefined &&
       input.actorPermissions === undefined &&

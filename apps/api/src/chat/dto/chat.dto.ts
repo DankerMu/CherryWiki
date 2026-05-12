@@ -68,3 +68,13 @@ export class ChatSessionsQueryDto {
   @Max(100)
   limit = 20;
 }
+
+export class UpdateSessionSpacesDto {
+  @IsArray()
+  @IsString({ each: true })
+  @MinLength(1, { each: true })
+  @MaxLength(200, { each: true })
+  @ArrayMinSize(1)
+  @ArrayMaxSize(10)
+  space_ids!: string[];
+}

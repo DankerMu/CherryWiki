@@ -1,8 +1,8 @@
-import { Body, Controller, Delete, Get, HttpException, HttpStatus, Param, Post, Query, Req, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpException, HttpStatus, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
 import { Permissions, type AuthenticatedRequestUser } from '@cherrygraph/auth-core';
 import { ErrorCode } from '@cherrygraph/shared';
 
-import { ChatCompletionDto, ChatSessionsQueryDto } from './dto/chat.dto.js';
+import { ChatCompletionDto, ChatSessionsQueryDto, UpdateSessionSpacesDto } from './dto/chat.dto.js';
 import { ChatService, type ChatAuditContext, type ChatStreamEvent } from './chat.service.js';
 
 type RequestWithAuth = {
@@ -150,6 +150,29 @@ export class ChatController {
   ): ReturnType<ChatService['getSession']> {
     const user = getAuthenticatedUser(request);
     return this.chatService.getSession(user.tenant_id, sessionId, user.sub, spaceId);
+  }
+
+  @Patch('spaces/:spaceId/chat/sessions/:sessionId')
+  @Permissions('chat:use')
+  async updateSessionSpaces(
+    @Param('spaceId') spaceId: string,
+    @Param('sessionId') sessionId: string,
+    @Body() dto: UpdateSessionSpacesDto,
+    @Req() request: RequestWithAuth,
+  ): ReturnType<ChatService['updateSessionSpaces']> {
+    const user = getAuthenticatedUser(request);
+    const candidateSpacePermissions = request.space_permissions ?? user.space_permissions;
+    const spacePermissions = isSpacePermissionMap(candidateSpacePermissions) ? candidateSpacePermissions : undefined;
+    return this.chatService.updateSessionSpaces(
+      user.tenant_id,
+      sessionId,
+      user.sub,
+      spaceId,
+      dto.space_ids,
+      spacePermissions,
+      user.group_ids,
+      user.role,
+    );
   }
 
   @Delete('spaces/:spaceId/chat/sessions/:sessionId')
