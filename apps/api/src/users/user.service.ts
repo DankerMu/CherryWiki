@@ -65,6 +65,13 @@ export type AdminUserResponse = {
   created_at: Date;
 };
 
+export type AdminUserIdentity = {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+};
+
 type UserSortField = keyof Pick<
   typeof users,
   'created_at' | 'email' | 'display_name' | 'role' | 'status' | 'last_login_at'
@@ -353,6 +360,29 @@ export class UserService {
         email: existing.email,
       },
     });
+  }
+
+  async findFirstAdminUser(context: AdminContext = {}): Promise<AdminUserIdentity | undefined> {
+    const tenantId = await this.resolveTenantId(context);
+    const [user] = await this.db
+      .select({
+        id: users.id,
+        email: users.email,
+        name: users.display_name,
+        role: users.role,
+      })
+      .from(users)
+      .where(
+        and(
+          eq(users.tenant_id, tenantId),
+          inArray(users.role, [ROLES.OWNER, ROLES.ADMIN]),
+          eq(users.status, 'active'),
+        ),
+      )
+      .orderBy(asc(users.created_at))
+      .limit(1);
+
+    return user;
   }
 
   private async getUserGroupIds(tenantId: string, userIds: string[]): Promise<Map<string, string[]>> {

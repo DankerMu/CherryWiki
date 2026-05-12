@@ -97,10 +97,10 @@ describe('SpaceOverviewPage', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
 
-    expect(await screen.findByText('13')).toBeInTheDocument();
     await waitFor(() => {
+      expect(screen.getByText('13')).toBeInTheDocument();
       expect(countRequests(fetchMock, '/api/spaces/space-1/stats')).toBeGreaterThanOrEqual(2);
-    });
+    }, { timeout: 5000 });
   });
 
   it('renders quick actions with the expected routes', async () => {

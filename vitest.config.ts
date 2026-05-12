@@ -20,7 +20,14 @@ export default defineConfig({
     ],
   },
   test: {
-    include: ['packages/**/src/**/*.test.ts', 'apps/**/src/**/*.test.ts', 'apps/**/src/**/*.test.tsx', 'tests/**/*.test.ts'],
+    name: 'api',
+    include: [
+      'packages/**/src/**/*.test.ts',
+      'apps/**/src/**/*.test.ts',
+      'apps/**/src/**/*.spec.ts',
+      'apps/**/src/**/*.test.tsx',
+      'tests/**/*.test.ts',
+    ],
     exclude: runsExplicitWebTest ? configDefaults.exclude : [...configDefaults.exclude, 'apps/web/**'],
     passWithNoTests: true,
     coverage: {
