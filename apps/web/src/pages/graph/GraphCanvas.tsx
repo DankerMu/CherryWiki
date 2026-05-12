@@ -16,15 +16,19 @@ export type GraphCanvasData = {
 };
 
 const NODE_TYPE_COLORS: Record<string, string> = {
-  concept: '#2563eb',
-  entity: '#059669',
-  document: '#d97706',
-  topic: '#7c3aed',
-  person: '#dc2626',
-  organization: '#0891b2',
-  default: '#64748b',
+  concept: '#89b4fa',
+  entity: '#a6e3a1',
+  document: '#f9e2af',
+  topic: '#cba6f7',
+  person: '#f38ba8',
+  organization: '#89dceb',
+  default: '#94a3b8',
 };
-const DEFAULT_NODE_COLOR = '#64748b';
+const DEFAULT_NODE_COLOR = '#94a3b8';
+
+export function truncateNodeLabel(label: string, maxLength = 18): string {
+  return label.length > maxLength ? `${label.slice(0, maxLength)}…` : label;
+}
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => {
@@ -94,7 +98,7 @@ export default function GraphCanvas({
 
   function getNodeColor(node: NodeObject<GraphNode>): string {
     if (node.id === selectedNodeId) {
-      return '#f97316';
+      return '#fab387';
     }
 
     if (activeCommunityId !== null && node.community_id === activeCommunityId) {
@@ -105,11 +109,11 @@ export default function GraphCanvas({
   }
 
   function getLinkColor(link: LinkObject<GraphNode, GraphLink>): string {
-    return link.id === selectedEdgeId ? '#f97316' : 'rgba(71, 85, 105, 0.62)';
+    return link.id === selectedEdgeId ? '#fab387' : 'rgba(180, 190, 210, 0.45)';
   }
 
   return (
-    <div style={{ position: 'relative', minHeight: size.height, border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', background: '#ffffff' }}>
+    <div style={{ position: 'relative', minHeight: size.height, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, overflow: 'hidden', background: '#1e1e2e' }}>
       <div style={{ position: 'absolute', right: 12, top: 12, zIndex: 2 }}>
         <Tooltip title={t('graph.canvas.resetView')}>
           <Button aria-label={t('graph.canvas.resetView')} icon={<FullscreenOutlined />} onClick={resetView} />
@@ -128,9 +132,30 @@ export default function GraphCanvas({
           linkTarget="target"
           width={size.width}
           height={size.height}
-          backgroundColor="#ffffff"
+          backgroundColor="#1e1e2e"
           nodeColor={getNodeColor}
           nodeLabel={(node) => escapeHtml(node.label)}
+          nodeCanvasObject={(node, ctx, globalScale) => {
+            const label = node.label ?? '';
+            const displayLabel = truncateNodeLabel(label);
+            const size = 5;
+            const color = getNodeColor(node);
+
+            ctx.beginPath();
+            ctx.arc(node.x!, node.y!, size, 0, 2 * Math.PI, false);
+            ctx.fillStyle = color;
+            ctx.fill();
+
+            if (globalScale >= 0.5) {
+              const fontSize = 12 / globalScale;
+              ctx.font = `${fontSize}px Sans-Serif`;
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'top';
+              ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+              ctx.fillText(displayLabel, node.x!, node.y! + size + 2);
+            }
+          }}
+          nodeCanvasObjectMode={() => 'replace'}
           nodeRelSize={6}
           linkColor={getLinkColor}
           linkLabel={(link) => escapeHtml(link.relationship)}
