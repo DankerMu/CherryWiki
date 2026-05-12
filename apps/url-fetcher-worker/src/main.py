@@ -15,6 +15,7 @@ from .job_client import (
     poll_jobs,
     start_heartbeat_thread,
 )
+from .ssrf import DnsResolver, IpValidator, parse_blocked_cidrs
 from .storage_client import MinioStorageClient
 
 
@@ -28,13 +29,7 @@ def main() -> None:
 
     api_client = InternalApiClient.from_env()
     storage_client = MinioStorageClient.from_env()
-    fetcher = UrlFetcher(
-        max_response_bytes=_parse_int_env(
-            "URL_FETCH_MAX_RESPONSE_BYTES", DEFAULT_MAX_RESPONSE_BYTES
-        ),
-        connect_timeout_seconds=_parse_int_env("URL_FETCH_CONNECT_TIMEOUT_SECONDS", 10),
-        total_timeout_seconds=_parse_int_env("URL_FETCH_TIMEOUT_SECONDS", 30),
-    )
+    fetcher = _build_fetcher_from_env()
     handler = UrlFetchJobHandler(storage_client=storage_client, fetcher=fetcher)
     health_server = start_health_server(_parse_int_env("WORKER_HEALTH_PORT", 9092))
 
@@ -85,6 +80,33 @@ def _parse_float_env(name: str, default: float) -> float:
     if value is None or value.strip() == "":
         return default
     return float(value)
+
+
+def _parse_bool_env(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None or value.strip() == "":
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _build_fetcher_from_env() -> UrlFetcher:
+    proxy_url = os.environ.get("EGRESS_PROXY_URL")
+    proxy_required = _parse_bool_env("EGRESS_PROXY_REQUIRED", False)
+    if proxy_required and (proxy_url is None or proxy_url.strip() == ""):
+        raise RuntimeError("EGRESS_PROXY_REQUIRED=true requires EGRESS_PROXY_URL")
+
+    blocked_cidrs = parse_blocked_cidrs(os.environ.get("SSRF_BLOCKED_CIDRS"))
+    resolver = DnsResolver(ip_validator=IpValidator(forbidden_cidrs=blocked_cidrs))
+    return UrlFetcher(
+        resolver=resolver,
+        max_response_bytes=_parse_int_env(
+            "URL_FETCH_MAX_RESPONSE_BYTES", DEFAULT_MAX_RESPONSE_BYTES
+        ),
+        connect_timeout_seconds=_parse_int_env("URL_FETCH_CONNECT_TIMEOUT_SECONDS", 10),
+        total_timeout_seconds=_parse_int_env("URL_FETCH_TIMEOUT_SECONDS", 30),
+        proxy_url=proxy_url,
+        proxy_required=proxy_required,
+    )
 
 
 class _ActiveJobTracker:

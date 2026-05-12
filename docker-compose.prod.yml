@@ -173,8 +173,12 @@ services:
       HTTP_PROXY: ${HTTP_PROXY:-http://egress-proxy:3128}
       HTTPS_PROXY: ${HTTPS_PROXY:-http://egress-proxy:3128}
       NO_PROXY: ${NO_PROXY:-cherry-api,minio,localhost,127.0.0.1}
+      EGRESS_PROXY_URL: ${EGRESS_PROXY_URL:-http://egress-proxy:3128}
+      EGRESS_PROXY_REQUIRED: ${EGRESS_PROXY_REQUIRED:-true}
+      URL_FETCH_CONNECT_TIMEOUT_SECONDS: ${URL_FETCH_CONNECT_TIMEOUT_SECONDS:-10}
       URL_FETCH_TIMEOUT_SECONDS: ${URL_FETCH_TIMEOUT_SECONDS:-30}
       URL_FETCH_MAX_RESPONSE_BYTES: ${URL_FETCH_MAX_RESPONSE_BYTES:-52428800}
+      SSRF_BLOCKED_CIDRS: ${SSRF_BLOCKED_CIDRS:-127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,0.0.0.0/8,::1/128,fc00::/7,fe80::/10}
       WORKER_HEALTH_PORT: 9092
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9092/health', timeout=2).read()\""]

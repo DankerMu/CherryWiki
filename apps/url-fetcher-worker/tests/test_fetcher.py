@@ -119,6 +119,45 @@ def test_read_timeout_maps_to_request_timeout() -> None:
     assert exc.value.error_type == "request_timeout"
 
 
+def test_proxy_url_configured_routes_requests_through_proxy() -> None:
+    session = FakeSession(
+        [FakeResponse(200, b"hello", {"content-type": "text/plain"})]
+    )
+    fetcher = UrlFetcher(
+        resolver=FakeResolver({"example.com": ["93.184.216.34"]}),
+        session=session,
+        proxy_url="http://proxy.example:3128",
+    )
+
+    fetcher.fetch("http://example.com/proxied")
+
+    assert session.requests[0]["kwargs"]["proxies"] == {
+        "http": "http://proxy.example:3128",
+        "https": "http://proxy.example:3128",
+    }
+
+
+def test_proxy_required_unreachable_proxy_fails_closed() -> None:
+    session = FakeSession([], error=requests.exceptions.ProxyError("proxy down"))
+    fetcher = UrlFetcher(
+        resolver=FakeResolver({"example.com": ["93.184.216.34"]}),
+        session=session,
+        proxy_url="http://127.0.0.1:1",
+        proxy_required=True,
+    )
+
+    with pytest.raises(FetchError) as exc:
+        fetcher.fetch("http://example.com/proxied")
+
+    assert exc.value.error_type == "fetch_error"
+    assert "proxy down" in str(exc.value)
+    assert len(session.requests) == 1
+    assert session.requests[0]["kwargs"]["proxies"] == {
+        "http": "http://127.0.0.1:1",
+        "https": "http://127.0.0.1:1",
+    }
+
+
 class FakeResolver:
     def __init__(self, records: dict[str, list[str]]) -> None:
         self.records = records

@@ -50,13 +50,30 @@ class UrlFetcher:
         connect_timeout_seconds: int = DEFAULT_CONNECT_TIMEOUT_SECONDS,
         total_timeout_seconds: int = DEFAULT_TOTAL_TIMEOUT_SECONDS,
         max_redirects: int = DEFAULT_MAX_REDIRECTS,
+        proxy_url: str | None = None,
+        proxy_required: bool = False,
     ) -> None:
         self.resolver = resolver or DnsResolver()
-        self.session = session or requests.Session()
+        if session is None:
+            self.session = requests.Session()
+            self.session.trust_env = False
+        else:
+            self.session = session
         self.max_response_bytes = max_response_bytes
         self.connect_timeout_seconds = connect_timeout_seconds
         self.total_timeout_seconds = total_timeout_seconds
         self.max_redirects = max_redirects
+        self.proxy_url = proxy_url.strip() if proxy_url is not None else None
+        if self.proxy_url == "":
+            self.proxy_url = None
+        if proxy_required and self.proxy_url is None:
+            raise ValueError("proxy_required requires proxy_url")
+        self.proxy_required = proxy_required
+        self.proxies = (
+            {"http": self.proxy_url, "https": self.proxy_url}
+            if self.proxy_url is not None
+            else None
+        )
 
     def fetch(self, url: str) -> FetchSnapshot:
         current_url = self._normalize_url(url)
@@ -195,6 +212,7 @@ class UrlFetcher:
                 stream=True,
                 timeout=(self.connect_timeout_seconds, remaining),
                 cookies={},
+                proxies=self.proxies,
             )
         except requests.exceptions.ConnectTimeout as exc:
             raise ConnectionTimeoutError(
