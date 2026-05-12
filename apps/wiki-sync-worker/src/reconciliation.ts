@@ -1,5 +1,5 @@
 import { bridgeEvents, type BridgeEventType } from '@cherrygraph/shared';
-import { and, asc, eq, lt } from 'drizzle-orm';
+import { and, asc, eq, gt, lt, or } from 'drizzle-orm';
 
 export type BridgeSyncJobData = {
   bridgeEventId: string;
@@ -26,15 +26,17 @@ export type ReconciliationQueues = {
 
 type BridgeEventRow = typeof bridgeEvents.$inferSelect;
 type BridgeEventInsert = typeof bridgeEvents.$inferInsert;
+type ReconciliationCursor = {
+  receivedAt: Date;
+  id: string;
+};
 
 export type ReconciliationDb = {
   select: () => {
     from: (table: typeof bridgeEvents) => {
       where: (condition: unknown) => {
         orderBy: (...columns: unknown[]) => {
-          limit: (limit: number) => {
-            offset: (offset: number) => Promise<BridgeEventRow[]>;
-          };
+          limit: (limit: number) => PromiseLike<BridgeEventRow[]>;
         };
       };
     };
@@ -52,6 +54,7 @@ const RECONCILIATION_BATCH_SIZE = 50;
 export async function reconcileOnStartup(
   db: ReconciliationDb,
   queues: ReconciliationQueues,
+  options: { batchSize?: number } = {},
 ): Promise<number> {
   const staleThreshold = new Date(Date.now() - STUCK_PROCESSING_MS);
   await db
@@ -62,26 +65,44 @@ export async function reconcileOnStartup(
     );
 
   let enqueued = 0;
-  let offset = 0;
+  let cursor: ReconciliationCursor | undefined;
+  const batchSize = options.batchSize ?? RECONCILIATION_BATCH_SIZE;
 
   while (true) {
     const events = await db
       .select()
       .from(bridgeEvents)
-      .where(eq(bridgeEvents.status, 'received'))
+      .where(receivedEventsCondition(cursor))
       .orderBy(asc(bridgeEvents.received_at), asc(bridgeEvents.id))
-      .limit(RECONCILIATION_BATCH_SIZE)
-      .offset(offset);
+      .limit(batchSize);
 
     const results = await Promise.allSettled(events.map((event) => enqueueBridgeEvent(event, queues)));
     enqueued += results.filter((r) => r.status === 'fulfilled').length;
 
-    if (events.length < RECONCILIATION_BATCH_SIZE) {
+    if (events.length < batchSize) {
       return enqueued;
     }
 
-    offset += RECONCILIATION_BATCH_SIZE;
+    const last = events.at(-1);
+    if (last === undefined) {
+      return enqueued;
+    }
+    cursor = { receivedAt: last.received_at, id: last.id };
   }
+}
+
+function receivedEventsCondition(cursor: ReconciliationCursor | undefined): unknown {
+  if (cursor === undefined) {
+    return eq(bridgeEvents.status, 'received');
+  }
+
+  return and(
+    eq(bridgeEvents.status, 'received'),
+    or(
+      gt(bridgeEvents.received_at, cursor.receivedAt),
+      and(eq(bridgeEvents.received_at, cursor.receivedAt), gt(bridgeEvents.id, cursor.id)),
+    ),
+  );
 }
 
 async function enqueueBridgeEvent(
