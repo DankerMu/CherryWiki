@@ -20,6 +20,7 @@ import {
   type Role,
 } from './constants.js';
 import { PERMISSIONS_METADATA_KEY } from './permissions.decorator.js';
+import { PUBLIC_METADATA_KEY } from './public.decorator.js';
 
 export const SPACE_PERMISSION_RESOLVER = Symbol('SPACE_PERMISSION_RESOLVER');
 
@@ -76,6 +77,13 @@ export class RbacGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<RequestWithAuth>();
 
     if (requiredPermissions === undefined || requiredPermissions.length === 0) {
+      const isPublic =
+        this.reflector.getAllAndOverride<boolean>(PUBLIC_METADATA_KEY, [context.getHandler(), context.getClass()]) ===
+        true;
+      if (isPublic) {
+        return true;
+      }
+
       const user = request.user === undefined ? undefined : getValidatedRequestUser(request.user);
       if (user !== undefined && isApiTokenRequestUser(user)) {
         throw new ForbiddenException({

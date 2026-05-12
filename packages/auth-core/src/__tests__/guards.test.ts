@@ -207,6 +207,23 @@ describe('RbacGuard', () => {
     expect(getHttpExceptionMessage(error)).toBe('API token cannot access routes without explicit permission scope');
   });
 
+  it('allows an API token on a public route without explicit permissions', async () => {
+    const guard = new RbacGuard(new Reflector());
+    const handler = withPublicMetadata();
+
+    await expect(
+      guard.canActivate(
+        createContext({
+          handler,
+          request: {
+            params: {},
+            user: createApiTokenRequestUser({ scopes: ['mcp:invoke'] }),
+          },
+        }),
+      ),
+    ).resolves.toBe(true);
+  });
+
   it('allows a JWT session user on a route without explicit permissions', async () => {
     const guard = new RbacGuard(new Reflector());
 
@@ -489,6 +506,12 @@ function createContext(input: {
 function withPermissions(permissions: string[]): () => undefined {
   const handler = () => undefined;
   Reflect.defineMetadata(PERMISSIONS_METADATA_KEY, permissions, handler);
+  return handler;
+}
+
+function withPublicMetadata(): () => undefined {
+  const handler = () => undefined;
+  Reflect.defineMetadata(PUBLIC_METADATA_KEY, true, handler);
   return handler;
 }
 
