@@ -395,11 +395,12 @@ export default function Chat() {
       setSelectedSpaceIds(normalizedIds);
       try {
         await patchSessionSpaces(sessionId, normalizedIds);
-        await loadSessions(true);
       } catch {
         setSelectedSpaceIds(previousIds);
         void message.error(t('chat.scopeUpdateFailed'));
+        return;
       }
+      void loadSessions(true);
       return;
     }
 
