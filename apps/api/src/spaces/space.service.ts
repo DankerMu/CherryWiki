@@ -27,6 +27,7 @@ import {
 import { getApiLogger } from '../common/logger/logger.module.js';
 import { REDIS_CLIENT } from '../common/redis/redis.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
+import { BridgeQueueService } from '../bridge/bridge-queue.service.js';
 import {
   databaseConfigStorageValue,
   maskSpaceDatabaseConfig,
@@ -124,6 +125,7 @@ export class SpaceService {
     @Inject(DRIZZLE) private readonly db: SpaceDatabase,
     private readonly auditService: AuditService,
     @Optional() @Inject(REDIS_CLIENT) private readonly redis?: RedisPublisher,
+    @Optional() private readonly bridgeQueueService?: BridgeQueueService,
   ) {}
 
   async listSpaces(
@@ -209,6 +211,18 @@ export class SpaceService {
           name: created.name,
           slug: created.slug,
         },
+      });
+
+      void this.bridgeQueueService?.enqueueSpaceProvisionJob({
+        spaceId: created.id,
+        tenantId,
+        spaceName: created.name,
+        spaceSlug: created.slug,
+      }).catch((err: unknown) => {
+        getApiLogger().warn(
+          { err: toSafeErrorMessage(err), space_id: created.id },
+          'Docmost space provision enqueue failed',
+        );
       });
 
       return toSpaceDetail(created);
@@ -771,6 +785,10 @@ function escapeLikePattern(value: string): string {
 
 function normalizeSlug(slug: string): string {
   return slug.trim();
+}
+
+function toSafeErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function normalizePage(value: number | undefined): number {

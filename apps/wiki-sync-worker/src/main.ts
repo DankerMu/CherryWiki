@@ -11,6 +11,7 @@ import { createBridgeClient } from './bridge-client.js';
 import { closeHealthServer, startHealthServer } from './health.js';
 import { reconcileOnStartup, type ReconciliationDb } from './reconciliation.js';
 import { reconcilePermissions } from './reconciliation/permission-reconcile.js';
+import { reconcileSpaces } from './reconciliation/space-reconcile.js';
 import {
   createDocmostPushProcessor,
   type DocmostPushDeps,
@@ -24,6 +25,11 @@ import {
   createPermissionSyncProcessor,
   type PermissionSyncDeps,
 } from './processors/permission-sync.processor.js';
+import {
+  BRIDGE_SPACE_PROVISION_QUEUE,
+  createSpaceProvisionProcessor,
+  type SpaceProvisionDeps,
+} from './processors/space-provision.processor.js';
 
 const WORKER_NAME = 'wiki-sync-worker';
 const PAGE_SYNC_QUEUE = 'bridge-page-sync';
@@ -60,12 +66,14 @@ type BridgeWorkerQueues = {
   permissionSync: BullQueue;
   attachmentSync: BullQueue;
   docmostPush: BullQueue;
+  spaceProvision: BullQueue;
 };
 
 type BridgeWorkers = {
   pageSync: BullWorker;
   permissionSync: BullWorker;
   docmostPush: BullWorker;
+  spaceProvision: BullWorker;
 };
 
 export async function bootstrap(): Promise<void> {
@@ -86,6 +94,7 @@ export async function bootstrap(): Promise<void> {
   const queues = createQueues(connection);
 
   await reconcileOnStartup(db as unknown as ReconciliationDb, queues);
+  await reconcileSpaces(db as SpaceProvisionDeps['db'], queues.spaceProvision);
 
   const bridgeBaseUrl = process.env.DOCMOST_BRIDGE_BASE_URL ?? process.env.DOCMOST_BASE_URL ?? 'http://localhost:3000';
   const bridgeSecret = process.env.DOCMOST_BRIDGE_SECRET ?? process.env.DOCMOST_BRIDGE_TOKEN ?? '';
@@ -107,6 +116,10 @@ export async function bootstrap(): Promise<void> {
       db,
       bridgeClient,
     },
+    spaceProvision: {
+      db,
+      bridgeClient,
+    },
   });
   const permissionReconcileTimer = startPermissionReconcileTimer(db, bridgeClient);
 
@@ -116,6 +129,7 @@ export async function bootstrap(): Promise<void> {
       'permission-sync': queues.permissionSync,
       'attachment-sync': queues.attachmentSync,
       'docmost-push': queues.docmostPush,
+      'space-provision': queues.spaceProvision,
     },
     healthPort,
   );
@@ -132,12 +146,18 @@ function createQueues(connection: IORedis): BridgeWorkerQueues {
     permissionSync: new Queue(PERMISSION_SYNC_QUEUE, { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS }),
     attachmentSync: new Queue(ATTACHMENT_SYNC_QUEUE, { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS }),
     docmostPush: new Queue(DOCMOST_PUSH_QUEUE, { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS }),
+    spaceProvision: new Queue(BRIDGE_SPACE_PROVISION_QUEUE, { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS }),
   };
 }
 
 function createWorkers(
   connection: IORedis,
-  deps: { pageSync: PageSyncDeps; permissionSync: PermissionSyncDeps; docmostPush: DocmostPushDeps },
+  deps: {
+    pageSync: PageSyncDeps;
+    permissionSync: PermissionSyncDeps;
+    docmostPush: DocmostPushDeps;
+    spaceProvision: SpaceProvisionDeps;
+  },
 ): BridgeWorkers {
   const pageSync = new Worker(PAGE_SYNC_QUEUE, createPageSyncProcessor(deps.pageSync), {
     connection,
@@ -159,6 +179,14 @@ function createWorkers(
       concurrency: 1,
     },
   );
+  const spaceProvision = new Worker(
+    BRIDGE_SPACE_PROVISION_QUEUE,
+    createSpaceProvisionProcessor(deps.spaceProvision),
+    {
+      connection,
+      concurrency: 1,
+    },
+  );
 
   pageSync.on('error', (error) => {
     console.error(`${WORKER_NAME}: page-sync worker error`, error);
@@ -169,8 +197,11 @@ function createWorkers(
   permissionSync.on('error', (error) => {
     console.error(`${WORKER_NAME}: permission-sync worker error`, error);
   });
+  spaceProvision.on('error', (error) => {
+    console.error(`${WORKER_NAME}: space-provision worker error`, error);
+  });
 
-  return { pageSync, permissionSync, docmostPush };
+  return { pageSync, permissionSync, docmostPush, spaceProvision };
 }
 
 function startPermissionReconcileTimer(
@@ -226,8 +257,19 @@ async function shutdown(
   permissionReconcileTimer: ReturnType<typeof setInterval>,
 ): Promise<void> {
   let shutdownFailed = false;
-  const queueList = [queues.pageSync, queues.permissionSync, queues.attachmentSync, queues.docmostPush];
-  const workerList = [workers.pageSync, workers.permissionSync, workers.docmostPush];
+  const queueList = [
+    queues.pageSync,
+    queues.permissionSync,
+    queues.attachmentSync,
+    queues.docmostPush,
+    queues.spaceProvision,
+  ];
+  const workerList = [
+    workers.pageSync,
+    workers.permissionSync,
+    workers.docmostPush,
+    workers.spaceProvision,
+  ];
 
   try {
     console.log(`${WORKER_NAME}: shutting down`);

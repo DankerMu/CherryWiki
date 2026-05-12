@@ -31,7 +31,17 @@
 - [ ] 2.6 Wiki-sync worker: `main.ts` 注册 `bridge-space-provision` 队列常量、Queue 实例、Worker 实例，加入 health/shutdown 流程
 - [ ] 2.7 Wiki-sync worker: 新增 `space-provision.processor.ts`，消费队列：调用 Docmost Bridge 创建 Space → 更新 `spaces.docmost_space_id`
 - [ ] 2.8 Wiki-sync worker: `reconcileOnStartup` 增加 Space 对账：查找 `docmost_space_id = null` 的 active Space → 逐个入队
-- [ ] 2.9 测试：创建 Space → docmost_space_id 自动回填 → Docmost 中可见；启动对账回填已有 Space
+- [ ] 2.9 测试（Docmost Fork 端）：
+  - [ ] 2.9.1 POST /api/internal/bridge/spaces 成功创建 Space（返回 201 + docmost_space_id）
+  - [ ] 2.9.2 POST /api/internal/bridge/spaces 已存在 slug 时返回现有 Space（幂等性）
+  - [ ] 2.9.3 POST /api/internal/bridge/spaces 缺少必填字段返回 400
+- [ ] 2.10 测试（Cherry API 端）：
+  - [ ] 2.10.1 SpaceService.createSpace() 成功后 enqueue space-provision job
+  - [ ] 2.10.2 BridgeQueueService.enqueueSpaceProvisionJob() 正确入队
+- [ ] 2.11 测试（Wiki-sync worker 端）：
+  - [ ] 2.11.1 space-provision processor 调用 Bridge 创建 Space → 更新 docmost_space_id
+  - [ ] 2.11.2 space-provision processor Bridge 不可达时重试
+  - [ ] 2.11.3 reconcileOnStartup 查找 unmapped spaces 并逐个入队
 
 ## graphify-docmost-push-trigger
 
