@@ -117,14 +117,14 @@ services:
     read_only: true
     tmpfs:
       - /var/cache/nginx:size=64m,uid=101,gid=101,mode=0755
-      - /var/run:size=16m,mode=0755
+      - /var/run:size=16m,uid=101,gid=101,mode=0755
       - /tmp:size=64m,mode=1777
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:80/ >/dev/null"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80/ >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -316,7 +316,7 @@ services:
     read_only: true
     tmpfs:
       - /var/cache/nginx:size=64m,uid=101,gid=101,mode=0755
-      - /var/run:size=16m,mode=0755
+      - /var/run:size=16m,uid=101,gid=101,mode=0755
       - /tmp:size=64m,mode=1777
     security_opt:
       - no-new-privileges:true
