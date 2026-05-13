@@ -213,6 +213,20 @@ describe('page-sync processor', () => {
       createMetadataRow({ block_id: 'human-block', owner: 'human', content: '## Human Block\nOriginal', last_editor: 'old-user' }),
       createMetadataRow({ block_id: 'deleted-block', owner: 'human', content: '## Deleted Block\nRemoved' }),
     ];
+    db.currentVersion = createVersion({
+      content_markdown: frontmatter(
+        [
+          '## Graphify Block',
+          'Original',
+          '',
+          '## Human Block',
+          'Original',
+          '',
+          '## Deleted Block',
+          'Removed',
+        ].join('\n'),
+      ),
+    });
     const markdown = frontmatter(
       [
         '## Graphify Block',
@@ -228,7 +242,7 @@ describe('page-sync processor', () => {
 
     await runProcessor(db, bridgeClientWithMarkdown(markdown));
 
-    expect(db.insertedBlockMetadata).toHaveLength(3);
+    expect(db.insertedBlockMetadata).toHaveLength(4);
     expect(blockById(db, 'graphify-block')).toMatchObject({
       owner: 'human',
       last_editor: 'user-1',
@@ -245,7 +259,15 @@ describe('page-sync processor', () => {
       last_editor: 'user-1',
       editable: true,
     });
-    expect(db.insertedBlockMetadata.some((row) => row.block_id === 'deleted-block')).toBe(false);
+    expect(blockById(db, 'deleted-block')).toMatchObject({
+      owner: 'human',
+      editable: true,
+      content_hash: normalizeBlockHash('## Deleted Block\nRemoved'),
+    });
+    expect(db.insertedVersions[0]?.content_markdown).toContain(
+      '<!-- graphify:human:start id="deleted-block" retained="true" -->',
+    );
+    expect(db.insertedVersions[0]?.content_markdown).toContain('## Deleted Block\nRemoved');
   });
 
   it('coalesces stale same-page events so only the latest creates a version', async () => {

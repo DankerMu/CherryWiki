@@ -6,6 +6,7 @@ export interface BlockMetadataInfo {
   blockId: string;
   owner: 'graphify' | 'human';
   contentHash: string;
+  content?: string;
   normalizedContent?: string;
   graphifyRunId?: string;
   lastEditor?: string;
@@ -16,7 +17,7 @@ export interface BlockMatchResult {
   blockId: string;
   content: string;
   matchedMetadata?: BlockMetadataInfo;
-  matchType: 'marker' | 'heading' | 'hash' | 'new';
+  matchType: 'marker' | 'heading' | 'hash' | 'position' | 'new';
 }
 
 export interface MergeResult {
@@ -53,47 +54,115 @@ export function matchBlocksFallback(
   const sidecarByBlockId = new Map(sidecar.map((metadata) => [metadata.blockId, metadata]));
   const matchedSidecarIds = new Set<string>();
   const blocks = extractH2Blocks(markdown);
+  const results: BlockMatchResult[] = [];
 
-  return blocks.map((block, index) => {
+  for (const [index, block] of blocks.entries()) {
     const heading = readH2Heading(block.content);
     const headingBlockId = heading ? blockIdFromHeading(heading, index) : block.blockId;
-    const headingMatch = sidecarByBlockId.get(headingBlockId) ?? sidecarByBlockId.get(block.blockId);
+    const headingMatch = findFirstUnmatchedByBlockId(
+      [block.blockId, headingBlockId],
+      sidecarByBlockId,
+      matchedSidecarIds,
+    );
 
     if (headingMatch !== undefined && !matchedSidecarIds.has(headingMatch.blockId)) {
       matchedSidecarIds.add(headingMatch.blockId);
-      return {
+      results.push({
         blockId: headingMatch.blockId,
         content: block.content,
         matchedMetadata: headingMatch,
         matchType: 'heading',
-      };
+      });
+      continue;
+    }
+
+    const markerMatch = findMarkerMatch(block.content, markdown, block.start, sidecarByBlockId, matchedSidecarIds);
+    if (markerMatch !== undefined) {
+      matchedSidecarIds.add(markerMatch.blockId);
+      results.push({
+        blockId: markerMatch.blockId,
+        content: block.content,
+        matchedMetadata: markerMatch,
+        matchType: 'marker',
+      });
+      continue;
+    }
+
+    const stableHeadingMatch = findStableHeadingMatch(heading, sidecar, matchedSidecarIds);
+    if (stableHeadingMatch !== undefined) {
+      matchedSidecarIds.add(stableHeadingMatch.blockId);
+      results.push({
+        blockId: stableHeadingMatch.blockId,
+        content: block.content,
+        matchedMetadata: stableHeadingMatch,
+        matchType: 'heading',
+      });
+      continue;
     }
 
     const normalizedContent = normalizeBlockContent(block.content);
+    const hashMatch = findContentHashMatch(normalizedContent, sidecar, matchedSidecarIds);
+    if (hashMatch !== undefined) {
+      matchedSidecarIds.add(hashMatch.blockId);
+      results.push({
+        blockId: hashMatch.blockId,
+        content: block.content,
+        matchedMetadata: hashMatch,
+        matchType: 'hash',
+      });
+      continue;
+    }
+
     const contentMatch = findBestContentMatch(normalizedContent, sidecar, matchedSidecarIds);
     if (contentMatch !== undefined) {
       matchedSidecarIds.add(contentMatch.blockId);
-      return {
+      results.push({
         blockId: contentMatch.blockId,
         content: block.content,
         matchedMetadata: contentMatch,
         matchType: 'hash',
-      };
+      });
+      continue;
     }
 
-    return {
+    results.push({
       blockId: block.blockId,
       content: block.content,
       matchType: 'new',
-    };
-  });
+    });
+  }
+
+  const unmatchedSidecar = sidecar.filter((metadata) => !matchedSidecarIds.has(metadata.blockId));
+  const unmatchedBlockIndexes = results
+    .map((result, index) => ({ result, index }))
+    .filter(({ result }) => result.matchType === 'new');
+  if (sidecar.length === 1 && results.length === 1 && unmatchedSidecar.length === 1 && unmatchedBlockIndexes.length === 1) {
+    const metadata = unmatchedSidecar[0];
+    const unmatchedBlock = unmatchedBlockIndexes[0];
+    if (metadata !== undefined && unmatchedBlock !== undefined) {
+      results[unmatchedBlock.index] = {
+        blockId: metadata.blockId,
+        content: unmatchedBlock.result.content,
+        matchedMetadata: metadata,
+        matchType: 'position',
+      };
+    }
+  }
+
+  return results;
 }
 
 export function mergeBlocks(
   matchedBlocks: BlockMatchResult[],
   userId?: string,
   runId?: string,
+  sidecar: BlockMetadataInfo[] = [],
 ): MergeResult {
+  const matchedSidecarIds = new Set(
+    matchedBlocks
+      .map((block) => block.matchedMetadata?.blockId)
+      .filter((blockId): blockId is string => blockId !== undefined),
+  );
   const newMetadata = matchedBlocks.map((block) => {
     const contentHash = normalizeBlockHash(block.content);
     const existing = block.matchedMetadata;
@@ -135,10 +204,17 @@ export function mergeBlocks(
       editable: true,
     };
   });
+  const retainedHumanBlocks = sidecar.filter(
+    (metadata) => metadata.owner === 'human' && !matchedSidecarIds.has(metadata.blockId),
+  );
+  const retainedMarkdown = retainedHumanBlocks.map(formatRetainedHumanBlock);
 
   return {
-    mergedMarkdown: matchedBlocks.map((block) => block.content.trimEnd()).join('\n\n').trimEnd(),
-    newMetadata,
+    mergedMarkdown: [...matchedBlocks.map((block) => block.content.trimEnd()), ...retainedMarkdown]
+      .filter((content) => content.length > 0)
+      .join('\n\n')
+      .trimEnd(),
+    newMetadata: [...newMetadata, ...retainedHumanBlocks.map((metadata) => ({ ...metadata }))],
     proposals: [],
   };
 }
@@ -146,6 +222,85 @@ export function mergeBlocks(
 function readH2Heading(content: string): string | undefined {
   const match = /^##(?!#)[ \t]+(.+?)\s*#*\s*$/m.exec(content);
   return match?.[1]?.trim().replace(/\s+#*$/, '');
+}
+
+function findFirstUnmatchedByBlockId(
+  blockIds: string[],
+  sidecarByBlockId: Map<string, BlockMetadataInfo>,
+  matchedSidecarIds: Set<string>,
+): BlockMetadataInfo | undefined {
+  for (const blockId of new Set(blockIds)) {
+    const metadata = sidecarByBlockId.get(blockId);
+    if (metadata !== undefined && !matchedSidecarIds.has(metadata.blockId)) {
+      return metadata;
+    }
+  }
+
+  return undefined;
+}
+
+function findStableHeadingMatch(
+  heading: string | undefined,
+  sidecar: BlockMetadataInfo[],
+  matchedSidecarIds: Set<string>,
+): BlockMetadataInfo | undefined {
+  const headingKey = normalizeHeadingKey(heading);
+  if (headingKey === undefined) {
+    return undefined;
+  }
+
+  return findUniqueSidecarMatch(sidecar, matchedSidecarIds, (metadata) => {
+    const sidecarHeadingKey =
+      normalizeHeadingKey(readH2Heading(metadata.content ?? metadata.normalizedContent ?? '')) ??
+      normalizeHeadingKey(metadata.blockId.replace(/-/g, ' '));
+    return sidecarHeadingKey === headingKey;
+  });
+}
+
+function findContentHashMatch(
+  normalizedContent: string,
+  sidecar: BlockMetadataInfo[],
+  matchedSidecarIds: Set<string>,
+): BlockMetadataInfo | undefined {
+  const incomingFullHash = hashNormalizedContent(normalizedContent);
+  const incomingBodyContent = stripLeadingH2(normalizedContent);
+  const incomingBodyHash = hashNormalizedContent(incomingBodyContent);
+
+  return findUniqueSidecarMatch(sidecar, matchedSidecarIds, (metadata) => {
+    if (metadata.contentHash === incomingFullHash || metadata.contentHash === incomingBodyHash) {
+      return true;
+    }
+
+    if (metadata.normalizedContent === undefined && metadata.content === undefined) {
+      return false;
+    }
+
+    const sidecarContent = normalizeBlockContent(metadata.content ?? metadata.normalizedContent ?? '');
+    return (
+      hashNormalizedContent(sidecarContent) === incomingFullHash ||
+      hashNormalizedContent(stripLeadingH2(sidecarContent)) === incomingBodyHash
+    );
+  });
+}
+
+function findMarkerMatch(
+  content: string,
+  markdown: string,
+  blockStart: number,
+  sidecarByBlockId: Map<string, BlockMetadataInfo>,
+  matchedSidecarIds: Set<string>,
+): BlockMetadataInfo | undefined {
+  const markerId = readEmbeddedMarkerId(content) ?? readPrecedingMarkerId(markdown, blockStart);
+  if (markerId === undefined) {
+    return undefined;
+  }
+
+  const metadata = sidecarByBlockId.get(markerId);
+  if (metadata === undefined || matchedSidecarIds.has(metadata.blockId)) {
+    return undefined;
+  }
+
+  return metadata;
 }
 
 function findBestContentMatch(
@@ -173,6 +328,77 @@ function findBestContentMatch(
   }
 
   return bestMatch;
+}
+
+function findUniqueSidecarMatch(
+  sidecar: BlockMetadataInfo[],
+  matchedSidecarIds: Set<string>,
+  predicate: (metadata: BlockMetadataInfo) => boolean,
+): BlockMetadataInfo | undefined {
+  let match: BlockMetadataInfo | undefined;
+
+  for (const metadata of sidecar) {
+    if (matchedSidecarIds.has(metadata.blockId) || !predicate(metadata)) {
+      continue;
+    }
+
+    if (match !== undefined) {
+      return undefined;
+    }
+    match = metadata;
+  }
+
+  return match;
+}
+
+function normalizeHeadingKey(heading: string | undefined): string | undefined {
+  if (heading === undefined) {
+    return undefined;
+  }
+
+  const normalized = heading
+    .toLowerCase()
+    .trim()
+    .replace(/\p{P}+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function hashNormalizedContent(content: string): string {
+  return createHash('sha256').update(content).digest('hex');
+}
+
+function stripLeadingH2(content: string): string {
+  return content.replace(/^##(?!#)[ \t]+.+(?:\n|$)/, '').trimEnd();
+}
+
+function readEmbeddedMarkerId(content: string): string | undefined {
+  const markerMatch =
+    /<!--\s*(?:graphify:(?:managed|human)(?::retained)?|human:curated)(?::start)?\s+id="([^"]+)"/.exec(content);
+  return markerMatch?.[1];
+}
+
+function readPrecedingMarkerId(markdown: string, blockStart: number): string | undefined {
+  const beforeBlock = markdown.slice(0, blockStart);
+  const markerMatch =
+    /<!--\s*(?:graphify:(?:managed|human)|human:curated):start\s+id="([^"]+)"(?:\s+run="[^"]*")?\s*-->\s*$/.exec(
+      beforeBlock,
+    );
+  return markerMatch?.[1];
+}
+
+function formatRetainedHumanBlock(metadata: BlockMetadataInfo): string {
+  const content = (metadata.content ?? metadata.normalizedContent ?? '').trimEnd();
+  return [
+    `<!-- graphify:human:start id="${escapeMarkerAttribute(metadata.blockId)}" retained="true" -->`,
+    content,
+    '<!-- graphify:human:end -->',
+  ].join('\n');
+}
+
+function escapeMarkerAttribute(value: string): string {
+  return value.replace(/"/g, '&quot;');
 }
 
 function characterJaccardSimilarity(left: string, right: string): number {
