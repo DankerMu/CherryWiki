@@ -106,7 +106,7 @@ async function enqueueAffectedPermissionSyncJobs(
     uniqueSpaces.set(`${row.tenantId}:${row.spaceId}`, row);
   }
 
-  await Promise.all(
+  const results = await Promise.allSettled(
     [...uniqueSpaces.values()].map((space) =>
       queue.add('permission.sync', {
         spaceId: space.spaceId,
@@ -114,6 +114,12 @@ async function enqueueAffectedPermissionSyncJobs(
       }),
     ),
   );
+
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      console.error('user-sync: failed to enqueue permission-sync job', result.reason);
+    }
+  }
 }
 
 async function loadAffectedSyncedSpaces(
