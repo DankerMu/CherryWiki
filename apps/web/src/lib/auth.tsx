@@ -184,9 +184,33 @@ export function isAdminRole(role: string): boolean {
 }
 
 const SPACE_ROLE_PERMISSIONS: Record<SpaceRole, readonly string[]> = {
-  viewer: ['space:view', 'chat:use'],
-  editor: ['space:view', 'space:edit', 'chat:use', 'wiki:publish'],
-  admin: ['space:view', 'space:edit', 'space:admin', 'chat:use', 'wiki:publish', 'wiki:rollback'],
+  viewer: ['space:read', 'space:view', 'upload:read', 'chat:use', 'model:use'],
+  editor: [
+    'space:read',
+    'space:view',
+    'space:edit',
+    'upload:create',
+    'upload:read',
+    'wiki:publish',
+    'graphify:run',
+    'graphify:view',
+    'chat:use',
+    'model:use',
+  ],
+  admin: [
+    'space:read',
+    'space:view',
+    'space:edit',
+    'space:admin',
+    'upload:create',
+    'upload:read',
+    'wiki:publish',
+    'wiki:rollback',
+    'graphify:run',
+    'graphify:view',
+    'chat:use',
+    'model:use',
+  ],
 };
 
 function checkSpacePermission(user: AuthUser | null, spaceId: string, permission: string): boolean {

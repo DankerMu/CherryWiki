@@ -5,6 +5,7 @@ import type { ComponentProps } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '../i18n';
+import * as authModule from '../lib/auth';
 import { AuthProvider, type AuthUser } from '../lib/auth';
 import FileUploadZone from '../pages/uploads/FileUploadZone';
 import UploadCenter from '../pages/uploads/UploadCenter';
@@ -15,6 +16,7 @@ import type { UploadItem, UploadResponse, UploadStatus } from '../pages/uploads/
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -242,6 +244,59 @@ describe('UploadCenter', () => {
     });
   });
 
+  it('lets viewers read the upload list without rendering upload forms', async () => {
+    const fetchMock = stubUploadListApi();
+
+    renderUploadCenter(VIEWER_USER);
+
+    expect(await screen.findByText('roadmap.pdf')).toBeInTheDocument();
+    expect(screen.getByText('Space Documents')).toBeInTheDocument();
+    expect(screen.queryByText('Files')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Add URL/i })).not.toBeInTheDocument();
+    expect(getRequestUrls(fetchMock)).toContain('/api/spaces/space-1/uploads?page=1&per_page=20&sort=-created_at');
+  });
+
+  it('hides reprocess for read-only viewers on failed uploads', async () => {
+    const fetchMock = stubUploadListApi(
+      buildUpload({
+        id: 'source-failed',
+        filename: 'failed.pdf',
+        status: 'parse_failed',
+        mime_type: 'application/pdf',
+      }),
+    );
+
+    renderUploadCenter(VIEWER_USER);
+
+    expect(await screen.findByText('failed.pdf')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+
+    await waitFor(() => expect(screen.getAllByText('failed.pdf').length).toBeGreaterThan(1));
+    expect(screen.queryByRole('button', { name: 'Reprocess' })).not.toBeInTheDocument();
+    expect(getRequestUrls(fetchMock)).not.toContain('/api/uploads/source-failed/reprocess');
+  }, 30_000);
+
+  it('shows no permission and skips upload API requests when upload read is denied', async () => {
+    const fetchMock = stubUploadListApi();
+    vi.spyOn(authModule, 'useAuth').mockReturnValue({
+      user: NO_UPLOAD_PERMISSION_USER,
+      accessToken: 'test-token',
+      login: vi.fn(),
+      logout: vi.fn(),
+      refresh: vi.fn(),
+      isAuthenticated: true,
+      isAdmin: false,
+      hasSpacePermission: () => false,
+    });
+
+    renderUploadCenter(NO_UPLOAD_PERMISSION_USER);
+
+    expect(await screen.findByText('Access Denied')).toBeInTheDocument();
+    expect(screen.getByText('blocked@example.com does not have upload access for this space.')).toBeInTheDocument();
+    expect(screen.queryByText('Space Documents')).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('ignores stale upload drawer status responses after selection changes', async () => {
     const statusRequests = stubUploadDrawerRaceApi();
 
@@ -291,6 +346,7 @@ describe('UploadDetail', () => {
         open
         upload={buildUpload({ status: 'parse_failed' })}
         status={buildStatus({ status: 'parse_failed', progress_percent: 65 })}
+        canReprocess
         onClose={vi.fn()}
         onReprocessed={onReprocessed}
       />,
@@ -309,12 +365,31 @@ describe('UploadDetail', () => {
     expect(fetchMock.mock.calls[0]?.[1]?.method).toBe('POST');
   });
 
+  it('hides reprocess for failed uploads when reprocess is denied', () => {
+    const fetchMock = stubReprocessApi();
+
+    render(
+      <UploadDetail
+        open
+        upload={buildUpload({ status: 'parse_failed' })}
+        status={buildStatus({ status: 'parse_failed', progress_percent: 65 })}
+        canReprocess={false}
+        onClose={vi.fn()}
+        onReprocessed={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Reprocess' })).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('hides reprocess for completed uploads', () => {
     render(
       <UploadDetail
         open
         upload={buildUpload({ status: 'parsed' })}
         status={buildStatus({ status: 'parsed', progress_percent: 100 })}
+        canReprocess
         onClose={vi.fn()}
         onReprocessed={vi.fn()}
       />,
@@ -339,6 +414,18 @@ const TEST_USER: AuthUser = {
   spaces: [{ id: 'space-1', name: 'Space One', role: 'editor' }],
 };
 
+const VIEWER_USER: AuthUser = {
+  ...TEST_USER,
+  email: 'space-viewer@example.com',
+  spaces: [{ id: 'space-1', name: 'Space One', role: 'viewer' }],
+};
+
+const NO_UPLOAD_PERMISSION_USER: AuthUser = {
+  ...TEST_USER,
+  email: 'blocked@example.com',
+  spaces: [],
+};
+
 function renderUploadList(overrides: Partial<ComponentProps<typeof UploadList>> = {}) {
   const props: ComponentProps<typeof UploadList> = {
     uploads: [],
@@ -360,10 +447,10 @@ function renderUploadList(overrides: Partial<ComponentProps<typeof UploadList>> 
   return render(<UploadList {...props} />);
 }
 
-function renderUploadCenter() {
+function renderUploadCenter(user: AuthUser = TEST_USER) {
   return render(
     <MemoryRouter initialEntries={['/spaces/space-1/uploads']}>
-      <AuthProvider initialSession={{ user: TEST_USER, accessToken: 'test-token', expiresIn: 3600 }}>
+      <AuthProvider initialSession={{ user, accessToken: 'test-token', expiresIn: 3600 }}>
         <Routes>
           <Route path="/spaces/:spaceId/uploads" element={<UploadCenter />} />
           <Route path="/login" element={<h1>Login</h1>} />
@@ -445,19 +532,17 @@ function stubUrlUploadApi() {
   return fetchMock;
 }
 
-function stubUploadListApi() {
+function stubUploadListApi(upload: UploadItem = buildUpload({
+  id: 'source-roadmap',
+  filename: 'roadmap.pdf',
+  status: 'parsed',
+  mime_type: 'application/pdf',
+})) {
   const fetchMock = vi.fn<typeof fetch>((input, init) => {
     if (getRequestPath(input) === '/api/spaces/space-1/uploads' && init?.method === 'GET') {
       return Promise.resolve(
         jsonResponse({
-          data: [
-            buildUpload({
-              id: 'source-roadmap',
-              filename: 'roadmap.pdf',
-              status: 'parsed',
-              mime_type: 'application/pdf',
-            }),
-          ],
+          data: [upload],
           meta: {
             pagination: {
               page: 1,

@@ -521,6 +521,10 @@
       "title": "文档",
       "description": "浏览此空间的来源文档，添加文件或 URL，并跟踪处理状态。"
     },
+    "forbidden": {
+      "title": "无权访问",
+      "description": "{{email}} 没有此空间的上传权限。"
+    },
     "loading": "加载文档中...",
     "spaceSelector": "目标空间",
     "spaceSelectorLabel": "上传到空间",
@@ -788,6 +792,10 @@
       "loading": "加载图谱化运行中...",
       "emptyFilter": "没有图谱化运行匹配当前筛选条件。",
       "newRun": "新建运行",
+      "forbidden": {
+        "title": "无权访问",
+        "description": "{{email}} 没有此空间的图谱化权限。"
+      },
       "columns": {
         "run": "运行",
         "status": "状态",
