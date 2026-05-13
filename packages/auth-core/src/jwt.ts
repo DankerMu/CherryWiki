@@ -88,7 +88,7 @@ function isAccessTokenPayload(payload: JWTPayload): payload is VerifiedAccessTok
     payload.role.length > 0 &&
     Array.isArray(payload.group_ids) &&
     payload.group_ids.every((groupId) => typeof groupId === 'string') &&
-    (payload.session_id === undefined || typeof payload.session_id === 'string')
+    (payload.session_id === undefined || (typeof payload.session_id === 'string' && payload.session_id.trim().length > 0))
   );
 }
 
