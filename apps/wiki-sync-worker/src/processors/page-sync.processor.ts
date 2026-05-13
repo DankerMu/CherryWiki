@@ -239,7 +239,7 @@ async function processPageSaved(deps: PageSyncDeps, data: PageSyncJobData): Prom
   }
 
   const matchedBlocks = matchExportedBlocks(repaired.content, sidecar);
-  const mergeResult = mergeBlocks(matchedBlocks, user.userId, currentVersion?.graphify_run_id ?? undefined);
+  const mergeResult = mergeBlocks(matchedBlocks, user.userId, currentVersion?.graphify_run_id ?? undefined, sidecar);
   const contentMarkdown = generateFrontmatter(repaired.frontmatter, mergeResult.mergedMarkdown);
   const versionId = randomUUID();
   const versionNo = (currentVersion?.version_no ?? 0) + 1;
@@ -661,6 +661,7 @@ function enrichSidecarWithNormalizedContent(
 
     return {
       ...metadata,
+      content,
       normalizedContent: normalizeBlockContent(content),
     };
   });

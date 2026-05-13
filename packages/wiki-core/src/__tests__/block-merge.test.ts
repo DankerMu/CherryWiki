@@ -84,9 +84,12 @@ describe('block merge', () => {
       });
     });
 
-    it('marks unmatched markdown blocks as new and omits deleted sidecar blocks', () => {
+    it('marks unmatched markdown blocks as new when positional matching is ambiguous', () => {
       const markdown = '## New Section\nDraft';
-      const sidecar = [metadata({ blockId: 'deleted-section', content: '## Deleted Section\nGone' })];
+      const sidecar = [
+        metadata({ blockId: 'deleted-section', content: '## Deleted Section\nGone' }),
+        metadata({ blockId: 'other-deleted-section', content: '## Other Deleted Section\nGone' }),
+      ];
 
       const results = matchBlocksFallback(markdown, sidecar);
 
@@ -98,6 +101,53 @@ describe('block merge', () => {
         },
       ]);
       expect(results.some((result) => result.blockId === 'deleted-section')).toBe(false);
+    });
+
+    it('matches a heading change by exact body content hash before fuzzy matching', () => {
+      const previousContent = '## Overview\n\nThe import keeps curated prose intact.';
+      const regeneratedContent = '## Project Overview\n\nThe import keeps curated prose intact.';
+      const sidecar = [
+        metadata({
+          blockId: 'overview',
+          owner: 'human',
+          content: previousContent,
+        }),
+      ];
+
+      const [result] = matchBlocksFallback(regeneratedContent, sidecar);
+      const mergeResult = mergeBlocks(result ? [result] : [], 'user-1', 'gf-2', sidecar);
+
+      expect(result).toMatchObject({
+        blockId: 'overview',
+        matchType: 'hash',
+        matchedMetadata: sidecar[0],
+      });
+      expect(mergeResult.newMetadata[0]).toMatchObject({
+        blockId: 'overview',
+        owner: 'human',
+        editable: true,
+      });
+      expect(mergeResult.mergedMarkdown).not.toContain('graphify:human:retained');
+    });
+
+    it('matches by page-local position when exactly one sidecar entry and one incoming block remain', () => {
+      const markdown = '## Regenerated\nDifferent generated text.';
+      const sidecar = [
+        metadata({
+          blockId: 'legacy-human-section',
+          owner: 'human',
+          content: '## Legacy Human Section\nOriginal curated text.',
+        }),
+      ];
+
+      const [result] = matchBlocksFallback(markdown, sidecar);
+
+      expect(result).toMatchObject({
+        blockId: 'legacy-human-section',
+        content: markdown,
+        matchType: 'position',
+        matchedMetadata: sidecar[0],
+      });
     });
   });
 
@@ -188,6 +238,64 @@ describe('block merge', () => {
         },
       ]);
     });
+
+    it('retains completely unmatched human-owned sidecar blocks at the end', () => {
+      const overview = metadata({
+        blockId: 'overview',
+        owner: 'graphify',
+        content: '## Overview\nOriginal graphify text',
+        editable: false,
+      });
+      const notes = metadata({
+        blockId: 'my-notes',
+        owner: 'human',
+        content: '## My Notes\nHuman notes that Graphify did not regenerate.',
+      });
+      const matchedBlocks = matchBlocksFallback('## Overview\nRegenerated graphify text', [overview, notes]);
+
+      const result = mergeBlocks(matchedBlocks, 'user-1', 'gf-2', [overview, notes]);
+
+      expect(result.mergedMarkdown).toContain('## Overview\nRegenerated graphify text');
+      expect(result.mergedMarkdown).toContain(
+        '<!-- graphify:human:retained id="my-notes" reason="unmatched after Graphify regeneration" -->',
+      );
+      expect(result.mergedMarkdown).toContain('## My Notes\nHuman notes that Graphify did not regenerate.');
+      expect(result.mergedMarkdown).toContain('<!-- graphify:human:retained:end -->');
+      expect(result.newMetadata.find((block) => block.blockId === 'my-notes')).toMatchObject({
+        blockId: 'my-notes',
+        owner: 'human',
+        contentHash: notes.contentHash,
+        editable: true,
+      });
+    });
+
+    it('retains unmatched human-owned sidecar blocks when positional matching is ambiguous', () => {
+      const first = metadata({
+        blockId: 'first-human',
+        owner: 'human',
+        content: '## First Human\nFirst curated block.',
+      });
+      const second = metadata({
+        blockId: 'second-human',
+        owner: 'human',
+        content: '## Second Human\nSecond curated block.',
+      });
+      const matchedBlocks = matchBlocksFallback('## Regenerated\nUnrelated regenerated content.', [first, second]);
+
+      const result = mergeBlocks(matchedBlocks, 'user-1', 'gf-2', [first, second]);
+
+      expect(matchedBlocks[0]).toMatchObject({ blockId: 'regenerated', matchType: 'new' });
+      expect(result.mergedMarkdown).toContain('## Regenerated\nUnrelated regenerated content.');
+      expect(result.mergedMarkdown).toContain('id="first-human"');
+      expect(result.mergedMarkdown).toContain('## First Human\nFirst curated block.');
+      expect(result.mergedMarkdown).toContain('id="second-human"');
+      expect(result.mergedMarkdown).toContain('## Second Human\nSecond curated block.');
+      expect(result.newMetadata.filter((block) => block.owner === 'human').map((block) => block.blockId)).toEqual([
+        'regenerated',
+        'first-human',
+        'second-human',
+      ]);
+    });
   });
 });
 
@@ -204,6 +312,7 @@ function metadata(overrides: {
     blockId: overrides.blockId,
     owner: overrides.owner ?? 'human',
     contentHash: normalizeBlockHash(overrides.content),
+    content: overrides.content,
     normalizedContent: normalizeBlockContent(overrides.normalizedContent ?? overrides.content),
     ...(overrides.graphifyRunId !== undefined ? { graphifyRunId: overrides.graphifyRunId } : {}),
     ...(overrides.lastEditor !== undefined ? { lastEditor: overrides.lastEditor } : {}),
