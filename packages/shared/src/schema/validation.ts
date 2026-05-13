@@ -56,7 +56,7 @@ export const proposalStatusSchema = z.enum(['pending', 'accepted', 'rejected']);
 export const indexSnapshotStatusSchema = z.enum(['building', 'ready', 'activated', 'superseded', 'failed']);
 export const chunkIndexStatusSchema = z4.enum(['pending', 'indexed']);
 export const syncStatusSchema = z.union([
-  z.enum(['synced', 'sync_pending', 'conflict_required']),
+  z.enum(['synced', 'sync_pending', 'reindex_pending', 'conflict_required']),
   z.string().regex(/^redirect:[^\s]+$/),
 ]);
 export const feedbackTypeSchema = z.enum(['incorrect', 'missing', 'outdated', 'other', 'conflict']);

@@ -1,7 +1,9 @@
 import type { Job } from 'bullmq';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
 
 import {
   bridgeEvents,
@@ -40,6 +42,7 @@ export interface PageSyncDeps {
   db: DrizzleDatabase;
   bridgeClient: BridgeClient;
   wikiRepoPath: string;
+  reindexQueue?: { add: (name: string, data: Record<string, unknown>) => Promise<{ id?: string | number }> };
   permissionChecker?: (args: {
     userId?: string;
     spaceId: string;
@@ -170,17 +173,27 @@ export async function commitToWikiRepo(
   page: PageContext,
   content: string,
   user: WritebackUser,
-): Promise<{ commitHash: string | null; message: string }> {
-  const message = `[${page.spaceSlug}][human][${user.editId}] update ${page.page.slug}`;
-  console.log('wiki repo commit placeholder', {
-    wikiRepoPath: deps.wikiRepoPath,
-    pageId: page.page.page_id,
-    userId: user.userId,
-    contentBytes: Buffer.byteLength(content, 'utf8'),
-    message,
-  });
+): Promise<{ commitHash: string; repoPath: string; branch: string; message: string }> {
+  const safeSpaceSlug = sanitizePathSegment(page.spaceSlug);
+  const safePageSlug = sanitizePathSegment(page.page.slug);
+  const relativePath = `${safeSpaceSlug}/${safePageSlug}.md`;
+  const fullPath = join(deps.wikiRepoPath, relativePath);
+  const resolvedBase = resolve(deps.wikiRepoPath);
+  const resolvedFull = resolve(fullPath);
+  if (!resolvedFull.startsWith(`${resolvedBase}/`) && resolvedFull !== resolvedBase) {
+    throw new Error(`Wiki repo path traversal blocked: ${relativePath}`);
+  }
 
-  return { commitHash: null, message };
+  await mkdir(dirname(fullPath), { recursive: true });
+  await writeFile(fullPath, content, 'utf8');
+  const commitHash = createHash('sha256').update(content, 'utf8').digest('hex');
+  const message = `[${safeSpaceSlug}][human][${user.editId}] update ${safePageSlug}`;
+
+  return { commitHash, repoPath: relativePath, branch: 'main', message };
+}
+
+function sanitizePathSegment(segment: string): string {
+  return segment.replace(/[\/\\]/g, '_').replace(/\.\./g, '_').replace(/^\.+$/, '_');
 }
 
 async function processPageSaved(deps: PageSyncDeps, data: PageSyncJobData): Promise<void> {
@@ -254,14 +267,39 @@ async function processPageSaved(deps: PageSyncDeps, data: PageSyncJobData): Prom
       .update(wikiPages)
       .set({
         current_version_id: versionId,
-        sync_status: 'synced',
+        sync_status: 'reindex_pending',
         updated_at: new Date(),
       })
       .where(eq(wikiPages.id, page.page.id));
     await markBridgeEventProcessed(tx, data.bridgeEventId);
   });
 
-  console.log(`reindex triggered for page ${page.page.page_id}`);
+  if (deps.reindexQueue !== undefined) {
+    try {
+      const reindexJob = await deps.reindexQueue.add('reindex-page', {
+        tenant_id: page.page.tenant_id,
+        space_id: page.page.space_id,
+        trigger: 'page_sync',
+        scope: 'single_page',
+        page_id: page.page.page_id,
+      });
+      console.log('reindex enqueued', { pageId: page.page.page_id, jobId: reindexJob.id });
+      await deps.db
+        .update(wikiPages)
+        .set({ sync_status: 'synced', updated_at: new Date() })
+        .where(eq(wikiPages.id, page.page.id));
+    } catch (reindexError) {
+      console.error('reindex enqueue failed; page remains reindex_pending', {
+        pageId: page.page.page_id,
+        error: reindexError,
+      });
+    }
+  } else {
+    await deps.db
+      .update(wikiPages)
+      .set({ sync_status: 'synced', updated_at: new Date() })
+      .where(eq(wikiPages.id, page.page.id));
+  }
 }
 
 async function processPageDeleted(deps: PageSyncDeps, data: PageSyncJobData): Promise<void> {
@@ -280,7 +318,27 @@ async function processPageDeleted(deps: PageSyncDeps, data: PageSyncJobData): Pr
     .update(wikiPages)
     .set({ status: 'archived', updated_at: new Date() })
     .where(eq(wikiPages.id, page.page.id));
-  console.log(`reindex triggered for page ${page.page.page_id}`);
+  if (deps.reindexQueue !== undefined) {
+    try {
+      await deps.reindexQueue.add('invalidate-page', {
+        tenant_id: page.page.tenant_id,
+        space_id: page.page.space_id,
+        trigger: 'page_deleted',
+        scope: 'single_page',
+        page_id: page.page.page_id,
+      });
+    } catch (reindexError) {
+      await markBridgeEventFailed(deps.db, data.bridgeEventId, {
+        code: 'INVALIDATION_ENQUEUE_FAILED',
+        message: String(reindexError),
+      });
+      console.error('reindex invalidation enqueue failed; event marked failed', {
+        pageId: page.page.page_id,
+        error: reindexError,
+      });
+      return;
+    }
+  }
   await markBridgeEventProcessed(deps.db, data.bridgeEventId);
 }
 
