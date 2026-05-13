@@ -1044,8 +1044,11 @@ export class UploadsService {
   ): Promise<void> {
     try {
       await this.assertSpacePermission(tenantId, userId, spaceId, context, permissions);
-    } catch {
-      throwApiError(ErrorCode.UPLOAD_NOT_FOUND, 'Upload not found', HttpStatus.NOT_FOUND);
+    } catch (err) {
+      if (err instanceof HttpException && err.getStatus() === 403) {
+        throwApiError(ErrorCode.UPLOAD_NOT_FOUND, 'Upload not found', HttpStatus.NOT_FOUND);
+      }
+      throw err;
     }
   }
 

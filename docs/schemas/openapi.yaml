@@ -260,6 +260,8 @@ components:
         job_id: { type: string, nullable: true }
         status: { type: string }
         created: { type: boolean }
+        duplicate: { type: boolean }
+        error_code: { type: string }
 
     IngestionStatus:
       type: object
