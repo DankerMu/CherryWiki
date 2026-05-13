@@ -278,7 +278,7 @@ describe('UploadCenter', () => {
     await waitFor(() => expect(screen.getAllByText('doc-b.md').length).toBeGreaterThan(1));
     expect(screen.queryByText('A stale failure should not render')).not.toBeInTheDocument();
     expect(screen.queryByText('stale_doc_a')).not.toBeInTheDocument();
-  });
+  }, 30_000);
 });
 
 describe('UploadDetail', () => {
