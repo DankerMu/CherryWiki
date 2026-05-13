@@ -265,7 +265,7 @@ describe('page-sync processor', () => {
       content_hash: normalizeBlockHash('## Deleted Block\nRemoved'),
     });
     expect(db.insertedVersions[0]?.content_markdown).toContain(
-      '<!-- graphify:human:retained id="deleted-block" reason="unmatched after Graphify regeneration" -->',
+      '<!-- graphify:human:start id="deleted-block" retained="true" -->',
     );
     expect(db.insertedVersions[0]?.content_markdown).toContain('## Deleted Block\nRemoved');
   });

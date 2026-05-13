@@ -257,10 +257,10 @@ describe('block merge', () => {
 
       expect(result.mergedMarkdown).toContain('## Overview\nRegenerated graphify text');
       expect(result.mergedMarkdown).toContain(
-        '<!-- graphify:human:retained id="my-notes" reason="unmatched after Graphify regeneration" -->',
+        '<!-- graphify:human:start id="my-notes" retained="true" -->',
       );
       expect(result.mergedMarkdown).toContain('## My Notes\nHuman notes that Graphify did not regenerate.');
-      expect(result.mergedMarkdown).toContain('<!-- graphify:human:retained:end -->');
+      expect(result.mergedMarkdown).toContain('<!-- graphify:human:end -->');
       expect(result.newMetadata.find((block) => block.blockId === 'my-notes')).toMatchObject({
         blockId: 'my-notes',
         owner: 'human',

@@ -76,6 +76,18 @@ export function matchBlocksFallback(
       continue;
     }
 
+    const markerMatch = findMarkerMatch(block.content, markdown, block.start, sidecarByBlockId, matchedSidecarIds);
+    if (markerMatch !== undefined) {
+      matchedSidecarIds.add(markerMatch.blockId);
+      results.push({
+        blockId: markerMatch.blockId,
+        content: block.content,
+        matchedMetadata: markerMatch,
+        matchType: 'marker',
+      });
+      continue;
+    }
+
     const stableHeadingMatch = findStableHeadingMatch(heading, sidecar, matchedSidecarIds);
     if (stableHeadingMatch !== undefined) {
       matchedSidecarIds.add(stableHeadingMatch.blockId);
@@ -97,18 +109,6 @@ export function matchBlocksFallback(
         content: block.content,
         matchedMetadata: hashMatch,
         matchType: 'hash',
-      });
-      continue;
-    }
-
-    const markerMatch = findMarkerMatch(block.content, markdown, block.start, sidecarByBlockId, matchedSidecarIds);
-    if (markerMatch !== undefined) {
-      matchedSidecarIds.add(markerMatch.blockId);
-      results.push({
-        blockId: markerMatch.blockId,
-        content: block.content,
-        matchedMetadata: markerMatch,
-        matchType: 'marker',
       });
       continue;
     }
@@ -391,9 +391,9 @@ function readPrecedingMarkerId(markdown: string, blockStart: number): string | u
 function formatRetainedHumanBlock(metadata: BlockMetadataInfo): string {
   const content = (metadata.content ?? metadata.normalizedContent ?? '').trimEnd();
   return [
-    `<!-- graphify:human:retained id="${escapeMarkerAttribute(metadata.blockId)}" reason="unmatched after Graphify regeneration" -->`,
+    `<!-- graphify:human:start id="${escapeMarkerAttribute(metadata.blockId)}" retained="true" -->`,
     content,
-    '<!-- graphify:human:retained:end -->',
+    '<!-- graphify:human:end -->',
   ].join('\n');
 }
 
