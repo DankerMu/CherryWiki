@@ -286,7 +286,7 @@ export class UploadsService {
   async getUpload(sourceDocumentId: string, context: UploadContext = {}): Promise<UploadDetailDto> {
     const tenantId = resolveTenantId(context);
     const document = await this.getTenantDocument(sourceDocumentId, tenantId);
-    await this.assertSpacePermission(
+    await this.assertSpacePermissionOrNotFound(
       tenantId,
       resolveContextUserId(context),
       document.space_id,
@@ -300,7 +300,7 @@ export class UploadsService {
   async getUploadStatus(sourceDocumentId: string, context: UploadContext = {}): Promise<UploadStatusDto> {
     const tenantId = resolveTenantId(context);
     const document = await this.getTenantDocument(sourceDocumentId, tenantId);
-    await this.assertSpacePermission(
+    await this.assertSpacePermissionOrNotFound(
       tenantId,
       resolveContextUserId(context),
       document.space_id,
@@ -355,7 +355,7 @@ export class UploadsService {
     const tenantId = resolveTenantId(context);
     const userId = resolveContextUserId(context);
     const document = await this.getTenantDocument(sourceDocumentId, tenantId);
-    await this.assertSpacePermission(tenantId, userId, document.space_id, context, [...CREATE_SATISFYING_PERMISSIONS]);
+    await this.assertSpacePermissionOrNotFound(tenantId, userId, document.space_id, context, [...CREATE_SATISFYING_PERMISSIONS]);
 
     if (document.status === 'security_rejected') {
       throwApiError(
@@ -1032,6 +1032,20 @@ export class UploadsService {
 
     if (rows.length === 0) {
       throwApiError(ErrorCode.PERMISSION_DENIED, 'Permission denied', HttpStatus.FORBIDDEN);
+    }
+  }
+
+  private async assertSpacePermissionOrNotFound(
+    tenantId: string,
+    userId: string,
+    spaceId: string,
+    context: UploadContext,
+    permissions: string[],
+  ): Promise<void> {
+    try {
+      await this.assertSpacePermission(tenantId, userId, spaceId, context, permissions);
+    } catch {
+      throwApiError(ErrorCode.UPLOAD_NOT_FOUND, 'Upload not found', HttpStatus.NOT_FOUND);
     }
   }
 

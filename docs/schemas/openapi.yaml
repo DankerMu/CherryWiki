@@ -252,6 +252,15 @@ components:
         created_at: { type: string, format: date-time }
         processed_at: { type: string, format: date-time }
 
+    UploadResponse:
+      type: object
+      properties:
+        source_document_id: { type: string }
+        file_blob_id: { type: string, nullable: true }
+        job_id: { type: string, nullable: true }
+        status: { type: string }
+        created: { type: boolean }
+
     IngestionStatus:
       type: object
       properties:
@@ -1430,7 +1439,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  data: { $ref: '#/components/schemas/SourceDocument' }
+                  data: { $ref: '#/components/schemas/UploadResponse' }
         '403': { $ref: '#/components/responses/ForbiddenError' }
         '404': { $ref: '#/components/responses/NotFoundError' }
 

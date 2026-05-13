@@ -205,6 +205,23 @@ describe('RbacGuard', () => {
     ).resolves.toBe(true);
   });
 
+  it('throws 403 for a non-deferrable space-scoped permission without a target space', async () => {
+    const guard = new RbacGuard(new Reflector());
+    const handler = withPermissions(['wiki:publish']);
+
+    await expect(
+      guard.canActivate(
+        createContext({
+          handler,
+          request: {
+            params: {},
+            user: createRequestUser({ role: ROLES.EDITOR }),
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+
   it('throws 403 for a viewer requesting upload:create without a target space', async () => {
     const guard = new RbacGuard(new Reflector());
     const handler = withPermissions(['upload:create']);

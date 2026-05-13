@@ -113,7 +113,7 @@ describe('upload permission integration', () => {
     });
   });
 
-  it('returns 403 when a user lacks upload read permission for getUpload', async () => {
+  it('returns 404 when a user lacks upload read permission for getUpload', async () => {
     const context = createUploadIntegrationContext();
     const blob = context.fileBlobs.seed({ id: 'blob-denied' });
     context.sourceDocuments.seed({ id: 'source-denied', file_blob_id: blob.id, status: 'archived' });
@@ -123,8 +123,8 @@ describe('upload permission integration', () => {
       context.service.getUpload('source-denied', createViewerUploadContext({ actorPermissions: [] })),
     );
 
-    expect(denied.getStatus()).toBe(403);
-    expect(getHttpExceptionCode(denied)).toBe(ErrorCode.PERMISSION_DENIED);
+    expect(denied.getStatus()).toBe(404);
+    expect(getHttpExceptionCode(denied)).toBe(ErrorCode.UPLOAD_NOT_FOUND);
   });
 
   it('returns 404 for a non-existent upload before permission disclosure', async () => {
@@ -136,5 +136,24 @@ describe('upload permission integration', () => {
 
     expect(missing.getStatus()).toBe(404);
     expect(getHttpExceptionCode(missing)).toBe(ErrorCode.UPLOAD_NOT_FOUND);
+  });
+
+  it('returns the same status for inaccessible and missing uploads', async () => {
+    const inaccessibleContext = createUploadIntegrationContext();
+    const blob = inaccessibleContext.fileBlobs.seed({ id: 'blob-inaccessible' });
+    inaccessibleContext.sourceDocuments.seed({ id: 'source-inaccessible', file_blob_id: blob.id, status: 'archived' });
+    inaccessibleContext.db.queueSelect([]);
+
+    const inaccessible = await getRejectedHttpException(
+      inaccessibleContext.service.getUpload('source-inaccessible', createViewerUploadContext({ actorPermissions: [] })),
+    );
+
+    const missingContext = createUploadIntegrationContext();
+    const missing = await getRejectedHttpException(
+      missingContext.service.getUpload('source-missing', createViewerUploadContext({ actorPermissions: [] })),
+    );
+
+    expect(inaccessible.getStatus()).toBe(404);
+    expect(missing.getStatus()).toBe(404);
   });
 });
