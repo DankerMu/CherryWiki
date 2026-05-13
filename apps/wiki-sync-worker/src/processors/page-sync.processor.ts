@@ -3,7 +3,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 import {
   bridgeEvents,
@@ -42,7 +42,7 @@ export interface PageSyncDeps {
   db: DrizzleDatabase;
   bridgeClient: BridgeClient;
   wikiRepoPath: string;
-  reindexQueue?: { add: (name: string, data: Record<string, unknown>) => Promise<{ id?: string }> };
+  reindexQueue?: { add: (name: string, data: Record<string, unknown>) => Promise<{ id?: string | number }> };
   permissionChecker?: (args: {
     userId?: string;
     spaceId: string;
@@ -174,14 +174,26 @@ export async function commitToWikiRepo(
   content: string,
   user: WritebackUser,
 ): Promise<{ commitHash: string; repoPath: string; branch: string; message: string }> {
-  const relativePath = `${page.spaceSlug}/${page.page.slug}.md`;
+  const safeSpaceSlug = sanitizePathSegment(page.spaceSlug);
+  const safePageSlug = sanitizePathSegment(page.page.slug);
+  const relativePath = `${safeSpaceSlug}/${safePageSlug}.md`;
   const fullPath = join(deps.wikiRepoPath, relativePath);
+  const resolvedBase = resolve(deps.wikiRepoPath);
+  const resolvedFull = resolve(fullPath);
+  if (!resolvedFull.startsWith(`${resolvedBase}/`) && resolvedFull !== resolvedBase) {
+    throw new Error(`Wiki repo path traversal blocked: ${relativePath}`);
+  }
+
   await mkdir(dirname(fullPath), { recursive: true });
   await writeFile(fullPath, content, 'utf8');
   const commitHash = createHash('sha256').update(content, 'utf8').digest('hex');
-  const message = `[${page.spaceSlug}][human][${user.editId}] update ${page.page.slug}`;
+  const message = `[${safeSpaceSlug}][human][${user.editId}] update ${safePageSlug}`;
 
   return { commitHash, repoPath: relativePath, branch: 'main', message };
+}
+
+function sanitizePathSegment(segment: string): string {
+  return segment.replace(/[\/\\]/g, '_').replace(/\.\./g, '_').replace(/^\.+$/, '_');
 }
 
 async function processPageSaved(deps: PageSyncDeps, data: PageSyncJobData): Promise<void> {
@@ -255,7 +267,7 @@ async function processPageSaved(deps: PageSyncDeps, data: PageSyncJobData): Prom
       .update(wikiPages)
       .set({
         current_version_id: versionId,
-        sync_status: 'synced',
+        sync_status: 'reindex_pending',
         updated_at: new Date(),
       })
       .where(eq(wikiPages.id, page.page.id));
@@ -272,16 +284,21 @@ async function processPageSaved(deps: PageSyncDeps, data: PageSyncJobData): Prom
         page_id: page.page.page_id,
       });
       console.log('reindex enqueued', { pageId: page.page.page_id, jobId: reindexJob.id });
-    } catch (reindexError) {
       await deps.db
         .update(wikiPages)
-        .set({ sync_status: 'sync_pending', updated_at: new Date() })
+        .set({ sync_status: 'synced', updated_at: new Date() })
         .where(eq(wikiPages.id, page.page.id));
-      console.error('reindex enqueue failed; page marked sync_pending', {
+    } catch (reindexError) {
+      console.error('reindex enqueue failed; page remains reindex_pending', {
         pageId: page.page.page_id,
         error: reindexError,
       });
     }
+  } else {
+    await deps.db
+      .update(wikiPages)
+      .set({ sync_status: 'synced', updated_at: new Date() })
+      .where(eq(wikiPages.id, page.page.id));
   }
 }
 
@@ -311,10 +328,15 @@ async function processPageDeleted(deps: PageSyncDeps, data: PageSyncJobData): Pr
         page_id: page.page.page_id,
       });
     } catch (reindexError) {
-      console.error('reindex invalidation enqueue failed', {
+      await markBridgeEventFailed(deps.db, data.bridgeEventId, {
+        code: 'INVALIDATION_ENQUEUE_FAILED',
+        message: String(reindexError),
+      });
+      console.error('reindex invalidation enqueue failed; event marked failed', {
         pageId: page.page.page_id,
         error: reindexError,
       });
+      return;
     }
   }
   await markBridgeEventProcessed(deps.db, data.bridgeEventId);

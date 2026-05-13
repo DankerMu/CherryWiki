@@ -8,7 +8,7 @@ import {
 } from '../validation.js';
 
 describe('sync status validation', () => {
-  it.each(['synced', 'sync_pending', 'conflict_required'] as const)(
+  it.each(['synced', 'sync_pending', 'reindex_pending', 'conflict_required'] as const)(
     'accepts %s as a wiki page sync status',
     (status) => {
       expect(syncStatusSchema.safeParse(status).success).toBe(true);

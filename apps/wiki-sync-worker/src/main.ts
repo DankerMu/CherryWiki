@@ -42,6 +42,7 @@ const PAGE_SYNC_QUEUE = 'bridge-page-sync';
 const PERMISSION_SYNC_QUEUE = 'bridge-permission-sync';
 const ATTACHMENT_SYNC_QUEUE = 'bridge-attachment-sync';
 const DOCMOST_PUSH_QUEUE = 'bridge-docmost-push';
+const REINDEX_QUEUE = 'bridge-reindex';
 const STARTUP_USER_SYNC_DRAIN_TIMEOUT_MS = 30_000;
 const STARTUP_USER_SYNC_DRAIN_POLL_MS = 1_000;
 
@@ -74,6 +75,7 @@ type BridgeWorkerQueues = {
   permissionSync: BullQueue;
   attachmentSync: BullQueue;
   docmostPush: BullQueue;
+  reindex: BullQueue;
   spaceProvision: BullQueue;
   userSync: BullQueue;
 };
@@ -118,6 +120,7 @@ export async function bootstrap(): Promise<void> {
         process.env.DOCMOST_BRIDGE_SECRET ?? process.env.DOCMOST_BRIDGE_TOKEN,
       ),
       wikiRepoPath: process.env.WIKI_REPO_PATH ?? process.cwd(),
+      reindexQueue: queues.reindex,
     },
     docmostPush: {
       db,
@@ -162,6 +165,7 @@ export async function bootstrap(): Promise<void> {
       'permission-sync': queues.permissionSync,
       'attachment-sync': queues.attachmentSync,
       'docmost-push': queues.docmostPush,
+      reindex: queues.reindex,
       'space-provision': queues.spaceProvision,
       'user-sync': queues.userSync,
     },
@@ -224,6 +228,7 @@ function createQueues(connection: IORedis): BridgeWorkerQueues {
     permissionSync: new Queue(PERMISSION_SYNC_QUEUE, { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS }),
     attachmentSync: new Queue(ATTACHMENT_SYNC_QUEUE, { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS }),
     docmostPush: new Queue(DOCMOST_PUSH_QUEUE, { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS }),
+    reindex: new Queue(REINDEX_QUEUE, { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS }),
     spaceProvision: new Queue(BRIDGE_SPACE_PROVISION_QUEUE, { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS }),
     userSync: new Queue(BRIDGE_USER_SYNC_QUEUE, { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS }),
   };
@@ -397,6 +402,7 @@ async function shutdown(
     queues.permissionSync,
     queues.attachmentSync,
     queues.docmostPush,
+    queues.reindex,
     queues.spaceProvision,
     queues.userSync,
   ];

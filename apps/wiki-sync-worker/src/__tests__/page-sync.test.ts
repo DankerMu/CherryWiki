@@ -50,6 +50,29 @@ describe('page-sync processor', () => {
     }
   });
 
+  it('sanitizes wiki repo path segments before writing files', async () => {
+    const wikiRepoPath = await fsPromises.mkdtemp(join(tmpdir(), 'page-sync-'));
+    const content = frontmatter('## Durable\nPersisted content');
+
+    try {
+      const commit = await commitToWikiRepo(
+        { wikiRepoPath },
+        {
+          page: createPage({ slug: '../test/page' }),
+          spaceSlug: 'rd/../platform',
+        },
+        content,
+        { userId: 'user-1', editId: 'edit-1' },
+      );
+
+      expect(commit.repoPath).toBe('rd___platform/__test_page.md');
+      await expect(fsPromises.readFile(join(wikiRepoPath, 'rd___platform/__test_page.md'), 'utf8')).resolves.toBe(content);
+      await expect(fsPromises.access(join(wikiRepoPath, '..', 'test', 'page.md'))).rejects.toThrow();
+    } finally {
+      await fsPromises.rm(wikiRepoPath, { recursive: true, force: true });
+    }
+  });
+
   it('processes page.saved through export, merge, version creation, metadata write, and synced status', async () => {
     const db = new PageSyncTestDb();
     db.metadataRows = [
@@ -57,8 +80,11 @@ describe('page-sync processor', () => {
       createMetadataRow({ block_id: 'details', owner: 'human', content: '## Details\nHuman notes' }),
     ];
     const bridgeClient = bridgeClientWithMarkdown(markedMarkdown());
+    const reindexQueue = {
+      add: vi.fn(() => Promise.resolve({ id: 'reindex-job-1' })),
+    };
 
-    await runProcessor(db, bridgeClient);
+    await runProcessor(db, bridgeClient, {}, true, { reindexQueue });
 
     expect(bridgeClient.exportPage).toHaveBeenCalledWith('docmost-page-1');
     expect(db.insertedVersions).toHaveLength(1);
@@ -72,14 +98,24 @@ describe('page-sync processor', () => {
       createHash('sha256').update(db.insertedVersions[0]?.content_markdown ?? '', 'utf8').digest('hex'),
     );
     expect(db.insertedBlockMetadata).toHaveLength(2);
-    expect(db.pageUpdates.at(-1)).toMatchObject({
+    expect(db.pageUpdates[0]).toMatchObject({
       current_version_id: db.insertedVersions[0]?.id,
+      sync_status: 'reindex_pending',
+    });
+    expect(reindexQueue.add).toHaveBeenCalledWith('reindex-page', {
+      tenant_id: 'tenant-1',
+      space_id: 'space-1',
+      trigger: 'page_sync',
+      scope: 'single_page',
+      page_id: 'wiki.page.1',
+    });
+    expect(db.pageUpdates.at(-1)).toMatchObject({
       sync_status: 'synced',
     });
     expect(db.bridgeEventUpdates.at(-1)).toMatchObject({ status: 'processed' });
   });
 
-  it('reverts sync_status to sync_pending when reindex enqueue fails', async () => {
+  it('leaves sync_status reindex_pending when reindex enqueue fails', async () => {
     const db = new PageSyncTestDb();
     const reindexQueue = {
       add: vi.fn(() => Promise.reject(new Error('queue unavailable'))),
@@ -94,8 +130,8 @@ describe('page-sync processor', () => {
       scope: 'single_page',
       page_id: 'wiki.page.1',
     });
-    expect(db.page?.sync_status).toBe('sync_pending');
-    expect(db.pageUpdates.at(-1)).toMatchObject({ sync_status: 'sync_pending' });
+    expect(db.page?.sync_status).toBe('reindex_pending');
+    expect(db.pageUpdates.at(-1)).toMatchObject({ sync_status: 'reindex_pending' });
   });
 
   it('keeps sync_status as synced when reindex enqueue succeeds', async () => {
@@ -113,6 +149,7 @@ describe('page-sync processor', () => {
       scope: 'single_page',
       page_id: 'wiki.page.1',
     });
+    expect(db.pageUpdates[0]).toMatchObject({ sync_status: 'reindex_pending' });
     expect(db.page?.sync_status).toBe('synced');
     expect(db.pageUpdates.at(-1)).toMatchObject({ sync_status: 'synced' });
   });
@@ -290,6 +327,35 @@ describe('page-sync processor', () => {
       scope: 'single_page',
       page_id: 'wiki.page.1',
     });
+  });
+
+  it('marks delete bridge event failed when reindex invalidation enqueue fails', async () => {
+    const db = new PageSyncTestDb();
+    const reindexQueue = {
+      add: vi.fn(() => Promise.reject(new Error('queue unavailable'))),
+    };
+
+    await runProcessor(
+      db,
+      bridgeClientWithMarkdown(''),
+      {
+        eventType: 'page.deleted',
+        bridgeEventId: 'delete-event',
+        eventId: 'delete',
+      },
+      true,
+      { reindexQueue },
+    );
+
+    expect(db.pageUpdates.at(-1)).toMatchObject({ status: 'archived' });
+    expect(db.bridgeEventUpdates.at(-1)).toMatchObject({
+      status: 'failed',
+      error_json: {
+        code: 'INVALIDATION_ENQUEUE_FAILED',
+        message: 'Error: queue unavailable',
+      },
+    });
+    expect(db.bridgeEventUpdates).not.toEqual(expect.arrayContaining([expect.objectContaining({ status: 'processed' })]));
   });
 
   it('marks unknown docmost_page_id events processed and skips export', async () => {
