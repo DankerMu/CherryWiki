@@ -106,7 +106,7 @@ export class SessionService {
       .orderBy(desc(sessions.last_used_at), desc(sessions.created_at))
       .limit(LIST_ACTIVE_SESSIONS_LIMIT);
     const sortedRows = [...rows].sort(compareSessionsByRecentActivity);
-    // Access tokens do not currently carry a session id, so callers without one get the most recent active session.
+    // Fall back to most-recent session when the access token predates session_id inclusion.
     const inferredCurrentSessionId = input.currentSessionId ?? sortedRows[0]?.id;
 
     return sortedRows.map((session) => ({

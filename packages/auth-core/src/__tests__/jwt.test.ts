@@ -61,6 +61,20 @@ describe('jwt utilities', () => {
     }
   });
 
+  it('includes session_id in access tokens only when provided', async () => {
+    const tokenWithSessionId = await signAccessToken(
+      { ...createAccessPayload(), session_id: 'session-1' },
+      SECRET,
+    );
+    await expect(verifyAccessToken(tokenWithSessionId, SECRET)).resolves.toMatchObject({
+      session_id: 'session-1',
+    });
+
+    const tokenWithoutSessionId = await signAccessToken(createAccessPayload(), SECRET);
+    const payloadWithoutSessionId = await verifyAccessToken(tokenWithoutSessionId, SECRET);
+    expect(payloadWithoutSessionId.session_id).toBeUndefined();
+  });
+
   it('verifies a valid token', async () => {
     const token = await signAccessToken(createAccessPayload(), SECRET);
 
