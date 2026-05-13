@@ -5,6 +5,7 @@ import type { ComponentProps } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '../i18n';
+import * as authModule from '../lib/auth';
 import { AuthProvider, type AuthUser } from '../lib/auth';
 import FileUploadZone from '../pages/uploads/FileUploadZone';
 import UploadCenter from '../pages/uploads/UploadCenter';
@@ -15,6 +16,7 @@ import type { UploadItem, UploadResponse, UploadStatus } from '../pages/uploads/
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -242,6 +244,39 @@ describe('UploadCenter', () => {
     });
   });
 
+  it('lets viewers read the upload list without rendering upload forms', async () => {
+    const fetchMock = stubUploadListApi();
+
+    renderUploadCenter(VIEWER_USER);
+
+    expect(await screen.findByText('roadmap.pdf')).toBeInTheDocument();
+    expect(screen.getByText('Space Documents')).toBeInTheDocument();
+    expect(screen.queryByText('Files')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Add URL/i })).not.toBeInTheDocument();
+    expect(getRequestUrls(fetchMock)).toContain('/api/spaces/space-1/uploads?page=1&per_page=20&sort=-created_at');
+  });
+
+  it('shows no permission and skips upload API requests when upload read is denied', async () => {
+    const fetchMock = stubUploadListApi();
+    vi.spyOn(authModule, 'useAuth').mockReturnValue({
+      user: NO_UPLOAD_PERMISSION_USER,
+      accessToken: 'test-token',
+      login: vi.fn(),
+      logout: vi.fn(),
+      refresh: vi.fn(),
+      isAuthenticated: true,
+      isAdmin: false,
+      hasSpacePermission: (_spaceId, _permission) => false,
+    });
+
+    renderUploadCenter(NO_UPLOAD_PERMISSION_USER);
+
+    expect(await screen.findByText('Access Denied')).toBeInTheDocument();
+    expect(screen.getByText('blocked@example.com does not have upload access for this space.')).toBeInTheDocument();
+    expect(screen.queryByText('Space Documents')).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('ignores stale upload drawer status responses after selection changes', async () => {
     const statusRequests = stubUploadDrawerRaceApi();
 
@@ -339,6 +374,18 @@ const TEST_USER: AuthUser = {
   spaces: [{ id: 'space-1', name: 'Space One', role: 'editor' }],
 };
 
+const VIEWER_USER: AuthUser = {
+  ...TEST_USER,
+  email: 'space-viewer@example.com',
+  spaces: [{ id: 'space-1', name: 'Space One', role: 'viewer' }],
+};
+
+const NO_UPLOAD_PERMISSION_USER: AuthUser = {
+  ...TEST_USER,
+  email: 'blocked@example.com',
+  spaces: [],
+};
+
 function renderUploadList(overrides: Partial<ComponentProps<typeof UploadList>> = {}) {
   const props: ComponentProps<typeof UploadList> = {
     uploads: [],
@@ -360,10 +407,10 @@ function renderUploadList(overrides: Partial<ComponentProps<typeof UploadList>> 
   return render(<UploadList {...props} />);
 }
 
-function renderUploadCenter() {
+function renderUploadCenter(user: AuthUser = TEST_USER) {
   return render(
     <MemoryRouter initialEntries={['/spaces/space-1/uploads']}>
-      <AuthProvider initialSession={{ user: TEST_USER, accessToken: 'test-token', expiresIn: 3600 }}>
+      <AuthProvider initialSession={{ user, accessToken: 'test-token', expiresIn: 3600 }}>
         <Routes>
           <Route path="/spaces/:spaceId/uploads" element={<UploadCenter />} />
           <Route path="/login" element={<h1>Login</h1>} />

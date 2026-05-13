@@ -29,6 +29,8 @@ export default defineConfig({
       'tests/**/*.test.ts',
     ],
     exclude: runsExplicitWebTest ? configDefaults.exclude : [...configDefaults.exclude, 'apps/web/**'],
+    environment: runsExplicitWebTest ? 'jsdom' : 'node',
+    setupFiles: runsExplicitWebTest ? ['apps/web/src/__tests__/setup.ts'] : [],
     passWithNoTests: true,
     coverage: {
       provider: 'v8',

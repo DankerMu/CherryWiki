@@ -1,5 +1,5 @@
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
-import { Alert, Button, Popconfirm, Select, Space, Table, Typography } from 'antd';
+import { Alert, Button, Popconfirm, Result, Select, Space, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -24,6 +24,7 @@ import {
   formatRunDurationWithT,
   isGraphifyRunActive,
 } from './graphifyUi';
+import { useAuth } from '../lib/auth';
 import NotFound from './NotFound';
 
 const DEFAULT_PAGINATION: NonNullable<ApiMeta['pagination']> = {
@@ -40,6 +41,7 @@ export default function GraphifyRunsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { spaceId = '' } = useParams();
+  const { hasSpacePermission, user } = useAuth();
   const [runs, setRuns] = useState<GraphifyRun[]>([]);
   const [status, setStatus] = useState('');
   const [triggerType, setTriggerType] = useState('');
@@ -51,10 +53,12 @@ export default function GraphifyRunsPage() {
   const [retryingRunId, setRetryingRunId] = useState<string | null>(null);
   const [isNewRunOpen, setIsNewRunOpen] = useState(false);
   const [isCreatingRun, setIsCreatingRun] = useState(false);
+  const canViewGraphify = spaceId.length > 0 && hasSpacePermission(spaceId, 'graphify:view');
+  const canRunGraphify = spaceId.length > 0 && hasSpacePermission(spaceId, 'graphify:run');
 
   const loadRuns = useCallback(
     async (background = false) => {
-      if (spaceId.length === 0) {
+      if (spaceId.length === 0 || !canViewGraphify) {
         setRuns([]);
         setPagination(DEFAULT_PAGINATION);
         setIsLoading(false);
@@ -92,7 +96,7 @@ export default function GraphifyRunsPage() {
         }
       }
     },
-    [page, perPage, spaceId, status, triggerType],
+    [canViewGraphify, page, perPage, spaceId, status, triggerType],
   );
 
   useEffect(() => {
@@ -103,7 +107,7 @@ export default function GraphifyRunsPage() {
     setPage(1);
   }, [spaceId]);
 
-  const shouldPoll = runs.some(isGraphifyRunActive) || status === 'pending' || status === 'running';
+  const shouldPoll = canViewGraphify && (runs.some(isGraphifyRunActive) || status === 'pending' || status === 'running');
 
   useEffect(() => {
     if (!shouldPoll) {
@@ -121,6 +125,16 @@ export default function GraphifyRunsPage() {
 
   if (spaceId.length === 0) {
     return <NotFound />;
+  }
+
+  if (!canViewGraphify) {
+    return (
+      <Result
+        status="403"
+        title={t('graphify.space.forbidden.title')}
+        subTitle={t('graphify.space.forbidden.description', { email: user?.email ?? '' })}
+      />
+    );
   }
 
   async function createRun(params: CreateGraphifyRunParams): Promise<void> {
@@ -213,6 +227,7 @@ export default function GraphifyRunsPage() {
       title: t('graphify.space.columns.actions'),
       key: 'actions',
       render: (_: unknown, run: GraphifyRun) => {
+        if (!canRunGraphify) return null;
         if (run.status !== 'failed') return null;
         return (
           <Popconfirm
@@ -244,9 +259,11 @@ export default function GraphifyRunsPage() {
           <Button icon={<ReloadOutlined />} onClick={() => { void loadRuns(); }}>
             {t('common.action.refresh')}
           </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsNewRunOpen(true)}>
-            {t('graphify.space.newRun')}
-          </Button>
+          {canRunGraphify && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsNewRunOpen(true)}>
+              {t('graphify.space.newRun')}
+            </Button>
+          )}
         </Space>
       </div>
 
@@ -294,7 +311,7 @@ export default function GraphifyRunsPage() {
         size="middle"
       />
 
-      {isNewRunOpen && (
+      {canRunGraphify && isNewRunOpen && (
         <NewRunDialog
           isSubmitting={isCreatingRun}
           onClose={() => setIsNewRunOpen(false)}

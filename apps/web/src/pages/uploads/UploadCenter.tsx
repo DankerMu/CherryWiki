@@ -1,5 +1,5 @@
 import { ReloadOutlined } from '@ant-design/icons';
-import { Alert, Button, Select, Spin, Typography, message } from 'antd';
+import { Alert, Button, Result, Select, Spin, Typography, message } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Navigate, useParams } from 'react-router';
@@ -32,7 +32,7 @@ const DEFAULT_PAGINATION: NonNullable<ApiMeta['pagination']> = {
 export default function UploadCenter() {
   const { t } = useTranslation();
   const { spaceId = '' } = useParams();
-  const { accessToken, isAuthenticated, user } = useAuth();
+  const { accessToken, hasSpacePermission, isAuthenticated, user } = useAuth();
   const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [page, setPage] = useState(DEFAULT_PAGINATION.page);
   const [statusFilter, setStatusFilter] = useState('');
@@ -49,10 +49,12 @@ export default function UploadCenter() {
   const requestSeqRef = useRef(0);
   const selectionSeqRef = useRef(0);
   const selectedUploadIdRef = useRef<string | null>(null);
+  const canReadUploads = uploadSpaceId.length > 0 && hasSpacePermission(uploadSpaceId, 'upload:read');
+  const canCreateUploads = uploadSpaceId.length > 0 && hasSpacePermission(uploadSpaceId, 'upload:create');
 
   const loadUploads = useCallback(
     async (background = false) => {
-      if (uploadSpaceId.length === 0) {
+      if (uploadSpaceId.length === 0 || !canReadUploads) {
         setUploads([]);
         setPagination(DEFAULT_PAGINATION);
         setIsLoading(false);
@@ -98,7 +100,7 @@ export default function UploadCenter() {
         }
       }
     },
-    [page, searchTerm, sortOrder, sourceTypeFilter, statusFilter, uploadSpaceId],
+    [canReadUploads, page, searchTerm, sortOrder, sourceTypeFilter, statusFilter, uploadSpaceId],
   );
 
   useEffect(() => {
@@ -153,7 +155,7 @@ export default function UploadCenter() {
   }, []);
 
   useUploadPolling({
-    uploads,
+    uploads: canReadUploads ? uploads : [],
     onStatuses: mergeStatuses,
     onError: (err) => setError(getErrorMessage(err)),
   });
@@ -238,7 +240,7 @@ export default function UploadCenter() {
           <Typography.Title level={4} style={{ margin: 0 }}>{t('upload.browser.title')}</Typography.Title>
           <Typography.Text type="secondary">{t('upload.browser.description')}</Typography.Text>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={() => { void loadUploads(); }}>
+        <Button icon={<ReloadOutlined />} disabled={!canReadUploads} onClick={() => { void loadUploads(); }}>
           {t('common.action.refresh')}
         </Button>
       </div>
@@ -255,96 +257,108 @@ export default function UploadCenter() {
         />
       </div>
 
-      {error !== null && (
-        <Alert message={error} type="error" showIcon closable style={{ marginBottom: 16 }} onClose={() => setError(null)} />
-      )}
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16, ...(uploadSpaceId.length === 0 ? { opacity: 0.5, pointerEvents: 'none' } : {}) }}>
-        <FileUploadZone
-          spaceId={uploadSpaceId}
-          accessToken={accessToken}
-          onUploaded={(response, file) =>
-            addOptimisticUpload(response, {
-              filename: file.name,
-              sourceType: 'upload',
-              sizeBytes: file.size,
-            })
-          }
+      {!canReadUploads ? (
+        <Result
+          status="403"
+          title={t('upload.forbidden.title')}
+          subTitle={t('upload.forbidden.description', { email: user?.email ?? '' })}
         />
-        <UrlUploadForm
-          spaceId={uploadSpaceId}
-          onUploaded={(response, url) =>
-            addOptimisticUpload(response, {
-              filename: url,
-              sourceType: 'url',
-              sizeBytes: null,
-            })
-          }
-        />
-      </div>
-
-      {isLoading ? (
-        <Spin tip={t('upload.loading')}><div style={{ minHeight: 200 }} /></Spin>
       ) : (
-        <UploadList
-          uploads={uploads}
-          page={pagination.page}
-          total={pagination.total}
-          statusFilter={statusFilter}
-          sourceTypeFilter={sourceTypeFilter}
-          searchTerm={searchInput}
-          sortOrder={sortOrder}
-          onStatusFilterChange={(nextStatus) => {
-            setStatusFilter(normalizeUploadStatusFilter(nextStatus));
-            setPage(1);
-          }}
-          onSourceTypeFilterChange={(nextSourceType) => {
-            setSourceTypeFilter(normalizeUploadSourceTypeFilter(nextSourceType));
-            setPage(1);
-          }}
-          onSearchTermChange={(nextSearchInput) => {
-            setSearchInput(nextSearchInput);
-          }}
-          onSortOrderChange={(nextSortOrder) => {
-            setSortOrder(normalizeUploadSort(nextSortOrder));
-            setPage(1);
-          }}
-          onPageChange={setPage}
-          onSelectUpload={(upload) => {
-            const selectionSeq = ++selectionSeqRef.current;
-            selectedUploadIdRef.current = upload.id;
-            setSelectedUploadId(upload.id);
-            setSelectedStatus(null);
-            void loadUploadStatus(upload.id, selectionSeq);
-          }}
-        />
-      )}
+        <>
+          {error !== null && (
+            <Alert message={error} type="error" showIcon closable style={{ marginBottom: 16 }} onClose={() => setError(null)} />
+          )}
 
-      <UploadDetail
-        open={selectedUpload !== null}
-        upload={selectedUpload}
-        status={selectedStatus}
-        onClose={() => {
-          selectionSeqRef.current++;
-          selectedUploadIdRef.current = null;
-          setSelectedUploadId(null);
-          setSelectedStatus(null);
-        }}
-        onReprocessed={(response) => {
-          mergeStatuses([
-            {
-              source_document_id: response.source_document_id,
-              status: response.status,
-              job_id: response.job_id,
-              job_status: null,
-              progress_percent: null,
-              error_json: null,
-            },
-          ]);
-          void loadUploads(true);
-          void loadUploadStatus(response.source_document_id);
-        }}
-      />
+          {canCreateUploads && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16, ...(uploadSpaceId.length === 0 ? { opacity: 0.5, pointerEvents: 'none' } : {}) }}>
+              <FileUploadZone
+                spaceId={uploadSpaceId}
+                accessToken={accessToken}
+                onUploaded={(response, file) =>
+                  addOptimisticUpload(response, {
+                    filename: file.name,
+                    sourceType: 'upload',
+                    sizeBytes: file.size,
+                  })
+                }
+              />
+              <UrlUploadForm
+                spaceId={uploadSpaceId}
+                onUploaded={(response, url) =>
+                  addOptimisticUpload(response, {
+                    filename: url,
+                    sourceType: 'url',
+                    sizeBytes: null,
+                  })
+                }
+              />
+            </div>
+          )}
+
+          {isLoading ? (
+            <Spin tip={t('upload.loading')}><div style={{ minHeight: 200 }} /></Spin>
+          ) : (
+            <UploadList
+              uploads={uploads}
+              page={pagination.page}
+              total={pagination.total}
+              statusFilter={statusFilter}
+              sourceTypeFilter={sourceTypeFilter}
+              searchTerm={searchInput}
+              sortOrder={sortOrder}
+              onStatusFilterChange={(nextStatus) => {
+                setStatusFilter(normalizeUploadStatusFilter(nextStatus));
+                setPage(1);
+              }}
+              onSourceTypeFilterChange={(nextSourceType) => {
+                setSourceTypeFilter(normalizeUploadSourceTypeFilter(nextSourceType));
+                setPage(1);
+              }}
+              onSearchTermChange={(nextSearchInput) => {
+                setSearchInput(nextSearchInput);
+              }}
+              onSortOrderChange={(nextSortOrder) => {
+                setSortOrder(normalizeUploadSort(nextSortOrder));
+                setPage(1);
+              }}
+              onPageChange={setPage}
+              onSelectUpload={(upload) => {
+                const selectionSeq = ++selectionSeqRef.current;
+                selectedUploadIdRef.current = upload.id;
+                setSelectedUploadId(upload.id);
+                setSelectedStatus(null);
+                void loadUploadStatus(upload.id, selectionSeq);
+              }}
+            />
+          )}
+
+          <UploadDetail
+            open={selectedUpload !== null}
+            upload={selectedUpload}
+            status={selectedStatus}
+            onClose={() => {
+              selectionSeqRef.current++;
+              selectedUploadIdRef.current = null;
+              setSelectedUploadId(null);
+              setSelectedStatus(null);
+            }}
+            onReprocessed={(response) => {
+              mergeStatuses([
+                {
+                  source_document_id: response.source_document_id,
+                  status: response.status,
+                  job_id: response.job_id,
+                  job_status: null,
+                  progress_percent: null,
+                  error_json: null,
+                },
+              ]);
+              void loadUploads(true);
+              void loadUploadStatus(response.source_document_id);
+            }}
+          />
+        </>
+      )}
     </>
   );
 }

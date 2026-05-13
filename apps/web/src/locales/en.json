@@ -521,6 +521,10 @@
       "title": "Documents",
       "description": "Browse source documents in this space, add files or URLs, and track processing status."
     },
+    "forbidden": {
+      "title": "Access Denied",
+      "description": "{{email}} does not have upload access for this space."
+    },
     "loading": "Loading documents...",
     "spaceSelector": "Target space",
     "spaceSelectorLabel": "Upload to space",
@@ -788,6 +792,10 @@
       "loading": "Loading graphify runs...",
       "emptyFilter": "No graphify runs match the current filters.",
       "newRun": "New Run",
+      "forbidden": {
+        "title": "Access Denied",
+        "description": "{{email}} does not have Graphify access for this space."
+      },
       "columns": {
         "run": "Run",
         "status": "Status",

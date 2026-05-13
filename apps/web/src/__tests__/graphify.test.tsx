@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphifyRun } from '../lib/graphifyApi.js';
 import GraphifyRunDetailPage from '../pages/GraphifyRunDetailPage.js';
 import GraphifyRunsPage from '../pages/GraphifyRunsPage.js';
@@ -15,6 +15,10 @@ type PostMock = (path: string, body?: unknown) => Promise<unknown>;
 const apiMocks = vi.hoisted(() => ({
   getWrapped: vi.fn<GetWrappedMock>(),
   post: vi.fn<PostMock>(),
+}));
+
+const authMocks = vi.hoisted(() => ({
+  useAuth: vi.fn(),
 }));
 
 vi.mock('../lib/api.js', () => {
@@ -41,12 +45,54 @@ vi.mock('../lib/api.js', () => {
   };
 });
 
+vi.mock('../lib/auth.js', () => ({
+  useAuth: authMocks.useAuth,
+}));
+
+beforeEach(() => {
+  authMocks.useAuth.mockReturnValue(buildAuthValue());
+});
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
 });
 
 describe('GraphifyRunsPage', () => {
+  it('shows no permission and skips list API requests when graphify view is denied', async () => {
+    authMocks.useAuth.mockReturnValue(
+      buildAuthValue({
+        hasSpacePermission: (_spaceId, _permission) => false,
+      }),
+    );
+
+    renderWithRouter(<GraphifyRunsPage />, '/spaces/space-1/graphify');
+
+    expect(await screen.findByText('Access Denied')).toBeInTheDocument();
+    expect(screen.getByText('viewer@example.com does not have Graphify access for this space.')).toBeInTheDocument();
+    expect(screen.queryByText('Graphify Runs')).not.toBeInTheDocument();
+    expect(apiMocks.getWrapped).not.toHaveBeenCalled();
+  });
+
+  it('shows the runs list without New Run controls when graphify run is denied', async () => {
+    authMocks.useAuth.mockReturnValue(
+      buildAuthValue({
+        hasSpacePermission: (_spaceId, permission) => permission === 'graphify:view',
+      }),
+    );
+    apiMocks.getWrapped.mockResolvedValue({
+      data: [buildRun({ run_id: 'run-succeeded', status: 'succeeded' })],
+      meta: { pagination: { page: 1, per_page: 20, total: 1, has_next: false } },
+    });
+
+    renderWithRouter(<GraphifyRunsPage />, '/spaces/space-1/graphify');
+
+    expect(await screen.findByText('Graphify Runs')).toBeInTheDocument();
+    expect(await screen.findByText('run-succeeded')).toBeInTheDocument();
+    expect(screen.queryByText('New Run')).not.toBeInTheDocument();
+    expect(screen.queryByText('New Graphify Run')).not.toBeInTheDocument();
+  });
+
   it('renders run list with antd Table and status tags', async () => {
     apiMocks.getWrapped.mockResolvedValue({
       data: [
@@ -160,6 +206,19 @@ describe('formatRunLabel', () => {
     expect(label).toEqual({ primary: 'Plan.pdf, Overview', secondary: 'run-1' });
   });
 });
+
+type AuthValue = {
+  user: { email: string };
+  hasSpacePermission: (spaceId: string, permission: string) => boolean;
+};
+
+function buildAuthValue(overrides: Partial<AuthValue> = {}): AuthValue {
+  return {
+    user: { email: 'viewer@example.com' },
+    hasSpacePermission: () => true,
+    ...overrides,
+  };
+}
 
 async function renderDetailStatus(status: GraphifyRun['status']): Promise<void> {
   apiMocks.getWrapped.mockImplementation((path: string) => {

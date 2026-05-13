@@ -1,5 +1,5 @@
 import { ArrowLeftOutlined } from '@ant-design/icons';
-import { Alert, Button, Card, Descriptions, Popconfirm, Progress, Spin, Statistic, Typography } from 'antd';
+import { Alert, Button, Card, Descriptions, Popconfirm, Progress, Result, Spin, Statistic, Typography } from 'antd';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router';
@@ -24,6 +24,7 @@ import {
   isGraphifyRunActive,
   isQuarantined,
 } from './graphifyUi';
+import { useAuth } from '../lib/auth';
 import NotFound from './NotFound';
 
 const GRAPHIFY_REFRESH_INTERVAL_MS = 5_000;
@@ -32,6 +33,7 @@ export default function GraphifyRunDetailPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { spaceId = '', runId = '' } = useParams();
+  const { hasSpacePermission, user } = useAuth();
   const [run, setRun] = useState<GraphifyRun | null>(null);
   const [report, setReport] = useState<GraphifyReport | null>(null);
   const [summary, setSummary] = useState<GraphifySummary | null>(null);
@@ -39,10 +41,12 @@ export default function GraphifyRunDetailPage() {
   const [isCancelling, setIsCancelling] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const canViewGraphify = spaceId.length > 0 && hasSpacePermission(spaceId, 'graphify:view');
+  const canRunGraphify = spaceId.length > 0 && hasSpacePermission(spaceId, 'graphify:run');
 
   const loadRunDetail = useCallback(
     async (background = false) => {
-      if (runId.length === 0) {
+      if (runId.length === 0 || !canViewGraphify) {
         setRun(null);
         setReport(null);
         setSummary(null);
@@ -80,7 +84,7 @@ export default function GraphifyRunDetailPage() {
         }
       }
     },
-    [runId],
+    [canViewGraphify, runId],
   );
 
   useEffect(() => {
@@ -103,6 +107,16 @@ export default function GraphifyRunDetailPage() {
 
   if (spaceId.length === 0 || runId.length === 0) {
     return <NotFound />;
+  }
+
+  if (!canViewGraphify) {
+    return (
+      <Result
+        status="403"
+        title={t('graphify.space.forbidden.title')}
+        subTitle={t('graphify.space.forbidden.description', { email: user?.email ?? '' })}
+      />
+    );
   }
 
   async function cancelRun(): Promise<void> {
@@ -138,8 +152,8 @@ export default function GraphifyRunDetailPage() {
     }
   }
 
-  const showCancelButton = run !== null && isGraphifyRunActive(run);
-  const showRetryButton = run !== null && run.status === 'failed';
+  const showCancelButton = canRunGraphify && run !== null && isGraphifyRunActive(run);
+  const showRetryButton = canRunGraphify && run !== null && run.status === 'failed';
 
   return (
     <>
