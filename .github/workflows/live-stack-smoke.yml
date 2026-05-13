@@ -1,0 +1,96 @@
+name: Live Stack Smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/live-stack-smoke.yml'
+      - 'apps/url-fetcher-worker/**'
+      - 'apps/api/src/storage/**'
+      - 'docker-compose.yml'
+      - 'docker-compose.prod.yml'
+      - 'package.json'
+      - 'packages/job-core/**'
+      - 'pnpm-lock.yaml'
+      - 'tests/smoke/**'
+      - 'vitest.config.ts'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-stack-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: MinIO, Redis, and Egress
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      minio:
+        image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+        command: server /data --console-address ":9001"
+        ports:
+          - 9000:9000
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        options: >-
+          --health-cmd "curl -sf http://localhost:9000/minio/health/live || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      MINIO_ENDPOINT: http://localhost:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      REDIS_URL: redis://localhost:6379
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate production Docker Compose
+        env:
+          POSTGRES_PASSWORD: ci-postgres-password
+          JWT_SECRET: ci-jwt-secret-minimum-32-characters
+          ADMIN_PASSWORD: ci-admin-password
+          MINIO_ACCESS_KEY: ci-minio-access-key
+          MINIO_SECRET_KEY: ci-minio-secret-key
+          WORKER_API_KEY: ci-worker-api-key
+        run: docker compose -f docker-compose.prod.yml config --quiet
+
+      - name: Run live-stack smoke tests
+        run: pnpm exec vitest run tests/smoke/ --config vitest.config.ts
