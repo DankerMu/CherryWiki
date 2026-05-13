@@ -1,4 +1,8 @@
 import type { Job } from 'bullmq';
+import { createHash } from 'node:crypto';
+import * as fsPromises from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -10,15 +14,40 @@ import {
 import { normalizeBlockHash } from '@cherrygraph/wiki-core';
 
 import {
+  commitToWikiRepo,
   createPageSyncProcessor,
   type BridgeClient,
   type DrizzleDatabase,
+  type PageSyncDeps,
   type PageSyncJobData,
 } from '../processors/page-sync.processor.js';
 
 describe('page-sync processor', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('creates durable wiki file and commit hash', async () => {
+    const wikiRepoPath = await fsPromises.mkdtemp(join(tmpdir(), 'page-sync-'));
+    const content = frontmatter('## Durable\nPersisted content');
+
+    try {
+      const commit = await commitToWikiRepo(
+        { wikiRepoPath },
+        { page: createPage(), spaceSlug: 'rd-platform' },
+        content,
+        { userId: 'user-1', editId: 'edit-1' },
+      );
+
+      expect(commit).toMatchObject({
+        commitHash: createHash('sha256').update(content, 'utf8').digest('hex'),
+        repoPath: 'rd-platform/test-page.md',
+        branch: 'main',
+      });
+      await expect(fsPromises.readFile(join(wikiRepoPath, 'rd-platform/test-page.md'), 'utf8')).resolves.toBe(content);
+    } finally {
+      await fsPromises.rm(wikiRepoPath, { recursive: true, force: true });
+    }
   });
 
   it('processes page.saved through export, merge, version creation, metadata write, and synced status', async () => {
@@ -39,12 +68,53 @@ describe('page-sync processor', () => {
       version_no: 2,
       created_by: 'user-1',
     });
+    expect(db.insertedVersions[0]?.commit_hash).toBe(
+      createHash('sha256').update(db.insertedVersions[0]?.content_markdown ?? '', 'utf8').digest('hex'),
+    );
     expect(db.insertedBlockMetadata).toHaveLength(2);
     expect(db.pageUpdates.at(-1)).toMatchObject({
       current_version_id: db.insertedVersions[0]?.id,
       sync_status: 'synced',
     });
     expect(db.bridgeEventUpdates.at(-1)).toMatchObject({ status: 'processed' });
+  });
+
+  it('reverts sync_status to sync_pending when reindex enqueue fails', async () => {
+    const db = new PageSyncTestDb();
+    const reindexQueue = {
+      add: vi.fn(() => Promise.reject(new Error('queue unavailable'))),
+    };
+
+    await runProcessor(db, bridgeClientWithMarkdown(frontmatter('## Overview\nUpdated')), {}, true, { reindexQueue });
+
+    expect(reindexQueue.add).toHaveBeenCalledWith('reindex-page', {
+      tenant_id: 'tenant-1',
+      space_id: 'space-1',
+      trigger: 'page_sync',
+      scope: 'single_page',
+      page_id: 'wiki.page.1',
+    });
+    expect(db.page?.sync_status).toBe('sync_pending');
+    expect(db.pageUpdates.at(-1)).toMatchObject({ sync_status: 'sync_pending' });
+  });
+
+  it('keeps sync_status as synced when reindex enqueue succeeds', async () => {
+    const db = new PageSyncTestDb();
+    const reindexQueue = {
+      add: vi.fn(() => Promise.resolve({ id: 'reindex-job-1' })),
+    };
+
+    await runProcessor(db, bridgeClientWithMarkdown(frontmatter('## Overview\nUpdated')), {}, true, { reindexQueue });
+
+    expect(reindexQueue.add).toHaveBeenCalledWith('reindex-page', {
+      tenant_id: 'tenant-1',
+      space_id: 'space-1',
+      trigger: 'page_sync',
+      scope: 'single_page',
+      page_id: 'wiki.page.1',
+    });
+    expect(db.page?.sync_status).toBe('synced');
+    expect(db.pageUpdates.at(-1)).toMatchObject({ sync_status: 'synced' });
   });
 
   it('recovers ownership via heading fallback when markers are missing', async () => {
@@ -195,6 +265,33 @@ describe('page-sync processor', () => {
     expect(db.bridgeEventUpdates.at(-1)).toMatchObject({ status: 'processed' });
   });
 
+  it('enqueues reindex invalidation on page.deleted', async () => {
+    const db = new PageSyncTestDb();
+    const reindexQueue = {
+      add: vi.fn(() => Promise.resolve({ id: 'invalidate-job-1' })),
+    };
+
+    await runProcessor(
+      db,
+      bridgeClientWithMarkdown(''),
+      {
+        eventType: 'page.deleted',
+        bridgeEventId: 'delete-event',
+        eventId: 'delete',
+      },
+      true,
+      { reindexQueue },
+    );
+
+    expect(reindexQueue.add).toHaveBeenCalledWith('invalidate-page', {
+      tenant_id: 'tenant-1',
+      space_id: 'space-1',
+      trigger: 'page_deleted',
+      scope: 'single_page',
+      page_id: 'wiki.page.1',
+    });
+  });
+
   it('marks unknown docmost_page_id events processed and skips export', async () => {
     const db = new PageSyncTestDb();
     db.page = undefined;
@@ -205,6 +302,27 @@ describe('page-sync processor', () => {
     expect(bridgeClient.exportPage).not.toHaveBeenCalled();
     expect(db.insertedVersions).toHaveLength(0);
     expect(db.bridgeEventUpdates.at(-1)).toMatchObject({ status: 'processed' });
+  });
+
+  it('marks event failed and page sync_pending when wiki repo persistence fails', async () => {
+    const db = new PageSyncTestDb();
+    const tempDir = await fsPromises.mkdtemp(join(tmpdir(), 'page-sync-'));
+    const blockedRepoPath = join(tempDir, 'repo-file');
+    await fsPromises.writeFile(blockedRepoPath, 'not a directory', 'utf8');
+
+    try {
+      await expect(
+        runProcessor(db, bridgeClientWithMarkdown(frontmatter('## Overview\nUpdated')), {}, true, {
+          wikiRepoPath: blockedRepoPath,
+        }),
+      ).rejects.toThrow();
+    } finally {
+      await fsPromises.rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(db.insertedVersions).toHaveLength(0);
+    expect(db.bridgeEventUpdates.at(-1)).toMatchObject({ status: 'failed' });
+    expect(db.pageUpdates.at(-1)).toMatchObject({ sync_status: 'sync_pending' });
   });
 
   it('repairs missing frontmatter from the DB page record', async () => {
@@ -358,6 +476,10 @@ async function runProcessor(
   bridgeClient: BridgeClient,
   overrides: Partial<PageSyncJobData> = {},
   permissionAllowed = true,
+  options: {
+    wikiRepoPath?: string;
+    reindexQueue?: PageSyncDeps['reindexQueue'];
+  } = {},
 ): Promise<void> {
   const data = {
     bridgeEventId: 'bridge-event-1',
@@ -371,7 +493,8 @@ async function runProcessor(
   const processor = createPageSyncProcessor({
     db: db.asDb(),
     bridgeClient,
-    wikiRepoPath: '/tmp/wiki',
+    wikiRepoPath: options.wikiRepoPath ?? '/tmp/wiki',
+    ...(options.reindexQueue !== undefined ? { reindexQueue: options.reindexQueue } : {}),
     permissionChecker: () => permissionAllowed,
   });
 

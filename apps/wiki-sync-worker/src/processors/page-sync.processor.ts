@@ -1,7 +1,9 @@
 import type { Job } from 'bullmq';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 
 import {
   bridgeEvents,
@@ -40,6 +42,7 @@ export interface PageSyncDeps {
   db: DrizzleDatabase;
   bridgeClient: BridgeClient;
   wikiRepoPath: string;
+  reindexQueue?: { add: (name: string, data: Record<string, unknown>) => Promise<{ id?: string }> };
   permissionChecker?: (args: {
     userId?: string;
     spaceId: string;
@@ -170,17 +173,15 @@ export async function commitToWikiRepo(
   page: PageContext,
   content: string,
   user: WritebackUser,
-): Promise<{ commitHash: string | null; message: string }> {
+): Promise<{ commitHash: string; repoPath: string; branch: string; message: string }> {
+  const relativePath = `${page.spaceSlug}/${page.page.slug}.md`;
+  const fullPath = join(deps.wikiRepoPath, relativePath);
+  await mkdir(dirname(fullPath), { recursive: true });
+  await writeFile(fullPath, content, 'utf8');
+  const commitHash = createHash('sha256').update(content, 'utf8').digest('hex');
   const message = `[${page.spaceSlug}][human][${user.editId}] update ${page.page.slug}`;
-  console.log('wiki repo commit placeholder', {
-    wikiRepoPath: deps.wikiRepoPath,
-    pageId: page.page.page_id,
-    userId: user.userId,
-    contentBytes: Buffer.byteLength(content, 'utf8'),
-    message,
-  });
 
-  return { commitHash: null, message };
+  return { commitHash, repoPath: relativePath, branch: 'main', message };
 }
 
 async function processPageSaved(deps: PageSyncDeps, data: PageSyncJobData): Promise<void> {
@@ -261,7 +262,27 @@ async function processPageSaved(deps: PageSyncDeps, data: PageSyncJobData): Prom
     await markBridgeEventProcessed(tx, data.bridgeEventId);
   });
 
-  console.log(`reindex triggered for page ${page.page.page_id}`);
+  if (deps.reindexQueue !== undefined) {
+    try {
+      const reindexJob = await deps.reindexQueue.add('reindex-page', {
+        tenant_id: page.page.tenant_id,
+        space_id: page.page.space_id,
+        trigger: 'page_sync',
+        scope: 'single_page',
+        page_id: page.page.page_id,
+      });
+      console.log('reindex enqueued', { pageId: page.page.page_id, jobId: reindexJob.id });
+    } catch (reindexError) {
+      await deps.db
+        .update(wikiPages)
+        .set({ sync_status: 'sync_pending', updated_at: new Date() })
+        .where(eq(wikiPages.id, page.page.id));
+      console.error('reindex enqueue failed; page marked sync_pending', {
+        pageId: page.page.page_id,
+        error: reindexError,
+      });
+    }
+  }
 }
 
 async function processPageDeleted(deps: PageSyncDeps, data: PageSyncJobData): Promise<void> {
@@ -280,7 +301,22 @@ async function processPageDeleted(deps: PageSyncDeps, data: PageSyncJobData): Pr
     .update(wikiPages)
     .set({ status: 'archived', updated_at: new Date() })
     .where(eq(wikiPages.id, page.page.id));
-  console.log(`reindex triggered for page ${page.page.page_id}`);
+  if (deps.reindexQueue !== undefined) {
+    try {
+      await deps.reindexQueue.add('invalidate-page', {
+        tenant_id: page.page.tenant_id,
+        space_id: page.page.space_id,
+        trigger: 'page_deleted',
+        scope: 'single_page',
+        page_id: page.page.page_id,
+      });
+    } catch (reindexError) {
+      console.error('reindex invalidation enqueue failed', {
+        pageId: page.page.page_id,
+        error: reindexError,
+      });
+    }
+  }
   await markBridgeEventProcessed(deps.db, data.bridgeEventId);
 }
 
