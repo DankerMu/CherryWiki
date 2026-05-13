@@ -126,6 +126,14 @@ export const SPACE_SCOPED_PERMISSIONS = [
   'chat:use',
 ] as const satisfies readonly PermissionPoint[];
 
+// Permissions for routes where spaceId is absent from the path and the service
+// resolves the resource's space before performing ACL checks.
+export const RESOURCE_ACL_DEFERRABLE_PERMISSIONS = [
+  'space:read',
+  'upload:read',
+  'upload:create',
+] as const satisfies readonly PermissionPoint[];
+
 const ROLE_ALIASES = new Map<string, Role>([
   ['owner', ROLES.OWNER],
   ['admin', ROLES.ADMIN],
@@ -148,6 +156,10 @@ export function isPermissionPoint(permission: string): permission is PermissionP
 
 export function isSpaceScopedPermission(permission: string): permission is (typeof SPACE_SCOPED_PERMISSIONS)[number] {
   return (SPACE_SCOPED_PERMISSIONS as readonly string[]).includes(permission);
+}
+
+export function isResourceAclDeferrable(permission: string): boolean {
+  return (RESOURCE_ACL_DEFERRABLE_PERMISSIONS as readonly string[]).includes(permission);
 }
 
 export function getRestApiTokenScopeForPermission(permission: string): PermissionPoint | undefined {

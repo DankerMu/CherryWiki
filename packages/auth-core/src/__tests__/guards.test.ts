@@ -150,13 +150,13 @@ describe('RbacGuard', () => {
     ).rejects.toMatchObject({ status: 403 });
   });
 
-  it('throws 403 for a space-scoped permission without a target space', async () => {
+  it('throws 403 for a space-scoped permission without a target space when the role lacks it', async () => {
     const guard = new RbacGuard(new Reflector(), {
       getPermissionsForUser() {
-        return Promise.resolve(['space:view']);
+        return Promise.resolve(['space:admin']);
       },
     });
-    const handler = withPermissions(['space:view']);
+    const handler = withPermissions(['space:admin']);
 
     await expect(
       guard.canActivate(
@@ -165,6 +165,91 @@ describe('RbacGuard', () => {
           request: {
             params: {},
             user: createRequestUser(),
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('allows an editor through the guard for upload:read without a target space', async () => {
+    const guard = new RbacGuard(new Reflector());
+    const handler = withPermissions(['upload:read']);
+
+    await expect(
+      guard.canActivate(
+        createContext({
+          handler,
+          request: {
+            params: {},
+            user: createRequestUser({ role: ROLES.EDITOR }),
+          },
+        }),
+      ),
+    ).resolves.toBe(true);
+  });
+
+  it('allows an editor through the guard for upload:create without a target space', async () => {
+    const guard = new RbacGuard(new Reflector());
+    const handler = withPermissions(['upload:create']);
+
+    await expect(
+      guard.canActivate(
+        createContext({
+          handler,
+          request: {
+            params: {},
+            user: createRequestUser({ role: ROLES.EDITOR }),
+          },
+        }),
+      ),
+    ).resolves.toBe(true);
+  });
+
+  it('throws 403 for a non-deferrable space-scoped permission without a target space', async () => {
+    const guard = new RbacGuard(new Reflector());
+    const handler = withPermissions(['wiki:publish']);
+
+    await expect(
+      guard.canActivate(
+        createContext({
+          handler,
+          request: {
+            params: {},
+            user: createRequestUser({ role: ROLES.EDITOR }),
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('throws 403 for a viewer requesting upload:create without a target space', async () => {
+    const guard = new RbacGuard(new Reflector());
+    const handler = withPermissions(['upload:create']);
+
+    await expect(
+      guard.canActivate(
+        createContext({
+          handler,
+          request: {
+            params: {},
+            user: createRequestUser({ role: ROLES.VIEWER }),
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('throws 403 for an auditor requesting upload:read without a target space', async () => {
+    const guard = new RbacGuard(new Reflector());
+    const handler = withPermissions(['upload:read']);
+
+    await expect(
+      guard.canActivate(
+        createContext({
+          handler,
+          request: {
+            params: {},
+            user: createRequestUser({ role: ROLES.AUDITOR }),
           },
         }),
       ),
