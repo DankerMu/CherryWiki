@@ -40,6 +40,7 @@ export default function GraphifyRunDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isCancelling, setIsCancelling] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
+  const [isRunSpaceMismatch, setIsRunSpaceMismatch] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const canViewGraphify = spaceId.length > 0 && hasSpacePermission(spaceId, 'graphify:view');
   const canRunGraphify = spaceId.length > 0 && hasSpacePermission(spaceId, 'graphify:run');
@@ -50,6 +51,7 @@ export default function GraphifyRunDetailPage() {
         setRun(null);
         setReport(null);
         setSummary(null);
+        setIsRunSpaceMismatch(false);
         setIsLoading(false);
         return;
       }
@@ -58,10 +60,20 @@ export default function GraphifyRunDetailPage() {
         setIsLoading(true);
       }
       setError(null);
+      setIsRunSpaceMismatch(false);
 
       try {
         const runResponse = await getGraphifyRun(runId);
         const currentRun = runResponse.data;
+
+        if (currentRun.space_id !== spaceId) {
+          setRun(null);
+          setReport(null);
+          setSummary(null);
+          setIsRunSpaceMismatch(true);
+          return;
+        }
+
         setRun(currentRun);
 
         if (isGraphifyRunActive(currentRun)) {
@@ -84,7 +96,7 @@ export default function GraphifyRunDetailPage() {
         }
       }
     },
-    [canViewGraphify, runId],
+    [canViewGraphify, runId, spaceId],
   );
 
   useEffect(() => {
@@ -117,6 +129,10 @@ export default function GraphifyRunDetailPage() {
         subTitle={t('graphify.space.forbidden.description', { email: user?.email ?? '' })}
       />
     );
+  }
+
+  if (isRunSpaceMismatch) {
+    return <NotFound />;
   }
 
   async function cancelRun(): Promise<void> {
