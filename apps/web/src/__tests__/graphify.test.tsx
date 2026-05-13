@@ -152,6 +152,40 @@ describe('GraphifyRunsPage', () => {
 });
 
 describe('GraphifyRunDetailPage', () => {
+  it('shows no permission and skips detail API requests when graphify view is denied', async () => {
+    authMocks.useAuth.mockReturnValue(
+      buildAuthValue({
+        hasSpacePermission: (_spaceId, _permission) => false,
+      }),
+    );
+
+    renderWithRouter(<GraphifyRunDetailPage />, '/spaces/space-1/graphify/run-1');
+
+    expect(await screen.findByText('Access Denied')).toBeInTheDocument();
+    expect(screen.getByText('viewer@example.com does not have Graphify access for this space.')).toBeInTheDocument();
+    expect(screen.queryByText('Graphify Run Detail')).not.toBeInTheDocument();
+    expect(apiMocks.getWrapped).not.toHaveBeenCalled();
+  });
+
+  it('hides cancel and retry actions on detail when graphify run is denied', async () => {
+    authMocks.useAuth.mockReturnValue(
+      buildAuthValue({
+        hasSpacePermission: (_spaceId, permission) => permission === 'graphify:view',
+      }),
+    );
+
+    await renderDetailStatus('running');
+    expect(screen.queryByText('Cancel Run')).not.toBeInTheDocument();
+    expect(screen.queryByText('Retry Run')).not.toBeInTheDocument();
+
+    cleanup();
+    apiMocks.getWrapped.mockReset();
+
+    await renderDetailStatus('failed');
+    expect(screen.queryByText('Cancel Run')).not.toBeInTheDocument();
+    expect(screen.queryByText('Retry Run')).not.toBeInTheDocument();
+  });
+
   it('shows cancel button for running status', async () => {
     await renderDetailStatus('running');
     expect(await screen.findByText('Cancel Run')).toBeInTheDocument();

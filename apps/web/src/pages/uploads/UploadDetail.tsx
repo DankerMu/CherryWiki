@@ -18,11 +18,12 @@ type UploadDetailProps = {
   open: boolean;
   upload: UploadItem | null;
   status: UploadStatus | null;
+  canReprocess: boolean;
   onClose: () => void;
   onReprocessed: (response: UploadResponse) => void;
 };
 
-export default function UploadDetail({ open, upload, status, onClose, onReprocessed }: UploadDetailProps) {
+export default function UploadDetail({ open, upload, status, canReprocess, onClose, onReprocessed }: UploadDetailProps) {
   const { t } = useTranslation();
   const [isReprocessing, setIsReprocessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +39,8 @@ export default function UploadDetail({ open, upload, status, onClose, onReproces
 
   async function reprocessUpload(): Promise<void> {
     if (upload === null) return;
+    if (!canReprocess) return;
+
     setIsReprocessing(true);
     setError(null);
 
@@ -111,7 +114,7 @@ export default function UploadDetail({ open, upload, status, onClose, onReproces
         {JSON.stringify(upload.metadata_json ?? {}, null, 2)}
       </pre>
 
-      {activeStatus === 'parse_failed' && (
+      {activeStatus === 'parse_failed' && canReprocess && (
         <div style={{ marginTop: 16, textAlign: 'right' }}>
           <Button
             type="primary"

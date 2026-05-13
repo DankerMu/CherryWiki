@@ -336,6 +336,7 @@ export default function UploadCenter() {
             open={selectedUpload !== null}
             upload={selectedUpload}
             status={selectedStatus}
+            canReprocess={canCreateUploads}
             onClose={() => {
               selectionSeqRef.current++;
               selectedUploadIdRef.current = null;

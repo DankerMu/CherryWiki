@@ -256,6 +256,26 @@ describe('UploadCenter', () => {
     expect(getRequestUrls(fetchMock)).toContain('/api/spaces/space-1/uploads?page=1&per_page=20&sort=-created_at');
   });
 
+  it('hides reprocess for read-only viewers on failed uploads', async () => {
+    const fetchMock = stubUploadListApi(
+      buildUpload({
+        id: 'source-failed',
+        filename: 'failed.pdf',
+        status: 'parse_failed',
+        mime_type: 'application/pdf',
+      }),
+    );
+
+    renderUploadCenter(VIEWER_USER);
+
+    expect(await screen.findByText('failed.pdf')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+
+    await waitFor(() => expect(screen.getAllByText('failed.pdf').length).toBeGreaterThan(1));
+    expect(screen.queryByRole('button', { name: 'Reprocess' })).not.toBeInTheDocument();
+    expect(getRequestUrls(fetchMock)).not.toContain('/api/uploads/source-failed/reprocess');
+  });
+
   it('shows no permission and skips upload API requests when upload read is denied', async () => {
     const fetchMock = stubUploadListApi();
     vi.spyOn(authModule, 'useAuth').mockReturnValue({
@@ -326,6 +346,7 @@ describe('UploadDetail', () => {
         open
         upload={buildUpload({ status: 'parse_failed' })}
         status={buildStatus({ status: 'parse_failed', progress_percent: 65 })}
+        canReprocess
         onClose={vi.fn()}
         onReprocessed={onReprocessed}
       />,
@@ -344,12 +365,31 @@ describe('UploadDetail', () => {
     expect(fetchMock.mock.calls[0]?.[1]?.method).toBe('POST');
   });
 
+  it('hides reprocess for failed uploads when reprocess is denied', () => {
+    const fetchMock = stubReprocessApi();
+
+    render(
+      <UploadDetail
+        open
+        upload={buildUpload({ status: 'parse_failed' })}
+        status={buildStatus({ status: 'parse_failed', progress_percent: 65 })}
+        canReprocess={false}
+        onClose={vi.fn()}
+        onReprocessed={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Reprocess' })).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('hides reprocess for completed uploads', () => {
     render(
       <UploadDetail
         open
         upload={buildUpload({ status: 'parsed' })}
         status={buildStatus({ status: 'parsed', progress_percent: 100 })}
+        canReprocess
         onClose={vi.fn()}
         onReprocessed={vi.fn()}
       />,
@@ -492,19 +532,17 @@ function stubUrlUploadApi() {
   return fetchMock;
 }
 
-function stubUploadListApi() {
+function stubUploadListApi(upload: UploadItem = buildUpload({
+  id: 'source-roadmap',
+  filename: 'roadmap.pdf',
+  status: 'parsed',
+  mime_type: 'application/pdf',
+})) {
   const fetchMock = vi.fn<typeof fetch>((input, init) => {
     if (getRequestPath(input) === '/api/spaces/space-1/uploads' && init?.method === 'GET') {
       return Promise.resolve(
         jsonResponse({
-          data: [
-            buildUpload({
-              id: 'source-roadmap',
-              filename: 'roadmap.pdf',
-              status: 'parsed',
-              mime_type: 'application/pdf',
-            }),
-          ],
+          data: [upload],
           meta: {
             pagination: {
               page: 1,
