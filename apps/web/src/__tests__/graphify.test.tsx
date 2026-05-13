@@ -167,6 +167,29 @@ describe('GraphifyRunDetailPage', () => {
     expect(apiMocks.getWrapped).not.toHaveBeenCalled();
   });
 
+  it('renders run detail when the run space matches the route space', async () => {
+    mockDetailApis(buildRun({ run_id: 'run-1', space_id: 'space-1', status: 'succeeded' }));
+
+    renderWithRouter(<GraphifyRunDetailPage />, '/spaces/space-1/graphify/run-1');
+
+    expect(await screen.findByText('Graphify Run Detail')).toBeInTheDocument();
+    expect(screen.getAllByText('run-1').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('space-1').length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText('Page Not Found')).not.toBeInTheDocument();
+  });
+
+  it('shows not found and blocks detail rendering when the run space does not match the route space', async () => {
+    mockDetailApis(buildRun({ run_id: 'run-1', space_id: 'space-2', status: 'succeeded' }));
+
+    renderWithRouter(<GraphifyRunDetailPage />, '/spaces/space-1/graphify/run-1');
+
+    expect(await screen.findByText('Page Not Found')).toBeInTheDocument();
+    expect(screen.queryByText('Graphify Run Detail')).not.toBeInTheDocument();
+    expect(screen.queryByText('space-2')).not.toBeInTheDocument();
+    expect(apiMocks.getWrapped).toHaveBeenCalledTimes(1);
+    expect(apiMocks.getWrapped).toHaveBeenCalledWith('/graphify/runs/run-1');
+  });
+
   it('hides cancel and retry actions on detail when graphify run is denied', async () => {
     authMocks.useAuth.mockReturnValue(
       buildAuthValue({
@@ -255,14 +278,21 @@ function buildAuthValue(overrides: Partial<AuthValue> = {}): AuthValue {
 }
 
 async function renderDetailStatus(status: GraphifyRun['status']): Promise<void> {
+  mockDetailApis(buildRun({
+    run_id: 'run-1',
+    status,
+    error_json: status === 'failed' ? { reason: 'quarantined', quarantine_type: 'shrink_guard' } : null,
+  }));
+
+  renderWithRouter(<GraphifyRunDetailPage />, '/spaces/space-1/graphify/run-1');
+  expect(await screen.findByText('Graphify Run Detail')).toBeInTheDocument();
+}
+
+function mockDetailApis(run: GraphifyRun): void {
   apiMocks.getWrapped.mockImplementation((path: string) => {
     if (path === '/graphify/runs/run-1') {
       return Promise.resolve({
-        data: buildRun({
-          run_id: 'run-1',
-          status,
-          error_json: status === 'failed' ? { reason: 'quarantined', quarantine_type: 'shrink_guard' } : null,
-        }),
+        data: run,
       });
     }
 
@@ -290,9 +320,6 @@ async function renderDetailStatus(status: GraphifyRun['status']): Promise<void> 
 
     return Promise.reject(new Error('not found'));
   });
-
-  renderWithRouter(<GraphifyRunDetailPage />, '/spaces/space-1/graphify/run-1');
-  expect(await screen.findByText('Graphify Run Detail')).toBeInTheDocument();
 }
 
 function renderWithRouter(element: ReactElement, path: string): void {
