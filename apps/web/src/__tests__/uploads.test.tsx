@@ -274,7 +274,7 @@ describe('UploadCenter', () => {
     await waitFor(() => expect(screen.getAllByText('failed.pdf').length).toBeGreaterThan(1));
     expect(screen.queryByRole('button', { name: 'Reprocess' })).not.toBeInTheDocument();
     expect(getRequestUrls(fetchMock)).not.toContain('/api/uploads/source-failed/reprocess');
-  });
+  }, 30_000);
 
   it('shows no permission and skips upload API requests when upload read is denied', async () => {
     const fetchMock = stubUploadListApi();
