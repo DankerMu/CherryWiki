@@ -1,4 +1,4 @@
-import type { Job } from 'bullmq';
+import { UnrecoverableError, type Job } from 'bullmq';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -45,7 +45,7 @@ describe('permission-sync processor', () => {
     ], { version: 1, source: 'cherry_api' });
   });
 
-  it('defers permission pushes while active users are pending Docmost sync', async () => {
+  it('deferred permission sync throws retriable error and writes audit event', async () => {
     const db = new PermissionSyncTestDb();
     db.permissionRows = [
       { userId: 'docmost-admin', email: 'admin@example.com', cherryRole: 'space:admin' },
@@ -53,9 +53,30 @@ describe('permission-sync processor', () => {
     ];
     const bridgeClient = createBridgeClient();
 
-    await runProcessor(db, bridgeClient);
+    let error: unknown;
+    try {
+      await runProcessor(db, bridgeClient);
+    } catch (caught) {
+      error = caught;
+    }
 
-    expect(bridgeClient.pushPermissions).not.toHaveBeenCalled();
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(UnrecoverableError);
+    expect(error).toHaveProperty(
+      'message',
+      'Permission sync deferred for space space-1: 1 users pending Docmost sync',
+    );
+    expect(pushPermissionsMock(bridgeClient)).not.toHaveBeenCalled();
+    expect(db.auditRows).toHaveLength(1);
+    expect(db.auditRows[0]).toMatchObject({
+      action: 'permission_sync_deferred',
+      space_id: 'space-1',
+    });
+    expect(db.auditRows[0]?.metadata_json).toMatchObject({
+      pendingDocmostUserCount: 1,
+      spaceId: 'space-1',
+      tenantId: 'tenant-1',
+    });
   });
 
   it('skips spaces that have not been synced to Docmost', async () => {
@@ -111,7 +132,7 @@ describe('permission-sync processor', () => {
       getPermissions: vi.fn(() => Promise.resolve([])),
     };
 
-    await expect(reconcilePermissions(db.asDb(), bridgeClient)).resolves.toEqual({ fixed: 1, errors: 0 });
+    await expect(reconcilePermissions(db.asDb(), bridgeClient)).resolves.toEqual({ fixed: 1, errors: 0, deferred: 0 });
 
     expect(bridgeClient.pushPermissions).toHaveBeenCalledWith('docmost-space-1', [
       { userId: 'docmost-admin', email: 'admin@example.com', role: 'admin' },
@@ -130,10 +151,52 @@ describe('permission-sync processor', () => {
       ),
     };
 
-    await expect(reconcilePermissions(db.asDb(), bridgeClient)).resolves.toEqual({ fixed: 0, errors: 0 });
+    await expect(reconcilePermissions(db.asDb(), bridgeClient)).resolves.toEqual({ fixed: 0, errors: 0, deferred: 0 });
 
     expect(bridgeClient.pushPermissions).not.toHaveBeenCalled();
     expect(db.auditRows).toHaveLength(0);
+  });
+
+  it('reconciliation logs deferred audit event for spaces with pending users', async () => {
+    const db = new PermissionSyncTestDb();
+    db.permissionRows = [
+      { userId: 'docmost-admin', email: 'admin@example.com', cherryRole: 'space:admin' },
+      { userId: null, email: 'unsynced@example.com', cherryRole: 'space:view' },
+    ];
+    const bridgeClient = {
+      pushPermissions: vi.fn<PermissionSyncBridgeClient['pushPermissions']>(() => Promise.resolve()),
+      getPermissions: vi.fn(() => Promise.resolve([])),
+    };
+
+    await expect(reconcilePermissions(db.asDb(), bridgeClient)).resolves.toEqual({ fixed: 0, errors: 0, deferred: 1 });
+
+    expect(pushPermissionsMock(bridgeClient)).not.toHaveBeenCalled();
+    expect(db.auditRows).toHaveLength(1);
+    expect(db.auditRows[0]).toMatchObject({
+      action: 'permission_sync_deferred',
+      space_id: 'space-1',
+    });
+    expect(db.auditRows[0]?.metadata_json).toMatchObject({
+      pendingDocmostUserCount: 1,
+      spaceId: 'space-1',
+      tenantId: 'tenant-1',
+    });
+  });
+
+  it('permission sync succeeds after all users are synced', async () => {
+    const db = new PermissionSyncTestDb();
+    db.permissionRows = [
+      { userId: 'docmost-admin', email: 'admin@example.com', cherryRole: 'space:admin' },
+      { userId: 'docmost-reader', email: 'reader@example.com', cherryRole: 'space:view' },
+    ];
+    const bridgeClient = createBridgeClient();
+
+    await runProcessor(db, bridgeClient);
+
+    expect(pushPermissionsMock(bridgeClient)).toHaveBeenCalledWith('docmost-space-1', [
+      { userId: 'docmost-admin', email: 'admin@example.com', role: 'admin' },
+      { userId: 'docmost-reader', email: 'reader@example.com', role: 'reader' },
+    ], { version: 1, source: 'cherry_api' });
   });
 });
 
@@ -251,6 +314,14 @@ function createBridgeClient(error?: Error): PermissionSyncBridgeClient {
       error === undefined ? Promise.resolve() : Promise.reject(error),
     ),
   };
+}
+
+function pushPermissionsMock(
+  bridgeClient: PermissionSyncBridgeClient,
+): ReturnType<typeof vi.fn<PermissionSyncBridgeClient['pushPermissions']>> {
+  return Reflect.get(bridgeClient, 'pushPermissions') as ReturnType<
+    typeof vi.fn<PermissionSyncBridgeClient['pushPermissions']>
+  >;
 }
 
 function createSpace(overrides: Partial<SpaceRow> = {}): SpaceRow {

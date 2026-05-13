@@ -26,25 +26,28 @@ type ReconcileSpaceRow = {
 export async function reconcilePermissions(
   db: DrizzleDatabase,
   bridgeClient: PermissionReconcileBridgeClient,
-): Promise<{ fixed: number; errors: number }> {
+): Promise<PermissionReconcileResult> {
   return runPermissionReconcile(db, bridgeClient, false);
 }
 
 export async function triggerFullReconcile(
   db: DrizzleDatabase,
   bridgeClient: PermissionReconcileBridgeClient,
-): Promise<{ fixed: number; errors: number }> {
+): Promise<PermissionReconcileResult> {
   return runPermissionReconcile(db, bridgeClient, true);
 }
+
+type PermissionReconcileResult = { fixed: number; errors: number; deferred: number };
 
 async function runPermissionReconcile(
   db: DatabaseClient,
   bridgeClient: PermissionReconcileBridgeClient,
   full: boolean,
-): Promise<{ fixed: number; errors: number }> {
+): Promise<PermissionReconcileResult> {
   const spacesToReconcile = await loadSyncedSpaces(db);
   let fixed = 0;
   let errors = 0;
+  let deferred = 0;
 
   for (const space of spacesToReconcile) {
     if (space.docmostSpaceId === null) {
@@ -60,6 +63,19 @@ async function runPermissionReconcile(
         console.info(`Permission sync deferred: ${expectedState.pendingDocmostUserCount} users pending Docmost sync`, {
           spaceId: space.spaceId,
           tenantId: space.tenantId,
+        });
+        deferred += 1;
+        await logPermissionAuditEvent(db, {
+          tenantId: space.tenantId,
+          spaceId: space.spaceId,
+          action: 'permission_sync_deferred',
+          metadata: {
+            pendingDocmostUserCount: expectedState.pendingDocmostUserCount,
+            spaceId: space.spaceId,
+            tenantId: space.tenantId,
+            docmostSpaceId: space.docmostSpaceId,
+            full,
+          },
         });
         continue;
       }
@@ -101,7 +117,7 @@ async function runPermissionReconcile(
     }
   }
 
-  return { fixed, errors };
+  return { fixed, errors, deferred };
 }
 
 async function loadSyncedSpaces(db: DatabaseClient): Promise<ReconcileSpaceRow[]> {
