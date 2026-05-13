@@ -106,7 +106,7 @@ export async function bootstrap(): Promise<void> {
   const queues = createQueues(connection);
 
   await reconcileOnStartup(db as unknown as ReconciliationDb, queues);
-  await reconcileSpaces(db as SpaceProvisionDeps['db'], queues.spaceProvision);
+  await reconcileSpaces(db, queues.spaceProvision);
 
   const bridgeBaseUrl = process.env.DOCMOST_BRIDGE_BASE_URL ?? process.env.DOCMOST_BASE_URL ?? 'http://localhost:3000';
   const bridgeSecret = process.env.DOCMOST_BRIDGE_SECRET ?? process.env.DOCMOST_BRIDGE_TOKEN ?? '';
@@ -137,27 +137,25 @@ export async function bootstrap(): Promise<void> {
     userSync: {
       db,
       bridgeClient,
+      permissionSyncQueue: queues.permissionSync,
     },
   });
 
   try {
-    const userReconcileCount = await reconcileUsers(db as UserSyncDeps['db'], queues.userSync);
+    const userReconcileCount = await reconcileUsers(db, queues.userSync);
     if (userReconcileCount > 0) {
       console.log(`${WORKER_NAME}: enqueued user reconciliation jobs`, {
         count: userReconcileCount,
       });
     }
     await waitForUserSyncQueueToDrain(queues.userSync);
-    await runStartupPermissionReconciliation(db as PermissionSyncDeps['db'], bridgeClient);
+    await runStartupPermissionReconciliation(db, bridgeClient);
   } finally {
     await queues.permissionSync.resume();
   }
 
   const permissionReconcileTimer = startPermissionReconcileTimer(db, bridgeClient);
-  const spaceReconcileTimer = startSpaceReconcileTimer(
-    db as SpaceProvisionDeps['db'],
-    queues.spaceProvision,
-  );
+  const spaceReconcileTimer = startSpaceReconcileTimer(db, queues.spaceProvision);
 
   const healthServer = await startHealthServer(
     {

@@ -34,10 +34,59 @@ describe('user-sync processor', () => {
     });
     expect(db.update).toHaveBeenCalled();
   });
+
+  it('user-sync completion enqueues permission-sync for affected spaces', async () => {
+    const bridgeClient = {
+      syncUser: vi.fn<UserSyncBridgeClient['syncUser']>(() =>
+        Promise.resolve({ docmost_user_id: 'docmost-user-1' }),
+      ),
+    };
+    const db = createDb([
+      { spaceId: 'space-1', tenantId: 'tenant-1' },
+      { spaceId: 'space-2', tenantId: 'tenant-1' },
+    ]);
+    const permissionSyncQueue = {
+      add: vi.fn(() => Promise.resolve()),
+    };
+    const processor = createUserSyncProcessor({
+      db: db as never,
+      bridgeClient,
+      permissionSyncQueue,
+    });
+
+    await processor({
+      data: {
+        userId: 'user-1',
+        tenantId: 'tenant-1',
+        email: 'user@example.com',
+        name: 'Test User',
+      },
+    } as Job<UserSyncJobData>);
+
+    expect(permissionSyncQueue.add).toHaveBeenCalledTimes(2);
+    expect(permissionSyncQueue.add).toHaveBeenCalledWith('permission.sync', {
+      spaceId: 'space-1',
+      tenantId: 'tenant-1',
+    });
+    expect(permissionSyncQueue.add).toHaveBeenCalledWith('permission.sync', {
+      spaceId: 'space-2',
+      tenantId: 'tenant-1',
+    });
+  });
 });
 
-function createDb(): { update: ReturnType<typeof vi.fn> } {
+function createDb(
+  affectedSpaces: Array<{ spaceId: string; tenantId: string }> = [],
+): { select: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> } {
+  const selectBuilder = {
+    innerJoin: vi.fn(() => selectBuilder),
+    where: vi.fn(() => Promise.resolve(affectedSpaces)),
+  };
+
   return {
+    select: vi.fn(() => ({
+      from: vi.fn(() => selectBuilder),
+    })),
     update: vi.fn(() => ({
       set: vi.fn(() => ({
         where: vi.fn(() => ({

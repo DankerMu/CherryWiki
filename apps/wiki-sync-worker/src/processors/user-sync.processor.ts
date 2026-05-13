@@ -1,17 +1,18 @@
 import type { Job } from 'bullmq';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
-import { users } from '@cherrygraph/shared';
+import { group_members, space_permissions, spaces, users } from '@cherrygraph/shared';
 
 export const BRIDGE_USER_SYNC_QUEUE = 'bridge-user-sync';
 
 export type DrizzleDatabase = NodePgDatabase;
-type DatabaseClient = Pick<DrizzleDatabase, 'update'>;
+type DatabaseClient = Pick<DrizzleDatabase, 'select' | 'update'>;
 
 export interface UserSyncDeps {
-  db: DrizzleDatabase;
+  db: DatabaseClient;
   bridgeClient: UserSyncBridgeClient;
+  permissionSyncQueue?: PermissionSyncQueue;
 }
 
 export interface UserSyncBridgeClient {
@@ -29,6 +30,19 @@ export type UserSyncJobData = {
   tenantId: string;
 };
 
+export type PermissionSyncQueue = {
+  add(
+    name: string,
+    data: { spaceId: string; tenantId: string },
+    opts?: { jobId?: string },
+  ): Promise<unknown>;
+};
+
+type AffectedSpaceRow = {
+  spaceId: string;
+  tenantId: string;
+};
+
 export function createUserSyncProcessor(
   deps: UserSyncDeps,
 ): (job: Job<UserSyncJobData>) => Promise<void> {
@@ -41,6 +55,7 @@ export function createUserSyncProcessor(
     });
 
     await writeBackDocmostUserId(deps.db, data, result.docmost_user_id);
+    await enqueueAffectedPermissionSyncJobs(deps.db, deps.permissionSyncQueue, data);
 
     console.info('user-sync: user synced to Docmost', {
       userId: data.userId,
@@ -74,6 +89,64 @@ async function writeBackDocmostUserId(
       docmostUserId,
     });
   }
+}
+
+async function enqueueAffectedPermissionSyncJobs(
+  db: DatabaseClient,
+  queue: PermissionSyncQueue | undefined,
+  data: UserSyncJobData,
+): Promise<void> {
+  if (queue === undefined) {
+    return;
+  }
+
+  const rows = await loadAffectedSyncedSpaces(db, data);
+  const uniqueSpaces = new Map<string, AffectedSpaceRow>();
+  for (const row of rows) {
+    uniqueSpaces.set(`${row.tenantId}:${row.spaceId}`, row);
+  }
+
+  await Promise.all(
+    [...uniqueSpaces.values()].map((space) =>
+      queue.add('permission.sync', {
+        spaceId: space.spaceId,
+        tenantId: space.tenantId,
+      }),
+    ),
+  );
+}
+
+async function loadAffectedSyncedSpaces(
+  db: DatabaseClient,
+  data: UserSyncJobData,
+): Promise<AffectedSpaceRow[]> {
+  return db
+    .select({
+      spaceId: spaces.id,
+      tenantId: spaces.tenant_id,
+    })
+    .from(space_permissions)
+    .innerJoin(
+      group_members,
+      and(
+        eq(space_permissions.tenant_id, group_members.tenant_id),
+        eq(space_permissions.group_id, group_members.group_id),
+      ),
+    )
+    .innerJoin(
+      spaces,
+      and(
+        eq(space_permissions.tenant_id, spaces.tenant_id),
+        eq(space_permissions.space_id, spaces.id),
+      ),
+    )
+    .where(
+      and(
+        eq(group_members.user_id, data.userId),
+        eq(group_members.tenant_id, data.tenantId),
+        isNotNull(spaces.docmost_space_id),
+      ),
+    );
 }
 
 function readJobData(data: unknown): UserSyncJobData {

@@ -71,8 +71,9 @@ export function createPermissionSyncProcessor(
   return async (job) => {
     const data = readJobData(job.data);
 
+    let result: PushSpacePermissionsResult;
     try {
-      await pushSpacePermissions(deps.db, deps.bridgeClient, data);
+      result = await pushSpacePermissions(deps.db, deps.bridgeClient, data);
     } catch (error) {
       if (isHttpStatus(error, 404)) {
         await logPermissionSyncFailure(deps.db, data, error, true);
@@ -86,6 +87,28 @@ export function createPermissionSyncProcessor(
       }
 
       throw error;
+    }
+
+    if (result.deferred === true) {
+      const pendingDocmostUserCount = result.pendingDocmostUserCount ?? 0;
+      const tenantId = result.tenantId ?? data.tenantId;
+      if (tenantId !== undefined) {
+        await logPermissionAuditEvent(deps.db, {
+          tenantId,
+          spaceId: data.spaceId,
+          action: 'permission_sync_deferred',
+          metadata: {
+            pendingDocmostUserCount,
+            spaceId: data.spaceId,
+            tenantId,
+            docmostSpaceId: result.docmostSpaceId,
+          },
+        });
+      }
+
+      throw new Error(
+        `Permission sync deferred for space ${data.spaceId}: ${pendingDocmostUserCount} users pending Docmost sync`,
+      );
     }
   };
 }
@@ -186,7 +209,11 @@ export async function logPermissionAuditEvent(
   input: {
     tenantId: string;
     spaceId: string;
-    action: 'bridge.permission_sync_failed' | 'permission_consistency_fixed' | 'permission_consistency_failed';
+    action:
+      | 'bridge.permission_sync_failed'
+      | 'permission_consistency_fixed'
+      | 'permission_consistency_failed'
+      | 'permission_sync_deferred';
     metadata: Record<string, unknown>;
   },
 ): Promise<void> {
