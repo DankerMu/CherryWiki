@@ -443,6 +443,7 @@ export class AuthService {
         email: input.user.email,
         role: input.user.role,
         group_ids: input.groupIds,
+        session_id: sessionId,
       },
       secret,
     );

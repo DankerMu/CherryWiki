@@ -297,6 +297,22 @@ describe('AuthController', () => {
     ]);
   });
 
+  it('GET /api/auth/sessions passes the access token session_id to the service', async () => {
+    app = await createTestApp();
+    sessionServiceMock.listActiveSessions.mockResolvedValue([]);
+
+    await request(app.getHttpAdapter().getInstance().server)
+      .get('/api/auth/sessions')
+      .set('Authorization', `Bearer ${await createAccessToken({ session_id: 'session-from-token' })}`)
+      .expect(200);
+
+    expect(sessionServiceMock.listActiveSessions).toHaveBeenCalledWith({
+      tenantId: TEST_TENANT_ID,
+      userId: TEST_USER_ID,
+      currentSessionId: 'session-from-token',
+    });
+  });
+
   it('DELETE /api/auth/sessions/:session_id revokes an owned session', async () => {
     app = await createTestApp();
     sessionServiceMock.revokeSession.mockResolvedValue({ revoked: true });
@@ -377,7 +393,9 @@ function createCurrentUserResponse(): CurrentUserResponse {
   };
 }
 
-async function createAccessToken(): Promise<string> {
+async function createAccessToken(
+  overrides: Partial<Parameters<typeof signAccessToken>[0]> = {},
+): Promise<string> {
   return signAccessToken(
     {
       sub: TEST_USER_ID,
@@ -385,6 +403,7 @@ async function createAccessToken(): Promise<string> {
       email: TEST_EMAIL,
       role: 'editor',
       group_ids: ['group-1'],
+      ...overrides,
     },
     TEST_JWT_SECRET,
   );

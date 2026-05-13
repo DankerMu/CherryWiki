@@ -40,6 +40,55 @@ describe('SessionService', () => {
     ]);
   });
 
+  it('marks the provided current session even when it is not the most recent', async () => {
+    const { service, db } = createSessionServiceContext();
+    db.queueSelect([
+      createSession({
+        id: 'session-older',
+        last_used_at: new Date('2026-04-29T10:00:00.000Z'),
+      }),
+      createSession({
+        id: 'session-newer',
+        last_used_at: new Date('2026-04-29T12:00:00.000Z'),
+      }),
+    ]);
+
+    const sessions = await service.listActiveSessions({
+      tenantId: TEST_TENANT_ID,
+      userId: TEST_USER_ID,
+      currentSessionId: 'session-older',
+    });
+
+    expect(sessions).toEqual([
+      expect.objectContaining({ id: 'session-newer', is_current: false }),
+      expect.objectContaining({ id: 'session-older', is_current: true }),
+    ]);
+  });
+
+  it('falls back to the most recent active session when no current session is provided', async () => {
+    const { service, db } = createSessionServiceContext();
+    db.queueSelect([
+      createSession({
+        id: 'session-older',
+        last_used_at: new Date('2026-04-29T10:00:00.000Z'),
+      }),
+      createSession({
+        id: 'session-newer',
+        last_used_at: new Date('2026-04-29T12:00:00.000Z'),
+      }),
+    ]);
+
+    const sessions = await service.listActiveSessions({
+      tenantId: TEST_TENANT_ID,
+      userId: TEST_USER_ID,
+    });
+
+    expect(sessions).toEqual([
+      expect.objectContaining({ id: 'session-newer', is_current: true }),
+      expect.objectContaining({ id: 'session-older', is_current: false }),
+    ]);
+  });
+
   it('revokes the oldest active sessions when creating a session above the per-user cap', async () => {
     const { service, db } = createSessionServiceContext();
     db.queueSelect([{ activeCount: 11 }]);

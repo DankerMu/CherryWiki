@@ -168,6 +168,7 @@ export class AuthController {
     return this.sessionService.listActiveSessions({
       tenantId: user.tenant_id,
       userId: user.sub,
+      ...(user.session_id !== undefined ? { currentSessionId: user.session_id } : {}),
     });
   }
 

@@ -11,6 +11,7 @@ export interface AccessTokenPayload extends JWTPayload {
   email: string;
   role: string;
   group_ids: string[];
+  session_id?: string;
   token_use?: 'access';
 }
 
@@ -34,6 +35,7 @@ export async function signAccessToken(
     role: payload.role,
     group_ids: [...payload.group_ids],
     token_use: 'access',
+    ...(payload.session_id !== undefined ? { session_id: payload.session_id } : {}),
   };
 
   return new SignJWT(safePayload)
@@ -85,7 +87,8 @@ function isAccessTokenPayload(payload: JWTPayload): payload is VerifiedAccessTok
     typeof payload.role === 'string' &&
     payload.role.length > 0 &&
     Array.isArray(payload.group_ids) &&
-    payload.group_ids.every((groupId) => typeof groupId === 'string')
+    payload.group_ids.every((groupId) => typeof groupId === 'string') &&
+    (payload.session_id === undefined || typeof payload.session_id === 'string')
   );
 }
 
