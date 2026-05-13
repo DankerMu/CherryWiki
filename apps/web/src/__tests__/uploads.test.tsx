@@ -286,7 +286,7 @@ describe('UploadCenter', () => {
       refresh: vi.fn(),
       isAuthenticated: true,
       isAdmin: false,
-      hasSpacePermission: (_spaceId, _permission) => false,
+      hasSpacePermission: () => false,
     });
 
     renderUploadCenter(NO_UPLOAD_PERMISSION_USER);

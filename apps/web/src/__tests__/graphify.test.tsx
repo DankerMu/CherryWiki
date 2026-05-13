@@ -62,7 +62,7 @@ describe('GraphifyRunsPage', () => {
   it('shows no permission and skips list API requests when graphify view is denied', async () => {
     authMocks.useAuth.mockReturnValue(
       buildAuthValue({
-        hasSpacePermission: (_spaceId, _permission) => false,
+        hasSpacePermission: () => false,
       }),
     );
 
@@ -155,7 +155,7 @@ describe('GraphifyRunDetailPage', () => {
   it('shows no permission and skips detail API requests when graphify view is denied', async () => {
     authMocks.useAuth.mockReturnValue(
       buildAuthValue({
-        hasSpacePermission: (_spaceId, _permission) => false,
+        hasSpacePermission: () => false,
       }),
     );
 
