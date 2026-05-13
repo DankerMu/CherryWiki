@@ -256,8 +256,8 @@ components:
       type: object
       properties:
         source_document_id: { type: string }
-        file_blob_id: { type: string, nullable: true }
-        job_id: { type: string, nullable: true }
+        file_blob_id: { type: [string, 'null'] }
+        job_id: { type: [string, 'null'] }
         status: { type: string }
         created: { type: boolean }
         duplicate: { type: boolean }
