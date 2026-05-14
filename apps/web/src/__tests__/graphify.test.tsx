@@ -211,8 +211,8 @@ describe('GraphifyRunDetailPage', () => {
     renderWithRouter(<GraphifyRunDetailPage />, '/spaces/space-1/graphify/run-1');
 
     expect(await screen.findByText('Graphify Run Detail')).toBeInTheDocument();
-    expect(screen.getAllByText('run-1').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('space-1').length).toBeGreaterThanOrEqual(1);
+    expect((await screen.findAllByText('run-1')).length).toBeGreaterThanOrEqual(1);
+    expect((await screen.findAllByText('space-1')).length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText('Page Not Found')).not.toBeInTheDocument();
   });
 
@@ -225,7 +225,7 @@ describe('GraphifyRunDetailPage', () => {
 
     expect(await screen.findByText('Graphify Run Detail')).toBeInTheDocument();
     expect(await screen.findByText('Summary unavailable')).toBeInTheDocument();
-    expect(screen.getAllByText('run-1').length).toBeGreaterThanOrEqual(1);
+    expect((await screen.findAllByText('run-1')).length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText('Page Not Found')).not.toBeInTheDocument();
   });
 
