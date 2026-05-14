@@ -1,18 +1,26 @@
+import { lookup as dnsLookup } from 'node:dns/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AdminHealthController } from '../admin-health.controller.js';
 import type { AdminSystemHealthResponse, HealthComponent } from '../admin-health.controller.js';
 import type { StorageService } from '../../storage/storage.service.js';
 
+vi.mock('node:dns/promises', () => ({
+  lookup: vi.fn(() => Promise.resolve([{ address: '93.184.216.34', family: 4 }])),
+}));
+
 type DbQuery = ReturnType<typeof vi.fn<(queryText: string) => Promise<unknown>>>;
 type RedisPing = ReturnType<typeof vi.fn<() => Promise<unknown>>>;
 type StorageConfigured = ReturnType<typeof vi.fn<() => boolean>>;
 type StorageHealthCheck = ReturnType<typeof vi.fn<() => Promise<HealthComponent>>>;
+const dnsLookupMock = vi.mocked(dnsLookup);
 
 describe('AdminHealthController', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    dnsLookupMock.mockClear();
+    setDnsRecords('93.184.216.34');
   });
 
   it('returns healthy when configured components are healthy', async () => {
@@ -151,6 +159,72 @@ describe('AdminHealthController', () => {
     });
   });
 
+  it('reports Docmost unhealthy for unsupported DOCMOST_BASE_URL scheme before fetching', async () => {
+    const { controller } = createController();
+    const fetchMock = mockFetchResponse(200);
+
+    const result = await withEnv('DOCMOST_BASE_URL', 'file:///tmp/docmost.sock', () => controller.getHealth());
+
+    expect(result.status).toBe('degraded');
+    expect(result.components.docmost_bridge).toEqual(
+      expect.objectContaining({
+        status: 'unhealthy',
+        error: expect.stringMatching(/unsupported URL scheme/i) as unknown,
+      }),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(dnsLookupMock).not.toHaveBeenCalled();
+  });
+
+  it('blocks unsafe Docmost hosts before fetching unless allowlisted', async () => {
+    const { controller } = createController();
+    const fetchMock = mockFetchResponse(200);
+
+    const result = await withEnv('DOCMOST_BASE_URL', 'http://127.0.0.1:3000', () => controller.getHealth());
+
+    expect(result.status).toBe('degraded');
+    expect(result.components.docmost_bridge).toEqual(
+      expect.objectContaining({
+        status: 'unhealthy',
+        error: expect.stringMatching(/blocked private or local address/i) as unknown,
+      }),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('blocks Docmost hostnames that resolve to private addresses before fetching', async () => {
+    const { controller } = createController();
+    const fetchMock = mockFetchResponse(200);
+    setDnsRecords('172.16.0.20');
+
+    const result = await withEnv('DOCMOST_BASE_URL', 'https://docmost.internal.example', () => controller.getHealth());
+
+    expect(result.status).toBe('degraded');
+    expect(result.components.docmost_bridge).toEqual(
+      expect.objectContaining({
+        status: 'unhealthy',
+        error: expect.stringMatching(/blocked private or local address/i) as unknown,
+      }),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('allows explicitly allowlisted internal Docmost endpoints', async () => {
+    const { controller } = createController();
+    const fetchMock = mockFetchResponse(200);
+
+    const result = await withEnv('ADMIN_OUTBOUND_PROBE_ALLOWLIST', '127.0.0.1', () =>
+      withEnv('DOCMOST_BASE_URL', 'http://127.0.0.1:3000', () => controller.getHealth()),
+    );
+
+    expect(result.status).toBe('healthy');
+    expect(result.components.docmost_bridge.status).toBe('healthy');
+    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:3000/api/health', {
+      method: 'GET',
+      signal: expect.any(AbortSignal) as unknown,
+    });
+  });
+
   it('reports Docmost unhealthy when the health endpoint is unreachable', async () => {
     const { controller } = createController();
     mockFetchError(new TypeError('network error'));
@@ -162,6 +236,21 @@ describe('AdminHealthController', () => {
       expect.objectContaining({
         status: 'unhealthy',
         error: 'network error',
+      }),
+    );
+  });
+
+  it('sanitizes Docmost network errors before returning health metadata', async () => {
+    const { controller } = createController();
+    mockFetchError(new TypeError('network error Authorization: Bearer secret Cookie: sid=secret'));
+
+    const result = await withEnv('DOCMOST_BASE_URL', 'https://docmost.example.com', () => controller.getHealth());
+
+    expect(result.status).toBe('degraded');
+    expect(result.components.docmost_bridge).toEqual(
+      expect.objectContaining({
+        status: 'unhealthy',
+        error: 'Outbound request failed',
       }),
     );
   });
@@ -313,4 +402,12 @@ async function withEnv<T>(name: string, value: string | undefined, callback: () 
       process.env[name] = previous;
     }
   }
+}
+
+function setDnsRecords(...addresses: string[]): void {
+  dnsLookupMock.mockResolvedValue(
+    addresses.map((address) => ({ address, family: address.includes(':') ? 6 : 4 })) as unknown as Awaited<
+      ReturnType<typeof dnsLookup>
+    >,
+  );
 }

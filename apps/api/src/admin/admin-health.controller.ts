@@ -2,6 +2,10 @@ import { Controller, Get, Inject, Optional } from '@nestjs/common';
 import { Permissions } from '@cherrygraph/auth-core';
 
 import { REDIS_CLIENT } from '../common/redis/redis.module.js';
+import {
+  sanitizeOutboundProbeError,
+  validateAdminOutboundProbeUrl,
+} from '../common/outbound-probe-safety.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { StorageService } from '../storage/storage.service.js';
 
@@ -96,11 +100,20 @@ export class AdminHealthController {
     }
 
     const startedAt = performance.now();
+    const targetValidation = await validateAdminOutboundProbeUrl(baseUrl);
+    if (!targetValidation.ok) {
+      return {
+        status: 'unhealthy',
+        latency_ms: elapsedMs(startedAt),
+        error: targetValidation.error,
+      };
+    }
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
 
     try {
-      const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/api/health`, {
+      const response = await fetch(`${targetValidation.url.toString().replace(/\/+$/, '')}/api/health`, {
         method: 'GET',
         signal: controller.signal,
       });
@@ -122,7 +135,7 @@ export class AdminHealthController {
       return {
         status: 'unhealthy',
         latency_ms: elapsedMs(startedAt),
-        error: toSafeErrorMessage(err),
+        error: sanitizeOutboundProbeError(err),
       };
     } finally {
       clearTimeout(timeout);

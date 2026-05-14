@@ -12,6 +12,10 @@ import {
   parseSortField,
   type PaginatedResponse,
 } from '../common/dto/pagination.dto.js';
+import {
+  sanitizeOutboundProbeError,
+  validateAdminOutboundProbeUrl,
+} from '../common/outbound-probe-safety.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 
 type ModelConfigDatabase = NodePgDatabase;
@@ -391,9 +395,21 @@ export class ModelConfigService {
       return result;
     }
 
+    const targetValidation = await validateAdminOutboundProbeUrl(baseUrl);
+    if (!targetValidation.ok) {
+      result = {
+        reachable: false,
+        latency_ms: elapsedMs(startedAt),
+        error: targetValidation.error,
+      };
+
+      this.auditModelTest(tenantId, existing, result, context);
+      return result;
+    }
+
     try {
       const response = await probeModelEndpoint(
-        baseUrl,
+        targetValidation.url.toString(),
         apiKey,
         existing.model_id,
         normalizeModelTypeOrThrow(existing.model_type),
@@ -429,7 +445,7 @@ export class ModelConfigService {
         result = {
           reachable: false,
           latency_ms: elapsedMs(startedAt),
-          error: err instanceof Error ? err.message : String(err),
+          error: sanitizeOutboundProbeError(err),
         };
       }
     }
