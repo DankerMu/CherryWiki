@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { createBullMQConnection } from '@cherrygraph/job-core';
 
-describe('Redis and BullMQ live-stack smoke', () => {
+describe('Redis and BullMQ dependency-container smoke', () => {
   it('pings Redis and persists a queued BullMQ job', async () => {
     const connection = createBullMQConnection(process.env.REDIS_URL ?? 'redis://localhost:6379');
     const queueName = `cherrywiki-smoke-${process.pid}-${Date.now()}`;

@@ -16,12 +16,12 @@
 
 ## 3. Live-Stack Smoke Reliability
 
-- [ ] 3.1 Update `.github/workflows/live-stack-smoke.yml` so the Vitest smoke command fails when zero tests are discovered.
-- [ ] 3.2 Install URL fetcher Python dependencies in the smoke workflow or run the egress smoke inside a prepared worker environment.
-- [ ] 3.3 Replace direct `ip_validator.py` file loading in egress smoke with normal package import or a small runtime `UrlFetcher` scenario.
-- [ ] 3.4 Add smoke/integration coverage for redirect-to-private blocking and proxy-required fail-closed behavior.
-- [ ] 3.5 Decide whether the workflow proves production compose topology; either add compose-based runtime checks or rename/document it as dependency smoke.
-- [ ] 3.6 Retain MinIO create/read/cleanup and Redis/BullMQ persistence checks and document their environment assumptions.
+- [x] 3.1 Update `.github/workflows/live-stack-smoke.yml` so the Vitest smoke command fails when zero tests are discovered.
+- [x] 3.2 Install URL fetcher Python dependencies in the smoke workflow or run the egress smoke inside a prepared worker environment.
+- [x] 3.3 Replace direct `ip_validator.py` file loading in egress smoke with normal package import or a small runtime `UrlFetcher` scenario.
+- [x] 3.4 Add smoke/integration coverage for redirect-to-private blocking and proxy-required fail-closed behavior.
+- [x] 3.5 Decide whether the workflow proves production compose topology; either add compose-based runtime checks or rename/document it as dependency smoke.
+- [x] 3.6 Retain MinIO create/read/cleanup and Redis/BullMQ persistence checks and document their environment assumptions.
 
 ## 4. OpenSpec Delivery Integrity
 
@@ -100,3 +100,33 @@ Non-goals for #319:
 - No admin model or Docmost outbound probe safety changes; those remain in #322.
 - No new secret-hygiene behavior beyond consuming the already merged #318 repo hygiene baseline.
 - No replacement of the URL fetcher architecture or broad HTTP client migration.
+
+## Issue #320 Evidence Mapping
+
+Selected risk packs:
+
+- Public API / CLI / script entry: covered by 3.1 and the smoke workflow command used by CI.
+- Config / project setup: covered by 3.2 and 3.3, including URL fetcher worker dependency installation and normal package import setup.
+- Resource limits / large input / discovery: covered by 3.1 and 3.4, proving test discovery fails closed and egress scenarios stay local/bounded.
+- Legacy compatibility / examples: covered by 3.6, retaining MinIO create/read/cleanup and Redis/BullMQ persistence checks.
+- Error handling / rollback / partial outputs: covered by 3.1, 3.2, 3.3, and 3.4, requiring CI failure for zero tests, missing deps/imports, unsafe redirects, and proxy-required misconfiguration.
+- Release / packaging / dependency compatibility: covered by 3.2 and 3.3, proving smoke uses the URL fetcher runtime dependency set.
+- Documentation / migration notes: covered by 3.5 and 3.6, requiring workflow scope and environment assumptions to be explicit.
+
+Required evidence for #320:
+
+- Run `pnpm exec vitest run tests/smoke/ --config vitest.config.ts --passWithNoTests=false`; expected result is pass with discovered smoke tests.
+- Show the smoke workflow command includes `--passWithNoTests=false`; expected result is CI cannot pass when `tests/smoke/` discovers zero tests.
+- Show URL fetcher worker dependencies are installed or available before egress smoke; expected result is missing `requests`/`dnspython` or broken `src.*` imports fail smoke.
+- Show egress smoke imports URL fetcher via normal package path such as `src.fetcher`/`src.main`; expected result is no direct `ip_validator.py` file loading remains.
+- Add/retain egress smoke for redirect-to-private or metadata blocking; expected result is blocked before private-target fetch.
+- Add/retain egress smoke for proxy-required missing or unreachable proxy; expected result is fail-closed and no direct egress fallback.
+- Retain MinIO and Redis/BullMQ smoke assertions; expected result is object create/read/cleanup and queue persistence still pass.
+- Document or name workflow scope accurately; expected result is dependency-container smoke unless compose topology checks are added.
+
+Non-goals for #320:
+
+- No URL fetcher SSRF semantic redesign; #319 already implemented additive CIDRs, redirect revalidation, and proxy fail-closed semantics.
+- No admin outbound probe changes; #322 owns model/Docmost safety.
+- No global OpenSpec artifact triage; #321 owns delivery integrity.
+- No reliance on public internet for smoke success.

@@ -259,3 +259,89 @@ Review focus:
 - Redirect validation uses the effective redirected target, not only the original URL.
 - Proxy-required mode cannot silently perform direct outbound requests.
 - Tests exercise the normal package/runtime paths rather than only private helper functions.
+
+## Issue #320 Fixture: Live-Stack Smoke Reliability
+
+Fixture level: expanded
+Project profile: other
+Blast radius: high
+
+Why expanded:
+
+- The issue changes CI deployment evidence and smoke workflow fail/pass behavior.
+- The issue touches smoke test discovery, worker Python dependency setup, and URL fetcher runtime-path coverage.
+- The issue must preserve existing MinIO/Redis/BullMQ smoke evidence while adding egress runtime coverage.
+
+Change surface:
+
+- `.github/workflows/live-stack-smoke.yml`
+- `tests/smoke/egress-smoke.test.ts`
+- `tests/smoke/minio-smoke.test.ts`
+- `tests/smoke/redis-smoke.test.ts`
+- URL fetcher worker test/runtime command wiring used by smoke evidence
+
+Must preserve:
+
+- MinIO smoke continues to create, read, and clean up an object through real S3-compatible credentials.
+- Redis smoke continues to ping Redis and persist/retrieve a BullMQ job through the configured Redis URL.
+- Smoke workflow still runs on PRs that change URL fetcher, smoke tests, shared packages, or the smoke workflow.
+- URL fetcher egress smoke remains deterministic and local-first; it must not depend on public internet availability.
+
+Must add/change:
+
+- The Vitest smoke command fails when zero smoke tests are discovered.
+- Egress smoke uses normal URL fetcher package imports and installed worker dependencies instead of direct `ip_validator.py` file loading.
+- Egress smoke or equivalent targeted smoke evidence covers redirect-to-private blocking and proxy-required fail-closed behavior.
+- Workflow naming, comments, or evidence must accurately state whether it proves dependency containers or production compose topology.
+- Environment assumptions for MinIO, Redis/BullMQ, and URL fetcher dependency setup must be visible in workflow/test evidence.
+
+Selected risk packs:
+
+- Public API / CLI / script entry: CI workflow commands and smoke test entrypoints are release gates.
+- Config / project setup: worker Python dependencies and `PYTHONPATH`/package import setup are core behavior.
+- Resource limits / large input / discovery: test discovery must fail closed and smoke execution must remain bounded/local.
+- Legacy compatibility / examples: existing MinIO and Redis/BullMQ smoke coverage must keep working.
+- Error handling / rollback / partial outputs: missing tests, missing dependencies, broken imports, unsafe redirects, and proxy-required failures must fail CI rather than pass silently.
+- Release / packaging / dependency compatibility: smoke must detect missing URL fetcher runtime dependencies used in deployment.
+- Documentation / migration notes: workflow scope and dependency-container assumptions must be explicit.
+
+Risk packs considered:
+
+- Public API / CLI / script entry: selected - workflow/test commands are CI release-gate entrypoints.
+- Config / project setup: selected - dependency install, `PYTHONPATH`, env vars, MinIO, and Redis setup are the core change.
+- File IO / path safety / overwrite: not selected - no file publish/delete/overwrite behavior is changed beyond test source edits.
+- Schema / columns / units / field names: not selected - no data schema or field contract changes.
+- Geospatial / CRS / shapefile sidecars: not selected - no geospatial artifacts are touched.
+- Time series / forcing / temporal boundaries: not selected - no temporal data behavior is touched.
+- Numerical stability / conservation / NaN: not selected - no numerical behavior is touched.
+- Solver runtime / performance / threading: not selected - no solver or threaded runtime surface is touched.
+- Resource limits / large input / discovery: selected - zero-test discovery and bounded local smoke behavior are central.
+- Legacy compatibility / examples: selected - existing MinIO/Redis smoke tests must remain intact.
+- Error handling / rollback / partial outputs: selected - CI must fail closed on missing smoke tests, missing worker deps/imports, unsafe redirects, and proxy-required misconfiguration.
+- Release / packaging / dependency compatibility: selected - smoke must use the worker dependency set rather than bypassing it.
+- Documentation / migration notes: selected - workflow scope must be accurately named/described.
+
+Required evidence:
+
+- `pnpm exec vitest run tests/smoke/ --config vitest.config.ts --passWithNoTests=false`: smoke tests pass and would fail on zero discovered tests.
+- A CI/workflow command installs or otherwise uses `apps/url-fetcher-worker/requirements.txt` before egress smoke runs.
+- Egress smoke imports URL fetcher through the normal package path such as `src.fetcher`/`src.main`; direct `ip_validator.py` file loading is removed.
+- Egress smoke or targeted smoke evidence verifies a public/local allowed URL redirecting to private/metadata is blocked before private-target fetch.
+- Egress smoke or targeted smoke evidence verifies proxy-required mode fails closed when proxy URL is missing or unreachable.
+- MinIO and Redis smoke tests still run and prove create/read/cleanup plus BullMQ persistence.
+- Workflow name/comment/evidence states dependency-container smoke unless compose-based production topology checks are added.
+
+Non-goals:
+
+- Do not re-implement URL fetcher SSRF semantics; #319 already owns runtime behavior.
+- Do not add admin model or Docmost outbound probe safety; #322 owns that.
+- Do not triage all unrelated OpenSpec artifacts; #321 owns global delivery integrity.
+- Do not make smoke depend on external public internet.
+
+Review focus:
+
+- Smoke cannot pass with zero tests.
+- Egress smoke fails if URL fetcher dependencies or package imports are broken.
+- Runtime `UrlFetcher` behavior, not only isolated `IpValidator`, is covered.
+- Existing MinIO/Redis/BullMQ evidence remains active.
+- Workflow naming and evidence do not overclaim production compose coverage.
