@@ -338,11 +338,7 @@ export class GraphifyService {
     runId: string,
     context: GraphifyContext = {},
   ): Promise<GraphifyGraphSummaryResponse> {
-    const tenantId = resolveTenantId(context);
-    const run = await this.findRunById(tenantId, runId);
-    if (run === undefined) {
-      throwGraphifyRunNotFound();
-    }
+    const run = await this.getAccessibleRun(runId, context, 'graphify:view');
 
     const [nodeCountRow] = await this.db
       .select({ total: count() })

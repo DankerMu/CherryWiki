@@ -854,7 +854,8 @@
           "nodes": "Nodes",
           "edges": "Edges",
           "communities": "Communities",
-          "wikiPages": "Wiki pages"
+          "wikiPages": "Wiki pages",
+          "summaryUnavailable": "Summary unavailable"
         },
         "report": {
           "title": "GRAPH_REPORT.md",

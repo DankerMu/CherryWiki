@@ -854,7 +854,8 @@
           "nodes": "节点",
           "edges": "边",
           "communities": "社区",
-          "wikiPages": "知识库页面"
+          "wikiPages": "知识库页面",
+          "summaryUnavailable": "摘要不可用"
         },
         "report": {
           "title": "GRAPH_REPORT.md",

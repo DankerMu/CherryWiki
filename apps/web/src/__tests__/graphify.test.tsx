@@ -216,6 +216,19 @@ describe('GraphifyRunDetailPage', () => {
     expect(screen.queryByText('Page Not Found')).not.toBeInTheDocument();
   });
 
+  it('keeps detail rendering when graph summary is unavailable', async () => {
+    mockDetailApis(buildRun({ run_id: 'run-1', space_id: 'space-1', status: 'succeeded' }), {
+      rejectSummary: true,
+    });
+
+    renderWithRouter(<GraphifyRunDetailPage />, '/spaces/space-1/graphify/run-1');
+
+    expect(await screen.findByText('Graphify Run Detail')).toBeInTheDocument();
+    expect(await screen.findByText('Summary unavailable')).toBeInTheDocument();
+    expect(screen.getAllByText('run-1').length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText('Page Not Found')).not.toBeInTheDocument();
+  });
+
   it('shows not found and blocks detail rendering when the run space does not match the route space', async () => {
     mockDetailApis(buildRun({ run_id: 'run-1', space_id: 'space-2', status: 'succeeded' }));
 
@@ -342,7 +355,7 @@ async function renderDetailStatus(status: GraphifyRun['status']): Promise<void> 
   expect(await screen.findByText('Graphify Run Detail')).toBeInTheDocument();
 }
 
-function mockDetailApis(run: GraphifyRun): void {
+function mockDetailApis(run: GraphifyRun, options: { rejectSummary?: boolean } = {}): void {
   apiMocks.getWrapped.mockImplementation((path: string) => {
     if (path === '/graphify/runs/run-1') {
       return Promise.resolve({
@@ -362,6 +375,10 @@ function mockDetailApis(run: GraphifyRun): void {
     }
 
     if (path === '/graphify/runs/run-1/graph') {
+      if (options.rejectSummary === true) {
+        return Promise.reject(new Error('summary unavailable'));
+      }
+
       return Promise.resolve({
         data: {
           run_id: 'run-1',

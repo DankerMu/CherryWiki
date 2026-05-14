@@ -132,6 +132,8 @@ export const RESOURCE_ACL_DEFERRABLE_PERMISSIONS = [
   'space:read',
   'upload:read',
   'upload:create',
+  'graphify:view',
+  'graphify:run',
 ] as const satisfies readonly PermissionPoint[];
 
 const ROLE_ALIASES = new Map<string, Role>([

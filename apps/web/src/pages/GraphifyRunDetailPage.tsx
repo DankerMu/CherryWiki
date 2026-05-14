@@ -39,6 +39,7 @@ export default function GraphifyRunDetailPage() {
   const [run, setRun] = useState<GraphifyRun | null>(null);
   const [report, setReport] = useState<GraphifyReport | null>(null);
   const [summary, setSummary] = useState<GraphifySummary | null>(null);
+  const [isSummaryUnavailable, setIsSummaryUnavailable] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isCancelling, setIsCancelling] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
@@ -53,6 +54,7 @@ export default function GraphifyRunDetailPage() {
         setRun(null);
         setReport(null);
         setSummary(null);
+        setIsSummaryUnavailable(false);
         setIsRunSpaceMismatch(false);
         setIsLoading(false);
         return;
@@ -72,6 +74,7 @@ export default function GraphifyRunDetailPage() {
           setRun(null);
           setReport(null);
           setSummary(null);
+          setIsSummaryUnavailable(false);
           setIsRunSpaceMismatch(true);
           return;
         }
@@ -81,6 +84,7 @@ export default function GraphifyRunDetailPage() {
         if (isGraphifyRunActive(currentRun)) {
           setReport(null);
           setSummary(null);
+          setIsSummaryUnavailable(false);
           return;
         }
 
@@ -90,6 +94,7 @@ export default function GraphifyRunDetailPage() {
         ]);
         setReport(reportResult.status === 'fulfilled' ? reportResult.value.data : null);
         setSummary(summaryResult.status === 'fulfilled' ? summaryResult.value.data : null);
+        setIsSummaryUnavailable(summaryResult.status === 'rejected');
       } catch (err) {
         setError(getErrorMessage(err));
       } finally {
@@ -239,24 +244,28 @@ export default function GraphifyRunDetailPage() {
           <Card
             title={t('graphify.space.detail.stats.title')}
             style={{ marginBottom: 16 }}
-            styles={{ body: { display: 'flex', gap: 32 } }}
           >
-            <Statistic
-              title={t('graphify.space.detail.stats.nodes')}
-              value={formatCount(summary?.summary.node_count ?? getGraphifyStat(run, 'node_count'))}
-            />
-            <Statistic
-              title={t('graphify.space.detail.stats.edges')}
-              value={formatCount(summary?.summary.edge_count ?? getGraphifyStat(run, 'edge_count'))}
-            />
-            <Statistic
-              title={t('graphify.space.detail.stats.communities')}
-              value={formatCount(summary?.summary.community_count ?? getGraphifyStat(run, 'community_count'))}
-            />
-            <Statistic
-              title={t('graphify.space.detail.stats.wikiPages')}
-              value={formatCount(getGraphifyStat(run, 'wiki_page_count'))}
-            />
+            <div style={{ display: 'flex', gap: 32 }}>
+              <Statistic
+                title={t('graphify.space.detail.stats.nodes')}
+                value={formatCount(summary?.summary.node_count ?? getGraphifyStat(run, 'node_count'))}
+              />
+              <Statistic
+                title={t('graphify.space.detail.stats.edges')}
+                value={formatCount(summary?.summary.edge_count ?? getGraphifyStat(run, 'edge_count'))}
+              />
+              <Statistic
+                title={t('graphify.space.detail.stats.communities')}
+                value={formatCount(summary?.summary.community_count ?? getGraphifyStat(run, 'community_count'))}
+              />
+              <Statistic
+                title={t('graphify.space.detail.stats.wikiPages')}
+                value={formatCount(getGraphifyStat(run, 'wiki_page_count'))}
+              />
+            </div>
+            {isSummaryUnavailable && (
+              <Typography.Text type="secondary">{t('graphify.space.detail.stats.summaryUnavailable')}</Typography.Text>
+            )}
           </Card>
 
           <Card
