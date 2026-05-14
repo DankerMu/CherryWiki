@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSS
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router';
 import { getErrorMessage } from '../../components/adminUi';
+import { SpaceForbiddenState, useSpacePermissionGate } from '../../components/SpacePermissionGate';
 import { api } from '../../lib/api';
 import type { AdminSpaceDetail } from '../../lib/adminTypes';
 import {
@@ -66,6 +67,7 @@ type Selection =
 export default function SpaceGraphExplorerPage() {
   const { t } = useTranslation();
   const { spaceId = '' } = useParams();
+  const gate = useSpacePermissionGate('space:view');
   const [graphState, dispatch] = useReducer(graphReducer, INITIAL_GRAPH_STATE);
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<GraphNode[]>([]);
@@ -96,7 +98,8 @@ export default function SpaceGraphExplorerPage() {
     setError(null);
     setHasEmptyGraph(false);
 
-    if (spaceId.length === 0) {
+    if (spaceId.length === 0 || !gate.isAllowed) {
+      setIsLoadingCommunities(false);
       return;
     }
 
@@ -118,11 +121,11 @@ export default function SpaceGraphExplorerPage() {
         setHasEmptyGraph(false);
       }
     })();
-  }, [spaceId]);
+  }, [gate.isAllowed, spaceId]);
 
   const loadCommunities = useCallback(async () => {
     const spaceSeq = spaceSeqRef.current;
-    if (spaceId.length === 0) {
+    if (spaceId.length === 0 || !gate.isAllowed) {
       setCommunities([]);
       setIsLoadingCommunities(false);
       return;
@@ -146,7 +149,7 @@ export default function SpaceGraphExplorerPage() {
         setIsLoadingCommunities(false);
       }
     }
-  }, [spaceId]);
+  }, [gate.isAllowed, spaceId]);
 
   useEffect(() => {
     void loadCommunities();
@@ -169,6 +172,10 @@ export default function SpaceGraphExplorerPage() {
     return <NotFound />;
   }
 
+  if (!gate.isAllowed) {
+    return <SpaceForbiddenState />;
+  }
+
   async function handleSearch(nextQuery: string): Promise<void> {
     const normalizedQuery = nextQuery.trim();
     const seq = ++searchSeqRef.current;
@@ -177,7 +184,7 @@ export default function SpaceGraphExplorerPage() {
     setHasSearched(true);
     setSearchResults([]);
 
-    if (normalizedQuery.length === 0) {
+    if (normalizedQuery.length === 0 || !gate.isAllowed) {
       setIsSearching(false);
       return;
     }
@@ -207,7 +214,7 @@ export default function SpaceGraphExplorerPage() {
   }
 
   async function expandNode(nodeId: string, force = false): Promise<void> {
-    if (!force && graphState.expandedNodeIds.has(nodeId)) {
+    if ((!force && graphState.expandedNodeIds.has(nodeId)) || !gate.isAllowed) {
       return;
     }
 

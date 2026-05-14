@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router';
 import { lazy, Suspense } from 'react';
 import AppShell from './components/AppShell';
+import { GuardedSpaceRoute } from './components/SpacePermissionGate';
 import { AuthProvider, useAuth } from './lib/auth';
 import AuditPage from './pages/admin/AuditPage';
 import GraphifyPage from './pages/admin/GraphifyPage';
@@ -35,25 +36,78 @@ export function AppRoutes() {
           path="/spaces/:spaceId/overview"
           element={(
             <Suspense fallback={null}>
-              <SpaceOverviewPage />
+              <GuardedSpaceRoute permissions="space:view">
+                <SpaceOverviewPage />
+              </GuardedSpaceRoute>
             </Suspense>
           )}
         />
-        <Route path="/spaces/:spaceId/chat" element={<Chat />} />
-        <Route path="/spaces/:spaceId/wiki" element={<Wiki />} />
-        <Route path="/spaces/:spaceId/wiki/:pageId" element={<Wiki />} />
-        <Route path="/spaces/:spaceId/wiki/:pageId/history" element={<Wiki />} />
+        <Route
+          path="/spaces/:spaceId/chat"
+          element={(
+            <GuardedSpaceRoute permissions={['space:view', 'chat:use']} context="chat">
+              <Chat />
+            </GuardedSpaceRoute>
+          )}
+        />
+        <Route
+          path="/spaces/:spaceId/wiki"
+          element={(
+            <GuardedSpaceRoute permissions="space:view">
+              <Wiki />
+            </GuardedSpaceRoute>
+          )}
+        />
+        <Route
+          path="/spaces/:spaceId/wiki/:pageId"
+          element={(
+            <GuardedSpaceRoute permissions="space:view">
+              <Wiki />
+            </GuardedSpaceRoute>
+          )}
+        />
+        <Route
+          path="/spaces/:spaceId/wiki/:pageId/history"
+          element={(
+            <GuardedSpaceRoute permissions="space:view">
+              <Wiki />
+            </GuardedSpaceRoute>
+          )}
+        />
         <Route
           path="/spaces/:spaceId/graph"
           element={(
             <Suspense fallback={null}>
-              <SpaceGraphExplorerPage />
+              <GuardedSpaceRoute permissions="space:view">
+                <SpaceGraphExplorerPage />
+              </GuardedSpaceRoute>
             </Suspense>
           )}
         />
-        <Route path="/spaces/:spaceId/graphify" element={<GraphifyRunsPage />} />
-        <Route path="/spaces/:spaceId/graphify/:runId" element={<GraphifyRunDetailPage />} />
-        <Route path="/spaces/:spaceId/uploads" element={<UploadCenter />} />
+        <Route
+          path="/spaces/:spaceId/graphify"
+          element={(
+            <GuardedSpaceRoute permissions="graphify:view" context="graphify">
+              <GraphifyRunsPage />
+            </GuardedSpaceRoute>
+          )}
+        />
+        <Route
+          path="/spaces/:spaceId/graphify/:runId"
+          element={(
+            <GuardedSpaceRoute permissions="graphify:view" context="graphify">
+              <GraphifyRunDetailPage />
+            </GuardedSpaceRoute>
+          )}
+        />
+        <Route
+          path="/spaces/:spaceId/uploads"
+          element={(
+            <GuardedSpaceRoute permissions="upload:read" context="upload">
+              <UploadCenter />
+            </GuardedSpaceRoute>
+          )}
+        />
         <Route path="/admin" element={<Navigate to="/admin/users" replace />} />
         <Route path="/admin/users" element={<UsersPage />} />
         <Route path="/admin/groups" element={<GroupsPage />} />

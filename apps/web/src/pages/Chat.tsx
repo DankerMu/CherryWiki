@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import { Navigate, useNavigate, useParams } from 'react-router';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
-import { Alert, Button, Collapse, Empty, Input, List, message, Popconfirm, Result, Select, Spin, Tag } from 'antd';
+import { Alert, Button, Collapse, Empty, Input, List, message, Popconfirm, Select, Spin, Tag } from 'antd';
 import {
   CloseOutlined,
   DeleteOutlined,
@@ -19,6 +19,7 @@ import ChatChart from '../components/ChatChart.js';
 import { ConfidenceBadge } from '../components/ConfidenceBadge.js';
 import GraphPathViewer, { type GraphPathData, type GraphPathEdge, type GraphPathNode } from '../components/GraphPathViewer.js';
 import { formatDate, getErrorMessage } from '../components/adminUi.js';
+import { SpaceForbiddenState, useSpacePermissionGate } from '../components/SpacePermissionGate.js';
 import {
   CHAT_INPUT_MAX_LENGTH,
   DEFAULT_RETRIEVAL_MODE,
@@ -107,6 +108,7 @@ export default function Chat() {
   const { t } = useTranslation();
   const { spaceId = '' } = useParams();
   const { accessToken, hasSpacePermission, isAuthenticated, user } = useAuth();
+  const gate = useSpacePermissionGate(['space:view', 'chat:use']);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
@@ -142,7 +144,7 @@ export default function Chat() {
 
   const loadSessions = useCallback(
     async (background = false) => {
-      if (!isAuthenticated || spaceId.length === 0) {
+      if (!isAuthenticated || spaceId.length === 0 || !gate.isAllowed) {
         setSessions([]);
         setSessionsLoading(false);
         return;
@@ -170,7 +172,7 @@ export default function Chat() {
         }
       }
     },
-    [isAuthenticated, spaceId],
+    [gate.isAllowed, isAuthenticated, spaceId],
   );
 
   const {
@@ -223,7 +225,7 @@ export default function Chat() {
     let cancelled = false;
 
     async function loadAvailableSpaces(): Promise<void> {
-      if (!isAuthenticated || spaceId.length === 0) {
+      if (!isAuthenticated || spaceId.length === 0 || !gate.isAllowed) {
         setAvailableSpaces([]);
         return;
       }
@@ -251,7 +253,7 @@ export default function Chat() {
     return () => {
       cancelled = true;
     };
-  }, [hasSpacePermission, isAuthenticated, spaceId, spaceRefreshVersion, user]);
+  }, [gate.isAllowed, hasSpacePermission, isAuthenticated, spaceId, spaceRefreshVersion, user]);
 
   useEffect(() => {
     setSelectedSpaceIds((current) => {
@@ -266,7 +268,7 @@ export default function Chat() {
   useEffect(() => {
     let cancelled = false;
 
-    if (!isAuthenticated || spaceId.length === 0) {
+    if (!isAuthenticated || spaceId.length === 0 || !gate.isAllowed) {
       setSpaceDatabaseEnabled(false);
       return () => {
         cancelled = true;
@@ -289,7 +291,7 @@ export default function Chat() {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, spaceId]);
+  }, [gate.isAllowed, isAuthenticated, spaceId]);
 
   useEffect(() => {
     if ((!spaceDatabaseEnabled || selectedSpaceIds.length > 1) && chatSettings.enableDatabase) {
@@ -321,14 +323,8 @@ export default function Chat() {
     return <NotFound />;
   }
 
-  if (!hasSpacePermission(spaceId, 'chat:use')) {
-    return (
-      <Result
-        status="403"
-        title={t('chat.forbidden.title')}
-        subTitle={t('chat.forbidden.description', { email: user?.email ?? '' })}
-      />
-    );
+  if (!gate.isAllowed) {
+    return <SpaceForbiddenState context="chat" />;
   }
 
   async function openSession(nextSessionId: string): Promise<void> {

@@ -119,6 +119,12 @@
       "description": "Contact an administrator to request access to a space."
     }
   },
+  "space": {
+    "forbidden": {
+      "title": "Access Denied",
+      "description": "{{email}} does not have access to this space."
+    }
+  },
   "login": {
     "page": {
       "title": "Login",

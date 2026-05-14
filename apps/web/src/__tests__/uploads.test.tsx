@@ -5,7 +5,6 @@ import type { ComponentProps } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '../i18n';
-import * as authModule from '../lib/auth';
 import { AuthProvider, type AuthUser } from '../lib/auth';
 import FileUploadZone from '../pages/uploads/FileUploadZone';
 import UploadCenter from '../pages/uploads/UploadCenter';
@@ -278,16 +277,6 @@ describe('UploadCenter', () => {
 
   it('shows no permission and skips upload API requests when upload read is denied', async () => {
     const fetchMock = stubUploadListApi();
-    vi.spyOn(authModule, 'useAuth').mockReturnValue({
-      user: NO_UPLOAD_PERMISSION_USER,
-      accessToken: 'test-token',
-      login: vi.fn(),
-      logout: vi.fn(),
-      refresh: vi.fn(),
-      isAuthenticated: true,
-      isAdmin: false,
-      hasSpacePermission: () => false,
-    });
 
     renderUploadCenter(NO_UPLOAD_PERMISSION_USER);
 

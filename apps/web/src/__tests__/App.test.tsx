@@ -157,6 +157,50 @@ describe('App routing', () => {
     renderRoute('/nonexistent');
     expect(screen.getByText('页面未找到')).toBeInTheDocument();
   });
+
+  it('does not select or rewrite an inaccessible route space in the shell', async () => {
+    const fetchMock = mockOverviewApi();
+
+    renderRoute('/spaces/space-denied/overview', VIEWER_USER);
+
+    expect(await screen.findByText('访问被拒绝')).toBeInTheDocument();
+    expect(screen.queryByText('Main Space')).not.toBeInTheDocument();
+    expect(screen.queryByText('空间功能')).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: '概览' })).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not rewrite inaccessible route content when the space selector is used', async () => {
+    const fetchMock = mockOverviewApi();
+
+    renderRoute('/spaces/space-denied/overview', VIEWER_USER);
+
+    expect(await screen.findByText('访问被拒绝')).toBeInTheDocument();
+    const selector = getShellSpaceSelectContainer();
+    expect(selector).toHaveClass('ant-select-disabled');
+
+    fireEvent.mouseDown(getShellSpaceCombobox());
+
+    expect(screen.getByText('访问被拒绝')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '空间概览' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Main Space')).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not navigate to a fallback space from sidebar clicks on an inaccessible route space', async () => {
+    const fetchMock = mockOverviewApi();
+
+    renderRoute('/spaces/space-denied/overview', VIEWER_USER);
+
+    expect(await screen.findByText('访问被拒绝')).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: '聊天' })).not.toBeInTheDocument();
+
+    fireEvent.click(getShellMenu());
+
+    expect(screen.getByText('访问被拒绝')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '聊天' })).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('AuthProvider', () => {
@@ -381,63 +425,89 @@ function mockChatSessionsApi(): void {
   );
 }
 
-function mockOverviewApi(): void {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn<typeof fetch>((input) => {
-      const path = getRequestPath(input);
+function mockOverviewApi() {
+  const fetchMock = vi.fn<typeof fetch>((input) => {
+    const path = getRequestPath(input);
 
-      if (path === '/api/spaces/space-main') {
-        return Promise.resolve(jsonResponse({
-          data: {
-            id: 'space-main',
-            name: 'Main Space',
-            slug: 'main-space',
-            status: 'active',
-            description: null,
-            active_graphify_run_id: null,
-            active_index_snapshot_id: null,
-            index_consistency_status: 'consistent',
-            strict_knowledge_only: true,
-            created_at: '2026-01-01T00:00:00.000Z',
-            updated_at: '2026-01-01T00:00:00.000Z',
-          },
-          meta: { request_id: 'req-space' },
-        }));
-      }
+    if (path === '/api/spaces/space-main') {
+      return Promise.resolve(jsonResponse({
+        data: {
+          id: 'space-main',
+          name: 'Main Space',
+          slug: 'main-space',
+          status: 'active',
+          description: null,
+          active_graphify_run_id: null,
+          active_index_snapshot_id: null,
+          index_consistency_status: 'consistent',
+          strict_knowledge_only: true,
+          created_at: '2026-01-01T00:00:00.000Z',
+          updated_at: '2026-01-01T00:00:00.000Z',
+        },
+        meta: { request_id: 'req-space' },
+      }));
+    }
 
-      if (path === '/api/spaces/space-main/stats') {
-        return Promise.resolve(jsonResponse({
-          data: {
-            space_id: 'space-main',
-            source_count: 0,
-            page_count: 0,
-            node_count: 0,
-            edge_count: 0,
-            index_consistency: 'consistent',
-          },
-          meta: { request_id: 'req-stats' },
-        }));
-      }
+    if (path === '/api/spaces/space-main/stats') {
+      return Promise.resolve(jsonResponse({
+        data: {
+          space_id: 'space-main',
+          source_count: 0,
+          page_count: 0,
+          node_count: 0,
+          edge_count: 0,
+          index_consistency: 'consistent',
+        },
+        meta: { request_id: 'req-stats' },
+      }));
+    }
 
-      if (path === '/api/spaces/space-main/uploads' || path === '/api/spaces/space-main/wiki/pages') {
-        return Promise.resolve(jsonResponse({ data: [], meta: { request_id: 'req-list' } }));
-      }
+    if (path === '/api/spaces/space-main/uploads' || path === '/api/spaces/space-main/wiki/pages') {
+      return Promise.resolve(jsonResponse({ data: [], meta: { request_id: 'req-list' } }));
+    }
 
-      if (path === '/api/graph/communities') {
-        return Promise.resolve(jsonResponse({
-          data: { communities: [] },
-          meta: { request_id: 'req-communities' },
-        }));
-      }
+    if (path === '/api/graph/communities') {
+      return Promise.resolve(jsonResponse({
+        data: { communities: [] },
+        meta: { request_id: 'req-communities' },
+      }));
+    }
 
-      if (path === '/api/spaces/space-main/graphify/runs') {
-        return Promise.resolve(jsonResponse({ data: [], meta: { request_id: 'req-runs' } }));
-      }
+    if (path === '/api/graphify/runs') {
+      return Promise.resolve(jsonResponse({ data: [], meta: { request_id: 'req-runs' } }));
+    }
 
-      return Promise.resolve(jsonResponse({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404));
-    }),
-  );
+    return Promise.resolve(jsonResponse({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404));
+  });
+
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
+function getShellSpaceCombobox(): HTMLElement {
+  const combobox = screen
+    .getAllByLabelText('空间')
+    .find((element) => element.getAttribute('role') === 'combobox');
+  if (combobox === undefined) {
+    throw new Error('Space selector combobox was not found');
+  }
+  return combobox;
+}
+
+function getShellSpaceSelectContainer(): HTMLElement {
+  const container = getShellSpaceCombobox().closest('.ant-select');
+  if (container === null) {
+    throw new Error('Space selector container was not found');
+  }
+  return container as HTMLElement;
+}
+
+function getShellMenu(): HTMLElement {
+  const menu = document.querySelector('.app-shell-menu');
+  if (!(menu instanceof HTMLElement)) {
+    throw new Error('Shell menu was not found');
+  }
+  return menu;
 }
 
 function jsonResponse(body: unknown, status = 200): Response {

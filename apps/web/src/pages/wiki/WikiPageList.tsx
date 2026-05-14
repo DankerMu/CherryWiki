@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { formatDate, getErrorMessage } from '../../components/adminUi';
+import { useSpacePermissionGate } from '../../components/SpacePermissionGate';
 import { type ApiMeta } from '../../lib/api';
 import { wikiApi, type WikiPage } from '../../lib/wikiApi';
 import { WIKI_PAGE_SIZE, WikiStatusBadge } from './wikiUi';
@@ -24,6 +25,7 @@ const STATUS_OPTIONS = ['draft', 'published', 'archived'] as const;
 export default function WikiPageList({ spaceId }: WikiPageListProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const gate = useSpacePermissionGate('space:view', spaceId);
   const [pages, setPages] = useState<WikiPage[]>([]);
   const [page, setPage] = useState(DEFAULT_PAGINATION.page);
   const [statusFilter, setStatusFilter] = useState('');
@@ -33,7 +35,7 @@ export default function WikiPageList({ spaceId }: WikiPageListProps) {
   const [isLoading, setIsLoading] = useState(true);
 
   const loadPages = useCallback(async () => {
-    if (spaceId.length === 0) {
+    if (spaceId.length === 0 || !gate.isAllowed) {
       setPages([]);
       setPagination(DEFAULT_PAGINATION);
       setIsLoading(false);
@@ -63,7 +65,7 @@ export default function WikiPageList({ spaceId }: WikiPageListProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [debouncedSearch, page, spaceId, statusFilter]);
+  }, [debouncedSearch, gate.isAllowed, page, spaceId, statusFilter]);
 
   useEffect(() => {
     void loadPages();

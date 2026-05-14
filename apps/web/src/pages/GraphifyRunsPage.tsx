@@ -1,10 +1,11 @@
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
-import { Alert, Button, Popconfirm, Result, Select, Space, Table, Typography } from 'antd';
+import { Alert, Button, Popconfirm, Select, Space, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router';
 import { formatDate, formatLabel, getErrorMessage } from '../components/adminUi';
+import { SpaceForbiddenState, useSpacePermissionGate } from '../components/SpacePermissionGate';
 import { type ApiMeta } from '../lib/api';
 import {
   GRAPHIFY_TRIGGER_TYPES,
@@ -41,7 +42,8 @@ export default function GraphifyRunsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { spaceId = '' } = useParams();
-  const { hasSpacePermission, user } = useAuth();
+  const { hasSpacePermission } = useAuth();
+  const gate = useSpacePermissionGate('graphify:view');
   const [runs, setRuns] = useState<GraphifyRun[]>([]);
   const [status, setStatus] = useState('');
   const [triggerType, setTriggerType] = useState('');
@@ -53,7 +55,7 @@ export default function GraphifyRunsPage() {
   const [retryingRunId, setRetryingRunId] = useState<string | null>(null);
   const [isNewRunOpen, setIsNewRunOpen] = useState(false);
   const [isCreatingRun, setIsCreatingRun] = useState(false);
-  const canViewGraphify = spaceId.length > 0 && hasSpacePermission(spaceId, 'graphify:view');
+  const canViewGraphify = spaceId.length > 0 && gate.isAllowed;
   const canRunGraphify = spaceId.length > 0 && hasSpacePermission(spaceId, 'graphify:run');
 
   const loadRuns = useCallback(
@@ -128,13 +130,7 @@ export default function GraphifyRunsPage() {
   }
 
   if (!canViewGraphify) {
-    return (
-      <Result
-        status="403"
-        title={t('graphify.space.forbidden.title')}
-        subTitle={t('graphify.space.forbidden.description', { email: user?.email ?? '' })}
-      />
-    );
+    return <SpaceForbiddenState context="graphify" />;
   }
 
   async function createRun(params: CreateGraphifyRunParams): Promise<void> {

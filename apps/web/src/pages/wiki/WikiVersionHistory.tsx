@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router';
 import { formatDate, formatLabel, getErrorMessage } from '../../components/adminUi';
+import { useSpacePermissionGate } from '../../components/SpacePermissionGate';
 import { ApiError, type ApiMeta } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { wikiApi, type WikiPage, type WikiPageVersion } from '../../lib/wikiApi';
@@ -26,6 +27,7 @@ const DEFAULT_PAGINATION: NonNullable<ApiMeta['pagination']> = {
 export default function WikiVersionHistory({ spaceId, pageId }: WikiVersionHistoryProps) {
   const { t } = useTranslation();
   const { hasSpacePermission } = useAuth();
+  const gate = useSpacePermissionGate('space:view', spaceId);
   const canRollback = hasSpacePermission(spaceId, 'wiki:rollback');
   const navigate = useNavigate();
   const [page, setPage] = useState<WikiPage | null>(null);
@@ -39,6 +41,11 @@ export default function WikiVersionHistory({ spaceId, pageId }: WikiVersionHisto
   const loadVersions = useCallback(async () => {
     setIsLoading(true);
     setNotFound(false);
+
+    if (!gate.isAllowed) {
+      setIsLoading(false);
+      return;
+    }
 
     try {
       const [pageResponse, versionsResponse] = await Promise.all([
@@ -64,13 +71,15 @@ export default function WikiVersionHistory({ spaceId, pageId }: WikiVersionHisto
     } finally {
       setIsLoading(false);
     }
-  }, [pageId, pageNumber, spaceId]);
+  }, [gate.isAllowed, pageId, pageNumber, spaceId]);
 
   useEffect(() => {
     void loadVersions();
   }, [loadVersions]);
 
   async function rollbackVersion(version: WikiPageVersion): Promise<void> {
+    if (!gate.isAllowed) return;
+
     setRollingBackVersionId(version.version_id);
 
     try {

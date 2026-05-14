@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import TiptapRenderer from '../../components/TiptapRenderer';
 import { formatDate, getErrorMessage } from '../../components/adminUi';
+import { useSpacePermissionGate } from '../../components/SpacePermissionGate';
 import { ApiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { wikiApi, type WikiPage, type WikiPageContent } from '../../lib/wikiApi';
@@ -20,6 +21,7 @@ type WikiPageDetailProps = {
 export default function WikiPageDetail({ spaceId, pageId, versionId }: WikiPageDetailProps) {
   const { t } = useTranslation();
   const { hasSpacePermission } = useAuth();
+  const gate = useSpacePermissionGate('space:view', spaceId);
   const [page, setPage] = useState<WikiPage | null>(null);
   const [content, setContent] = useState<WikiPageContent | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -31,6 +33,11 @@ export default function WikiPageDetail({ spaceId, pageId, versionId }: WikiPageD
     setIsLoading(true);
     setNotFound(false);
     setError(null);
+
+    if (!gate.isAllowed) {
+      setIsLoading(false);
+      return;
+    }
 
     try {
       const [pageResponse, contentResponse] = await Promise.all([
@@ -48,14 +55,14 @@ export default function WikiPageDetail({ spaceId, pageId, versionId }: WikiPageD
     } finally {
       setIsLoading(false);
     }
-  }, [pageId, spaceId, versionId]);
+  }, [gate.isAllowed, pageId, spaceId, versionId]);
 
   useEffect(() => {
     void loadPage();
   }, [loadPage]);
 
   async function publishCurrentVersion(): Promise<void> {
-    if (page?.current_version_id === null || page?.current_version_id === undefined) {
+    if (page?.current_version_id === null || page?.current_version_id === undefined || !gate.isAllowed) {
       return;
     }
 
