@@ -287,7 +287,7 @@ git commit -m "fix(graphify-worker): add CLI install, API auth, response parsing
 
 ## 注意事项
 
-- `.env` 包含 API key（`sk-GmcMPU...`），不要提交到 git
+- `.env` 包含 API key（`<redacted-model-api-key>`），不要提交到 git
 - Graphify CLI 需要 LLM API 才能运行（已配置 deepseek-v4-flash via dmxapi.cn）
 - D9 标记为 deferred（前端权限 API 未就绪）
 - DB 中可能有之前 seed 的测试 wiki 数据（25 条），如果 Graphify 跑通可以先清理再测

@@ -1,20 +1,34 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const PLACEHOLDER_VALUES = new Set([
   '',
   '...',
+  'xxx',
+  'xxxx',
   '<seed-admin-email>',
   '<seed-admin-password>',
+  '<model-api-key>',
+  '<redacted-model-api-key>',
   '<redacted>',
   'redacted',
   'placeholder',
   '<placeholder>',
   'change-me',
   '<change-me>',
+  'refresh-token',
+  'new-refresh-token',
+  'old-refresh-token',
+  'bad-refresh-token',
+  'first-refresh-token',
+  'second-refresh-token',
+  'nested-refresh-token',
+  'must-not-be-signed',
 ]);
 
 const RESERVED_AUTH_PATHS = [
@@ -24,6 +38,32 @@ const RESERVED_AUTH_PATHS = [
   /^storage-state\.json$/,
   /^playwright\/\.auth\/[^/]+\.json$/,
 ];
+
+const MAX_TEXT_SCAN_BYTES = 5 * 1024 * 1024;
+
+const LARGE_BINARY_LIKE_EXTENSIONS = new Set([
+  '.7z',
+  '.avif',
+  '.br',
+  '.db',
+  '.gif',
+  '.gz',
+  '.ico',
+  '.jpeg',
+  '.jpg',
+  '.mov',
+  '.mp4',
+  '.otf',
+  '.pdf',
+  '.png',
+  '.sqlite',
+  '.ttf',
+  '.wasm',
+  '.webp',
+  '.woff',
+  '.woff2',
+  '.zip',
+]);
 
 function git(args, cwd) {
   return execFileSync('git', args, { cwd, encoding: 'utf8' });
@@ -42,7 +82,6 @@ function isPlaceholder(value) {
   const normalized = String(value).trim().toLowerCase();
   return (
     PLACEHOLDER_VALUES.has(normalized) ||
-    /^<[^>]+>$/.test(normalized) ||
     /^\$\{[A-Z0-9_]+(?::\?[^}]*)?}$/.test(String(value).trim())
   );
 }
@@ -67,6 +106,32 @@ function hasConcreteManualCredential(value) {
   return trimmed.length > 0 && !isPlaceholder(trimmed);
 }
 
+function hasExplicitSecretValue(value) {
+  return typeof value === 'string' && value.trim().length > 0 && !isPlaceholder(value);
+}
+
+function hasKnownManualCredentialLiteral(value) {
+  if (!hasConcreteManualCredential(value)) {
+    return false;
+  }
+  return /^(?:changeme123!|concrete123!)$/i.test(value.trim());
+}
+
+function hasManualFillCredentialShape(value) {
+  if (!hasConcreteManualCredential(value)) {
+    return false;
+  }
+  const trimmed = value.trim();
+  return (
+    hasKnownManualCredentialLiteral(trimmed) ||
+    (trimmed.length >= 8 &&
+      /[A-Z]/.test(trimmed) &&
+      /[a-z]/.test(trimmed) &&
+      /[0-9]/.test(trimmed) &&
+      /[^A-Za-z0-9]/.test(trimmed))
+  );
+}
+
 function lineForNeedle(content, needle) {
   if (!needle) {
     return 1;
@@ -80,6 +145,16 @@ function lineForNeedle(content, needle) {
 
 function addFinding(findings, file, line, rule, message) {
   findings.push({ file, line, rule, message });
+}
+
+function addManualCredentialFinding(findings, file, line) {
+  addFinding(
+    findings,
+    file,
+    line,
+    'manual-credential-placeholder-misuse',
+    'Manual test credential must use a placeholder value.',
+  );
 }
 
 function scanJsonValue(value, ctx) {
@@ -122,7 +197,7 @@ function scanJsonValue(value, ctx) {
     const child = value[key];
     const lowerKey = key.toLowerCase();
 
-    if (lowerKey === 'refresh_token' && hasReusableValue(child)) {
+    if (lowerKey === 'refresh_token' && hasExplicitSecretValue(child)) {
       addFinding(
         ctx.findings,
         ctx.file,
@@ -136,7 +211,7 @@ function scanJsonValue(value, ctx) {
       typeof value.name === 'string' &&
       value.name.toLowerCase() === 'refresh_token' &&
       key.toLowerCase() === 'value' &&
-      hasReusableValue(child)
+      hasExplicitSecretValue(child)
     ) {
       addFinding(
         ctx.findings,
@@ -172,7 +247,7 @@ function scanText(content, file, findings) {
 
   lines.forEach((line, index) => {
     const refreshMatch = line.match(/\brefresh_token\b\s*[=:]\s*["']?([^"'\s;,`)]+)/i);
-    if (refreshMatch && hasReusableValue(refreshMatch[1])) {
+    if (refreshMatch && hasExplicitSecretValue(refreshMatch[1])) {
       addFinding(
         findings,
         file,
@@ -188,30 +263,44 @@ function scanText(content, file, findings) {
 
     const passwordMatch = line.match(/"\bpassword\b"\s*:\s*"([^"]+)"/i);
     if (passwordMatch && hasConcreteManualCredential(passwordMatch[1])) {
+      addManualCredentialFinding(findings, file, index + 1);
+    }
+
+    const assignmentMatch = line.match(
+      /\b(?:password|passwd|pwd|api[_-]?key|secret)\b\s*[:=]\s*["']?([^"'\s#`,;]+)/i,
+    );
+    if (assignmentMatch && hasConcreteManualCredential(assignmentMatch[1])) {
+      addManualCredentialFinding(findings, file, index + 1);
+    }
+
+    const fillMatch = line.match(/\bagent-browser\s+fill\b.*?["']([^"']+)["']/i);
+    if (fillMatch && hasManualFillCredentialShape(fillMatch[1])) {
+      addManualCredentialFinding(findings, file, index + 1);
+    }
+
+    if (/\bsk-[A-Za-z0-9][A-Za-z0-9_-]{6,}\b/.test(line)) {
       addFinding(
         findings,
         file,
         index + 1,
-        'manual-credential-placeholder-misuse',
-        'Manual test credential must use a placeholder value.',
+        'manual-api-key-material',
+        'Manual test document contains API-key-like material.',
       );
     }
 
     const shorthandMatch = line.match(/(?:测试环境|填写).*?\badmin\b\s*\/\s*`?([^`|\s]+)`?/i);
     if (shorthandMatch && hasConcreteManualCredential(shorthandMatch[1])) {
-      addFinding(
-        findings,
-        file,
-        index + 1,
-        'manual-credential-placeholder-misuse',
-        'Manual test credential must use a placeholder value.',
-      );
+      addManualCredentialFinding(findings, file, index + 1);
     }
   });
 }
 
-function isText(content) {
-  return !content.includes('\0');
+function isText(buffer) {
+  return !buffer.includes(0);
+}
+
+function isLargeBinaryLikePath(file) {
+  return LARGE_BINARY_LIKE_EXTENSIONS.has(path.extname(file).toLowerCase());
 }
 
 export function scanFiles(files, root = process.cwd()) {
@@ -234,14 +323,29 @@ export function scanFiles(files, root = process.cwd()) {
     if (!existsSync(fullPath)) {
       continue;
     }
-    if (!statSync(fullPath).isFile()) {
+    const stat = statSync(fullPath);
+    if (!stat.isFile()) {
       continue;
     }
 
-    const content = readFileSync(fullPath, 'utf8');
-    if (!isText(content)) {
+    if (stat.size > MAX_TEXT_SCAN_BYTES) {
+      if (!isLargeBinaryLikePath(normalized)) {
+        addFinding(
+          findings,
+          normalized,
+          1,
+          'large-file-not-scanned',
+          'Large commit-capable text-like file exceeds the secret scan size limit.',
+        );
+      }
       continue;
     }
+
+    const rawContent = readFileSync(fullPath);
+    if (!isText(rawContent)) {
+      continue;
+    }
+    const content = rawContent.toString('utf8');
 
     if (normalized.endsWith('.json')) {
       try {
@@ -290,8 +394,59 @@ function runSelfTest() {
       wantFindings: true,
     },
     {
+      name: 'detects all-letter opaque refresh token',
+      files: [
+        {
+          path: 'sample.json',
+          content: '{"refresh_token":"abcdefghijklmnopqrstuvwxzyabcdefghijkl"}',
+        },
+      ],
+      wantFindings: true,
+    },
+    {
+      name: 'detects manual fill credential',
+      files: [
+        {
+          path: 'tests/manual/check.md',
+          content: 'agent-browser fill @eXX "ChangeMe123!"',
+        },
+      ],
+      wantFindings: true,
+    },
+    {
+      name: 'detects manual password assignment',
+      files: [
+        {
+          path: 'tests/manual/check.md',
+          content: 'password=Concrete123!',
+        },
+      ],
+      wantFindings: true,
+    },
+    {
+      name: 'detects manual API-key prefix',
+      files: [
+        {
+          path: 'tests/manual/check.md',
+          content: 'MODEL_API_KEY=sk-abcdefghijklmnopqrstuvwxyz',
+        },
+      ],
+      wantFindings: true,
+    },
+    {
       name: 'detects reserved auth path',
       files: [{ path: 'local-auth.json', content: '{}' }],
+      wantFindings: true,
+    },
+    {
+      name: 'detects oversized text-like file',
+      files: [
+        {
+          path: 'large.txt',
+          content: 'x'.repeat(MAX_TEXT_SCAN_BYTES + 1),
+        },
+      ],
+      useScanFiles: true,
       wantFindings: true,
     },
   ];
@@ -299,24 +454,45 @@ function runSelfTest() {
   let failures = 0;
   for (const sample of samples) {
     const findings = [];
-    for (const file of sample.files) {
-      if (RESERVED_AUTH_PATHS.some((pattern) => pattern.test(file.path))) {
-        addFinding(
-          findings,
-          file.path,
-          1,
-          'reserved-auth-artifact-path',
-          'Reserved path detected.',
+    let tmpRoot;
+    try {
+      if (sample.useScanFiles) {
+        tmpRoot = mkdtempSync(path.join(tmpdir(), 'secret-hygiene-self-test-'));
+        for (const file of sample.files) {
+          const fullPath = path.join(tmpRoot, file.path);
+          writeFileSync(fullPath, file.content);
+        }
+        findings.push(
+          ...scanFiles(
+            sample.files.map((file) => file.path),
+            tmpRoot,
+          ),
         );
+      } else {
+        for (const file of sample.files) {
+          if (RESERVED_AUTH_PATHS.some((pattern) => pattern.test(file.path))) {
+            addFinding(
+              findings,
+              file.path,
+              1,
+              'reserved-auth-artifact-path',
+              'Reserved path detected.',
+            );
+          }
+          if (file.path.endsWith('.json')) {
+            scanJsonValue(JSON.parse(file.content), {
+              content: file.content,
+              file: file.path,
+              findings,
+            });
+          }
+          scanText(file.content, file.path, findings);
+        }
       }
-      if (file.path.endsWith('.json')) {
-        scanJsonValue(JSON.parse(file.content), {
-          content: file.content,
-          file: file.path,
-          findings,
-        });
+    } finally {
+      if (tmpRoot) {
+        rmSync(tmpRoot, { recursive: true, force: true });
       }
-      scanText(file.content, file.path, findings);
     }
 
     const passed = sample.wantFindings ? findings.length > 0 : findings.length === 0;
@@ -358,4 +534,9 @@ function main() {
   );
 }
 
-main();
+const currentModulePath = fileURLToPath(import.meta.url);
+const entrypointPath = process.argv[1] ? path.resolve(process.argv[1]) : '';
+
+if (entrypointPath === currentModulePath) {
+  main();
+}
