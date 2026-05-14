@@ -124,7 +124,7 @@ export class RbacGuard implements CanActivate {
     const rolePermissions = new Set<string>(ROLE_PERMISSIONS[role]);
 
     if (spaceId === undefined && requiredPermissions.some(isSpaceScopedPermission)) {
-      if (requiredPermissions.every((permission) => isResourceAclDeferrable(permission) && rolePermissions.has(permission))) {
+      if (requiredPermissions.every(isResourceAclDeferrable)) {
         return true;
       }
       if (role === ROLES.ADMIN && requiredPermissions.every((permission) => isSpaceScopedPermission(permission) || rolePermissions.has(permission))) {

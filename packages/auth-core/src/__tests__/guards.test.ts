@@ -222,7 +222,7 @@ describe('RbacGuard', () => {
     ).rejects.toMatchObject({ status: 403 });
   });
 
-  it('throws 403 for a viewer requesting upload:create without a target space', async () => {
+  it('allows a viewer through the guard for deferrable upload:create without a target space', async () => {
     const guard = new RbacGuard(new Reflector());
     const handler = withPermissions(['upload:create']);
 
@@ -236,10 +236,10 @@ describe('RbacGuard', () => {
           },
         }),
       ),
-    ).rejects.toMatchObject({ status: 403 });
+    ).resolves.toBe(true);
   });
 
-  it('throws 403 for an auditor requesting upload:read without a target space', async () => {
+  it('allows an auditor through the guard for deferrable upload:read without a target space', async () => {
     const guard = new RbacGuard(new Reflector());
     const handler = withPermissions(['upload:read']);
 
@@ -253,7 +253,7 @@ describe('RbacGuard', () => {
           },
         }),
       ),
-    ).rejects.toMatchObject({ status: 403 });
+    ).resolves.toBe(true);
   });
 
   it('allows an admin to authorize a space-scoped permission without a target space', async () => {

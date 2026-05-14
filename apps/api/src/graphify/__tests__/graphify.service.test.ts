@@ -352,6 +352,33 @@ describe('GraphifyService', () => {
       await expect(invokeAclMethod(service, methodName, createMemberContext())).resolves.toBeDefined();
     });
 
+    it('allows a viewer with Space graphify:view permission but no global graphify permission', async () => {
+      const { service, db } = createServiceContext();
+      queueAllowedAclCall(db, 'getRun');
+
+      await expect(service.getRun('run-1', createViewerContext())).resolves.toMatchObject({
+        run_id: 'run-1',
+        space_id: TEST_SPACE_ID,
+      });
+    });
+
+    it('denies a user with global graphify:view but no Space graphify permission', async () => {
+      const { service, db } = createServiceContext();
+      db.queueSelect([createRunRow({ status: 'succeeded' })]);
+      db.queueSelect([createSpaceRow()]);
+      db.queueSelect([]);
+
+      const err = await getRejectedHttpException(
+        service.getRun('run-1', {
+          ...createMemberContext(),
+          actorPermissions: ['graphify:view'],
+        }),
+      );
+
+      expect(err.getStatus()).toBe(403);
+      expect(getHttpExceptionCode(err)).toBe(ErrorCode.PERMISSION_DENIED);
+    });
+
     it.each([
       ['listRuns' as const],
       ['getRun' as const],
@@ -572,6 +599,13 @@ function createMemberContext(): {
     actorUserId: TEST_USER_ID,
     actorRole: 'editor',
     userId: TEST_USER_ID,
+  };
+}
+
+function createViewerContext(): ReturnType<typeof createMemberContext> {
+  return {
+    ...createMemberContext(),
+    actorRole: 'viewer',
   };
 }
 

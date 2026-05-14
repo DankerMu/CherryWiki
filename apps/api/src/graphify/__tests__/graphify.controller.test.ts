@@ -49,6 +49,15 @@ describe('GraphifyController', () => {
     ).resolves.toBe(true);
   });
 
+  it('allows a viewer API token with graphify:view scope to reach a resource route for service ACL enforcement', async () => {
+    const guard = new RbacGuard(new Reflector());
+    const request = createApiTokenRequest(['graphify:view'], ROLES.VIEWER);
+
+    await expect(
+      guard.canActivate(createGuardContext('getRun', { params: { runId: 'run-1' }, user: request.user })),
+    ).resolves.toBe(true);
+  });
+
   it.each([
     ['createRun' as const, { params: { spaceId: TEST_SPACE_ID } }],
     ['cancelRun' as const, { params: { runId: 'run-1' } }],

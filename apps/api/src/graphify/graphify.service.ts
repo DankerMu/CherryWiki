@@ -582,10 +582,6 @@ export class GraphifyService {
     }
 
     const userId = resolveContextUserId(context);
-    if (context.actorPermissions !== undefined && permissionSetSatisfies(context.actorPermissions, permission)) {
-      return space;
-    }
-
     const allowed = await this.hasSpacePermission(tenantId, userId, spaceId, permission);
     if (!allowed) {
       throwApiError(ErrorCode.PERMISSION_DENIED, 'Permission denied', HttpStatus.FORBIDDEN);
@@ -1109,10 +1105,6 @@ function normalizeCount(value: unknown): number {
 
 function satisfyingPermissions(permission: GraphifyPermission): string[] {
   return [permission, 'space:admin'];
-}
-
-function permissionSetSatisfies(permissions: string[], permission: GraphifyPermission): boolean {
-  return permissions.includes(permission) || permissions.includes('space:admin');
 }
 
 function hasImplicitSpaceAccess(role: string | undefined): boolean {
