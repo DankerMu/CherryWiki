@@ -103,7 +103,7 @@ export class AdminHealthController {
 
     const startedAt = performance.now();
     const targetValidation = await validateAdminOutboundProbeUrl(baseUrl, {
-      dnsTimeoutMs: DOCMOST_HEALTH_TIMEOUT_MS,
+      dnsTimeoutMs: remainingDeadlineMs(startedAt, DOCMOST_HEALTH_TIMEOUT_MS),
     });
     if (!targetValidation.ok) {
       return {
@@ -113,14 +113,25 @@ export class AdminHealthController {
       };
     }
 
+    const remainingMs = remainingDeadlineMs(startedAt, DOCMOST_HEALTH_TIMEOUT_MS);
+    if (remainingMs <= 0) {
+      await targetValidation.dispatcher.close().catch(() => undefined);
+      return {
+        status: 'unhealthy',
+        latency_ms: elapsedMs(startedAt),
+        error: 'Health check timed out (5s total)',
+      };
+    }
+
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), DOCMOST_HEALTH_TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), remainingMs);
 
     try {
       const response = await fetch(`${targetValidation.url.toString().replace(/\/+$/, '')}/api/health`, {
         method: 'GET',
         redirect: 'manual',
         signal: controller.signal,
+        dispatcher: targetValidation.dispatcher,
       });
       const result: HealthComponent =
         response.status === 200
@@ -132,8 +143,8 @@ export class AdminHealthController {
       if (isAbortError(err)) {
         return {
           status: 'unhealthy',
-          latency_ms: DOCMOST_HEALTH_TIMEOUT_MS,
-          error: 'Health check timed out (5s)',
+          latency_ms: elapsedMs(startedAt),
+          error: 'Health check timed out (5s total)',
         };
       }
 
@@ -144,6 +155,7 @@ export class AdminHealthController {
       };
     } finally {
       clearTimeout(timeout);
+      await targetValidation.dispatcher.close().catch(() => undefined);
     }
   }
 }
@@ -200,6 +212,10 @@ function postgresBackedComponent(database: HealthComponent, details: string): He
 
 function elapsedMs(startedAt: number): number {
   return Math.max(1, Math.round(performance.now() - startedAt));
+}
+
+function remainingDeadlineMs(startedAt: number, deadlineMs: number): number {
+  return Math.max(0, deadlineMs - Math.round(performance.now() - startedAt));
 }
 
 function toSafeErrorMessage(err: unknown): string {

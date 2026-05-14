@@ -237,6 +237,7 @@ describe('ModelConfigService', () => {
     expect(url).toBe('https://api.openai.com/v1/chat/completions');
     expect(init.method).toBe('POST');
     expect(init.redirect).toBe('manual');
+    expect((init as RequestInit & { dispatcher?: unknown }).dispatcher).toEqual(expect.any(Object));
     expect(init.headers).toEqual({
       Authorization: 'Bearer test-key',
       'Content-Type': 'application/json',
@@ -501,6 +502,28 @@ describe('ModelConfigService', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('carries the validated DNS dispatcher into model fetches to prevent a second resolver decision', async () => {
+    const { service, db } = createServiceContext();
+    const fetchMock = mockFetchResponse(200);
+    setDnsRecords('93.184.216.34');
+    db.queueSelect([
+      createModelConfigRow({
+        base_url: 'https://rebinding.example/v1',
+        encrypted_api_key_ref: 'secret:openai_key',
+      }),
+    ]);
+
+    await withEnv('OPENAI_KEY', 'test-key', async () => {
+      const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+      expect(result.reachable).toBe(true);
+    });
+
+    const { init } = getFirstFetchCall(fetchMock);
+    expect((init as RequestInit & { dispatcher?: unknown }).dispatcher).toEqual(expect.any(Object));
+    expect(dnsLookupMock).toHaveBeenCalledTimes(1);
+  });
+
   it('allows an explicitly allowlisted internal model endpoint to use existing probe fetch behavior', async () => {
     const { service, db } = createServiceContext();
     const fetchMock = mockFetchResponse(200);
@@ -627,6 +650,28 @@ describe('ModelConfigService', () => {
     });
   });
 
+  it('sanitizes short configured API keys in model probe errors', async () => {
+    const { service, db, audit } = createServiceContext();
+    const fetchMock = mockFetchError(new TypeError('provider error included key abc'));
+    db.queueSelect([createModelConfigRow({ encrypted_api_key_ref: 'secret:openai_key' })]);
+
+    await withEnv('OPENAI_KEY', 'abc', async () => {
+      const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          reachable: false,
+          error: 'Outbound request failed',
+        }),
+      );
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(findAuditMetadata(audit, AUDIT_EVENTS.ADMIN_MODEL_TEST, TEST_MODEL_ID)).toMatchObject({
+      reachable: false,
+      error: 'Outbound request failed',
+    });
+  });
+
   it('returns no API key configured without fetching when key ref is null', async () => {
     const { service, db } = createServiceContext();
     const fetchMock = mockFetchResponse(200);
@@ -674,6 +719,34 @@ describe('ModelConfigService', () => {
       expect(result.reachable).toBe(false);
       expect(result.latency_ms).toBe(10000);
       expect(result.error).toContain('timed out');
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses one model probe deadline across slow DNS validation and fetch timeout', async () => {
+    vi.useFakeTimers();
+    const { service, db } = createServiceContext();
+    const fetchMock = mockFetchTimeout();
+    dnsLookupMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            resolve([{ address: '93.184.216.34', family: 4 }] as unknown as Awaited<ReturnType<typeof dnsLookup>>);
+          }, 9000);
+        }),
+    );
+    db.queueSelect([createModelConfigRow({ encrypted_api_key_ref: 'secret:openai_key' })]);
+
+    await withEnv('OPENAI_KEY', 'test-key', async () => {
+      const resultPromise = service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+      await vi.advanceTimersByTimeAsync(9000);
+      await vi.advanceTimersByTimeAsync(1000);
+      const result = await resultPromise;
+
+      expect(result.reachable).toBe(false);
+      expect(result.latency_ms).toBe(10000);
+      expect(result.error).toBe('Request timed out (10s total)');
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });

@@ -398,7 +398,7 @@ export class ModelConfigService {
     }
 
     const targetValidation = await validateAdminOutboundProbeUrl(baseUrl, {
-      dnsTimeoutMs: MODEL_PROBE_TIMEOUT_MS,
+      dnsTimeoutMs: remainingDeadlineMs(startedAt, MODEL_PROBE_TIMEOUT_MS),
     });
     if (!targetValidation.ok) {
       result = {
@@ -412,11 +412,26 @@ export class ModelConfigService {
     }
 
     try {
+      const remainingMs = remainingDeadlineMs(startedAt, MODEL_PROBE_TIMEOUT_MS);
+      if (remainingMs <= 0) {
+        await targetValidation.dispatcher.close().catch(() => undefined);
+        result = {
+          reachable: false,
+          latency_ms: elapsedMs(startedAt),
+          error: 'Request timed out (10s total)',
+        };
+
+        this.auditModelTest(tenantId, existing, result, context);
+        return result;
+      }
+
       const response = await probeModelEndpoint(
         targetValidation.url.toString(),
         apiKey,
         existing.model_id,
         normalizeModelTypeOrThrow(existing.model_type),
+        remainingMs,
+        targetValidation.dispatcher,
       );
       const latencyMs = elapsedMs(startedAt);
 
@@ -442,8 +457,8 @@ export class ModelConfigService {
       if (isAbortError(err)) {
         result = {
           reachable: false,
-          latency_ms: MODEL_PROBE_TIMEOUT_MS,
-          error: 'Request timed out (10s)',
+          latency_ms: elapsedMs(startedAt),
+          error: 'Request timed out (10s total)',
         };
       } else {
         result = {
@@ -454,6 +469,7 @@ export class ModelConfigService {
       }
     }
 
+    await targetValidation.dispatcher.close().catch(() => undefined);
     this.auditModelTest(tenantId, existing, result, context);
     return result;
   }
@@ -529,10 +545,12 @@ async function probeModelEndpoint(
   apiKey: string,
   modelId: string,
   modelType: ModelType,
+  timeoutMs: number,
+  dispatcher: NonNullable<RequestInit['dispatcher']>,
 ): Promise<ProbeResult> {
   const request = buildProbeRequest(modelId, modelType);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), MODEL_PROBE_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(`${baseUrl.replace(/\/+$/, '')}${request.path}`, {
@@ -544,6 +562,7 @@ async function probeModelEndpoint(
       },
       body: JSON.stringify(request.body),
       signal: controller.signal,
+      dispatcher,
     });
     const result = { ok: response.ok, status: response.status };
     await response.body?.cancel().catch(() => undefined);
@@ -796,6 +815,10 @@ function normalizeCount(value: unknown): number {
 
 function elapsedMs(startedAt: number): number {
   return Math.max(1, Date.now() - startedAt);
+}
+
+function remainingDeadlineMs(startedAt: number, deadlineMs: number): number {
+  return Math.max(0, deadlineMs - (Date.now() - startedAt));
 }
 
 function toModelStatus(enabled: boolean): ModelStatus {

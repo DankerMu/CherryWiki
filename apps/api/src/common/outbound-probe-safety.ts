@@ -1,5 +1,7 @@
 import { lookup as dnsLookup } from 'node:dns/promises';
+import type { LookupAddress } from 'node:dns';
 import { isIP } from 'node:net';
+import { Agent } from 'undici';
 
 const ADMIN_OUTBOUND_PROBE_ALLOWLIST_ENV = 'ADMIN_OUTBOUND_PROBE_ALLOWLIST';
 const SAFE_VALIDATION_PREFIX = 'Outbound probe target rejected';
@@ -25,6 +27,10 @@ type ParsedAllowlist = {
   cidrs: CidrRule[];
 };
 
+type OutboundProbeDispatcher = NonNullable<RequestInit['dispatcher']> & {
+  close: () => Promise<void>;
+};
+
 export type OutboundProbeValidationOptions = {
   dnsTimeoutMs?: number;
 };
@@ -33,6 +39,7 @@ export type OutboundProbeValidationResult =
   | {
       ok: true;
       url: URL;
+      dispatcher: OutboundProbeDispatcher;
     }
   | {
       ok: false;
@@ -77,7 +84,7 @@ export async function validateAdminOutboundProbeUrl(
     return reject('host resolves to a blocked private or local address');
   }
 
-  return { ok: true, url };
+  return { ok: true, url, dispatcher: createValidatedProbeDispatcher(hostname, addresses) };
 }
 
 export function sanitizeOutboundProbeError(err: unknown, sensitiveValues: string[] = []): string {
@@ -151,6 +158,53 @@ async function resolveTargetAddresses(
       clearTimeout(timeout);
     }
   }
+}
+
+function createValidatedProbeDispatcher(hostname: string, addresses: string[]): OutboundProbeDispatcher {
+  const lookupRecords: LookupAddress[] = addresses.map((address) => ({
+    address,
+    family: isIP(address) as 4 | 6,
+  }));
+
+  return new Agent({
+    connect: {
+      lookup: (requestHostname, options, callback) => {
+        if (normalizeHostname(requestHostname) !== hostname) {
+          callback(createLookupRejectedError(), []);
+          return;
+        }
+
+        const family = typeof options.family === 'number' ? options.family : 0;
+        const records = family === 0 ? lookupRecords : lookupRecords.filter((record) => record.family === family);
+        if (records.length === 0) {
+          callback(createLookupRejectedError(), []);
+          return;
+        }
+
+        if (options.all === true) {
+          callback(null, records);
+          return;
+        }
+
+        const record = records[0];
+        if (record === undefined) {
+          callback(createLookupRejectedError(), []);
+          return;
+        }
+
+        callback(null, record.address, record.family);
+      },
+    },
+    keepAliveTimeout: 1,
+    keepAliveMaxTimeout: 1,
+    pipelining: 0,
+  }) as unknown as OutboundProbeDispatcher;
+}
+
+function createLookupRejectedError(): NodeJS.ErrnoException {
+  const err = new Error(`${SAFE_VALIDATION_PREFIX}: fetch-time DNS decision was not validated`) as NodeJS.ErrnoException;
+  err.code = 'ERR_OUTBOUND_PROBE_BLOCKED';
+  return err;
 }
 
 function parseAdminOutboundProbeAllowlist(): ParsedAllowlist {
@@ -470,7 +524,7 @@ function bigIntToIpv6(value: bigint): string {
 }
 
 function containsSecretOrRequestMetadata(message: string, sensitiveValues: string[]): boolean {
-  if (sensitiveValues.some((value) => value.trim().length >= 4 && message.includes(value.trim()))) {
+  if (sensitiveValues.some((value) => value.trim().length > 0 && message.includes(value.trim()))) {
     return true;
   }
 

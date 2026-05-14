@@ -157,6 +157,7 @@ describe('AdminHealthController', () => {
       method: 'GET',
       redirect: 'manual',
       signal: expect.any(AbortSignal) as unknown,
+      dispatcher: expect.any(Object) as unknown,
     });
   });
 
@@ -224,6 +225,7 @@ describe('AdminHealthController', () => {
       method: 'GET',
       redirect: 'manual',
       signal: expect.any(AbortSignal) as unknown,
+      dispatcher: expect.any(Object) as unknown,
     });
   });
 
@@ -320,7 +322,37 @@ describe('AdminHealthController', () => {
       expect(result.components.docmost_bridge).toEqual({
         status: 'unhealthy',
         latency_ms: 5000,
-        error: 'Health check timed out (5s)',
+        error: 'Health check timed out (5s total)',
+      });
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses one Docmost deadline across slow DNS validation and fetch timeout', async () => {
+    vi.useFakeTimers();
+    const { controller } = createController();
+    const fetchMock = mockFetchTimeout();
+    dnsLookupMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            resolve([{ address: '93.184.216.34', family: 4 }] as unknown as Awaited<ReturnType<typeof dnsLookup>>);
+          }, 4000);
+        }),
+    );
+
+    await withEnv('DOCMOST_BASE_URL', 'https://slow-docmost.example', async () => {
+      const resultPromise = controller.getHealth();
+
+      await vi.advanceTimersByTimeAsync(4000);
+      await vi.advanceTimersByTimeAsync(1000);
+      const result = await resultPromise;
+
+      expect(result.status).toBe('degraded');
+      expect(result.components.docmost_bridge).toEqual({
+        status: 'unhealthy',
+        latency_ms: 5000,
+        error: 'Health check timed out (5s total)',
       });
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
