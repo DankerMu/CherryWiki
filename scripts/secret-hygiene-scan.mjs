@@ -1,7 +1,15 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -67,6 +75,10 @@ const LARGE_BINARY_LIKE_EXTENSIONS = new Set([
 
 function git(args, cwd) {
   return execFileSync('git', args, { cwd, encoding: 'utf8' });
+}
+
+function gitBytes(args, cwd) {
+  return execFileSync('git', args, { cwd });
 }
 
 function repoRoot() {
@@ -303,21 +315,54 @@ function isLargeBinaryLikePath(file) {
   return LARGE_BINARY_LIKE_EXTENSIONS.has(path.extname(file).toLowerCase());
 }
 
+function scanContentBuffer(rawContent, normalized, findings) {
+  if (!isText(rawContent)) {
+    return;
+  }
+  const content = rawContent.toString('utf8');
+
+  if (normalized.endsWith('.json')) {
+    try {
+      scanJsonValue(JSON.parse(content), { content, file: normalized, findings });
+    } catch {
+      // Non-JSON content in a .json path is left to normal project validation.
+    }
+  }
+
+  scanText(content, normalized, findings);
+}
+
+function addPathFinding(findings, normalized) {
+  if (RESERVED_AUTH_PATHS.some((pattern) => pattern.test(normalized))) {
+    addFinding(
+      findings,
+      normalized,
+      1,
+      'reserved-auth-artifact-path',
+      'Local auth-state artifact path is commit-capable; it must be ignored or removed from staging.',
+    );
+  }
+}
+
+function dedupeFindings(findings) {
+  const seen = new Set();
+  return findings.filter((finding) => {
+    const key = `${finding.file}\0${finding.line}\0${finding.rule}\0${finding.message}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
 export function scanFiles(files, root = process.cwd()) {
   const findings = [];
 
   for (const file of files) {
     const normalized = file.split(path.sep).join('/');
 
-    if (RESERVED_AUTH_PATHS.some((pattern) => pattern.test(normalized))) {
-      addFinding(
-        findings,
-        normalized,
-        1,
-        'reserved-auth-artifact-path',
-        'Local auth-state artifact path is commit-capable; it must be ignored or removed from staging.',
-      );
-    }
+    addPathFinding(findings, normalized);
 
     const fullPath = path.join(root, file);
     if (!existsSync(fullPath)) {
@@ -342,23 +387,69 @@ export function scanFiles(files, root = process.cwd()) {
     }
 
     const rawContent = readFileSync(fullPath);
-    if (!isText(rawContent)) {
-      continue;
-    }
-    const content = rawContent.toString('utf8');
-
-    if (normalized.endsWith('.json')) {
-      try {
-        scanJsonValue(JSON.parse(content), { content, file: normalized, findings });
-      } catch {
-        // Non-JSON content in a .json path is left to normal project validation.
-      }
-    }
-
-    scanText(content, normalized, findings);
+    scanContentBuffer(rawContent, normalized, findings);
   }
 
   return findings;
+}
+
+function listIndexEntries(root) {
+  const output = git(['ls-files', '-s', '-z', '--cached'], root);
+  return output
+    .split('\0')
+    .filter(Boolean)
+    .map((entry) => {
+      const tabIndex = entry.indexOf('\t');
+      if (tabIndex < 0) {
+        return null;
+      }
+      const metadata = entry.slice(0, tabIndex).split(' ');
+      const mode = metadata[0];
+      const file = entry.slice(tabIndex + 1);
+      const objectName = metadata[1];
+      if (!objectName || !file || mode === '160000') {
+        return null;
+      }
+      return { file, objectName };
+    })
+    .filter(Boolean);
+}
+
+export function scanIndexBlobs(root = process.cwd()) {
+  const findings = [];
+
+  for (const entry of listIndexEntries(root)) {
+    const normalized = entry.file.split(path.sep).join('/');
+    addPathFinding(findings, normalized);
+
+    const size = Number(git(['cat-file', '-s', entry.objectName], root).trim());
+    if (!Number.isFinite(size)) {
+      continue;
+    }
+
+    if (size > MAX_TEXT_SCAN_BYTES) {
+      if (!isLargeBinaryLikePath(normalized)) {
+        addFinding(
+          findings,
+          normalized,
+          1,
+          'large-file-not-scanned',
+          'Large commit-capable text-like file exceeds the secret scan size limit.',
+        );
+      }
+      continue;
+    }
+
+    const rawContent = gitBytes(['cat-file', 'blob', entry.objectName], root);
+    scanContentBuffer(rawContent, normalized, findings);
+  }
+
+  return findings;
+}
+
+export function scanRepository(root = process.cwd()) {
+  const files = listCommitCapableFiles(root);
+  return { files, findings: dedupeFindings([...scanFiles(files, root), ...scanIndexBlobs(root)]) };
 }
 
 function runSelfTest() {
@@ -449,6 +540,11 @@ function runSelfTest() {
       useScanFiles: true,
       wantFindings: true,
     },
+    {
+      name: 'detects staged secret when working tree has placeholder',
+      useGitIndex: true,
+      wantFindings: true,
+    },
   ];
 
   let failures = 0;
@@ -456,10 +552,27 @@ function runSelfTest() {
     const findings = [];
     let tmpRoot;
     try {
-      if (sample.useScanFiles) {
+      if (sample.useGitIndex) {
+        tmpRoot = mkdtempSync(path.join(tmpdir(), 'secret-hygiene-self-test-'));
+        git(['init', '-q'], tmpRoot);
+        const manualPath = 'tests/manual/check.md';
+        const fullPath = path.join(tmpRoot, manualPath);
+        mkdirSync(path.dirname(fullPath), { recursive: true });
+        writeFileSync(fullPath, 'password=Concrete123!\n');
+        git(['add', manualPath], tmpRoot);
+        writeFileSync(fullPath, 'password=<seed-admin-password>\n');
+
+        const files = listCommitCapableFiles(tmpRoot);
+        const worktreeFindings = scanFiles(files, tmpRoot);
+        if (worktreeFindings.length > 0) {
+          throw new Error('working-tree placeholder unexpectedly produced findings');
+        }
+        findings.push(...scanRepository(tmpRoot).findings);
+      } else if (sample.useScanFiles) {
         tmpRoot = mkdtempSync(path.join(tmpdir(), 'secret-hygiene-self-test-'));
         for (const file of sample.files) {
           const fullPath = path.join(tmpRoot, file.path);
+          mkdirSync(path.dirname(fullPath), { recursive: true });
           writeFileSync(fullPath, file.content);
         }
         findings.push(
@@ -517,8 +630,7 @@ function main() {
   }
 
   const root = repoRoot();
-  const files = listCommitCapableFiles(root);
-  const findings = scanFiles(files, root);
+  const { files, findings } = scanRepository(root);
 
   if (findings.length > 0) {
     console.error(`Secret hygiene scan failed: ${findings.length} finding(s).`);
