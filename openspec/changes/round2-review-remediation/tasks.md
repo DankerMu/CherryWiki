@@ -8,11 +8,11 @@
 
 ## 2. URL Fetcher SSRF and Proxy Hardening
 
-- [ ] 2.1 Change `SSRF_BLOCKED_CIDRS` handling so configured CIDRs are appended to built-in forbidden ranges instead of replacing them.
-- [ ] 2.2 Update URL fetcher tests to assert custom CIDR plus built-in RFC1918, localhost, metadata, and IPv4-mapped IPv6 ranges remain blocked.
-- [ ] 2.3 Keep malformed CIDR configuration fail-closed and add/retain startup tests for invalid values.
-- [ ] 2.4 Add regression coverage for proxy-required mode with missing and unreachable proxy configuration.
-- [ ] 2.5 Add redirect revalidation coverage where an initially allowed URL redirects to a private or metadata address.
+- [x] 2.1 Change `SSRF_BLOCKED_CIDRS` handling so configured CIDRs are appended to built-in forbidden ranges instead of replacing them.
+- [x] 2.2 Update URL fetcher tests to assert custom CIDR plus built-in RFC1918, localhost, metadata, and IPv4-mapped IPv6 ranges remain blocked.
+- [x] 2.3 Keep malformed CIDR configuration fail-closed and add/retain startup tests for invalid values.
+- [x] 2.4 Add regression coverage for proxy-required mode with missing and unreachable proxy configuration.
+- [x] 2.5 Add redirect revalidation coverage where an initially allowed URL redirects to a private or metadata address.
 
 ## 3. Live-Stack Smoke Reliability
 
@@ -72,3 +72,31 @@ Non-goals for #318:
 - No committed browser storage-state fixture.
 - No placeholder/example auth JSON using the reserved local-artifact pattern `*-auth.json`.
 - No changes to URL fetcher, smoke workflow, OpenSpec delivery integrity, or admin outbound probe safety tasks outside the secret-hygiene issue.
+
+## Issue #319 Evidence Mapping
+
+Selected risk packs:
+
+- Public API / CLI / script entry: covered by 2.1, 2.3, 2.4, and tests that exercise env-var-driven construction/startup behavior.
+- Config / project setup: covered by 2.1 and 2.3, including additive CIDR parsing and malformed CIDR fail-closed behavior.
+- Resource limits / large input / discovery: covered by 2.5 and redirect tests that prove revalidation stays within the existing bounded fetch/redirect behavior.
+- Legacy compatibility / examples: covered by 2.2 tests for unset/empty custom CIDRs and representative public destination allow behavior.
+- Error handling / rollback / partial outputs: covered by 2.3, 2.4, and 2.5 tests for invalid config, missing/unreachable proxy, and private redirects.
+- Documentation / migration notes: covered by implementation notes or docs/test names explaining additive CIDR semantics and proxy-required fail-closed behavior.
+
+Required evidence for #319:
+
+- Run `PYTHONPATH=apps/url-fetcher-worker apps/url-fetcher-worker/.venv/bin/pytest apps/url-fetcher-worker/tests -q`; expected result is pass.
+- Add/retain a test with `SSRF_BLOCKED_CIDRS=203.0.113.0/24`; expected result is that `203.0.113.10`, `10.1.2.3`, `127.0.0.1`, `169.254.169.254`, and `::ffff:10.0.0.1` are blocked.
+- Add/retain a test with `SSRF_BLOCKED_CIDRS` unset or empty; expected result is that built-in blocked ranges remain blocked and a representative public IP remains allowed.
+- Add/retain a malformed CIDR test; expected result is an explicit configuration/startup failure and no unsafe default allow behavior.
+- Add/retain a proxy-required missing URL test; expected result is startup/configuration failure before any fetch.
+- Add/retain a proxy-required unreachable proxy test; expected result is request failure with no direct egress fallback.
+- Add/retain a redirect test where an initially allowed URL redirects to a private or metadata address; expected result is block before fetching the private target.
+
+Non-goals for #319:
+
+- No live-stack smoke workflow changes; those remain in #320.
+- No admin model or Docmost outbound probe safety changes; those remain in #322.
+- No new secret-hygiene behavior beyond consuming the already merged #318 repo hygiene baseline.
+- No replacement of the URL fetcher architecture or broad HTTP client migration.

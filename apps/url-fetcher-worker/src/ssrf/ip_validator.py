@@ -36,13 +36,13 @@ class IpValidationResult:
 
 class IpValidator:
     def __init__(self, forbidden_cidrs: Sequence[str] | None = None) -> None:
+        forbidden_v4: list[ForbiddenRange] = list(DEFAULT_FORBIDDEN_V4)
+        forbidden_v6: list[ForbiddenRange] = list(DEFAULT_FORBIDDEN_V6)
         if forbidden_cidrs is None:
-            self._forbidden_v4 = DEFAULT_FORBIDDEN_V4
-            self._forbidden_v6 = DEFAULT_FORBIDDEN_V6
+            self._forbidden_v4 = tuple(forbidden_v4)
+            self._forbidden_v6 = tuple(forbidden_v6)
             return
 
-        forbidden_v4: list[ForbiddenRange] = []
-        forbidden_v6: list[ForbiddenRange] = []
         for cidr in forbidden_cidrs:
             network = ipaddress.ip_network(cidr.strip(), strict=False)
             entry = (network, _default_reason_for_network(network))
