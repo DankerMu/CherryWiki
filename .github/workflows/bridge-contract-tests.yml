@@ -77,4 +77,4 @@ jobs:
         run: node scripts/verify-bridge-isolation.mjs
 
       - name: Run bridge receiver tests
-        run: pnpm exec vitest run apps/api/src/bridge/__tests__/bridge-receiver.test.ts --config vitest.config.ts
+        run: pnpm exec vitest run apps/api/src/bridge/__tests__/bridge-receiver.test.ts --config vitest.config.ts --passWithNoTests=false

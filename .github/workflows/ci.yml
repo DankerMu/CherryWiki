@@ -65,6 +65,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Secret scanner self-test
+        run: node scripts/secret-hygiene-scan.mjs --self-test
+
+      - name: Secret hygiene scan
+        run: pnpm secret:scan
+
       - name: Install URL fetcher Python dependencies
         run: |
           python -m pip install --upgrade pip
@@ -80,7 +86,7 @@ jobs:
         run: pnpm typecheck
 
       - name: RAG fusion extension tests
-        run: pnpm exec vitest run packages/rag-core/src/__tests__/graph-retrieval.test.ts packages/rag-core/src/__tests__/retrieval-engine.test.ts --config vitest.config.ts
+        run: pnpm exec vitest run packages/rag-core/src/__tests__/graph-retrieval.test.ts packages/rag-core/src/__tests__/retrieval-engine.test.ts --config vitest.config.ts --passWithNoTests=false
 
       - name: Test with coverage
         env:
@@ -88,7 +94,7 @@ jobs:
         run: pnpm test -- --coverage
 
       - name: Integration tests
-        run: pnpm exec vitest run tests/integration/ --config vitest.config.ts
+        run: pnpm exec vitest run tests/integration/ --config vitest.config.ts --passWithNoTests=false
 
       - name: Security audit
         run: pnpm audit --audit-level=critical
@@ -263,6 +269,6 @@ jobs:
         run: pnpm db:migrate
 
       - name: E2E integration tests
-        run: pnpm exec vitest run tests/integration/ --config vitest.config.ts
+        run: pnpm exec vitest run tests/integration/ --config vitest.config.ts --passWithNoTests=false
         env:
           E2E: 'true'

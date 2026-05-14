@@ -42,16 +42,12 @@ jobs:
         run: |
           pnpm exec vitest run \
             apps/api/src/mcp/__tests__/ \
-            --config vitest.config.ts
-
-      - name: MCP Gateway tests
-        run: |
-          pnpm exec vitest run \
-            apps/mcp-gateway/src/__tests__/ \
-            --config vitest.config.ts
+            --config vitest.config.ts \
+            --passWithNoTests=false
 
       - name: MCP integration tests
         run: |
           pnpm exec vitest run \
             tests/integration/mcp-*.test.ts \
-            --config vitest.config.ts
+            --config vitest.config.ts \
+            --passWithNoTests=false

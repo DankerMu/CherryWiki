@@ -39,7 +39,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run graph-core tests
-        run: pnpm exec vitest run packages/graph-core/src/__tests__/ --config vitest.config.ts
+        run: pnpm exec vitest run packages/graph-core/src/__tests__/ --config vitest.config.ts --passWithNoTests=false
 
       - name: Run Graph API tests
-        run: pnpm exec vitest run apps/api/src/graph/__tests__/ --config vitest.config.ts
+        run: pnpm exec vitest run apps/api/src/graph/__tests__/ --config vitest.config.ts --passWithNoTests=false

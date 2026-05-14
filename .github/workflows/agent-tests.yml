@@ -41,7 +41,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run Agent unit tests
-        run: pnpm exec vitest run apps/api/src/agent/__tests__/ --config vitest.config.ts
+        run: pnpm exec vitest run apps/api/src/agent/__tests__/ --config vitest.config.ts --passWithNoTests=false
 
   cherrydb-python-tests:
     name: cherrydb Python tests
