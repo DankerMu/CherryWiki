@@ -19,6 +19,7 @@
     "lint": "pnpm -r --if-present lint",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test",
+    "test:backup-restore": "bash scripts/__tests__/backup-restore.sh",
     "secret:scan": "node scripts/secret-hygiene-scan.mjs"
   },
   "pnpm": {
