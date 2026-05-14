@@ -228,6 +228,7 @@ export default function SpaceOverviewPage() {
           activeRun={activeRun}
           errors={errors}
           canRunGraphify={hasSpacePermission(spaceId, 'graphify:run')}
+          canViewGraphify={hasSpacePermission(spaceId, 'graphify:view')}
         />
 
         <Row gutter={[16, 16]}>
@@ -294,6 +295,7 @@ function KnowledgeStatusPanel({
   activeRun,
   errors,
   canRunGraphify,
+  canViewGraphify,
 }: {
   spaceId: string;
   space: SpaceDetail | null;
@@ -302,6 +304,7 @@ function KnowledgeStatusPanel({
   activeRun: GraphifyRun | null;
   errors: OverviewErrors;
   canRunGraphify: boolean;
+  canViewGraphify: boolean;
 }) {
   const { t } = useTranslation();
   const indexConsistency = space?.index_consistency_status ?? stats?.index_consistency ?? 'unavailable';
@@ -363,9 +366,11 @@ function KnowledgeStatusPanel({
                 {activeRun.progress !== null ? (
                   <Progress percent={activeRun.progress.percent} size="small" style={{ width: 120 }} />
                 ) : null}
-                <Link to={`/spaces/${encodeURIComponent(spaceId)}/graphify/${encodeURIComponent(activeRun.run_id)}`}>
-                  {t('overview.status.viewRun')}
-                </Link>
+                {canViewGraphify ? (
+                  <Link to={`/spaces/${encodeURIComponent(spaceId)}/graphify/${encodeURIComponent(activeRun.run_id)}`}>
+                    {t('overview.status.viewRun')}
+                  </Link>
+                ) : null}
               </Space>
             )}
           </Descriptions.Item>
@@ -516,7 +521,7 @@ function KnowledgeQuickActions({ spaceId }: { spaceId: string }) {
       label: t('overview.quickActions.graphify'),
       to: `/spaces/${encodeURIComponent(spaceId)}/graphify`,
       icon: <NodeIndexOutlined />,
-      permissions: ['graphify:run'],
+      permissions: ['graphify:view'],
     },
     {
       key: 'chat',
