@@ -466,12 +466,13 @@ Must add/change:
 
 - Record an explicit disposition for every currently untracked `openspec/changes/*` directory: commit, defer, archive, or ignore.
 - Add `.openspec.yaml` to active change directories that lack it, or explicitly classify those directories as deferred/non-active in the disposition record.
-- Capture evidence from `openspec status --change round2-review-remediation`, `openspec validate round2-review-remediation --strict --no-interactive`, and `git status --short`.
+- Capture evidence from `openspec status --change round2-review-remediation`, `openspec validate round2-review-remediation --strict --no-interactive`, `git diff --name-status origin/main...HEAD`, `git status --short --untracked-files=all`, and `git ls-files` checks for de-registered task-only stubs.
 - Confirm no untracked remediation tests/checklists/auth artifacts remain implicitly deliverable.
 - Only mark OpenSpec tasks complete when the PR or issue includes linked command/commit evidence.
 
 Selected risk packs:
 
+- Public API / CLI / script entry: OpenSpec CLI status and validation commands are delivery gates for this issue.
 - Config / project setup: OpenSpec metadata and change status define project workflow behavior.
 - File IO / path safety / overwrite: triage must avoid accidentally staging unrelated local directories or deleting user drafts.
 - Legacy compatibility / examples: existing archived/tracked OpenSpec changes and tests must remain usable.
@@ -480,7 +481,7 @@ Selected risk packs:
 
 Risk packs considered:
 
-- Public API / CLI / script entry: selected indirectly through OpenSpec CLI validation and status commands used as delivery gates.
+- Public API / CLI / script entry: selected - OpenSpec CLI validation and status commands are used as delivery gates.
 - Config / project setup: selected - `.openspec.yaml` metadata and change completeness are the core change.
 - File IO / path safety / overwrite: selected - the work involves many untracked directories that must not be bulk-staged or removed accidentally.
 - Schema / columns / units / field names: not selected - no application data schema changes.
@@ -498,7 +499,9 @@ Required evidence:
 
 - `openspec status --change round2-review-remediation`: reports 4/4 artifacts complete.
 - `openspec validate round2-review-remediation --strict --no-interactive`: passes.
-- `git status --short`: every untracked OpenSpec directory is intentionally listed in the triage record or removed from status by committed metadata/disposition.
+- `git diff --name-status origin/main...HEAD`: lists tracked PR delivery files, including the removed task-only active stubs.
+- `git status --short --untracked-files=all`: every remaining untracked OpenSpec draft is intentionally listed in the triage record and is not implicitly deliverable.
+- `git ls-files openspec/changes/docmost-auto-sync openspec/changes/post-completion-review-hardening`: no output, proving the task-only stubs are removed from tracked active OpenSpec state.
 - `git ls-files apps/url-fetcher-worker/tests/test_main.py`: confirms the remediation test is tracked.
 - Metadata check showing no active OpenSpec change selected for delivery lacks `.openspec.yaml`.
 - PR/issue evidence links #321 to `specs/openspec-delivery-integrity/spec.md`, the task checklist, dependencies, and acceptance criteria.

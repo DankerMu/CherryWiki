@@ -177,7 +177,9 @@ Required evidence for #321:
 
 - Run `openspec status --change round2-review-remediation`; expected result is 4/4 artifacts complete.
 - Run `openspec validate round2-review-remediation --strict --no-interactive`; expected result is valid.
-- Run `git status --short`; expected result is that every untracked `openspec/changes/*` directory is covered by the committed triage record and no untracked remediation test/checklist/auth artifact is implicitly deliverable.
+- Run `git diff --name-status origin/main...HEAD`; expected result lists only tracked PR delivery files, including removal of task-only active stubs that were de-registered from active OpenSpec state.
+- Run `git status --short --untracked-files=all`; expected result is focused on remaining local deferred drafts and does not treat untracked proposal/design/spec draft files as implicitly deliverable.
+- Run `git ls-files openspec/changes/docmost-auto-sync openspec/changes/post-completion-review-hardening`; expected result is empty, proving the task-only stubs are removed from tracked active OpenSpec state.
 - Run `git ls-files apps/url-fetcher-worker/tests/test_main.py`; expected result lists the path, proving the remediation test is tracked.
 - Check active OpenSpec change directories selected for delivery have `.openspec.yaml`; expected result is that any missing metadata is added or the directory is explicitly deferred/non-active.
 - Confirm #317-#322 issue bodies and the PR evidence reference `openspec/changes/round2-review-remediation/`, relevant spec files, dependencies, task checklist, and acceptance criteria.
