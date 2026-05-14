@@ -65,6 +65,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Backup/restore shell regression
+        run: bash scripts/__tests__/backup-restore.sh
+
       - name: Secret scanner self-test
         run: node scripts/secret-hygiene-scan.mjs --self-test
 
