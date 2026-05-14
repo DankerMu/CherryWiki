@@ -59,6 +59,25 @@ afterEach(() => {
 });
 
 describe('GraphifyRunsPage', () => {
+  it('shows no permission and skips list API requests when route space is inaccessible', async () => {
+    authMocks.useAuth.mockReturnValue(
+      buildAuthValue({
+        user: {
+          email: 'viewer@example.com',
+          spaces: [{ id: 'space-allowed', name: 'Allowed', role: 'editor' }],
+        },
+        hasSpacePermission: (spaceId) => spaceId === 'space-allowed',
+      }),
+    );
+
+    renderWithRouter(<GraphifyRunsPage />, '/spaces/space-denied/graphify');
+
+    expect(await screen.findByText('Access Denied')).toBeInTheDocument();
+    expect(screen.getByText('viewer@example.com does not have Graphify access for this space.')).toBeInTheDocument();
+    expect(screen.queryByText('Graphify Runs')).not.toBeInTheDocument();
+    expectNoGraphifyApiRequests();
+  });
+
   it('shows no permission and skips list API requests when graphify view is denied', async () => {
     authMocks.useAuth.mockReturnValue(
       buildAuthValue({
@@ -152,6 +171,25 @@ describe('GraphifyRunsPage', () => {
 });
 
 describe('GraphifyRunDetailPage', () => {
+  it('shows no permission and skips detail API requests when route space is inaccessible', async () => {
+    authMocks.useAuth.mockReturnValue(
+      buildAuthValue({
+        user: {
+          email: 'viewer@example.com',
+          spaces: [{ id: 'space-allowed', name: 'Allowed', role: 'editor' }],
+        },
+        hasSpacePermission: (spaceId) => spaceId === 'space-allowed',
+      }),
+    );
+
+    renderWithRouter(<GraphifyRunDetailPage />, '/spaces/space-denied/graphify/run-1');
+
+    expect(await screen.findByText('Access Denied')).toBeInTheDocument();
+    expect(screen.getByText('viewer@example.com does not have Graphify access for this space.')).toBeInTheDocument();
+    expect(screen.queryByText('Graphify Run Detail')).not.toBeInTheDocument();
+    expectNoGraphifyApiRequests();
+  });
+
   it('shows no permission and skips detail API requests when graphify view is denied', async () => {
     authMocks.useAuth.mockReturnValue(
       buildAuthValue({
@@ -265,7 +303,10 @@ describe('formatRunLabel', () => {
 });
 
 type AuthValue = {
-  user: { email: string };
+  user: {
+    email: string;
+    spaces?: Array<{ id: string; name: string; role: string }>;
+  };
   hasSpacePermission: (spaceId: string, permission: string) => boolean;
 };
 
@@ -275,6 +316,19 @@ function buildAuthValue(overrides: Partial<AuthValue> = {}): AuthValue {
     hasSpacePermission: () => true,
     ...overrides,
   };
+}
+
+function expectNoGraphifyApiRequests(): void {
+  const getPaths = apiMocks.getWrapped.mock.calls.map(([path]) => path);
+  const postPaths = apiMocks.post.mock.calls.map(([path]) => path);
+
+  expect(getPaths).not.toContain('/graphify/runs');
+  expect(getPaths).not.toContain('/graphify/runs/run-1');
+  expect(getPaths).not.toContain('/graphify/runs/run-1/report');
+  expect(getPaths).not.toContain('/graphify/runs/run-1/graph');
+  expect(postPaths).not.toContain('/graphify/runs/run-1/cancel');
+  expect(postPaths).not.toContain('/graphify/runs/run-1/retry');
+  expect(postPaths).not.toContain('/spaces/space-denied/graphify/runs');
 }
 
 async function renderDetailStatus(status: GraphifyRun['status']): Promise<void> {

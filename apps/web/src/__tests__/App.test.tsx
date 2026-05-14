@@ -169,6 +169,38 @@ describe('App routing', () => {
     expect(screen.queryByRole('menuitem', { name: '概览' })).not.toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it('does not rewrite inaccessible route content when the space selector is used', async () => {
+    const fetchMock = mockOverviewApi();
+
+    renderRoute('/spaces/space-denied/overview', VIEWER_USER);
+
+    expect(await screen.findByText('访问被拒绝')).toBeInTheDocument();
+    const selector = getShellSpaceSelectContainer();
+    expect(selector).toHaveClass('ant-select-disabled');
+
+    fireEvent.mouseDown(getShellSpaceCombobox());
+
+    expect(screen.getByText('访问被拒绝')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '空间概览' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Main Space')).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not navigate to a fallback space from sidebar clicks on an inaccessible route space', async () => {
+    const fetchMock = mockOverviewApi();
+
+    renderRoute('/spaces/space-denied/overview', VIEWER_USER);
+
+    expect(await screen.findByText('访问被拒绝')).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: '聊天' })).not.toBeInTheDocument();
+
+    fireEvent.click(getShellMenu());
+
+    expect(screen.getByText('访问被拒绝')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '聊天' })).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('AuthProvider', () => {
@@ -450,6 +482,32 @@ function mockOverviewApi() {
 
   vi.stubGlobal('fetch', fetchMock);
   return fetchMock;
+}
+
+function getShellSpaceCombobox(): HTMLElement {
+  const combobox = screen
+    .getAllByLabelText('空间')
+    .find((element) => element.getAttribute('role') === 'combobox');
+  if (combobox === undefined) {
+    throw new Error('Space selector combobox was not found');
+  }
+  return combobox;
+}
+
+function getShellSpaceSelectContainer(): HTMLElement {
+  const container = getShellSpaceCombobox().closest('.ant-select');
+  if (container === null) {
+    throw new Error('Space selector container was not found');
+  }
+  return container as HTMLElement;
+}
+
+function getShellMenu(): HTMLElement {
+  const menu = document.querySelector('.app-shell-menu');
+  if (!(menu instanceof HTMLElement)) {
+    throw new Error('Shell menu was not found');
+  }
+  return menu;
 }
 
 function jsonResponse(body: unknown, status = 200): Response {

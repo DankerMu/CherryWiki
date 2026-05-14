@@ -178,6 +178,10 @@ export default function AppShell() {
 
   function handleSpaceChange(nextSpaceId: string): void {
     try {
+      if (!hasAccessibleRouteSpace) {
+        return;
+      }
+
       const nextFunction = selectedSpaceFunction ?? 'overview';
       void navigate(`/spaces/${encodeURIComponent(nextSpaceId)}/${nextFunction}`);
     } catch {
@@ -233,7 +237,7 @@ export default function AppShell() {
             <Typography.Text type="secondary">{t('shell.space.selectorLabel')}</Typography.Text>
             <Select
               aria-label={t('shell.space.selectorLabel')}
-              disabled={spaces.length === 0}
+              disabled={spaces.length === 0 || !hasAccessibleRouteSpace}
               onChange={handleSpaceChange}
               options={spaces.map((space) => ({ value: space.id, label: space.name }))}
               placeholder={t('shell.space.empty')}
