@@ -2,7 +2,6 @@
 
 import { execFileSync } from 'node:child_process';
 import {
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -319,6 +318,10 @@ function isLargeBinaryLikePath(file) {
   return LARGE_BINARY_LIKE_EXTENSIONS.has(path.extname(file).toLowerCase());
 }
 
+function isDisappearedPathError(error) {
+  return error?.code === 'ENOENT' || error?.code === 'ENOTDIR';
+}
+
 function scanContentBuffer(rawContent, normalized, findings) {
   if (!isText(rawContent)) {
     return;
@@ -369,12 +372,27 @@ export function scanFiles(files, root = process.cwd()) {
     addPathFinding(findings, normalized);
 
     const fullPath = path.join(root, file);
-    if (!existsSync(fullPath)) {
-      continue;
+    let stat;
+    try {
+      stat = lstatSync(fullPath);
+    } catch (error) {
+      if (isDisappearedPathError(error)) {
+        continue;
+      }
+      throw error;
     }
-    const stat = lstatSync(fullPath);
+
     if (stat.isSymbolicLink()) {
-      scanContentBuffer(Buffer.from(readlinkSync(fullPath)), normalized, findings);
+      let linkText;
+      try {
+        linkText = readlinkSync(fullPath);
+      } catch (error) {
+        if (isDisappearedPathError(error)) {
+          continue;
+        }
+        throw error;
+      }
+      scanContentBuffer(Buffer.from(linkText), normalized, findings);
       continue;
     }
 
@@ -395,7 +413,15 @@ export function scanFiles(files, root = process.cwd()) {
       continue;
     }
 
-    const rawContent = readFileSync(fullPath);
+    let rawContent;
+    try {
+      rawContent = readFileSync(fullPath);
+    } catch (error) {
+      if (isDisappearedPathError(error)) {
+        continue;
+      }
+      throw error;
+    }
     scanContentBuffer(rawContent, normalized, findings);
   }
 
@@ -589,6 +615,17 @@ function runSelfTest() {
       wantFindings: false,
     },
     {
+      name: 'detects untracked broken manual symlink link text',
+      useUntrackedGit: true,
+      files: [
+        {
+          path: 'tests/manual/broken-symlink.md',
+          symlinkTarget: 'password=Concrete123!',
+        },
+      ],
+      wantFindings: true,
+    },
+    {
       name: 'detects staged quoted refresh token when working tree has placeholder',
       useGitIndex: true,
       stagedContent: `${refreshTokenJsonEvidence(
@@ -622,6 +659,16 @@ function runSelfTest() {
           throw new Error('working-tree placeholder unexpectedly produced findings');
         }
         findings.push(...scanRepository(tmpRoot).findings);
+      } else if (sample.useUntrackedGit) {
+        tmpRoot = mkdtempSync(path.join(tmpdir(), 'secret-hygiene-self-test-'));
+        git(['init', '-q'], tmpRoot);
+        for (const file of sample.files) {
+          const fullPath = path.join(tmpRoot, file.path);
+          mkdirSync(path.dirname(fullPath), { recursive: true });
+          symlinkSync(file.symlinkTarget, fullPath);
+        }
+        const files = listCommitCapableFiles(tmpRoot);
+        findings.push(...scanFiles(files, tmpRoot));
       } else if (sample.useScanFiles) {
         tmpRoot = mkdtempSync(path.join(tmpdir(), 'secret-hygiene-self-test-'));
         for (const file of sample.files) {
