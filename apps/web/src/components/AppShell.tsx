@@ -85,16 +85,18 @@ export default function AppShell() {
 
   const spaces = useMemo(() => user?.spaces ?? [], [user?.spaces]);
   const selectedSpace = useMemo(
-    () => spaces.find((space) => space.id === routeSpaceId) ?? spaces[0],
+    () => (routeSpaceId === undefined ? spaces[0] : spaces.find((space) => space.id === routeSpaceId)),
     [routeSpaceId, spaces],
   );
   const selectedSpaceId = selectedSpace?.id;
+  const hasRouteSpace = routeSpaceId !== undefined && routeSpaceId.length > 0;
+  const hasAccessibleRouteSpace = !hasRouteSpace || selectedSpace !== undefined;
   const selectedSpaceFunction = getSpaceFunctionFromPath(location.pathname);
   const selectedAdminKey = getAdminRouteKey(location.pathname);
 
   const menuItems = useMemo<NonNullable<MenuProps['items']>>(() => {
     const spaceItems =
-      selectedSpaceId === undefined
+      selectedSpaceId === undefined || !hasAccessibleRouteSpace
         ? []
         : [
             {
@@ -125,23 +127,23 @@ export default function AppShell() {
       : [];
 
     return [...spaceItems, ...adminItems];
-  }, [isAdmin, selectedSpaceId, t]);
+  }, [hasAccessibleRouteSpace, isAdmin, selectedSpaceId, t]);
 
   const selectedKeys = useMemo(() => {
     if (selectedAdminKey !== null) {
       return [`admin:${selectedAdminKey}`];
     }
 
-    if (selectedSpaceFunction !== null) {
+    if (selectedSpaceFunction !== null && hasAccessibleRouteSpace) {
       return [selectedSpaceFunction];
     }
 
     return [];
-  }, [selectedAdminKey, selectedSpaceFunction]);
+  }, [hasAccessibleRouteSpace, selectedAdminKey, selectedSpaceFunction]);
 
   const breadcrumbItems = useMemo(
-    () => buildBreadcrumbItems(location.pathname, selectedSpace?.name, t),
-    [location.pathname, selectedSpace?.name, t],
+    () => buildBreadcrumbItems(location.pathname, hasAccessibleRouteSpace ? selectedSpace?.name : undefined, t),
+    [hasAccessibleRouteSpace, location.pathname, selectedSpace?.name, t],
   );
 
   function handleCollapse(nextCollapsed: boolean): void {

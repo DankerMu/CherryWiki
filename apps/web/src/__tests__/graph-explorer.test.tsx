@@ -8,6 +8,7 @@ import i18n from '../i18n';
 import { ThemeProvider } from '../theme/ThemeProvider';
 import SpaceGraphExplorerPage from '../pages/graph/SpaceGraphExplorerPage';
 import * as graphApi from '../lib/graphApi';
+import { AuthProvider, type AuthUser } from '../lib/auth';
 import { GRAPH_NODE_TYPE_COLORS, truncateNodeLabel, type GraphCanvasData } from '../pages/graph/GraphCanvas.js';
 import type { GraphCommunity, GraphEdge, GraphNode } from '../lib/graphApi';
 
@@ -34,6 +35,7 @@ vi.mock('../lib/api', () => {
 
   return {
     ApiError,
+    configureApiClient: vi.fn(),
     api: {
       get: apiMocks.get,
     },
@@ -92,6 +94,20 @@ vi.mock('../pages/graph/GraphCanvas', async (importOriginal) => {
 const searchGraphNodesMock = vi.mocked(graphApi.searchGraphNodes);
 const getGraphNeighborsMock = vi.mocked(graphApi.getGraphNeighbors);
 const getGraphCommunitiesMock = vi.mocked(graphApi.getGraphCommunities);
+
+const TEST_USER: AuthUser = {
+  id: 'user-1',
+  email: 'viewer@example.com',
+  name: 'Viewer',
+  role: 'viewer',
+  groups: [],
+  spaces: [{ id: 'space-1', name: 'Space One', role: 'viewer' }],
+};
+
+const DENIED_USER: AuthUser = {
+  ...TEST_USER,
+  spaces: [{ id: 'space-allowed', name: 'Allowed Space', role: 'viewer' }],
+};
 
 describe('GraphCanvas color config', () => {
   it('defines colors for all standard node types', () => {
@@ -299,16 +315,28 @@ describe('SpaceGraphExplorerPage', () => {
     expect(screen.getByTestId('graph-node-node-a')).toBeInTheDocument();
     expect(screen.getByTestId('graph-canvas')).toHaveAttribute('data-node-count', '1');
   });
+
+  it('renders forbidden and skips protected graph requests when route space is unauthorized', async () => {
+    renderPage(DENIED_USER, '/spaces/space-denied/graph');
+
+    expect(await screen.findByText('Access Denied')).toBeInTheDocument();
+    expect(apiMocks.get).not.toHaveBeenCalled();
+    expect(getGraphCommunitiesMock).not.toHaveBeenCalled();
+    expect(searchGraphNodesMock).not.toHaveBeenCalled();
+    expect(getGraphNeighborsMock).not.toHaveBeenCalled();
+  });
 });
 
-function renderPage(): void {
+function renderPage(user: AuthUser = TEST_USER, path = '/spaces/space-1/graph'): void {
   render(
-    <MemoryRouter initialEntries={['/spaces/space-1/graph']}>
-      <ThemeProvider>
-        <Routes>
-          <Route path="/spaces/:spaceId/graph" element={<SpaceGraphExplorerPage />} />
-        </Routes>
-      </ThemeProvider>
+    <MemoryRouter initialEntries={[path]}>
+      <AuthProvider initialSession={{ user, accessToken: 'test-token' }}>
+        <ThemeProvider>
+          <Routes>
+            <Route path="/spaces/:spaceId/graph" element={<SpaceGraphExplorerPage />} />
+          </Routes>
+        </ThemeProvider>
+      </AuthProvider>
     </MemoryRouter>,
   );
 }

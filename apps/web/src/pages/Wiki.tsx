@@ -1,4 +1,5 @@
 import { useLocation, useParams, useSearchParams } from 'react-router';
+import { SpaceForbiddenState, useSpacePermissionGate } from '../components/SpacePermissionGate.js';
 import NotFound from './NotFound.js';
 import WikiPageDetail from './wiki/WikiPageDetail.js';
 import WikiPageList from './wiki/WikiPageList.js';
@@ -8,9 +9,14 @@ export default function Wiki() {
   const { spaceId, pageId } = useParams();
   const [searchParams] = useSearchParams();
   const location = useLocation();
+  const gate = useSpacePermissionGate('space:view');
 
   if (spaceId === undefined || spaceId.length === 0) {
     return <NotFound />;
+  }
+
+  if (!gate.isAllowed) {
+    return <SpaceForbiddenState />;
   }
 
   if (pageId === undefined || pageId.length === 0) {

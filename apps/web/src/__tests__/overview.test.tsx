@@ -7,6 +7,30 @@ import '../i18n';
 import i18n from '../i18n';
 import { ThemeProvider } from '../theme/ThemeProvider';
 import SpaceOverviewPage from '../pages/space/SpaceOverviewPage';
+import { AuthProvider, type AuthUser } from '../lib/auth';
+
+const EDITOR_USER: AuthUser = {
+  id: 'user-editor',
+  email: 'editor@example.com',
+  name: 'Editor',
+  role: 'viewer',
+  groups: [],
+  spaces: [{ id: 'space-1', name: 'Space One', role: 'editor' }],
+};
+
+const VIEWER_USER: AuthUser = {
+  ...EDITOR_USER,
+  id: 'user-viewer',
+  email: 'viewer@example.com',
+  spaces: [{ id: 'space-1', name: 'Space One', role: 'viewer' }],
+};
+
+const DENIED_USER: AuthUser = {
+  ...EDITOR_USER,
+  id: 'user-denied',
+  email: 'denied@example.com',
+  spaces: [{ id: 'space-allowed', name: 'Allowed Space', role: 'viewer' }],
+};
 
 describe('SpaceOverviewPage', () => {
   beforeEach(async () => {
@@ -51,19 +75,29 @@ describe('SpaceOverviewPage', () => {
     );
   });
 
-  it('shows the latest pending graphify run when no active run is set', async () => {
+  it('loads the latest graphify run from the list endpoint when no active run is set', async () => {
     stubOverviewApi({
       space: { active_graphify_run_id: null },
-      latestGraphifyRuns: [createGraphifyRun({ run_id: 'run-latest', status: 'pending' })],
+      latestGraphifyRuns: [createGraphifyRun({ run_id: 'run-latest', status: 'succeeded' })],
     });
 
     renderPage();
 
-    expect(await screen.findByText('Pending')).toBeInTheDocument();
+    expect(await screen.findByText('Succeeded')).toBeInTheDocument();
     expect(screen.getByText('View run').closest('a')).toHaveAttribute(
       'href',
       '/spaces/space-1/graphify/run-latest',
     );
+  });
+
+  it('shows a non-blocking warning when latest graphify run loading fails', async () => {
+    stubOverviewApi({ space: { active_graphify_run_id: null }, failLatestGraphifyRuns: true });
+
+    renderPage();
+
+    expect(await screen.findByText('Latest Graphify unavailable')).toBeInTheDocument();
+    expect(screen.getByText('policy.md')).toBeInTheDocument();
+    expect(screen.getByText('Policy')).toBeInTheDocument();
   });
 
   it('shows remediation links when index consistency is unhealthy', async () => {
@@ -124,16 +158,43 @@ describe('SpaceOverviewPage', () => {
     );
     expect(screen.getByRole('button', { name: 'Chat' }).closest('a')).toHaveAttribute('href', '/spaces/space-1/chat');
   });
+
+  it('filters quick actions and mutation controls by route space permissions', async () => {
+    stubOverviewApi({ documents: [], wikiPages: [] });
+
+    renderPage(VIEWER_USER);
+
+    expect(await screen.findByText('Quick Actions')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Documents' }).closest('a')).toHaveAttribute(
+      'href',
+      '/spaces/space-1/uploads',
+    );
+    expect(screen.queryByRole('button', { name: 'Graphify' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add documents' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Run Graphify' })).not.toBeInTheDocument();
+  });
+
+  it('renders forbidden and skips protected overview requests when route space is unauthorized', async () => {
+    const fetchMock = stubOverviewApi();
+
+    renderPage(DENIED_USER, '/spaces/space-denied/overview');
+
+    expect(await screen.findByText('Access Denied')).toBeInTheDocument();
+    expect(screen.queryByText('Space Overview')).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
-function renderPage(): void {
+function renderPage(user: AuthUser = EDITOR_USER, path = '/spaces/space-1/overview'): void {
   render(
-    <MemoryRouter initialEntries={['/spaces/space-1/overview']}>
-      <ThemeProvider>
-        <Routes>
-          <Route path="/spaces/:spaceId/overview" element={<SpaceOverviewPage />} />
-        </Routes>
-      </ThemeProvider>
+    <MemoryRouter initialEntries={[path]}>
+      <AuthProvider initialSession={{ user, accessToken: 'test-token' }}>
+        <ThemeProvider>
+          <Routes>
+            <Route path="/spaces/:spaceId/overview" element={<SpaceOverviewPage />} />
+          </Routes>
+        </ThemeProvider>
+      </AuthProvider>
     </MemoryRouter>,
   );
 }
@@ -143,6 +204,7 @@ function stubOverviewApi(options: {
   wikiPages?: unknown[];
   space?: Record<string, unknown>;
   latestGraphifyRuns?: unknown[];
+  failLatestGraphifyRuns?: boolean;
   failStats?: boolean;
   statsSequence?: number[];
 } = {}) {
@@ -171,7 +233,16 @@ function stubOverviewApi(options: {
       return Promise.resolve(jsonResponse({ data: options.wikiPages ?? [createWikiPage()] }));
     }
 
-    if (path === '/api/spaces/space-1/graphify/runs') {
+    if (path === '/api/graphify/runs') {
+      const url = getRequestUrl(input);
+      expect(url).toContain('space_id=space-1');
+      expect(url).toContain('per_page=1');
+      expect(url).toContain('sort=-created_at');
+      if (options.failLatestGraphifyRuns === true) {
+        return Promise.resolve(
+          jsonResponse({ error: { code: 'GRAPHIFY_FAILED', message: 'Latest Graphify unavailable' } }, 500),
+        );
+      }
       return Promise.resolve(jsonResponse({ data: options.latestGraphifyRuns ?? [] }));
     }
 
@@ -289,6 +360,15 @@ function getRequestPath(input: RequestInfo | URL): string {
   }
 
   return input.url.split('?')[0] ?? input.url;
+}
+
+function getRequestUrl(input: RequestInfo | URL): string {
+  if (typeof input === 'string') {
+    return input;
+  }
+
+  const url = input instanceof URL ? input : new URL(input.url);
+  return `${url.pathname}${url.search}`;
 }
 
 function countRequests(fetchMock: ReturnType<typeof vi.fn<typeof fetch>>, path: string): number {

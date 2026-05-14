@@ -26,9 +26,10 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
 import { formatDate, formatLabel, getErrorMessage } from '../../components/adminUi';
-import { api } from '../../lib/api';
+import { SpaceForbiddenState, useSpacePermissionGate } from '../../components/SpacePermissionGate';
 import { getGraphCommunities } from '../../lib/graphApi';
-import { getGraphifyRun, type GraphifyRun } from '../../lib/graphifyApi';
+import { getGraphifyRun, listGraphifyRuns, type GraphifyRun } from '../../lib/graphifyApi';
+import { useAuth } from '../../lib/auth';
 import {
   getRecentDocuments,
   getRecentWikiPages,
@@ -62,6 +63,8 @@ const EMPTY_ERRORS: OverviewErrors = {
 export default function SpaceOverviewPage() {
   const { t } = useTranslation();
   const { spaceId = '' } = useParams();
+  const { hasSpacePermission } = useAuth();
+  const gate = useSpacePermissionGate('space:view');
   const [space, setSpace] = useState<SpaceDetail | null>(null);
   const [stats, setStats] = useState<SpaceStats | null>(null);
   const [documents, setDocuments] = useState<RecentDocument[]>([]);
@@ -74,6 +77,12 @@ export default function SpaceOverviewPage() {
 
   const loadOverview = useCallback(async () => {
     if (spaceId.length === 0) {
+      setIsLoading(false);
+      return;
+    }
+
+    if (!gate.isAllowed) {
+      requestSeqRef.current++;
       setIsLoading(false);
       return;
     }
@@ -100,13 +109,14 @@ export default function SpaceOverviewPage() {
           setSpace(nextSpace);
           if (nextSpace.active_graphify_run_id === null) {
             try {
-              const latestRuns = await api.get<GraphifyRun[]>(
-                `/spaces/${encodeURIComponent(spaceId)}/graphify/runs`,
-                { per_page: 1, sort: '-created_at' },
-              );
+              const latestRuns = await listGraphifyRuns({
+                space_id: spaceId,
+                per_page: 1,
+                sort: '-created_at',
+              });
               if (seq !== requestSeqRef.current) return;
-              const latestRun = latestRuns[0];
-              if (latestRun?.status === 'pending' || latestRun?.status === 'running') {
+              const latestRun = latestRuns.data[0];
+              if (latestRun !== undefined) {
                 setActiveRun(latestRun);
               }
             } catch (err) {
@@ -172,7 +182,7 @@ export default function SpaceOverviewPage() {
     if (seq === requestSeqRef.current) {
       setIsLoading(false);
     }
-  }, [spaceId]);
+  }, [gate.isAllowed, spaceId]);
 
   useEffect(() => {
     void loadOverview();
@@ -180,6 +190,10 @@ export default function SpaceOverviewPage() {
 
   if (spaceId.length === 0) {
     return <NotFound />;
+  }
+
+  if (!gate.isAllowed) {
+    return <SpaceForbiddenState />;
   }
 
   return (
@@ -213,14 +227,25 @@ export default function SpaceOverviewPage() {
           communityCount={communityCount}
           activeRun={activeRun}
           errors={errors}
+          canRunGraphify={hasSpacePermission(spaceId, 'graphify:run')}
         />
 
         <Row gutter={[16, 16]}>
           <Col xs={24} lg={12}>
-            <RecentDocumentsList spaceId={spaceId} documents={documents} error={errors.documents} />
+            <RecentDocumentsList
+              spaceId={spaceId}
+              documents={documents}
+              error={errors.documents}
+              canCreateUploads={hasSpacePermission(spaceId, 'upload:create')}
+            />
           </Col>
           <Col xs={24} lg={12}>
-            <RecentWikiPagesList spaceId={spaceId} pages={wikiPages} error={errors.wikiPages} />
+            <RecentWikiPagesList
+              spaceId={spaceId}
+              pages={wikiPages}
+              error={errors.wikiPages}
+              canRunGraphify={hasSpacePermission(spaceId, 'graphify:run')}
+            />
           </Col>
         </Row>
 
@@ -268,6 +293,7 @@ function KnowledgeStatusPanel({
   communityCount,
   activeRun,
   errors,
+  canRunGraphify,
 }: {
   spaceId: string;
   space: SpaceDetail | null;
@@ -275,6 +301,7 @@ function KnowledgeStatusPanel({
   communityCount: number | null;
   activeRun: GraphifyRun | null;
   errors: OverviewErrors;
+  canRunGraphify: boolean;
 }) {
   const { t } = useTranslation();
   const indexConsistency = space?.index_consistency_status ?? stats?.index_consistency ?? 'unavailable';
@@ -295,9 +322,11 @@ function KnowledgeStatusPanel({
                 <Link to={`/spaces/${encodeURIComponent(spaceId)}/wiki`}>
                   {t('overview.status.reviewWiki')}
                 </Link>
-                <Link to={`/spaces/${encodeURIComponent(spaceId)}/graphify`}>
-                  {t('overview.status.runGraphify')}
-                </Link>
+                {canRunGraphify ? (
+                  <Link to={`/spaces/${encodeURIComponent(spaceId)}/graphify`}>
+                    {t('overview.status.runGraphify')}
+                  </Link>
+                ) : null}
               </Space>
             )}
           />
@@ -350,10 +379,12 @@ function RecentDocumentsList({
   spaceId,
   documents,
   error,
+  canCreateUploads,
 }: {
   spaceId: string;
   documents: RecentDocument[];
   error: string | null;
+  canCreateUploads: boolean;
 }) {
   const { t } = useTranslation();
 
@@ -371,9 +402,11 @@ function RecentDocumentsList({
               image={Empty.PRESENTED_IMAGE_SIMPLE}
               description={t('overview.recentDocuments.empty')}
             >
-              <Link to={`/spaces/${encodeURIComponent(spaceId)}/uploads`}>
-                <Button type="primary">{t('overview.action.addDocuments')}</Button>
-              </Link>
+              {canCreateUploads ? (
+                <Link to={`/spaces/${encodeURIComponent(spaceId)}/uploads`}>
+                  <Button type="primary">{t('overview.action.addDocuments')}</Button>
+                </Link>
+              ) : null}
             </Empty>
           ),
         }}
@@ -400,10 +433,12 @@ function RecentWikiPagesList({
   spaceId,
   pages,
   error,
+  canRunGraphify,
 }: {
   spaceId: string;
   pages: RecentWikiPage[];
   error: string | null;
+  canRunGraphify: boolean;
 }) {
   const { t } = useTranslation();
 
@@ -421,9 +456,11 @@ function RecentWikiPagesList({
               image={Empty.PRESENTED_IMAGE_SIMPLE}
               description={t('overview.recentWikiPages.empty')}
             >
-              <Link to={`/spaces/${encodeURIComponent(spaceId)}/graphify`}>
-                <Button>{t('overview.action.runGraphify')}</Button>
-              </Link>
+              {canRunGraphify ? (
+                <Link to={`/spaces/${encodeURIComponent(spaceId)}/graphify`}>
+                  <Button>{t('overview.action.runGraphify')}</Button>
+                </Link>
+              ) : null}
             </Empty>
           ),
         }}
@@ -451,38 +488,44 @@ function RecentWikiPagesList({
 
 function KnowledgeQuickActions({ spaceId }: { spaceId: string }) {
   const { t } = useTranslation();
-  const actions: Array<{ key: string; label: string; to: string; icon: ReactNode }> = [
+  const { hasSpacePermission } = useAuth();
+  const actions: Array<{ key: string; label: string; to: string; icon: ReactNode; permissions: string[] }> = [
     {
       key: 'documents',
       label: t('overview.quickActions.documents'),
       to: `/spaces/${encodeURIComponent(spaceId)}/uploads`,
       icon: <CloudUploadOutlined />,
+      permissions: ['upload:read'],
     },
     {
       key: 'wiki',
       label: t('overview.quickActions.wiki'),
       to: `/spaces/${encodeURIComponent(spaceId)}/wiki`,
       icon: <BookOutlined />,
+      permissions: ['space:view'],
     },
     {
       key: 'graph',
       label: t('overview.quickActions.graph'),
       to: `/spaces/${encodeURIComponent(spaceId)}/graph`,
       icon: <ShareAltOutlined />,
+      permissions: ['space:view'],
     },
     {
       key: 'graphify',
       label: t('overview.quickActions.graphify'),
       to: `/spaces/${encodeURIComponent(spaceId)}/graphify`,
       icon: <NodeIndexOutlined />,
+      permissions: ['graphify:run'],
     },
     {
       key: 'chat',
       label: t('overview.quickActions.chat'),
       to: `/spaces/${encodeURIComponent(spaceId)}/chat`,
       icon: <MessageOutlined />,
+      permissions: ['space:view', 'chat:use'],
     },
-  ];
+  ].filter((action) => action.permissions.every((permission) => hasSpacePermission(spaceId, permission)));
 
   return (
     <Card title={t('overview.quickActions.title')}>

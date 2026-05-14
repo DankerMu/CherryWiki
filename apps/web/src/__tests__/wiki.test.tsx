@@ -2,10 +2,11 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AuthProvider, type AuthUser } from '../lib/auth.js';
 import type { WikiPage, WikiPageContent, WikiPageVersion } from '../lib/wikiApi.js';
+import Wiki from '../pages/Wiki.js';
 import WikiPageDetail from '../pages/wiki/WikiPageDetail.js';
 import WikiPageList from '../pages/wiki/WikiPageList.js';
 import WikiVersionHistory from '../pages/wiki/WikiVersionHistory.js';
@@ -87,6 +88,13 @@ describe('WikiPageList', () => {
     renderWithRouter(<WikiPageList spaceId="space-1" />);
 
     expect(await screen.findByText('No wiki pages in this space yet.')).toBeInTheDocument();
+  });
+
+  it('renders forbidden and skips page list requests when route space is unauthorized', async () => {
+    renderWikiRoute(DENIED_USER, '/spaces/space-denied/wiki');
+
+    expect(await screen.findByText('Access Denied')).toBeInTheDocument();
+    expect(apiMocks.getWrapped).not.toHaveBeenCalled();
   });
 });
 
@@ -177,10 +185,31 @@ const testUser: AuthUser = {
   spaces: [{ id: 'space-1', name: 'Test Space', role: 'admin' }],
 };
 
+const DENIED_USER: AuthUser = {
+  ...testUser,
+  email: 'denied@test.local',
+  role: 'viewer',
+  spaces: [{ id: 'space-allowed', name: 'Allowed Space', role: 'viewer' }],
+};
+
 function renderWithRouter(element: ReactElement): void {
   render(
     <MemoryRouter>
       <AuthProvider initialSession={{ user: testUser, accessToken: 'test-token' }}>{element}</AuthProvider>
+    </MemoryRouter>,
+  );
+}
+
+function renderWikiRoute(user: AuthUser, path: string): void {
+  render(
+    <MemoryRouter initialEntries={[path]}>
+      <AuthProvider initialSession={{ user, accessToken: 'test-token' }}>
+        <Routes>
+          <Route path="/spaces/:spaceId/wiki" element={<Wiki />} />
+          <Route path="/spaces/:spaceId/wiki/:pageId" element={<Wiki />} />
+          <Route path="/spaces/:spaceId/wiki/:pageId/history" element={<Wiki />} />
+        </Routes>
+      </AuthProvider>
     </MemoryRouter>,
   );
 }

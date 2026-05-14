@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Navigate, useParams } from 'react-router';
 import { getErrorMessage } from '../../components/adminUi';
+import { SpaceForbiddenState, useSpacePermissionGate } from '../../components/SpacePermissionGate';
 import { useUploadPolling } from '../../hooks/useUploadPolling';
 import { type ApiMeta, api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
@@ -33,6 +34,7 @@ export default function UploadCenter() {
   const { t } = useTranslation();
   const { spaceId = '' } = useParams();
   const { accessToken, hasSpacePermission, isAuthenticated, user } = useAuth();
+  const gate = useSpacePermissionGate('upload:read');
   const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [page, setPage] = useState(DEFAULT_PAGINATION.page);
   const [statusFilter, setStatusFilter] = useState('');
@@ -49,7 +51,11 @@ export default function UploadCenter() {
   const requestSeqRef = useRef(0);
   const selectionSeqRef = useRef(0);
   const selectedUploadIdRef = useRef<string | null>(null);
-  const canReadUploads = uploadSpaceId.length > 0 && hasSpacePermission(uploadSpaceId, 'upload:read');
+  const isRouteUploadSpace = uploadSpaceId === spaceId;
+  const canReadUploads =
+    uploadSpaceId.length > 0 &&
+    hasSpacePermission(uploadSpaceId, 'upload:read') &&
+    (!isRouteUploadSpace || gate.isAllowed);
   const canCreateUploads = uploadSpaceId.length > 0 && hasSpacePermission(uploadSpaceId, 'upload:create');
 
   const loadUploads = useCallback(
@@ -231,6 +237,10 @@ export default function UploadCenter() {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (spaceId.length > 0 && !gate.isAllowed) {
+    return <SpaceForbiddenState context="upload" />;
   }
 
   return (

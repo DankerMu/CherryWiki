@@ -119,6 +119,12 @@
       "description": "请联系管理员为你开通空间访问权限。"
     }
   },
+  "space": {
+    "forbidden": {
+      "title": "访问被拒绝",
+      "description": "{{email}} 没有该空间的访问权限。"
+    }
+  },
   "login": {
     "page": {
       "title": "登录",

@@ -335,6 +335,20 @@ describe('Chat bottom area layout', () => {
     expect(bottomArea?.querySelector('.chat-space-selector-panel')).toBeInTheDocument();
     expect(bottomArea?.querySelector('.chat-input-panel')).toBeInTheDocument();
   });
+
+  it('renders forbidden and skips protected chat requests when route space lacks permissions', async () => {
+    const fetchState = stubChatFetch();
+
+    renderChatRoute({
+      ...testUser,
+      email: 'denied@example.com',
+      spaces: [{ id: 'space-allowed', name: 'Allowed Space', role: 'viewer' }],
+    }, '/spaces/space-denied/chat');
+
+    expect(await screen.findByText('无权访问')).toBeInTheDocument();
+    expect(fetchState.calls).toHaveLength(0);
+    expect(screen.queryByLabelText('消息')).not.toBeInTheDocument();
+  });
 });
 
 describe('Sidebar collapse', () => {
@@ -746,10 +760,10 @@ describe('Chat error state', () => {
   });
 });
 
-function renderChatRoute(): void {
+function renderChatRoute(user: AuthUser = testUser, path = '/spaces/space-1/chat'): void {
   render(
-    <MemoryRouter initialEntries={['/spaces/space-1/chat']}>
-      <AuthProvider initialSession={{ user: testUser, accessToken: 'test-token' }}>
+    <MemoryRouter initialEntries={[path]}>
+      <AuthProvider initialSession={{ user, accessToken: 'test-token' }}>
         <Routes>
           <Route path="/spaces/:spaceId/chat" element={<Chat />} />
         </Routes>

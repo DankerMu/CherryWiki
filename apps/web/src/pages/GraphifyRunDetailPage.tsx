@@ -1,9 +1,10 @@
 import { ArrowLeftOutlined } from '@ant-design/icons';
-import { Alert, Button, Card, Descriptions, Popconfirm, Progress, Result, Spin, Statistic, Typography } from 'antd';
+import { Alert, Button, Card, Descriptions, Popconfirm, Progress, Spin, Statistic, Typography } from 'antd';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router';
 import { formatDate, formatLabel, getErrorMessage } from '../components/adminUi';
+import { SpaceForbiddenState, useSpacePermissionGate } from '../components/SpacePermissionGate';
 import {
   cancelGraphifyRun,
   getGraphifyReport,
@@ -33,7 +34,8 @@ export default function GraphifyRunDetailPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { spaceId = '', runId = '' } = useParams();
-  const { hasSpacePermission, user } = useAuth();
+  const { hasSpacePermission } = useAuth();
+  const gate = useSpacePermissionGate('graphify:view');
   const [run, setRun] = useState<GraphifyRun | null>(null);
   const [report, setReport] = useState<GraphifyReport | null>(null);
   const [summary, setSummary] = useState<GraphifySummary | null>(null);
@@ -42,7 +44,7 @@ export default function GraphifyRunDetailPage() {
   const [isRetrying, setIsRetrying] = useState(false);
   const [isRunSpaceMismatch, setIsRunSpaceMismatch] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const canViewGraphify = spaceId.length > 0 && hasSpacePermission(spaceId, 'graphify:view');
+  const canViewGraphify = spaceId.length > 0 && gate.isAllowed;
   const canRunGraphify = spaceId.length > 0 && hasSpacePermission(spaceId, 'graphify:run');
 
   const loadRunDetail = useCallback(
@@ -122,13 +124,7 @@ export default function GraphifyRunDetailPage() {
   }
 
   if (!canViewGraphify) {
-    return (
-      <Result
-        status="403"
-        title={t('graphify.space.forbidden.title')}
-        subTitle={t('graphify.space.forbidden.description', { email: user?.email ?? '' })}
-      />
-    );
+    return <SpaceForbiddenState context="graphify" />;
   }
 
   if (isRunSpaceMismatch) {
