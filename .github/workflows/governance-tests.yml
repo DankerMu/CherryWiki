@@ -44,11 +44,13 @@ jobs:
           pnpm exec vitest run \
             apps/api/src/governance/__tests__/ \
             apps/api/src/feedback/__tests__/ \
-            --config vitest.config.ts
+            --config vitest.config.ts \
+            --passWithNoTests=false
 
       - name: Governance integration tests
         run: |
           pnpm exec vitest run \
             tests/integration/governance-*.test.ts \
             tests/integration/feedback-*.test.ts \
-            --config vitest.config.ts
+            --config vitest.config.ts \
+            --passWithNoTests=false
