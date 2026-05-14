@@ -7,6 +7,7 @@
 ### Fix-1: ingestion-worker 缺少 NO_PROXY 环境变量（阻塞级）
 
 **现象：** ingestion-worker 启动后立即 poll 失败，反复退出重启。日志：
+
 ```
 HTTPConnectionPool(host='cherry-api', port=8080): Max retries exceeded ... Connection refused
 ```
@@ -16,16 +17,18 @@ HTTPConnectionPool(host='cherry-api', port=8080): Max retries exceeded ... Conne
 对比：`url-fetcher-worker` 正确设了 `NO_PROXY: cherry-api,minio,localhost,127.0.0.1`。
 
 **修复：** `docker-compose.yml` ingestion-worker 服务的 environment 添加：
+
 ```yaml
-  ingestion-worker:
-    environment:
-      # ... 已有的 ...
-      HTTP_PROXY: ${HTTP_PROXY:-http://egress-proxy:3128}
-      HTTPS_PROXY: ${HTTPS_PROXY:-http://egress-proxy:3128}
-      NO_PROXY: ${NO_PROXY:-cherry-api,minio,localhost,127.0.0.1}
+ingestion-worker:
+  environment:
+    # ... 已有的 ...
+    HTTP_PROXY: ${HTTP_PROXY:-http://egress-proxy:3128}
+    HTTPS_PROXY: ${HTTPS_PROXY:-http://egress-proxy:3128}
+    NO_PROXY: ${NO_PROXY:-cherry-api,minio,localhost,127.0.0.1}
 ```
 
 **验证：**
+
 ```bash
 docker compose restart ingestion-worker
 sleep 10
@@ -64,6 +67,7 @@ grep -A 20 "indexer-worker:" docker-compose.yml | grep "NO_PROXY"
 **当前状态：** `apps/graphify-worker/Dockerfile` 可能不存在或不完整。
 
 **修复：** 确保 Dockerfile 包含 graphify CLI 安装：
+
 ```dockerfile
 ARG GRAPHIFY_REF=7359cdace9a098ba8acf29d84d6c4bc1bab0e3b0
 RUN pip install --no-cache-dir "git+https://github.com/safishamsi/graphify.git@${GRAPHIFY_REF}"
@@ -84,7 +88,7 @@ RUN pip install --no-cache-dir "git+https://github.com/safishamsi/graphify.git@$
 ```bash
 TOKEN=$(curl -s http://localhost:8081/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@cherrywiki.local","password":"ChangeMe123!"}' \
+  -d '{"email":"<seed-admin-email>","password":"<seed-admin-password>"}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['access_token'])")
 SPACE_ID="13c14ba5-1944-4f28-8e27-2a298a5028b5"
 
@@ -177,25 +181,25 @@ curl -s -X POST "http://localhost:8081/api/chat/completions" \
 
 ## 三、已完成的修复（上一 session，未提交）
 
-| 文件 | 变更 | 需要提交 |
-|------|------|----------|
-| `apps/web/Dockerfile` | 新建：cherry-web Dockerfile 化 | 是 |
-| `docker-compose.yml` | cherry-web 改 build + graphify-worker env 修复 + 删 web volumes | 是 |
-| `packages/auth-core/src/constants.ts` | admin 角色添加 wiki:publish/wiki:rollback | 是 |
-| `ops/nginx/nginx.conf` | CSP unsafe-inline + Host header | 是 |
-| `apps/web/src/lib/auth.tsx` | AuthUser 扩展 spaces + hasSpacePermission | 是 |
-| `apps/web/src/pages/wiki/WikiPageDetail.tsx` | Publish 按钮权限检查 | 是 |
-| `apps/web/src/pages/wiki/WikiVersionHistory.tsx` | Rollback 按钮权限检查 | 是 |
-| `apps/web/src/__tests__/App.test.tsx` | 适配 /auth/me 调用 | 是 |
-| `apps/web/src/__tests__/wiki.test.tsx` | AuthProvider wrapper + mock | 是 |
-| `.env` | DEFAULT_EMBEDDING_MODEL 改为 text-embedding-3-small | 否（.gitignore） |
+| 文件                                             | 变更                                                            | 需要提交         |
+| ------------------------------------------------ | --------------------------------------------------------------- | ---------------- |
+| `apps/web/Dockerfile`                            | 新建：cherry-web Dockerfile 化                                  | 是               |
+| `docker-compose.yml`                             | cherry-web 改 build + graphify-worker env 修复 + 删 web volumes | 是               |
+| `packages/auth-core/src/constants.ts`            | admin 角色添加 wiki:publish/wiki:rollback                       | 是               |
+| `ops/nginx/nginx.conf`                           | CSP unsafe-inline + Host header                                 | 是               |
+| `apps/web/src/lib/auth.tsx`                      | AuthUser 扩展 spaces + hasSpacePermission                       | 是               |
+| `apps/web/src/pages/wiki/WikiPageDetail.tsx`     | Publish 按钮权限检查                                            | 是               |
+| `apps/web/src/pages/wiki/WikiVersionHistory.tsx` | Rollback 按钮权限检查                                           | 是               |
+| `apps/web/src/__tests__/App.test.tsx`            | 适配 /auth/me 调用                                              | 是               |
+| `apps/web/src/__tests__/wiki.test.tsx`           | AuthProvider wrapper + mock                                     | 是               |
+| `.env`                                           | DEFAULT_EMBEDDING_MODEL 改为 text-embedding-3-small             | 否（.gitignore） |
 
 ## 四、LLM 模型配置（已在 DB 中）
 
-| 模型 | ID | Provider | Type |
-|------|-----|----------|------|
-| OpenAI Embedding Small | `75515e96-d510-41c2-a512-3036350661a0` | openai | embedding |
-| Deepseek Flash | `4a4d3407-00e4-4dff-8546-5a3e8731964d` | openai | chat |
+| 模型                   | ID                                     | Provider | Type      |
+| ---------------------- | -------------------------------------- | -------- | --------- |
+| OpenAI Embedding Small | `75515e96-d510-41c2-a512-3036350661a0` | openai   | embedding |
+| Deepseek Flash         | `4a4d3407-00e4-4dff-8546-5a3e8731964d` | openai   | chat      |
 
 两个模型连通性测试已通过（`reachable: true`）。
 
