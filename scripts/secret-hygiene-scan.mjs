@@ -6,8 +6,10 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readlinkSync,
   rmSync,
-  statSync,
+  lstatSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -370,7 +372,12 @@ export function scanFiles(files, root = process.cwd()) {
     if (!existsSync(fullPath)) {
       continue;
     }
-    const stat = statSync(fullPath);
+    const stat = lstatSync(fullPath);
+    if (stat.isSymbolicLink()) {
+      scanContentBuffer(Buffer.from(readlinkSync(fullPath)), normalized, findings);
+      continue;
+    }
+
     if (!stat.isFile()) {
       continue;
     }
@@ -570,6 +577,18 @@ function runSelfTest() {
       wantFindings: true,
     },
     {
+      name: 'does not follow working-tree symlink target content',
+      files: [
+        {
+          path: 'tests/manual/symlink.md',
+          targetContent: 'password=Concrete123!',
+        },
+      ],
+      useScanFiles: true,
+      useSymlink: true,
+      wantFindings: false,
+    },
+    {
       name: 'detects staged quoted refresh token when working tree has placeholder',
       useGitIndex: true,
       stagedContent: `${refreshTokenJsonEvidence(
@@ -585,6 +604,7 @@ function runSelfTest() {
   for (const sample of samples) {
     const findings = [];
     let tmpRoot;
+    let outsideRoot;
     try {
       if (sample.useGitIndex) {
         tmpRoot = mkdtempSync(path.join(tmpdir(), 'secret-hygiene-self-test-'));
@@ -607,7 +627,14 @@ function runSelfTest() {
         for (const file of sample.files) {
           const fullPath = path.join(tmpRoot, file.path);
           mkdirSync(path.dirname(fullPath), { recursive: true });
-          writeFileSync(fullPath, file.content);
+          if (sample.useSymlink) {
+            outsideRoot = mkdtempSync(path.join(tmpdir(), 'secret-hygiene-outside-'));
+            const outsidePath = path.join(outsideRoot, 'outside.txt');
+            writeFileSync(outsidePath, file.targetContent);
+            symlinkSync(outsidePath, fullPath);
+          } else {
+            writeFileSync(fullPath, file.content);
+          }
         }
         findings.push(
           ...scanFiles(
@@ -639,6 +666,9 @@ function runSelfTest() {
     } finally {
       if (tmpRoot) {
         rmSync(tmpRoot, { recursive: true, force: true });
+      }
+      if (outsideRoot) {
+        rmSync(outsideRoot, { recursive: true, force: true });
       }
     }
 
