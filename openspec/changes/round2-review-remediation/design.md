@@ -175,3 +175,87 @@ Review focus:
 - Checklist credentials are placeholders or the checklist is excluded from delivery.
 - Secret scan command is reproducible on a clean checkout.
 - Evidence text does not include secret material.
+
+## Issue #319 Fixture: URL Fetcher SSRF and Proxy Hardening
+
+Fixture level: expanded
+Project profile: other
+Blast radius: high
+
+Why expanded:
+
+- The issue changes network egress security defaults and proxy-required behavior.
+- The issue touches runtime URL fetching, redirect handling, and startup configuration validation.
+- The issue must preserve built-in SSRF protections while adding operator-configured blocked CIDRs.
+
+Change surface:
+
+- `apps/url-fetcher-worker/src/ssrf/ip_validator.py`
+- URL fetcher configuration and startup paths that parse `SSRF_BLOCKED_CIDRS`, `EGRESS_PROXY_REQUIRED`, and `EGRESS_PROXY_URL`
+- URL fetcher redirect handling/runtime fetch path
+- `apps/url-fetcher-worker/tests/**`
+
+Must preserve:
+
+- Built-in localhost, RFC1918, link-local, metadata, current-network, IPv6 localhost, IPv6 ULA, IPv6 link-local, and IPv4-mapped IPv6 blocking remains enabled when no custom CIDRs are configured.
+- Public, non-blocked destinations remain fetchable when proxy-required mode is disabled and normal SSRF validation passes.
+- Malformed CIDR configuration continues to fail closed rather than silently weakening validation.
+- Existing successful proxy behavior remains compatible when `EGRESS_PROXY_REQUIRED=true` and a reachable proxy is configured.
+
+Must add/change:
+
+- `SSRF_BLOCKED_CIDRS` appends to the built-in forbidden ranges instead of replacing them.
+- Proxy-required mode fails during startup/configuration when no proxy URL is configured.
+- Proxy-required runtime failures do not retry through direct egress when the proxy is unreachable.
+- Redirect targets are re-resolved and revalidated before any redirected request is fetched.
+
+Selected risk packs:
+
+- Public API / CLI / script entry: environment-variable behavior is part of the worker operator contract.
+- Config / project setup: SSRF and proxy settings must be parsed consistently and fail closed on invalid values.
+- File IO / path safety / overwrite: not selected for implementation behavior, but path safety is not involved because the change is network egress only.
+- Resource limits / large input / discovery: redirect handling must remain bounded by existing redirect/fetch limits and must not introduce unbounded resolution loops.
+- Legacy compatibility / examples: default allow/block behavior for existing deployments without custom CIDRs must be preserved.
+- Error handling / rollback / partial outputs: proxy and CIDR failures must stop before unsafe direct egress or partial private-target fetches occur.
+- Documentation / migration notes: changed additive semantics and proxy-required failure modes need operator-facing notes or test evidence.
+
+Risk packs considered:
+
+- Public API / CLI / script entry: selected - env vars configure worker startup and runtime egress behavior.
+- Config / project setup: selected - CIDR and proxy env parsing are the core change.
+- File IO / path safety / overwrite: not selected - no filesystem read/write, publish, overwrite, symlink, or path behavior is changed.
+- Schema / columns / units / field names: not selected - no data schema or field contract changes.
+- Geospatial / CRS / shapefile sidecars: not selected - no geospatial artifacts are touched.
+- Time series / forcing / temporal boundaries: not selected - no temporal data behavior is touched.
+- Numerical stability / conservation / NaN: not selected - no numerical behavior is touched.
+- Solver runtime / performance / threading: not selected - no solver, threading, or numerical runtime surface is touched.
+- Resource limits / large input / discovery: selected - redirect chains and DNS/address validation must remain bounded and deterministic.
+- Legacy compatibility / examples: selected - no-custom-CIDR deployments and normal public URL fetches must keep working.
+- Error handling / rollback / partial outputs: selected - invalid config, unreachable proxy, and private redirects must fail closed with no direct fallback.
+- Release / packaging / dependency compatibility: not selected - no new runtime dependency is required for this issue.
+- Documentation / migration notes: selected - additive CIDR semantics are a behavior change from replacement semantics.
+
+Required evidence:
+
+- `PYTHONPATH=apps/url-fetcher-worker apps/url-fetcher-worker/.venv/bin/pytest apps/url-fetcher-worker/tests -q`: URL fetcher tests pass with the worker virtualenv.
+- Test `SSRF_BLOCKED_CIDRS=203.0.113.0/24`: `203.0.113.10`, `10.1.2.3`, `127.0.0.1`, `169.254.169.254`, and `::ffff:10.0.0.1` are blocked.
+- Test unset/empty `SSRF_BLOCKED_CIDRS`: built-in blocked ranges still fail and a representative public IP remains allowed.
+- Test malformed `SSRF_BLOCKED_CIDRS`: worker configuration construction or startup raises an explicit configuration error.
+- Test `EGRESS_PROXY_REQUIRED=true` with missing proxy URL: startup/configuration fails before fetching.
+- Test `EGRESS_PROXY_REQUIRED=true` with an unreachable proxy URL: fetch fails through the proxy path and never falls back to a direct request.
+- Test public URL redirecting to a private or metadata target: redirect target is blocked before private-target fetch.
+
+Non-goals:
+
+- Do not implement live-stack smoke workflow changes in #319; those belong to #320.
+- Do not add admin model/Docmost outbound probe allowlists in #319; those belong to #322.
+- Do not weaken or remove built-in blocked ranges to preserve custom CIDR compatibility.
+- Do not add a broad direct-egress fallback for proxy-required deployments.
+
+Review focus:
+
+- Built-in and custom CIDR lists are additive in all construction paths.
+- IPv4-mapped IPv6 private/metadata addresses are normalized and blocked.
+- Redirect validation uses the effective redirected target, not only the original URL.
+- Proxy-required mode cannot silently perform direct outbound requests.
+- Tests exercise the normal package/runtime paths rather than only private helper functions.

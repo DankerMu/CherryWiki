@@ -57,6 +57,29 @@ def test_redirect_to_private_ip_is_blocked_after_revalidation() -> None:
         == "http://private.example/admin"
     )
     assert resolver.calls == ["public.example", "private.example"]
+    assert len(session.requests) == 1
+
+
+def test_redirect_to_metadata_ip_is_blocked_before_redirect_fetch() -> None:
+    session = FakeSession(
+        [FakeResponse(302, b"", {"location": "http://metadata.example/latest"})]
+    )
+    resolver = FakeResolver(
+        {
+            "public.example": ["93.184.216.34"],
+            "metadata.example": ["169.254.169.254"],
+        }
+    )
+    fetcher = UrlFetcher(resolver=resolver, session=session)
+
+    with pytest.raises(SsrfBlockedError) as exc:
+        fetcher.fetch("http://public.example/start")
+
+    assert exc.value.metadata["block_reason"] == "redirect_to_private_ip"
+    assert exc.value.metadata["original_block_reason"] == "link_local_metadata"
+    assert exc.value.metadata["resolved_ip"] == "169.254.169.254"
+    assert len(session.requests) == 1
+    assert resolver.calls == ["public.example", "metadata.example"]
 
 
 def test_response_too_large_is_aborted() -> None:
@@ -155,6 +178,20 @@ def test_proxy_required_unreachable_proxy_fails_closed() -> None:
         "http": "http://127.0.0.1:1",
         "https": "http://127.0.0.1:1",
     }
+
+
+def test_proxy_required_constructor_without_proxy_url_fails_before_fetching() -> None:
+    session = FakeSession([FakeResponse(200, b"hello", {"content-type": "text/plain"})])
+
+    with pytest.raises(ValueError) as exc:
+        UrlFetcher(
+            resolver=FakeResolver({"example.com": ["93.184.216.34"]}),
+            session=session,
+            proxy_required=True,
+        )
+
+    assert str(exc.value) == "proxy_required requires proxy_url"
+    assert session.requests == []
 
 
 def test_invalid_proxy_required_env_value_fails_startup(
