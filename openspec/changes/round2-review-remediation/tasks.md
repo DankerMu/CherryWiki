@@ -25,12 +25,12 @@
 
 ## 4. OpenSpec Delivery Integrity
 
-- [ ] 4.1 Triage all untracked `openspec/changes/*` directories as commit, defer, archive, or ignore before final delivery.
-- [ ] 4.2 Add missing `.openspec.yaml` metadata to active change directories, including `phase3-persistent-agent-runtime` if it remains active.
-- [ ] 4.3 Ensure any remediation tests, including `apps/url-fetcher-worker/tests/test_main.py`, are tracked or replaced by equivalent tracked tests.
-- [ ] 4.4 Run `openspec status --change round2-review-remediation` and relevant existing change validations; include outputs in issue/PR evidence.
-- [ ] 4.5 Only mark OpenSpec task checkboxes complete after linking commit/test evidence.
-- [ ] 4.6 Create and link the GitHub epic and sub-issues with OpenSpec change path, relevant spec files, dependencies, task checklist, and acceptance criteria in every issue body.
+- [x] 4.1 Triage all untracked `openspec/changes/*` directories as commit, defer, archive, or ignore before final delivery.
+- [x] 4.2 Add missing `.openspec.yaml` metadata to active change directories, including `phase3-persistent-agent-runtime` if it remains active.
+- [x] 4.3 Ensure any remediation tests, including `apps/url-fetcher-worker/tests/test_main.py`, are tracked or replaced by equivalent tracked tests.
+- [x] 4.4 Run `openspec status --change round2-review-remediation` and relevant existing change validations; include outputs in issue/PR evidence.
+- [x] 4.5 Only mark OpenSpec task checkboxes complete after linking commit/test evidence.
+- [x] 4.6 Create and link the GitHub epic and sub-issues with OpenSpec change path, relevant spec files, dependencies, task checklist, and acceptance criteria in every issue body.
 
 ## 5. Admin Outbound Probe Safety
 
@@ -161,3 +161,32 @@ Non-goals for #322:
 - No dependency-container smoke workflow changes; #320 owns smoke reliability.
 - No global OpenSpec artifact triage; #321 owns delivery integrity.
 - No model provider storage, secret reference, or CRUD redesign.
+
+## Issue #321 Evidence Mapping
+
+Selected risk packs:
+
+- Public API / CLI / script entry: covered by 4.4 OpenSpec CLI status/validation commands used as delivery gates.
+- Config / project setup: covered by 4.1, 4.2, and `.openspec.yaml` metadata checks.
+- File IO / path safety / overwrite: covered by 4.1 and `git status --short` evidence proving unrelated local draft directories are not accidentally staged or deleted.
+- Legacy compatibility / examples: covered by 4.3 and checks proving tracked remediation tests remain tracked.
+- Error handling / rollback / partial outputs: covered by 4.4 and 4.5; validation or untriaged artifacts block completion.
+- Documentation / migration notes: covered by 4.1, 4.5, and 4.6 traceability evidence.
+
+Required evidence for #321:
+
+- Run `openspec status --change round2-review-remediation`; expected result is 4/4 artifacts complete.
+- Run `openspec validate round2-review-remediation --strict --no-interactive`; expected result is valid.
+- Run `git diff --name-status origin/main...HEAD`; expected result lists only tracked PR delivery files, including removal of task-only active stubs that were de-registered from active OpenSpec state.
+- Run `git status --short --untracked-files=all`; expected result is focused on remaining local deferred drafts and does not treat untracked proposal/design/spec draft files as implicitly deliverable.
+- Run `git ls-files openspec/changes/docmost-auto-sync openspec/changes/post-completion-review-hardening`; expected result is empty, proving the task-only stubs are removed from tracked active OpenSpec state.
+- Run `git ls-files apps/url-fetcher-worker/tests/test_main.py`; expected result lists the path, proving the remediation test is tracked.
+- Check active OpenSpec change directories selected for delivery have `.openspec.yaml`; expected result is that any missing metadata is added or the directory is explicitly deferred/non-active.
+- Confirm #317-#322 issue bodies and the PR evidence reference `openspec/changes/round2-review-remediation/`, relevant spec files, dependencies, task checklist, and acceptance criteria.
+
+Non-goals for #321:
+
+- No runtime source code changes.
+- No bulk commit of unrelated local OpenSpec draft directories.
+- No deletion or archiving of user-created draft directories without explicit disposition evidence.
+- No new implementation for the feature proposals contained in deferred draft directories.

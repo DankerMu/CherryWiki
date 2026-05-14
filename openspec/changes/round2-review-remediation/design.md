@@ -435,3 +435,87 @@ Review focus:
 - DNS/IP classification covers IPv4, IPv6, and IPv4-mapped IPv6 blocked ranges.
 - Error messages and audit metadata cannot leak API keys, cookies, authorization headers, or request internals.
 - Existing public provider and Docmost health tests remain compatible.
+
+## Issue #321 Fixture: OpenSpec Artifact Triage and Traceability
+
+Fixture level: expanded
+Project profile: other
+Blast radius: high
+
+Why expanded:
+
+- The issue governs delivery integrity rather than runtime behavior, but it decides which local OpenSpec artifacts are considered deliverable.
+- The issue touches untracked repository artifacts, OpenSpec metadata completeness, and issue-to-spec traceability.
+- The issue must not accidentally commit unrelated draft specs or hide delivery-relevant remediation tests.
+
+Change surface:
+
+- `openspec/changes/round2-review-remediation/**`
+- Triage documentation for local `openspec/changes/*` directories
+- Missing `.openspec.yaml` metadata for any active OpenSpec change retained in the workspace
+- GitHub issue/PR evidence comments and PR body traceability
+
+Must preserve:
+
+- Existing tracked OpenSpec changes remain valid.
+- Draft or unrelated local OpenSpec changes are not bulk-staged into this remediation PR.
+- Already tracked remediation tests, including `apps/url-fetcher-worker/tests/test_main.py`, remain tracked and visible to Git.
+- Issue bodies for #317-#322 remain traceable to `openspec/changes/round2-review-remediation/` and relevant spec files.
+
+Must add/change:
+
+- Record an explicit disposition for every currently untracked `openspec/changes/*` directory: commit, defer, archive, or ignore.
+- Add `.openspec.yaml` to active change directories that lack it, or explicitly classify those directories as deferred/non-active in the disposition record.
+- Capture evidence from `openspec status --change round2-review-remediation`, `openspec validate round2-review-remediation --strict --no-interactive`, `git diff --name-status origin/main...HEAD`, `git status --short --untracked-files=all`, and `git ls-files` checks for de-registered task-only stubs.
+- Confirm no untracked remediation tests/checklists/auth artifacts remain implicitly deliverable.
+- Only mark OpenSpec tasks complete when the PR or issue includes linked command/commit evidence.
+
+Selected risk packs:
+
+- Public API / CLI / script entry: OpenSpec CLI status and validation commands are delivery gates for this issue.
+- Config / project setup: OpenSpec metadata and change status define project workflow behavior.
+- File IO / path safety / overwrite: triage must avoid accidentally staging unrelated local directories or deleting user drafts.
+- Legacy compatibility / examples: existing archived/tracked OpenSpec changes and tests must remain usable.
+- Error handling / rollback / partial outputs: incomplete triage or validation failure must block delivery rather than silently pass.
+- Documentation / migration notes: dispositions and issue traceability must be documented for maintainers.
+
+Risk packs considered:
+
+- Public API / CLI / script entry: selected - OpenSpec CLI validation and status commands are used as delivery gates.
+- Config / project setup: selected - `.openspec.yaml` metadata and change completeness are the core change.
+- File IO / path safety / overwrite: selected - the work involves many untracked directories that must not be bulk-staged or removed accidentally.
+- Schema / columns / units / field names: not selected - no application data schema changes.
+- Geospatial / CRS / shapefile sidecars: not selected - no geospatial artifacts are touched.
+- Time series / forcing / temporal boundaries: not selected - no temporal data behavior is touched.
+- Numerical stability / conservation / NaN: not selected - no numerical behavior is touched.
+- Solver runtime / performance / threading: not selected - no solver/runtime behavior is touched.
+- Resource limits / large input / discovery: not selected - no large-input runtime discovery behavior is changed.
+- Legacy compatibility / examples: selected - existing archived specs and tracked tests must remain visible and valid.
+- Error handling / rollback / partial outputs: selected - validation failures and untriaged artifacts must not be treated as successful delivery.
+- Release / packaging / dependency compatibility: not selected - no package dependency or release artifact behavior is expected.
+- Documentation / migration notes: selected - the output is primarily a maintainable disposition/evidence record.
+
+Required evidence:
+
+- `openspec status --change round2-review-remediation`: reports 4/4 artifacts complete.
+- `openspec validate round2-review-remediation --strict --no-interactive`: passes.
+- `git diff --name-status origin/main...HEAD`: lists tracked PR delivery files, including the removed task-only active stubs.
+- `git status --short --untracked-files=all`: every remaining untracked OpenSpec draft is intentionally listed in the triage record and is not implicitly deliverable.
+- `git ls-files openspec/changes/docmost-auto-sync openspec/changes/post-completion-review-hardening`: no output, proving the task-only stubs are removed from tracked active OpenSpec state.
+- `git ls-files apps/url-fetcher-worker/tests/test_main.py`: confirms the remediation test is tracked.
+- Metadata check showing no active OpenSpec change selected for delivery lacks `.openspec.yaml`.
+- PR/issue evidence links #321 to `specs/openspec-delivery-integrity/spec.md`, the task checklist, dependencies, and acceptance criteria.
+
+Non-goals:
+
+- Do not implement the feature specs contained in unrelated local OpenSpec draft directories.
+- Do not archive or delete user-created draft change directories unless the disposition record explicitly requires it and the workflow has evidence.
+- Do not mark tasks from #318, #319, #320, or #322 complete without their already merged PR evidence.
+- Do not change runtime application code for this issue.
+
+Review focus:
+
+- Disposition record covers every untracked OpenSpec directory visible in `git status --short`.
+- Active changes have `.openspec.yaml`, or deferred changes are clearly non-active.
+- Evidence commands are present, reproducible, and match the issue acceptance criteria.
+- The PR stages only intended OpenSpec metadata/triage files and does not bulk-commit unrelated draft specs.
