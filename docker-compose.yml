@@ -86,6 +86,7 @@ services:
       WORKER_API_KEY: ${WORKER_API_KEY:-dev-worker-api-key}
       MODEL_API_BASE_URL: ${MODEL_API_BASE_URL:-http://localhost:11434}
       MODEL_API_KEY: ${MODEL_API_KEY:-dev-model-key}
+      ADMIN_OUTBOUND_PROBE_ALLOWLIST: ${ADMIN_OUTBOUND_PROBE_ALLOWLIST:-localhost,127.0.0.1,::1,docmost}
       DEFAULT_CHAT_MODEL: ${DEFAULT_CHAT_MODEL:-gpt-4.1}
       DEFAULT_EMBEDDING_MODEL: ${DEFAULT_EMBEDDING_MODEL:-text-embedding-3-large}
       DOCMOST_BASE_URL: ${DOCMOST_BASE_URL:-http://docmost:3000}

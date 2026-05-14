@@ -28,6 +28,8 @@ type ProbeRequest = {
   body: unknown;
 };
 
+const MODEL_PROBE_TIMEOUT_MS = 10000;
+
 export type AdminContext = {
   tenantId?: string;
   actorUserId?: string;
@@ -395,7 +397,9 @@ export class ModelConfigService {
       return result;
     }
 
-    const targetValidation = await validateAdminOutboundProbeUrl(baseUrl);
+    const targetValidation = await validateAdminOutboundProbeUrl(baseUrl, {
+      dnsTimeoutMs: MODEL_PROBE_TIMEOUT_MS,
+    });
     if (!targetValidation.ok) {
       result = {
         reachable: false,
@@ -438,14 +442,14 @@ export class ModelConfigService {
       if (isAbortError(err)) {
         result = {
           reachable: false,
-          latency_ms: 10000,
+          latency_ms: MODEL_PROBE_TIMEOUT_MS,
           error: 'Request timed out (10s)',
         };
       } else {
         result = {
           reachable: false,
           latency_ms: elapsedMs(startedAt),
-          error: sanitizeOutboundProbeError(err),
+          error: sanitizeOutboundProbeError(err, [apiKey]),
         };
       }
     }
@@ -528,11 +532,12 @@ async function probeModelEndpoint(
 ): Promise<ProbeResult> {
   const request = buildProbeRequest(modelId, modelType);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
+  const timeout = setTimeout(() => controller.abort(), MODEL_PROBE_TIMEOUT_MS);
 
   try {
     const response = await fetch(`${baseUrl.replace(/\/+$/, '')}${request.path}`, {
       method: 'POST',
+      redirect: 'manual',
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',

@@ -9,6 +9,8 @@ import {
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { StorageService } from '../storage/storage.service.js';
 
+const DOCMOST_HEALTH_TIMEOUT_MS = 5000;
+
 type HealthStatus = 'healthy' | 'degraded' | 'unhealthy';
 type ComponentStatus = 'healthy' | 'unhealthy' | 'not_configured';
 type ComponentName = 'database' | 'redis' | 'minio' | 'vector_store' | 'graph_store' | 'docmost_bridge';
@@ -100,7 +102,9 @@ export class AdminHealthController {
     }
 
     const startedAt = performance.now();
-    const targetValidation = await validateAdminOutboundProbeUrl(baseUrl);
+    const targetValidation = await validateAdminOutboundProbeUrl(baseUrl, {
+      dnsTimeoutMs: DOCMOST_HEALTH_TIMEOUT_MS,
+    });
     if (!targetValidation.ok) {
       return {
         status: 'unhealthy',
@@ -110,11 +114,12 @@ export class AdminHealthController {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+    const timeout = setTimeout(() => controller.abort(), DOCMOST_HEALTH_TIMEOUT_MS);
 
     try {
       const response = await fetch(`${targetValidation.url.toString().replace(/\/+$/, '')}/api/health`, {
         method: 'GET',
+        redirect: 'manual',
         signal: controller.signal,
       });
       const result: HealthComponent =
@@ -127,7 +132,7 @@ export class AdminHealthController {
       if (isAbortError(err)) {
         return {
           status: 'unhealthy',
-          latency_ms: 5000,
+          latency_ms: DOCMOST_HEALTH_TIMEOUT_MS,
           error: 'Health check timed out (5s)',
         };
       }

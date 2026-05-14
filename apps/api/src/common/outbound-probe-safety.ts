@@ -4,6 +4,7 @@ import { isIP } from 'node:net';
 const ADMIN_OUTBOUND_PROBE_ALLOWLIST_ENV = 'ADMIN_OUTBOUND_PROBE_ALLOWLIST';
 const SAFE_VALIDATION_PREFIX = 'Outbound probe target rejected';
 const MAX_SAFE_ERROR_LENGTH = 180;
+const DEFAULT_DNS_TIMEOUT_MS = 3000;
 
 type IpVersion = 4 | 6;
 
@@ -24,6 +25,10 @@ type ParsedAllowlist = {
   cidrs: CidrRule[];
 };
 
+export type OutboundProbeValidationOptions = {
+  dnsTimeoutMs?: number;
+};
+
 export type OutboundProbeValidationResult =
   | {
       ok: true;
@@ -34,7 +39,10 @@ export type OutboundProbeValidationResult =
       error: string;
     };
 
-export async function validateAdminOutboundProbeUrl(rawUrl: string): Promise<OutboundProbeValidationResult> {
+export async function validateAdminOutboundProbeUrl(
+  rawUrl: string,
+  options: OutboundProbeValidationOptions = {},
+): Promise<OutboundProbeValidationResult> {
   const url = parseUrl(rawUrl);
   if (url === null) {
     return reject('invalid URL');
@@ -44,13 +52,22 @@ export async function validateAdminOutboundProbeUrl(rawUrl: string): Promise<Out
     return reject('unsupported URL scheme');
   }
 
+  if (url.username.length > 0 || url.password.length > 0) {
+    return reject('URL credentials are not allowed');
+  }
+
   const hostname = normalizeHostname(url.hostname);
   if (hostname.length === 0) {
     return reject('missing host');
   }
 
   const allowlist = parseAdminOutboundProbeAllowlist();
-  const addresses = await resolveTargetAddresses(hostname);
+  const resolved = await resolveTargetAddresses(hostname, normalizeDnsTimeoutMs(options.dnsTimeoutMs));
+  if (resolved.timedOut) {
+    return reject('DNS resolution timed out');
+  }
+
+  const { addresses } = resolved;
   if (addresses.length === 0) {
     return reject('host could not be resolved');
   }
@@ -63,7 +80,7 @@ export async function validateAdminOutboundProbeUrl(rawUrl: string): Promise<Out
   return { ok: true, url };
 }
 
-export function sanitizeOutboundProbeError(err: unknown): string {
+export function sanitizeOutboundProbeError(err: unknown, sensitiveValues: string[] = []): string {
   const raw = err instanceof Error ? err.message : String(err);
   const normalized = raw.replace(/\s+/g, ' ').trim();
 
@@ -71,7 +88,7 @@ export function sanitizeOutboundProbeError(err: unknown): string {
     return 'Outbound request failed';
   }
 
-  if (containsSecretOrRequestMetadata(normalized)) {
+  if (containsSecretOrRequestMetadata(normalized, sensitiveValues)) {
     return 'Outbound request failed';
   }
 
@@ -93,20 +110,46 @@ function reject(reason: string): OutboundProbeValidationResult {
   };
 }
 
-async function resolveTargetAddresses(hostname: string): Promise<string[]> {
+function normalizeDnsTimeoutMs(timeoutMs: number | undefined): number {
+  if (timeoutMs !== undefined && Number.isFinite(timeoutMs) && timeoutMs > 0) {
+    return timeoutMs;
+  }
+
+  return DEFAULT_DNS_TIMEOUT_MS;
+}
+
+async function resolveTargetAddresses(
+  hostname: string,
+  timeoutMs: number,
+): Promise<{ addresses: string[]; timedOut: boolean }> {
   if (isIP(hostname) !== 0) {
-    return [hostname];
+    return { addresses: [hostname], timedOut: false };
   }
 
   if (isBlockedHostname(hostname)) {
-    return ['127.0.0.1'];
+    return { addresses: ['127.0.0.1'], timedOut: false };
   }
 
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const lookupPromise = dnsLookup(hostname, { all: true, verbatim: true })
+    .then((records) => ({
+      addresses: records.map((record) => record.address),
+      timedOut: false,
+    }))
+    .catch(() => ({ addresses: [], timedOut: false }));
+  const timeoutPromise = new Promise<{ addresses: string[]; timedOut: boolean }>((resolve) => {
+    timeout = setTimeout(() => {
+      resolve({ addresses: [], timedOut: true });
+    }, timeoutMs);
+    timeout.unref?.();
+  });
+
   try {
-    const records = await dnsLookup(hostname, { all: true, verbatim: true });
-    return records.map((record) => record.address);
-  } catch {
-    return [];
+    return await Promise.race([lookupPromise, timeoutPromise]);
+  } finally {
+    if (timeout !== undefined) {
+      clearTimeout(timeout);
+    }
   }
 }
 
@@ -426,8 +469,20 @@ function bigIntToIpv6(value: bigint): string {
   return parts.join(':');
 }
 
-function containsSecretOrRequestMetadata(message: string): boolean {
-  return /\b(authorization|cookie|set-cookie|x-api-key|api[_-]?key|bearer|headers?|request init|request metadata)\b/i.test(
-    message,
+function containsSecretOrRequestMetadata(message: string, sensitiveValues: string[]): boolean {
+  if (sensitiveValues.some((value) => value.trim().length >= 4 && message.includes(value.trim()))) {
+    return true;
+  }
+
+  return (
+    /\b(authorization|cookie|set-cookie|x-api-key|api[_-]?key|bearer|headers?|request init|request metadata|credentials?)\b/i.test(
+      message,
+    ) ||
+    /https?:\/\/[^\s/@?#]+(?::[^\s/@?#]*)?@/i.test(message) ||
+    /(?:^|[?&;\s])(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|client[_-]?secret|password|secret|credentials?)=[^\s&]+/i.test(
+      message,
+    ) ||
+    /\b(?:sk|pk|rk)-[a-z0-9][a-z0-9_-]{8,}\b/i.test(message) ||
+    /\b[A-Za-z0-9_-]{32,}\b/.test(message)
   );
 }
