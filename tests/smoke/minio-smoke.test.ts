@@ -11,7 +11,7 @@ import {
 } from '../../apps/api/node_modules/@aws-sdk/client-s3';
 import { describe, expect, it } from 'vitest';
 
-describe('MinIO live-stack smoke', () => {
+describe('MinIO dependency-container smoke', () => {
   it('uploads, reads back, and cleans up an object', async () => {
     const bucket = `cherrywiki-smoke-${randomUUID()}`;
     const key = 'smoke.txt';
