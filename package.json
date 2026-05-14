@@ -18,7 +18,8 @@
     "db:migrate": "drizzle-kit migrate",
     "lint": "pnpm -r --if-present lint",
     "typecheck": "pnpm -r --if-present typecheck",
-    "test": "pnpm -r --if-present test"
+    "test": "pnpm -r --if-present test",
+    "secret:scan": "node scripts/secret-hygiene-scan.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

@@ -30,3 +30,14 @@ venv/
 *.log
 tmp/
 .pnpm-store/
+
+# Local auth/session artifacts
+/cherry-auth.json
+/*-auth.json
+/auth-state.json
+/storage-state.json
+/playwright/.auth/*.json
+/test-checklist.csv
+
+# Local agent/review artifacts
+/.codex/

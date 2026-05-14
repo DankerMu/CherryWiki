@@ -34,16 +34,16 @@ CMD ["python", "-m", "src"]
 同时修改 `docker-compose.yml` 中 graphify-worker 服务，从 `image: python:3.11-slim` + inline pip install 改为使用 Dockerfile build：
 
 ```yaml
-  graphify-worker:
-    build:
-      context: ./apps/graphify-worker
-      dockerfile: Dockerfile
-      args:
-        GRAPHIFY_REF: ${GRAPHIFY_PINNED_REF:-7359cdace9a098ba8acf29d84d6c4bc1bab0e3b0}
-    restart: unless-stopped
-    working_dir: /app/apps/graphify-worker
-    # 删除 command 行（Dockerfile CMD 已定义）
-    # 删除 image 行
+graphify-worker:
+  build:
+    context: ./apps/graphify-worker
+    dockerfile: Dockerfile
+    args:
+      GRAPHIFY_REF: ${GRAPHIFY_PINNED_REF:-7359cdace9a098ba8acf29d84d6c4bc1bab0e3b0}
+  restart: unless-stopped
+  working_dir: /app/apps/graphify-worker
+  # 删除 command 行（Dockerfile CMD 已定义）
+  # 删除 image 行
 ```
 
 ### 0.2 已修复的 Worker Bug（本 session 已完成）
@@ -83,7 +83,7 @@ docker logs cherrywiki-graphify-worker-1 --tail 10
 # 登录获取 token
 TOKEN=$(curl -s http://localhost:8081/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@cherrywiki.local","password":"ChangeMe123!"}' \
+  -d '{"email":"<seed-admin-email>","password":"<seed-admin-password>"}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['access_token'])")
 
 SPACE_ID="13c14ba5-1944-4f28-8e27-2a298a5028b5"
@@ -126,9 +126,9 @@ Web 应用地址：`http://localhost` (nginx) 或 `http://localhost:5174` (direc
 # 登录
 agent-browser open http://localhost/login
 agent-browser snapshot -i
-# 填写 admin@cherrywiki.local / ChangeMe123!
-agent-browser fill @eXX "admin@cherrywiki.local"
-agent-browser fill @eXX "ChangeMe123!"
+# 填写 <seed-admin-email> / <seed-admin-password>
+agent-browser fill @eXX "<seed-admin-email>"
+agent-browser fill @eXX "<seed-admin-password>"
 agent-browser click @eXX  # Login button
 agent-browser wait --load networkidle
 
@@ -277,17 +277,17 @@ git commit -m "fix(graphify-worker): add CLI install, API auth, response parsing
 
 以下文件在本 session 中已修改但未 commit/push，需要在新 session 中处理：
 
-| 文件 | 变更 | 状态 |
-|------|------|------|
-| `docker-compose.yml` | graphify-worker 添加 WORKER_API_KEY/MINIO_*/API_BASE_URL 修复 | 已修改未提交 |
-| `apps/graphify-worker/src/job_client.py` | api_key header + data[] 解析 + fail endpoint | 已修改未提交 |
-| `apps/graphify-worker/src/main.py` | 传递 WORKER_API_KEY | 已修改未提交 |
-| `apps/graphify-worker/Dockerfile` | **需要修改**：添加 graphify CLI 安装 | 待修改 |
-| `.env` | 添加了完整配置（MODEL_API_KEY 等） | 已修改未提交（.gitignore） |
+| 文件                                     | 变更                                                                | 状态                       |
+| ---------------------------------------- | ------------------------------------------------------------------- | -------------------------- |
+| `docker-compose.yml`                     | graphify-worker 添加 `WORKER_API_KEY`/`MINIO_*`/`API_BASE_URL` 修复 | 已修改未提交               |
+| `apps/graphify-worker/src/job_client.py` | api_key header + data[] 解析 + fail endpoint                        | 已修改未提交               |
+| `apps/graphify-worker/src/main.py`       | 传递 WORKER_API_KEY                                                 | 已修改未提交               |
+| `apps/graphify-worker/Dockerfile`        | **需要修改**：添加 graphify CLI 安装                                | 待修改                     |
+| `.env`                                   | 添加了完整配置（MODEL_API_KEY 等）                                  | 已修改未提交（.gitignore） |
 
 ## 注意事项
 
-- `.env` 包含 API key（`sk-GmcMPU...`），不要提交到 git
+- `.env` 包含 API key（`<redacted-model-api-key>`），不要提交到 git
 - Graphify CLI 需要 LLM API 才能运行（已配置 deepseek-v4-flash via dmxapi.cn）
 - D9 标记为 deferred（前端权限 API 未就绪）
 - DB 中可能有之前 seed 的测试 wiki 数据（25 条），如果 Graphify 跑通可以先清理再测
