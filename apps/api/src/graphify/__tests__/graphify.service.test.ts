@@ -214,6 +214,7 @@ describe('GraphifyService', () => {
   it('getGraphSummary aggregates graph table counts', async () => {
     const { service, db } = createServiceContext();
     db.queueSelect([createRunRow({ status: 'succeeded' })]);
+    db.queueSelect([createSpaceRow()]);
     db.queueSelect([{ total: 3 }]);
     db.queueSelect([{ total: 4 }]);
     db.queueSelect([{ total: 2 }]);
@@ -334,6 +335,82 @@ describe('GraphifyService', () => {
 
     expect(err.getStatus()).toBe(403);
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.PERMISSION_DENIED);
+  });
+
+  describe('Space ACL enforcement', () => {
+    it.each([
+      ['listRuns' as const],
+      ['getRun' as const],
+      ['getReport' as const],
+      ['cancelRun' as const],
+      ['retryRun' as const],
+      ['getGraphSummary' as const],
+    ])('allows a user with Space permission to call %s', async (methodName) => {
+      const { service, db } = createServiceContext();
+      queueAllowedAclCall(db, methodName);
+
+      await expect(invokeAclMethod(service, methodName, createMemberContext())).resolves.toBeDefined();
+    });
+
+    it('allows a viewer with Space graphify:view permission but no global graphify permission', async () => {
+      const { service, db } = createServiceContext();
+      queueAllowedAclCall(db, 'getRun');
+
+      await expect(service.getRun('run-1', createViewerContext())).resolves.toMatchObject({
+        run_id: 'run-1',
+        space_id: TEST_SPACE_ID,
+      });
+    });
+
+    it('denies a user with global graphify:view but no Space graphify permission', async () => {
+      const { service, db } = createServiceContext();
+      db.queueSelect([createRunRow({ status: 'succeeded' })]);
+      db.queueSelect([createSpaceRow()]);
+      db.queueSelect([]);
+
+      const err = await getRejectedHttpException(
+        service.getRun('run-1', {
+          ...createMemberContext(),
+          actorPermissions: ['graphify:view'],
+        }),
+      );
+
+      expect(err.getStatus()).toBe(403);
+      expect(getHttpExceptionCode(err)).toBe(ErrorCode.PERMISSION_DENIED);
+    });
+
+    it.each([
+      ['listRuns' as const],
+      ['getRun' as const],
+      ['getReport' as const],
+      ['cancelRun' as const],
+      ['retryRun' as const],
+      ['getGraphSummary' as const],
+    ])('denies a user without Space permission for %s', async (methodName) => {
+      const { service, db } = createServiceContext();
+      queueDeniedAclCall(db, methodName);
+
+      const err = await getRejectedHttpException(invokeAclMethod(service, methodName, createMemberContext()));
+
+      expect(err.getStatus()).toBe(403);
+      expect(getHttpExceptionCode(err)).toBe(ErrorCode.PERMISSION_DENIED);
+      expect(db.inserts).toHaveLength(0);
+      expect(db.updates).toHaveLength(0);
+    });
+
+    it.each([
+      ['listRuns' as const],
+      ['getRun' as const],
+      ['getReport' as const],
+      ['cancelRun' as const],
+      ['retryRun' as const],
+      ['getGraphSummary' as const],
+    ])('allows admin implicit access to %s', async (methodName) => {
+      const { service, db } = createServiceContext();
+      queueAdminAclCall(db, methodName);
+
+      await expect(invokeAclMethod(service, methodName, createAdminContext())).resolves.toBeDefined();
+    });
   });
 
   describe('input_scope_resolved', () => {
@@ -509,6 +586,120 @@ function createAdminContext(): {
     actorRole: 'admin',
     userId: TEST_USER_ID,
   };
+}
+
+function createMemberContext(): {
+  tenantId: string;
+  actorUserId: string;
+  actorRole: string;
+  userId: string;
+} {
+  return {
+    tenantId: TEST_TENANT_ID,
+    actorUserId: TEST_USER_ID,
+    actorRole: 'editor',
+    userId: TEST_USER_ID,
+  };
+}
+
+function createViewerContext(): ReturnType<typeof createMemberContext> {
+  return {
+    ...createMemberContext(),
+    actorRole: 'viewer',
+  };
+}
+
+type AclMethod = 'listRuns' | 'getRun' | 'getReport' | 'cancelRun' | 'retryRun' | 'getGraphSummary';
+
+function invokeAclMethod(
+  service: GraphifyService,
+  methodName: AclMethod,
+  context: ReturnType<typeof createMemberContext>,
+): Promise<unknown> {
+  if (methodName === 'listRuns') {
+    return service.listRuns({ space_id: TEST_SPACE_ID }, context);
+  }
+
+  return service[methodName]('run-1', context);
+}
+
+function queueAllowedAclCall(db: ScriptedDb, methodName: AclMethod): void {
+  if (methodName === 'listRuns') {
+    db.queueSelect([createSpaceRow()]);
+    db.queueSelect([{ space_id: TEST_SPACE_ID }]);
+    db.queueSelect([{ run: createRunRow(), space_name: 'Knowledge' }]);
+    db.queueSelect([{ total: 1 }]);
+    return;
+  }
+
+  queueRunSpaceAndPermission(db, methodName);
+  queueAclMethodSuccessTail(db, methodName);
+}
+
+function queueDeniedAclCall(db: ScriptedDb, methodName: AclMethod): void {
+  if (methodName !== 'listRuns') {
+    db.queueSelect([createRunRow({ status: aclRunStatus(methodName), job_id: null })]);
+  }
+
+  db.queueSelect([createSpaceRow()]);
+  db.queueSelect([]);
+}
+
+function queueAdminAclCall(db: ScriptedDb, methodName: AclMethod): void {
+  if (methodName === 'listRuns') {
+    db.queueSelect([{ run: createRunRow(), space_name: 'Knowledge' }]);
+    db.queueSelect([{ total: 1 }]);
+    return;
+  }
+
+  db.queueSelect([createRunRow({ status: aclRunStatus(methodName), job_id: null })]);
+  db.queueSelect([createSpaceRow()]);
+  queueAclMethodSuccessTail(db, methodName);
+}
+
+function queueRunSpaceAndPermission(db: ScriptedDb, methodName: AclMethod): void {
+  db.queueSelect([createRunRow({ status: aclRunStatus(methodName), job_id: null })]);
+  db.queueSelect([createSpaceRow()]);
+  db.queueSelect([{ space_id: TEST_SPACE_ID }]);
+}
+
+function queueAclMethodSuccessTail(db: ScriptedDb, methodName: AclMethod): void {
+  if (methodName === 'getReport') {
+    db.queueSelect([createReportRow()]);
+    return;
+  }
+
+  if (methodName === 'cancelRun') {
+    db.queueUpdate([createRunRow({ status: 'cancelled', job_id: null })]);
+    return;
+  }
+
+  if (methodName === 'retryRun') {
+    db.queueSelect([]);
+    db.queueSelect([]);
+    db.queueInsert([createRunRow({ id: 'run-retry', job_id: null })]);
+    db.queueInsert([createJobRow({ id: 'job-retry' })]);
+    db.queueUpdate([createRunRow({ id: 'run-retry', job_id: 'job-retry' })]);
+    return;
+  }
+
+  if (methodName === 'getGraphSummary') {
+    db.queueSelect([{ total: 1 }]);
+    db.queueSelect([{ total: 2 }]);
+    db.queueSelect([{ total: 3 }]);
+  }
+}
+
+function aclRunStatus(methodName: AclMethod): GraphifyRunRow['status'] {
+  if (methodName === 'retryRun') {
+    return 'failed';
+  }
+
+  if (methodName === 'cancelRun') {
+    return 'pending';
+  }
+
+  return 'succeeded';
 }
 
 function hasEncodedParam(

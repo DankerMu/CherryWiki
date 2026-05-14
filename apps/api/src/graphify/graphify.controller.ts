@@ -31,6 +31,7 @@ export class GraphifyController {
   }
 
   @Get('graphify/runs')
+  @Permissions('graphify:view')
   async listRuns(
     @Query() query: GraphifyRunsQueryDto,
     @Req() request: RequestWithAuth,
@@ -40,6 +41,7 @@ export class GraphifyController {
   }
 
   @Get('graphify/runs/:runId')
+  @Permissions('graphify:view')
   async getRun(
     @Param('runId') runId: string,
     @Req() request: RequestWithAuth,
@@ -49,6 +51,7 @@ export class GraphifyController {
   }
 
   @Post('graphify/runs/:runId/cancel')
+  @Permissions('graphify:run')
   @HttpCode(HttpStatus.OK)
   async cancelRun(
     @Param('runId') runId: string,
@@ -59,6 +62,7 @@ export class GraphifyController {
   }
 
   @Post('graphify/runs/:runId/retry')
+  @Permissions('graphify:run')
   async retryRun(
     @Param('runId') runId: string,
     @Req() request: RequestWithAuth,
@@ -68,6 +72,7 @@ export class GraphifyController {
   }
 
   @Get('graphify/runs/:runId/report')
+  @Permissions('graphify:view')
   async getReport(
     @Param('runId') runId: string,
     @Req() request: RequestWithAuth,
@@ -77,7 +82,7 @@ export class GraphifyController {
   }
 
   @Get('graphify/runs/:runId/graph')
-  @Permissions('admin')
+  @Permissions('graphify:view')
   async getGraphSummary(
     @Param('runId') runId: string,
     @Req() request: RequestWithAuth,
