@@ -277,13 +277,13 @@ git commit -m "fix(graphify-worker): add CLI install, API auth, response parsing
 
 以下文件在本 session 中已修改但未 commit/push，需要在新 session 中处理：
 
-| 文件                                     | 变更                                                           | 状态                       |
-| ---------------------------------------- | -------------------------------------------------------------- | -------------------------- |
-| `docker-compose.yml`                     | graphify-worker 添加 WORKER*API_KEY/MINIO*\*/API_BASE_URL 修复 | 已修改未提交               |
-| `apps/graphify-worker/src/job_client.py` | api_key header + data[] 解析 + fail endpoint                   | 已修改未提交               |
-| `apps/graphify-worker/src/main.py`       | 传递 WORKER_API_KEY                                            | 已修改未提交               |
-| `apps/graphify-worker/Dockerfile`        | **需要修改**：添加 graphify CLI 安装                           | 待修改                     |
-| `.env`                                   | 添加了完整配置（MODEL_API_KEY 等）                             | 已修改未提交（.gitignore） |
+| 文件                                     | 变更                                                                | 状态                       |
+| ---------------------------------------- | ------------------------------------------------------------------- | -------------------------- |
+| `docker-compose.yml`                     | graphify-worker 添加 `WORKER_API_KEY`/`MINIO_*`/`API_BASE_URL` 修复 | 已修改未提交               |
+| `apps/graphify-worker/src/job_client.py` | api_key header + data[] 解析 + fail endpoint                        | 已修改未提交               |
+| `apps/graphify-worker/src/main.py`       | 传递 WORKER_API_KEY                                                 | 已修改未提交               |
+| `apps/graphify-worker/Dockerfile`        | **需要修改**：添加 graphify CLI 安装                                | 待修改                     |
+| `.env`                                   | 添加了完整配置（MODEL_API_KEY 等）                                  | 已修改未提交（.gitignore） |
 
 ## 注意事项
 

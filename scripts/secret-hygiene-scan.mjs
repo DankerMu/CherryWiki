@@ -258,7 +258,9 @@ function scanText(content, file, findings) {
   const manualCredentialFile = file.startsWith('tests/manual/') || file === 'test-checklist.csv';
 
   lines.forEach((line, index) => {
-    const refreshMatch = line.match(/\brefresh_token\b\s*[=:]\s*["']?([^"'\s;,`)]+)/i);
+    const refreshMatch = line.match(
+      /(?:^|[^\w])["']?refresh_token["']?\s*[=:]\s*["']?([^"'\s;,`)]+)/i,
+    );
     if (refreshMatch && hasExplicitSecretValue(refreshMatch[1])) {
       addFinding(
         findings,
@@ -452,6 +454,10 @@ export function scanRepository(root = process.cwd()) {
   return { files, findings: dedupeFindings([...scanFiles(files, root), ...scanIndexBlobs(root)]) };
 }
 
+function refreshTokenJsonEvidence(value, prefix = '') {
+  return `${prefix}{"refresh_${'token'}":"${value}"}`;
+}
+
 function runSelfTest() {
   const samples = [
     {
@@ -489,10 +495,33 @@ function runSelfTest() {
       files: [
         {
           path: 'sample.json',
-          content: '{"refresh_token":"abcdefghijklmnopqrstuvwxzyabcdefghijkl"}',
+          content: refreshTokenJsonEvidence('abcdefghijklmnopqrstuvwxzyabcdefghijkl'),
         },
       ],
       wantFindings: true,
+    },
+    {
+      name: 'detects quoted refresh token in markdown text',
+      files: [
+        {
+          path: 'tests/manual/check.md',
+          content: refreshTokenJsonEvidence(
+            'abcdefghijklmnopqrstuvwxzyabcdefghijkl',
+            'Manual evidence: ',
+          ),
+        },
+      ],
+      wantFindings: true,
+    },
+    {
+      name: 'allows placeholder quoted refresh token in markdown text',
+      files: [
+        {
+          path: 'tests/manual/check.md',
+          content: refreshTokenJsonEvidence('refresh-token', 'Manual evidence: '),
+        },
+      ],
+      wantFindings: false,
     },
     {
       name: 'detects manual fill credential',
@@ -541,8 +570,13 @@ function runSelfTest() {
       wantFindings: true,
     },
     {
-      name: 'detects staged secret when working tree has placeholder',
+      name: 'detects staged quoted refresh token when working tree has placeholder',
       useGitIndex: true,
+      stagedContent: `${refreshTokenJsonEvidence(
+        'abcdefghijklmnopqrstuvwxzyabcdefghijkl',
+        'Manual evidence: ',
+      )}\n`,
+      worktreeContent: `${refreshTokenJsonEvidence('refresh-token', 'Manual evidence: ')}\n`,
       wantFindings: true,
     },
   ];
@@ -558,9 +592,9 @@ function runSelfTest() {
         const manualPath = 'tests/manual/check.md';
         const fullPath = path.join(tmpRoot, manualPath);
         mkdirSync(path.dirname(fullPath), { recursive: true });
-        writeFileSync(fullPath, 'password=Concrete123!\n');
+        writeFileSync(fullPath, sample.stagedContent ?? 'password=Concrete123!\n');
         git(['add', manualPath], tmpRoot);
-        writeFileSync(fullPath, 'password=<seed-admin-password>\n');
+        writeFileSync(fullPath, sample.worktreeContent ?? 'password=<seed-admin-password>\n');
 
         const files = listCommitCapableFiles(tmpRoot);
         const worktreeFindings = scanFiles(files, tmpRoot);

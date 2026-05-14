@@ -38,3 +38,6 @@ tmp/
 /storage-state.json
 /playwright/.auth/*.json
 /test-checklist.csv
+
+# Local agent/review artifacts
+/.codex/
