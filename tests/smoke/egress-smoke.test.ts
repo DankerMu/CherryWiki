@@ -164,8 +164,11 @@ print(
         PYTHONPATH: path.join(rootDir, 'apps/url-fetcher-worker'),
       },
       encoding: 'utf8',
+      maxBuffer: 64 * 1024,
+      timeout: 10_000,
     });
 
+    expect(result.error, result.error?.message ?? result.stderr ?? result.stdout).toBeUndefined();
     expect(result.status, result.stderr || result.stdout).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
       missing_proxy_error: 'EGRESS_PROXY_REQUIRED=true requires EGRESS_PROXY_URL',
