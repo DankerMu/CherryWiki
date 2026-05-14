@@ -1,3 +1,4 @@
+import { lookup as dnsLookup } from 'node:dns/promises';
 import { ErrorCode, model_configs } from '@cherrygraph/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,14 +15,21 @@ import {
   requireRecord,
 } from '../../users/__tests__/user-group-service-test-utils.js';
 
+vi.mock('node:dns/promises', () => ({
+  lookup: vi.fn(() => Promise.resolve([{ address: '93.184.216.34', family: 4 }])),
+}));
+
 type ModelConfigRow = typeof model_configs.$inferSelect;
 
 const TEST_MODEL_ID = 'model-1';
 const originalFetch = globalThis.fetch;
+const dnsLookupMock = vi.mocked(dnsLookup);
 
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+  dnsLookupMock.mockClear();
+  setDnsRecords('93.184.216.34');
   Object.defineProperty(globalThis, 'fetch', {
     value: originalFetch,
     writable: true,
@@ -228,6 +236,8 @@ describe('ModelConfigService', () => {
     const { url, init } = getFirstFetchCall(fetchMock);
     expect(url).toBe('https://api.openai.com/v1/chat/completions');
     expect(init.method).toBe('POST');
+    expect(init.redirect).toBe('manual');
+    expect((init as RequestInit & { dispatcher?: unknown }).dispatcher).toEqual(expect.any(Object));
     expect(init.headers).toEqual({
       Authorization: 'Bearer test-key',
       'Content-Type': 'application/json',
@@ -385,6 +395,283 @@ describe('ModelConfigService', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('rejects unsupported model base_url scheme before fetching', async () => {
+    const { service, db } = createServiceContext();
+    const fetchMock = mockFetchResponse(200);
+    db.queueSelect([
+      createModelConfigRow({
+        base_url: 'ftp://model.example.com/v1',
+        encrypted_api_key_ref: 'secret:openai_key',
+      }),
+    ]);
+
+    await withEnv('OPENAI_KEY', 'test-key', async () => {
+      const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          reachable: false,
+          error: expect.stringMatching(/unsupported URL scheme/i) as unknown,
+        }),
+      );
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(dnsLookupMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects unsupported MODEL_API_BASE_URL fallback scheme before fetching', async () => {
+    const { service, db } = createServiceContext();
+    const fetchMock = mockFetchResponse(200);
+    db.queueSelect([
+      createModelConfigRow({
+        base_url: null,
+        encrypted_api_key_ref: 'secret:openai_key',
+      }),
+    ]);
+
+    await withEnv('OPENAI_KEY', 'test-key', async () => {
+      await withEnv('MODEL_API_BASE_URL', 'file:///tmp/model.sock', async () => {
+        const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+        expect(result).toEqual(
+          expect.objectContaining({
+            reachable: false,
+            error: expect.stringMatching(/unsupported URL scheme/i) as unknown,
+          }),
+        );
+      });
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(dnsLookupMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['localhost', 'http://localhost:11434/v1'],
+    ['private IPv4', 'http://10.0.0.10:11434/v1'],
+    ['link-local metadata IPv4', 'http://169.254.169.254/latest'],
+    ['IPv6 localhost', 'http://[::1]:11434/v1'],
+    ['IPv6 ULA', 'http://[fd00::1]:11434/v1'],
+    ['IPv6 link-local', 'http://[fe80::1]:11434/v1'],
+    ['IPv4-mapped private IPv6', 'http://[::ffff:10.0.0.1]:11434/v1'],
+  ])('blocks unsafe model target %s before fetching', async (_name, baseUrl) => {
+    const { service, db } = createServiceContext();
+    const fetchMock = mockFetchResponse(200);
+    db.queueSelect([
+      createModelConfigRow({
+        base_url: baseUrl,
+        encrypted_api_key_ref: 'secret:openai_key',
+      }),
+    ]);
+
+    await withEnv('OPENAI_KEY', 'test-key', async () => {
+      await withEnv('ADMIN_OUTBOUND_PROBE_ALLOWLIST', undefined, async () => {
+        const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+        expect(result).toEqual(
+          expect.objectContaining({
+            reachable: false,
+            error: expect.stringMatching(/blocked private or local address/i) as unknown,
+          }),
+        );
+      });
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('blocks a model target whose hostname resolves to a private address', async () => {
+    const { service, db } = createServiceContext();
+    const fetchMock = mockFetchResponse(200);
+    setDnsRecords('10.1.2.3');
+    db.queueSelect([
+      createModelConfigRow({
+        base_url: 'https://models.internal.example/v1',
+        encrypted_api_key_ref: 'secret:openai_key',
+      }),
+    ]);
+
+    await withEnv('OPENAI_KEY', 'test-key', async () => {
+      const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          reachable: false,
+          error: expect.stringMatching(/blocked private or local address/i) as unknown,
+        }),
+      );
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('carries the validated DNS dispatcher into model fetches to prevent a second resolver decision', async () => {
+    const { service, db } = createServiceContext();
+    const fetchMock = mockFetchResponse(200);
+    setDnsRecords('93.184.216.34');
+    db.queueSelect([
+      createModelConfigRow({
+        base_url: 'https://rebinding.example/v1',
+        encrypted_api_key_ref: 'secret:openai_key',
+      }),
+    ]);
+
+    await withEnv('OPENAI_KEY', 'test-key', async () => {
+      const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+      expect(result.reachable).toBe(true);
+    });
+
+    const { init } = getFirstFetchCall(fetchMock);
+    expect((init as RequestInit & { dispatcher?: unknown }).dispatcher).toEqual(expect.any(Object));
+    expect(dnsLookupMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows an explicitly allowlisted internal model endpoint to use existing probe fetch behavior', async () => {
+    const { service, db } = createServiceContext();
+    const fetchMock = mockFetchResponse(200);
+    db.queueSelect([
+      createModelConfigRow({
+        base_url: 'http://10.0.0.10:11434/v1',
+        encrypted_api_key_ref: 'secret:openai_key',
+      }),
+    ]);
+
+    await withEnv('OPENAI_KEY', 'test-key', async () => {
+      await withEnv('ADMIN_OUTBOUND_PROBE_ALLOWLIST', '10.0.0.0/24', async () => {
+        const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+        expect(result.reachable).toBe(true);
+      });
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('http://10.0.0.10:11434/v1/chat/completions');
+    expect(fetchMock.mock.calls[0]?.[1]?.redirect).toBe('manual');
+  });
+
+  it('rejects credential-bearing model probe URLs before fetching', async () => {
+    const { service, db } = createServiceContext();
+    const fetchMock = mockFetchResponse(200);
+    db.queueSelect([
+      createModelConfigRow({
+        base_url: 'https://user:pass@api.openai.com/v1',
+        encrypted_api_key_ref: 'secret:openai_key',
+      }),
+    ]);
+
+    await withEnv('OPENAI_KEY', 'test-key', async () => {
+      const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          reachable: false,
+          error: expect.stringMatching(/URL credentials are not allowed/i) as unknown,
+        }),
+      );
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(dnsLookupMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when model DNS validation does not resolve within the probe timeout', async () => {
+    vi.useFakeTimers();
+    const { service, db } = createServiceContext();
+    const fetchMock = mockFetchResponse(200);
+    dnsLookupMock.mockImplementation(() => new Promise(() => undefined));
+    db.queueSelect([
+      createModelConfigRow({
+        base_url: 'https://slow-dns.example/v1',
+        encrypted_api_key_ref: 'secret:openai_key',
+      }),
+    ]);
+
+    await withEnv('OPENAI_KEY', 'test-key', async () => {
+      const resultPromise = service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+      await vi.advanceTimersByTimeAsync(10000);
+      const result = await resultPromise;
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          reachable: false,
+          latency_ms: 10000,
+          error: expect.stringMatching(/DNS resolution timed out/i) as unknown,
+        }),
+      );
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('sanitizes provider error details before returning and auditing model probe failures', async () => {
+    const { service, db, audit } = createServiceContext();
+    const fetchMock = mockFetchError(
+      new TypeError('fetch failed: Authorization: Bearer test-key Cookie: session=secret api_key=sk-secret123'),
+    );
+    db.queueSelect([createModelConfigRow({ encrypted_api_key_ref: 'secret:openai_key' })]);
+
+    await withEnv('OPENAI_KEY', 'test-key', async () => {
+      const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          reachable: false,
+          error: 'Outbound request failed',
+        }),
+      );
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(findAuditMetadata(audit, AUDIT_EVENTS.ADMIN_MODEL_TEST, TEST_MODEL_ID)).toMatchObject({
+      reachable: false,
+      error: 'Outbound request failed',
+    });
+  });
+
+  it('sanitizes bare API keys, token query params, and URL userinfo in model probe errors', async () => {
+    const { service, db, audit } = createServiceContext();
+    const secretValue = 'sk-live-secret-value-1234567890';
+    const fetchMock = mockFetchError(
+      new TypeError(
+        `fetch failed ${secretValue} https://user:pass@example.com/v1?token=topsecretvalue&client_secret=hidden`,
+      ),
+    );
+    db.queueSelect([createModelConfigRow({ encrypted_api_key_ref: 'secret:openai_key' })]);
+
+    await withEnv('OPENAI_KEY', secretValue, async () => {
+      const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          reachable: false,
+          error: 'Outbound request failed',
+        }),
+      );
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(findAuditMetadata(audit, AUDIT_EVENTS.ADMIN_MODEL_TEST, TEST_MODEL_ID)).toMatchObject({
+      reachable: false,
+      error: 'Outbound request failed',
+    });
+  });
+
+  it('sanitizes short configured API keys in model probe errors', async () => {
+    const { service, db, audit } = createServiceContext();
+    const fetchMock = mockFetchError(new TypeError('provider error included key abc'));
+    db.queueSelect([createModelConfigRow({ encrypted_api_key_ref: 'secret:openai_key' })]);
+
+    await withEnv('OPENAI_KEY', 'abc', async () => {
+      const result = await service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          reachable: false,
+          error: 'Outbound request failed',
+        }),
+      );
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(findAuditMetadata(audit, AUDIT_EVENTS.ADMIN_MODEL_TEST, TEST_MODEL_ID)).toMatchObject({
+      reachable: false,
+      error: 'Outbound request failed',
+    });
+  });
+
   it('returns no API key configured without fetching when key ref is null', async () => {
     const { service, db } = createServiceContext();
     const fetchMock = mockFetchResponse(200);
@@ -432,6 +719,34 @@ describe('ModelConfigService', () => {
       expect(result.reachable).toBe(false);
       expect(result.latency_ms).toBe(10000);
       expect(result.error).toContain('timed out');
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses one model probe deadline across slow DNS validation and fetch timeout', async () => {
+    vi.useFakeTimers();
+    const { service, db } = createServiceContext();
+    const fetchMock = mockFetchTimeout();
+    dnsLookupMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            resolve([{ address: '93.184.216.34', family: 4 }] as unknown as Awaited<ReturnType<typeof dnsLookup>>);
+          }, 9000);
+        }),
+    );
+    db.queueSelect([createModelConfigRow({ encrypted_api_key_ref: 'secret:openai_key' })]);
+
+    await withEnv('OPENAI_KEY', 'test-key', async () => {
+      const resultPromise = service.testConnectivity(TEST_MODEL_ID, {}, createContext());
+
+      await vi.advanceTimersByTimeAsync(9000);
+      await vi.advanceTimersByTimeAsync(1000);
+      const result = await resultPromise;
+
+      expect(result.reachable).toBe(false);
+      expect(result.latency_ms).toBe(10000);
+      expect(result.error).toBe('Request timed out (10s total)');
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -526,6 +841,14 @@ function setFetchMock(fetchMock: FetchMock): void {
     writable: true,
     configurable: true,
   });
+}
+
+function setDnsRecords(...addresses: string[]): void {
+  dnsLookupMock.mockResolvedValue(
+    addresses.map((address) => ({ address, family: address.includes(':') ? 6 : 4 })) as unknown as Awaited<
+      ReturnType<typeof dnsLookup>
+    >,
+  );
 }
 
 function getFirstFetchCall(fetchMock: FetchMock): { url: string; init: RequestInit } {

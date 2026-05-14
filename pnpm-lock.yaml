@@ -134,6 +134,9 @@ importers:
       rxjs:
         specifier: ^7.8.2
         version: 7.8.2
+      undici:
+        specifier: 6.24.0
+        version: 6.24.0
       uuid:
         specifier: ^14.0.0
         version: 14.0.0

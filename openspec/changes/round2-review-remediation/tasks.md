@@ -130,3 +130,34 @@ Non-goals for #320:
 - No admin outbound probe changes; #322 owns model/Docmost safety.
 - No global OpenSpec artifact triage; #321 owns delivery integrity.
 - No reliance on public internet for smoke success.
+
+## Issue #322 Evidence Mapping
+
+Selected risk packs:
+
+- Public API / CLI / script entry: covered by 5.2, 5.3, 5.4, and 5.5 admin model connectivity and admin health endpoint behavior.
+- Config / project setup: covered by 5.1 and allowlist environment/configuration tests and documentation.
+- Resource limits / large input / discovery: covered by 5.3 and 5.5 DNS resolution, redirect-free validation, and bounded Docmost timeout evidence.
+- Legacy compatibility / examples: covered by public model provider probe behavior, `MODEL_API_BASE_URL` fallback behavior, and Docmost unset/public health behavior.
+- Error handling / rollback / partial outputs: covered by blocked targets before fetch, safe validation failures, bounded timeout failures, and sanitized returned/audited errors.
+- Release / packaging / dependency compatibility: covered by using existing Node runtime APIs or documenting any required dependency/configuration changes.
+- Documentation / migration notes: covered by 5.1 allowlist documentation for approved internal/self-hosted model and Docmost endpoints.
+
+Required evidence for #322:
+
+- Run `pnpm exec vitest run apps/api/src/models/__tests__/model-config.service.test.ts apps/api/src/admin/__tests__/admin-health.test.ts --config vitest.config.ts`; expected result is pass.
+- Test unsupported model `base_url` or fallback `MODEL_API_BASE_URL` scheme; expected result is `{ reachable: false }` with a safe validation error and no fetch call.
+- Test localhost, private, link-local, metadata, IPv6 localhost/ULA/link-local, and IPv4-mapped unsafe model targets; expected result is block before fetch unless explicitly allowlisted.
+- Test an allowlisted internal model endpoint; expected result is validation passes and existing probe fetch behavior executes.
+- Test provider/network errors containing an API key, authorization header, cookie, or request metadata; expected result is a sanitized UI/audit error with no secret material.
+- Test unsupported `DOCMOST_BASE_URL` scheme; expected result is unhealthy safe error and no fetch call.
+- Test unsafe Docmost health host resolution; expected result is blocked unless explicitly allowlisted.
+- Test Docmost timeout or fetch failure; expected result is bounded execution and sanitized error.
+- Document allowlist configuration for approved internal model and Docmost endpoints.
+
+Non-goals for #322:
+
+- No URL fetcher worker semantic changes; #319 owns URL fetcher SSRF/proxy behavior.
+- No dependency-container smoke workflow changes; #320 owns smoke reliability.
+- No global OpenSpec artifact triage; #321 owns delivery integrity.
+- No model provider storage, secret reference, or CRUD redesign.

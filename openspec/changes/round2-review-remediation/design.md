@@ -345,3 +345,93 @@ Review focus:
 - Runtime `UrlFetcher` behavior, not only isolated `IpValidator`, is covered.
 - Existing MinIO/Redis/BullMQ evidence remains active.
 - Workflow naming and evidence do not overclaim production compose coverage.
+
+## Issue #322 Fixture: Admin Outbound Probe Safety
+
+Fixture level: expanded
+Project profile: other
+Blast radius: high
+
+Why expanded:
+
+- The issue changes server-originated outbound requests reachable from admin actions and health checks.
+- The issue touches security-sensitive URL validation, DNS/IP classification, allowlist configuration, and error sanitization.
+- The issue must preserve legitimate public and explicitly allowlisted self-hosted model/Docmost endpoints.
+
+Change surface:
+
+- `apps/api/src/models/model-config.service.ts`
+- `apps/api/src/admin/admin-health.controller.ts`
+- Shared admin outbound validation helpers or tests if introduced
+- `apps/api/src/models/__tests__/model-config.service.test.ts`
+- `apps/api/src/admin/__tests__/admin-health.test.ts`
+- Operator-facing docs or environment examples for admin outbound allowlist configuration
+
+Must preserve:
+
+- Existing public model connectivity probes for chat, embedding, and rerank providers continue to execute normally when API keys and public endpoints are valid.
+- `MODEL_API_BASE_URL` fallback remains supported when model-level `base_url` is absent, but it is subject to the same validation.
+- Docmost health remains `not_configured` when `DOCMOST_BASE_URL` is unset.
+- Public Docmost health checks keep bounded timeout behavior and report healthy/unhealthy status without exposing request internals.
+- Approved self-hosted/internal endpoints remain possible through an explicit documented allowlist.
+
+Must add/change:
+
+- Admin model probes and Docmost health checks reject non-HTTP(S) schemes before any outbound fetch.
+- Targets resolving to localhost, RFC1918/private, link-local, metadata, current-network, IPv6 localhost, IPv6 ULA, IPv6 link-local, or IPv4-mapped blocked ranges are blocked by default.
+- A documented admin outbound allowlist permits approved internal hosts/CIDRs for model and Docmost probes.
+- Probe and health-check errors are sanitized before returning to the admin UI or audit metadata.
+- Tests cover unsupported scheme, blocked localhost/private/metadata targets, allowlisted internal endpoint, bounded Docmost timeout behavior, and sanitized auth/network errors.
+
+Selected risk packs:
+
+- Public API / CLI / script entry: admin model test and health endpoints are API surfaces.
+- Config / project setup: allowlist and fallback URL environment variables define operator behavior.
+- Resource limits / large input / discovery: DNS/target validation and outbound checks must remain bounded.
+- Legacy compatibility / examples: public providers and existing Docmost health behavior must keep working.
+- Error handling / rollback / partial outputs: invalid schemes, unsafe targets, timeout, DNS/fetch failures, and auth errors must fail closed with sanitized messages.
+- Release / packaging / dependency compatibility: implementation should avoid adding heavyweight dependencies or must fit the existing Node runtime.
+- Documentation / migration notes: operators need a clear allowlist path for approved internal/self-hosted endpoints.
+
+Risk packs considered:
+
+- Public API / CLI / script entry: selected - admin probe and health endpoints are user/admin visible API behavior.
+- Config / project setup: selected - allowlist env/config and model fallback env are central.
+- File IO / path safety / overwrite: not selected - no filesystem publish/delete/path behavior is changed.
+- Schema / columns / units / field names: not selected - no database schema or response field rename is required.
+- Geospatial / CRS / shapefile sidecars: not selected - no geospatial artifacts are touched.
+- Time series / forcing / temporal boundaries: not selected - no temporal data behavior is touched.
+- Numerical stability / conservation / NaN: not selected - no numerical behavior is touched.
+- Solver runtime / performance / threading: not selected - no solver/threaded runtime behavior is touched.
+- Resource limits / large input / discovery: selected - DNS resolution, validation, fetch timeout, and error handling must be bounded.
+- Legacy compatibility / examples: selected - public model and Docmost checks must keep existing successful behavior.
+- Error handling / rollback / partial outputs: selected - unsafe or failing outbound probes must not make partial unsafe requests or leak secrets.
+- Release / packaging / dependency compatibility: selected - API service runtime should not gain fragile unmanaged dependencies.
+- Documentation / migration notes: selected - internal/self-hosted endpoint migration requires documented allowlist configuration.
+
+Required evidence:
+
+- `pnpm exec vitest run apps/api/src/models/__tests__/model-config.service.test.ts apps/api/src/admin/__tests__/admin-health.test.ts --config vitest.config.ts`: targeted model/admin health tests pass.
+- Test unsupported model `base_url` or `MODEL_API_BASE_URL` scheme: returns `{ reachable: false, error: <safe validation error> }` and does not call fetch.
+- Test localhost/private/link-local/metadata model target: blocked before fetch unless allowlisted.
+- Test allowlisted internal model endpoint: validation permits fetch and existing probe behavior executes.
+- Test provider 401/403 or network error containing auth/request details: returned/admin-visible error excludes API keys, cookies, authorization headers, and full request metadata.
+- Test unsupported Docmost scheme: health result is unhealthy/safe without fetch.
+- Test unsafe Docmost host: blocked unless allowlisted.
+- Test Docmost timeout/fetch failure: bounded timeout remains and error is sanitized.
+- Document allowlist configuration with examples for approved internal model and Docmost endpoints.
+
+Non-goals:
+
+- Do not redesign model provider storage, secret reference storage, or admin model CRUD.
+- Do not remove support for public model providers or explicitly approved self-hosted providers.
+- Do not modify URL fetcher worker SSRF semantics; #319 owns worker behavior.
+- Do not implement production compose smoke changes; #320 owns smoke reliability.
+
+Review focus:
+
+- Unsupported schemes and unsafe targets are rejected before outbound fetch.
+- Allowlist matching is explicit and narrow enough for approved internal endpoints.
+- DNS/IP classification covers IPv4, IPv6, and IPv4-mapped IPv6 blocked ranges.
+- Error messages and audit metadata cannot leak API keys, cookies, authorization headers, or request internals.
+- Existing public provider and Docmost health tests remain compatible.

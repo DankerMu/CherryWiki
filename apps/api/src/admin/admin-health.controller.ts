@@ -2,8 +2,14 @@ import { Controller, Get, Inject, Optional } from '@nestjs/common';
 import { Permissions } from '@cherrygraph/auth-core';
 
 import { REDIS_CLIENT } from '../common/redis/redis.module.js';
+import {
+  sanitizeOutboundProbeError,
+  validateAdminOutboundProbeUrl,
+} from '../common/outbound-probe-safety.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { StorageService } from '../storage/storage.service.js';
+
+const DOCMOST_HEALTH_TIMEOUT_MS = 5000;
 
 type HealthStatus = 'healthy' | 'degraded' | 'unhealthy';
 type ComponentStatus = 'healthy' | 'unhealthy' | 'not_configured';
@@ -96,13 +102,36 @@ export class AdminHealthController {
     }
 
     const startedAt = performance.now();
+    const targetValidation = await validateAdminOutboundProbeUrl(baseUrl, {
+      dnsTimeoutMs: remainingDeadlineMs(startedAt, DOCMOST_HEALTH_TIMEOUT_MS),
+    });
+    if (!targetValidation.ok) {
+      return {
+        status: 'unhealthy',
+        latency_ms: elapsedMs(startedAt),
+        error: targetValidation.error,
+      };
+    }
+
+    const remainingMs = remainingDeadlineMs(startedAt, DOCMOST_HEALTH_TIMEOUT_MS);
+    if (remainingMs <= 0) {
+      await targetValidation.dispatcher.close().catch(() => undefined);
+      return {
+        status: 'unhealthy',
+        latency_ms: elapsedMs(startedAt),
+        error: 'Health check timed out (5s total)',
+      };
+    }
+
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+    const timeout = setTimeout(() => controller.abort(), remainingMs);
 
     try {
-      const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/api/health`, {
+      const response = await fetch(`${targetValidation.url.toString().replace(/\/+$/, '')}/api/health`, {
         method: 'GET',
+        redirect: 'manual',
         signal: controller.signal,
+        dispatcher: targetValidation.dispatcher,
       });
       const result: HealthComponent =
         response.status === 200
@@ -114,18 +143,19 @@ export class AdminHealthController {
       if (isAbortError(err)) {
         return {
           status: 'unhealthy',
-          latency_ms: 5000,
-          error: 'Health check timed out (5s)',
+          latency_ms: elapsedMs(startedAt),
+          error: 'Health check timed out (5s total)',
         };
       }
 
       return {
         status: 'unhealthy',
         latency_ms: elapsedMs(startedAt),
-        error: toSafeErrorMessage(err),
+        error: sanitizeOutboundProbeError(err),
       };
     } finally {
       clearTimeout(timeout);
+      await targetValidation.dispatcher.close().catch(() => undefined);
     }
   }
 }
@@ -182,6 +212,10 @@ function postgresBackedComponent(database: HealthComponent, details: string): He
 
 function elapsedMs(startedAt: number): number {
   return Math.max(1, Math.round(performance.now() - startedAt));
+}
+
+function remainingDeadlineMs(startedAt: number, deadlineMs: number): number {
+  return Math.max(0, deadlineMs - Math.round(performance.now() - startedAt));
 }
 
 function toSafeErrorMessage(err: unknown): string {

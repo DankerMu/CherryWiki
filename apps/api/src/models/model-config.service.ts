@@ -12,6 +12,10 @@ import {
   parseSortField,
   type PaginatedResponse,
 } from '../common/dto/pagination.dto.js';
+import {
+  sanitizeOutboundProbeError,
+  validateAdminOutboundProbeUrl,
+} from '../common/outbound-probe-safety.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 
 type ModelConfigDatabase = NodePgDatabase;
@@ -23,6 +27,8 @@ type ProbeRequest = {
   path: string;
   body: unknown;
 };
+
+const MODEL_PROBE_TIMEOUT_MS = 10000;
 
 export type AdminContext = {
   tenantId?: string;
@@ -391,12 +397,41 @@ export class ModelConfigService {
       return result;
     }
 
+    const targetValidation = await validateAdminOutboundProbeUrl(baseUrl, {
+      dnsTimeoutMs: remainingDeadlineMs(startedAt, MODEL_PROBE_TIMEOUT_MS),
+    });
+    if (!targetValidation.ok) {
+      result = {
+        reachable: false,
+        latency_ms: elapsedMs(startedAt),
+        error: targetValidation.error,
+      };
+
+      this.auditModelTest(tenantId, existing, result, context);
+      return result;
+    }
+
     try {
+      const remainingMs = remainingDeadlineMs(startedAt, MODEL_PROBE_TIMEOUT_MS);
+      if (remainingMs <= 0) {
+        await targetValidation.dispatcher.close().catch(() => undefined);
+        result = {
+          reachable: false,
+          latency_ms: elapsedMs(startedAt),
+          error: 'Request timed out (10s total)',
+        };
+
+        this.auditModelTest(tenantId, existing, result, context);
+        return result;
+      }
+
       const response = await probeModelEndpoint(
-        baseUrl,
+        targetValidation.url.toString(),
         apiKey,
         existing.model_id,
         normalizeModelTypeOrThrow(existing.model_type),
+        remainingMs,
+        targetValidation.dispatcher,
       );
       const latencyMs = elapsedMs(startedAt);
 
@@ -422,18 +457,19 @@ export class ModelConfigService {
       if (isAbortError(err)) {
         result = {
           reachable: false,
-          latency_ms: 10000,
-          error: 'Request timed out (10s)',
+          latency_ms: elapsedMs(startedAt),
+          error: 'Request timed out (10s total)',
         };
       } else {
         result = {
           reachable: false,
           latency_ms: elapsedMs(startedAt),
-          error: err instanceof Error ? err.message : String(err),
+          error: sanitizeOutboundProbeError(err, [apiKey]),
         };
       }
     }
 
+    await targetValidation.dispatcher.close().catch(() => undefined);
     this.auditModelTest(tenantId, existing, result, context);
     return result;
   }
@@ -509,20 +545,24 @@ async function probeModelEndpoint(
   apiKey: string,
   modelId: string,
   modelType: ModelType,
+  timeoutMs: number,
+  dispatcher: NonNullable<RequestInit['dispatcher']>,
 ): Promise<ProbeResult> {
   const request = buildProbeRequest(modelId, modelType);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(`${baseUrl.replace(/\/+$/, '')}${request.path}`, {
       method: 'POST',
+      redirect: 'manual',
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(request.body),
       signal: controller.signal,
+      dispatcher,
     });
     const result = { ok: response.ok, status: response.status };
     await response.body?.cancel().catch(() => undefined);
@@ -775,6 +815,10 @@ function normalizeCount(value: unknown): number {
 
 function elapsedMs(startedAt: number): number {
   return Math.max(1, Date.now() - startedAt);
+}
+
+function remainingDeadlineMs(startedAt: number, deadlineMs: number): number {
+  return Math.max(0, deadlineMs - (Date.now() - startedAt));
 }
 
 function toModelStatus(enabled: boolean): ModelStatus {
