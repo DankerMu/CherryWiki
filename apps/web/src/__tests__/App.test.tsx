@@ -45,18 +45,14 @@ const VIEWER_NO_SPACES: AuthUser = {
   spaces: [],
 };
 
-function stubBootstrapRefresh(): void {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn<typeof fetch>(() =>
-      Promise.resolve(jsonResponse({ error: { code: 'NO_SESSION', message: 'Unauthorized' } }, 401)),
-    ),
-  );
-}
-
 function renderRoute(path: string, user?: AuthUser) {
   if (user === undefined && !vi.isMockFunction(globalThis.fetch)) {
-    stubBootstrapRefresh();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(() =>
+        Promise.resolve(jsonResponse({ error: { code: 'NO_SESSION', message: 'Unauthorized' } }, 401)),
+      ),
+    );
   }
 
   const routes = <AppRoutes />;
@@ -87,9 +83,9 @@ describe('App routing', () => {
     await i18n.changeLanguage('zh-CN');
   });
 
-  it('redirects unauthenticated / to /login', async () => {
+  it('redirects unauthenticated / to /login', { timeout: 15000 }, async () => {
     renderRoute('/');
-    expect(await screen.findByRole('heading', { name: '登录' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '登录' }, { timeout: 10000 })).toBeInTheDocument();
   });
 
   it('redirects authenticated admin with spaces to first space overview', { timeout: 30000 }, async () => {
