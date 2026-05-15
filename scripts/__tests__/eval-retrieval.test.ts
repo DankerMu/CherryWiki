@@ -23,6 +23,14 @@ describe('retrieval evaluation metrics', () => {
     expect(computeRecallAtK(['A', 'B'], ['C', 'D'], 8)).toBe(0);
   });
 
+  it('returns 0 recall for empty expected pages', () => {
+    expect(computeRecallAtK([], ['A', 'B', 'C'], 8)).toBe(0);
+  });
+
+  it('excludes hits beyond the k cutoff', () => {
+    expect(computeRecallAtK(['Z'], ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'Z'], 8)).toBe(0);
+  });
+
   it('computes MRR with first hit at rank 1', () => {
     expect(computeMRR(['A', 'B'], ['A', 'C', 'B'])).toBe(1);
   });
