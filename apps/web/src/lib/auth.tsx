@@ -119,17 +119,16 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
   );
 
   const refreshUser = useCallback(async () => {
-    const previousUser = user;
-    const previousAccessToken = accessTokenRef.current;
-
     try {
       const me = await api.get<CurrentUserResponse>('/auth/me');
       setUser({ ...me, spaces: me.spaces });
     } catch {
-      setAccessToken(previousAccessToken);
-      setUser(previousUser);
+      // On 401 the API client's onUnauthorized handler already clears the
+      // session — restoring stale state here would fight that. For any other
+      // error the existing user/token remain untouched because we never
+      // overwrite them before the fetch succeeds.
     }
-  }, [setAccessToken, user]);
+  }, []);
 
   const logout = useCallback(async () => {
     try {
