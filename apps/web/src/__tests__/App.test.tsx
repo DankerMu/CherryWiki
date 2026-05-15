@@ -45,7 +45,20 @@ const VIEWER_NO_SPACES: AuthUser = {
   spaces: [],
 };
 
+function stubBootstrapRefresh(): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn<typeof fetch>(() =>
+      Promise.resolve(jsonResponse({ error: { code: 'NO_SESSION', message: 'Unauthorized' } }, 401)),
+    ),
+  );
+}
+
 function renderRoute(path: string, user?: AuthUser) {
+  if (user === undefined && !vi.isMockFunction(globalThis.fetch)) {
+    stubBootstrapRefresh();
+  }
+
   const routes = <AppRoutes />;
 
   return render(

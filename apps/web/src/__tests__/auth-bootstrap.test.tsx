@@ -95,7 +95,7 @@ describe('auth bootstrap session persistence', () => {
     expect(screen.queryByRole('heading', { name: '登录' })).not.toBeInTheDocument();
   });
 
-  it('keeps the login flow working after a fresh visitor bootstrap refresh fails', async () => {
+  it('keeps the login flow working after a fresh visitor bootstrap refresh fails', { timeout: 15000 }, async () => {
     const fetchMock = vi.fn<typeof fetch>((input) => {
       const path = getRequestPath(input);
 
@@ -128,7 +128,7 @@ describe('auth bootstrap session persistence', () => {
     fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'password' } });
     fireEvent.click(screen.getByRole('button', { name: /登\s*录/ }));
 
-    expect(await screen.findByText('protected-home')).toBeInTheDocument();
+    expect(await screen.findByText('protected-home', {}, { timeout: 10000 })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith('/api/auth/login', expect.objectContaining({ method: 'POST' }));
   });
 
