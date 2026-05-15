@@ -48,6 +48,7 @@ type AuthContextValue = {
   login: (email: string, password: string) => Promise<AuthUser>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+  refreshUser: () => Promise<void>;
   isAuthenticated: boolean;
   isAdmin: boolean;
   hasSpacePermission: (spaceId: string, permission: string) => boolean;
@@ -117,6 +118,18 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
     [refresh, setAccessToken],
   );
 
+  const refreshUser = useCallback(async () => {
+    try {
+      const me = await api.get<CurrentUserResponse>('/auth/me');
+      setUser({ ...me, spaces: me.spaces });
+    } catch {
+      // On 401 the API client's onUnauthorized handler already clears the
+      // session — restoring stale state here would fight that. For any other
+      // error the existing user/token remain untouched because we never
+      // overwrite them before the fetch succeeds.
+    }
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await api.post<{ success: true }>('/auth/logout');
@@ -160,11 +173,12 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
       login,
       logout,
       refresh,
+      refreshUser,
       isAuthenticated: accessToken !== null && user !== null,
       isAdmin: user !== null && isAdminRole(user.role),
       hasSpacePermission,
     }),
-    [accessToken, hasSpacePermission, login, logout, refresh, user],
+    [accessToken, hasSpacePermission, login, logout, refresh, refreshUser, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
