@@ -65,6 +65,7 @@ function renderRoute(path: string, user?: AuthUser) {
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -101,9 +102,9 @@ describe('App routing', () => {
     expect(screen.getByRole('heading', { name: '登录' })).toBeInTheDocument();
   });
 
-  it('redirects unauthenticated chat access to /login', () => {
+  it('redirects unauthenticated chat access to /login', async () => {
     renderRoute('/spaces/test-space/chat');
-    expect(screen.getByRole('heading', { name: '登录' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '登录' })).toBeInTheDocument();
   });
 
   it('renders Chat for /spaces/:spaceId/chat', async () => {
@@ -112,9 +113,9 @@ describe('App routing', () => {
     expect(await screen.findByRole('heading', { name: '聊天' })).toBeInTheDocument();
   });
 
-  it('redirects unauthenticated admin users to /login', () => {
+  it('redirects unauthenticated admin users to /login', async () => {
     renderRoute('/admin');
-    expect(screen.getByRole('heading', { name: '登录' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '登录' })).toBeInTheDocument();
   });
 
   it('redirects non-admin from admin routes to /', { timeout: 30000 }, async () => {
@@ -251,7 +252,8 @@ describe('AuthProvider', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Logout' }));
 
     expect(await screen.findByText('anonymous')).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledWith('/api/auth/refresh', expect.objectContaining({ method: 'POST' }));
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 });
 
