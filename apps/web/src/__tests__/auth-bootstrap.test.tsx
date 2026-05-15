@@ -41,7 +41,7 @@ describe('auth bootstrap session persistence', () => {
       '/api/auth/me',
       expect.objectContaining({
         method: 'GET',
-        headers: expect.any(Headers),
+        headers: expect.any(Headers) as Headers,
       }),
     );
     expect(new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get('Authorization')).toBe('Bearer access-bootstrap');
