@@ -70,6 +70,8 @@ type SessionServiceMock = {
 };
 
 const originalJwtSecret = process.env.JWT_SECRET;
+const originalNodeEnv = process.env.NODE_ENV;
+const originalCookieSecure = process.env.COOKIE_SECURE;
 
 let app: NestFastifyApplication | undefined;
 let authServiceMock: AuthServiceMock;
@@ -87,6 +89,7 @@ describe('AuthController', () => {
     app = undefined;
     vi.restoreAllMocks();
     restoreJwtSecret();
+    restoreCookieEnv();
   });
 
   it('applies the login rate-limit decorator', () => {
@@ -238,6 +241,96 @@ describe('AuthController', () => {
       expect.objectContaining({ refreshToken: undefined }),
       expect.any(Object),
     );
+  });
+
+  describe('cookie Secure flag', () => {
+    it('sets Secure on login when NODE_ENV=production and COOKIE_SECURE is unset', async () => {
+      process.env.NODE_ENV = 'production';
+      delete process.env.COOKIE_SECURE;
+      app = await createTestApp();
+      authServiceMock.login.mockResolvedValue(createLoginResponse());
+
+      const response = await request(app.getHttpAdapter().getInstance().server)
+        .post('/api/auth/login')
+        .send({ email: TEST_EMAIL, password: 'Correct1!' })
+        .expect(200);
+
+      expect(getSetCookieHeader(response)).toContain('; Secure');
+    });
+
+    it('sets Secure on login when NODE_ENV=production and COOKIE_SECURE=true', async () => {
+      process.env.NODE_ENV = 'production';
+      process.env.COOKIE_SECURE = 'true';
+      app = await createTestApp();
+      authServiceMock.login.mockResolvedValue(createLoginResponse());
+
+      const response = await request(app.getHttpAdapter().getInstance().server)
+        .post('/api/auth/login')
+        .send({ email: TEST_EMAIL, password: 'Correct1!' })
+        .expect(200);
+
+      expect(getSetCookieHeader(response)).toContain('; Secure');
+    });
+
+    it('omits Secure on login when NODE_ENV=development', async () => {
+      process.env.NODE_ENV = 'development';
+      delete process.env.COOKIE_SECURE;
+      app = await createTestApp();
+      authServiceMock.login.mockResolvedValue(createLoginResponse());
+
+      const response = await request(app.getHttpAdapter().getInstance().server)
+        .post('/api/auth/login')
+        .send({ email: TEST_EMAIL, password: 'Correct1!' })
+        .expect(200);
+
+      expect(getSetCookieHeader(response)).not.toContain('; Secure');
+    });
+
+    it('omits Secure on login when COOKIE_SECURE=false regardless of NODE_ENV', async () => {
+      process.env.NODE_ENV = 'production';
+      process.env.COOKIE_SECURE = 'false';
+      app = await createTestApp();
+      authServiceMock.login.mockResolvedValue(createLoginResponse());
+
+      const response = await request(app.getHttpAdapter().getInstance().server)
+        .post('/api/auth/login')
+        .send({ email: TEST_EMAIL, password: 'Correct1!' })
+        .expect(200);
+
+      expect(getSetCookieHeader(response)).not.toContain('; Secure');
+    });
+
+    it('sets Secure on logout cookie clearing in production', async () => {
+      process.env.NODE_ENV = 'production';
+      delete process.env.COOKIE_SECURE;
+      app = await createTestApp();
+      authServiceMock.logout.mockResolvedValue({ success: true });
+
+      const response = await request(app.getHttpAdapter().getInstance().server)
+        .post('/api/auth/logout')
+        .set('Authorization', `Bearer ${await createAccessToken()}`)
+        .set('Cookie', ['refresh_token=refresh-token'])
+        .expect(200);
+
+      expect(getSetCookieHeader(response)).toContain('Max-Age=0');
+      expect(getSetCookieHeader(response)).toContain('; Secure');
+    });
+
+    it('omits Secure on logout cookie clearing in development', async () => {
+      process.env.NODE_ENV = 'development';
+      delete process.env.COOKIE_SECURE;
+      app = await createTestApp();
+      authServiceMock.logout.mockResolvedValue({ success: true });
+
+      const response = await request(app.getHttpAdapter().getInstance().server)
+        .post('/api/auth/logout')
+        .set('Authorization', `Bearer ${await createAccessToken()}`)
+        .set('Cookie', ['refresh_token=refresh-token'])
+        .expect(200);
+
+      expect(getSetCookieHeader(response)).toContain('Max-Age=0');
+      expect(getSetCookieHeader(response)).not.toContain('; Secure');
+    });
   });
 
   it('GET /api/auth/me requires auth and returns the current user shape', async () => {
@@ -442,6 +535,15 @@ function getControllerMethod(prototype: object, methodName: string): object {
   return value;
 }
 
+function getSetCookieHeader(response: request.Response): string {
+  const value = response.headers['set-cookie'];
+  if (!Array.isArray(value) || typeof value[0] !== 'string') {
+    throw new Error('Expected Set-Cookie header');
+  }
+
+  return value[0];
+}
+
 function restoreJwtSecret(): void {
   if (originalJwtSecret === undefined) {
     delete process.env.JWT_SECRET;
@@ -449,4 +551,19 @@ function restoreJwtSecret(): void {
   }
 
   process.env.JWT_SECRET = originalJwtSecret;
+}
+
+function restoreCookieEnv(): void {
+  if (originalNodeEnv === undefined) {
+    delete process.env.NODE_ENV;
+  } else {
+    process.env.NODE_ENV = originalNodeEnv;
+  }
+
+  if (originalCookieSecure === undefined) {
+    delete process.env.COOKIE_SECURE;
+    return;
+  }
+
+  process.env.COOKIE_SECURE = originalCookieSecure;
 }

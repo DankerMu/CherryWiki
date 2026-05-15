@@ -229,19 +229,25 @@ function getRequestMetadata(request: RequestWithAuth): AuthRequestMetadata {
 }
 
 function setRefreshCookie(response: CookieResponse, refreshToken: string): void {
+  const securePart = isCookieSecure() ? '; Secure' : '';
   setResponseHeader(
     response,
     'Set-Cookie',
-    `${REFRESH_COOKIE_NAME}=${encodeURIComponent(refreshToken)}; Max-Age=${REFRESH_COOKIE_MAX_AGE_SECONDS}; Path=/api/auth; HttpOnly; Secure; SameSite=Lax`,
+    `${REFRESH_COOKIE_NAME}=${encodeURIComponent(refreshToken)}; Max-Age=${REFRESH_COOKIE_MAX_AGE_SECONDS}; Path=/api/auth; HttpOnly${securePart}; SameSite=Lax`,
   );
 }
 
 function clearRefreshCookie(response: CookieResponse): void {
+  const securePart = isCookieSecure() ? '; Secure' : '';
   setResponseHeader(
     response,
     'Set-Cookie',
-    `${REFRESH_COOKIE_NAME}=; Max-Age=0; Path=/api/auth; HttpOnly; Secure; SameSite=Lax`,
+    `${REFRESH_COOKIE_NAME}=; Max-Age=0; Path=/api/auth; HttpOnly${securePart}; SameSite=Lax`,
   );
+}
+
+function isCookieSecure(): boolean {
+  return process.env.COOKIE_SECURE !== 'false' && process.env.NODE_ENV === 'production';
 }
 
 function getRefreshTokenCookie(request: RequestWithAuth): string | undefined {
