@@ -184,7 +184,9 @@ def _stats_json(
         "input_total_words": int(claude_result.get("input_total_words") or 0),
         "claude_session_id": claude_result.get("claude_session_id"),
         "duration_ms": duration_ms,
-        "empty_output_count": _empty_output_count(validation, output_dir, claude_result),
+        "empty_output_count": _empty_output_count(
+            validation, output_dir, claude_result
+        ),
         "timeout_count": int(claude_result.get("timeout_count") or 0),
         "requires_interaction_count": int(
             claude_result.get("requires_interaction_count") or 0
