@@ -458,7 +458,7 @@ services:
     image: ${DOCMOST_IMAGE:-docmost/docmost:0.80.1}
     restart: unless-stopped
     environment:
-      APP_URL: ${DOCMOST_APP_URL:-http://localhost:3000}
+      APP_URL: ${DOCMOST_APP_URL:-${DOCMOST_BASE_URL:-http://localhost:3000}}
       APP_SECRET: ${DOCMOST_APP_SECRET:-dev-docmost-app-secret-minimum-32-chars}
       DATABASE_URL: ${DOCMOST_DATABASE_URL:-postgresql://cherrygraph:${POSTGRES_PASSWORD:-cherrygraph_dev}@postgres:5432/docmost}
       REDIS_URL: ${DOCMOST_REDIS_URL:-redis://redis:6379}

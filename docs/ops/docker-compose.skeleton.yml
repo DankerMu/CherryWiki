@@ -235,7 +235,7 @@ services:
     image: ${DOCMOST_IMAGE:-docmost/docmost:0.80.1}
     restart: unless-stopped
     environment:
-      APP_URL: ${DOCMOST_BASE_URL}
+      APP_URL: ${DOCMOST_APP_URL:-${DOCMOST_BASE_URL}}
       APP_SECRET: ${DOCMOST_APP_SECRET}
       DATABASE_URL: ${DOCMOST_DATABASE_URL}
       REDIS_URL: ${DOCMOST_REDIS_URL:-redis://redis:6379}
