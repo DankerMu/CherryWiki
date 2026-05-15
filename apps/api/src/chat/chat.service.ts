@@ -933,7 +933,7 @@ export class ChatService {
       );
       void this.maybeGenerateTitle(prepared, input.message, assistantText);
       await this.persistCitations(assistant.id, citations);
-      await this.persistRetrievalTrace(prepared, input.retrievalMode ?? 'graph_rag', retrievedContext).catch(
+      await this.persistRetrievalTrace(prepared, input.retrievalMode ?? 'wiki_only', retrievedContext).catch(
         () => undefined,
       );
       await this.recordStaticModelUsage(prepared, usage, Date.now() - startedAt).catch(() => undefined);
