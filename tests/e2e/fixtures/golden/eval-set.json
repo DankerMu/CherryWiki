@@ -1,0 +1,122 @@
+[
+  {
+    "query": "How does JWT authentication work?",
+    "expected_pages": ["jwt-authentication", "auth-system"],
+    "expected_content_snippet": "short-lived access tokens (1h TTL) paired with rotating refresh tokens",
+    "space_id": "test-space"
+  },
+  {
+    "query": "What is the token refresh flow?",
+    "expected_pages": ["jwt-authentication", "auth-system"],
+    "expected_content_snippet": "Old refresh token is invalidated on rotation",
+    "space_id": "test-space"
+  },
+  {
+    "query": "How long do access and refresh tokens last?",
+    "expected_pages": ["jwt-authentication", "auth-system"],
+    "expected_content_snippet": "Access tokens have a 1-hour TTL, while refresh tokens last 7 days",
+    "space_id": "test-space"
+  },
+  {
+    "query": "Where are refresh tokens stored for revocation?",
+    "expected_pages": ["jwt-authentication"],
+    "expected_content_snippet": "Refresh tokens are stored in the sessions table for explicit revocation",
+    "space_id": "test-space"
+  },
+  {
+    "query": "What happens when a user logs in?",
+    "expected_pages": ["jwt-authentication", "auth-system"],
+    "expected_content_snippet": "User submits credentials to `POST /api/auth/login`",
+    "space_id": "test-space"
+  },
+  {
+    "query": "How are authentication events audited?",
+    "expected_pages": ["jwt-authentication"],
+    "expected_content_snippet": "All authentication events are logged to audit_logs",
+    "space_id": "test-space"
+  },
+  {
+    "query": "How are failed login attempts limited?",
+    "expected_pages": ["jwt-authentication"],
+    "expected_content_snippet": "Failed login attempts are rate-limited (5/min per IP)",
+    "space_id": "test-space"
+  },
+  {
+    "query": "What does session management track?",
+    "expected_pages": ["auth-system", "jwt-authentication"],
+    "expected_content_snippet": "session records tracking device information, IP address, and last activity",
+    "space_id": "test-space"
+  },
+  {
+    "query": "What connects RBAC to JWT?",
+    "expected_pages": ["jwt-authentication", "rbac-permission-model", "auth-system"],
+    "expected_content_snippet": "Integrates with **RBAC Permission Model** for authorization",
+    "space_id": "test-space"
+  },
+  {
+    "query": "How does the RBAC permission model work?",
+    "expected_pages": ["rbac-permission-model", "permission-system"],
+    "expected_content_snippet": "role hierarchies, group-based permission assignment, and space-scoped authorization",
+    "space_id": "test-space"
+  },
+  {
+    "query": "What roles exist in the permission system?",
+    "expected_pages": ["rbac-permission-model", "permission-system"],
+    "expected_content_snippet": "viewer | Read-only access to assigned Spaces",
+    "space_id": "test-space"
+  },
+  {
+    "query": "How do groups grant access to spaces?",
+    "expected_pages": ["rbac-permission-model", "permission-system"],
+    "expected_content_snippet": "Users are assigned to Groups, and Groups hold permissions on Spaces",
+    "space_id": "test-space"
+  },
+  {
+    "query": "How are permissions resolved across group memberships?",
+    "expected_pages": ["rbac-permission-model", "permission-system"],
+    "expected_content_snippet": "maximum level across all their group memberships for that Space",
+    "space_id": "test-space"
+  },
+  {
+    "query": "How do permissions relate to spaces?",
+    "expected_pages": ["permission-system", "rbac-permission-model"],
+    "expected_content_snippet": "Permissions are scoped to individual Spaces",
+    "space_id": "test-space"
+  },
+  {
+    "query": "What are the space permission levels?",
+    "expected_pages": ["permission-system"],
+    "expected_content_snippet": "`space:read`, `space:write`, and `space:admin`",
+    "space_id": "test-space"
+  },
+  {
+    "query": "How quickly do permission revocations take effect?",
+    "expected_pages": ["permission-system"],
+    "expected_content_snippet": "permission revocations take effect within 5 seconds",
+    "space_id": "test-space"
+  },
+  {
+    "query": "What triggers permission version updates?",
+    "expected_pages": ["permission-system"],
+    "expected_content_snippet": "Space Permissions **triggers** Permission Version updates",
+    "space_id": "test-space"
+  },
+  {
+    "query": "Which pages are in the generated wiki?",
+    "expected_pages": ["index"],
+    "expected_content_snippet": "Pages: 4",
+    "space_id": "test-space"
+  },
+  {
+    "query": "How many communities and god nodes were generated?",
+    "expected_pages": ["index"],
+    "expected_content_snippet": "Communities: 4",
+    "space_id": "test-space"
+  },
+  {
+    "query": "How does session management enforce authorization?",
+    "expected_pages": ["auth-system", "permission-system", "rbac-permission-model"],
+    "expected_content_snippet": "Session Management **enforces** RBAC Model",
+    "space_id": "test-space"
+  }
+]

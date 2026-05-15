@@ -26,6 +26,7 @@ export default defineConfig({
       'apps/**/src/**/*.test.ts',
       'apps/**/src/**/*.spec.ts',
       'apps/**/src/**/*.test.tsx',
+      'scripts/**/*.test.ts',
       'tests/**/*.test.ts',
     ],
     exclude: runsExplicitWebTest ? configDefaults.exclude : [...configDefaults.exclude, 'apps/web/**'],
