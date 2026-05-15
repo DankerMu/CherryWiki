@@ -79,6 +79,8 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
   const accessTokenRef = useRef<string | null>(initialSession?.accessToken ?? null);
   const refreshTimerRef = useRef<number | undefined>(undefined);
   const isBootstrappingRef = useRef(initialSession === undefined);
+  const bootstrapRefreshInFlightRef = useRef(false);
+  const sessionGenRef = useRef(0);
 
   const clearRefreshTimer = useCallback(() => {
     if (refreshTimerRef.current !== undefined) {
@@ -93,6 +95,7 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
   }, []);
 
   const clearSession = useCallback(() => {
+    sessionGenRef.current += 1;
     clearRefreshTimer();
     setAccessToken(null);
     setUser(null);
@@ -111,6 +114,7 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
 
   const login = useCallback(
     async (email: string, password: string): Promise<AuthUser> => {
+      sessionGenRef.current += 1;
       const result = await api.post<LoginResponse>('/auth/login', { email, password });
       setAccessToken(result.access_token);
       scheduleRefresh(result.expires_in, refreshTimerRef, refresh);
@@ -162,7 +166,7 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
     configureApiClient({
       getAccessToken: () => accessTokenRef.current,
       onUnauthorized: () => {
-        if (isBootstrappingRef.current) {
+        if (isBootstrappingRef.current || bootstrapRefreshInFlightRef.current) {
           return;
         }
 
@@ -185,25 +189,31 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
 
     async function bootstrapSession(): Promise<void> {
       setBootstrapping(true);
-      const startingAccessToken = accessTokenRef.current;
-      let bootstrapAccessToken: string | null = null;
+      const gen = sessionGenRef.current;
 
       try {
-        const tokenPair = await getBootstrapRefreshTokenPair();
-        if (isCancelled || accessTokenRef.current !== startingAccessToken) {
+        bootstrapRefreshInFlightRef.current = true;
+        let tokenPair: TokenPairResponse;
+        try {
+          tokenPair = await getBootstrapRefreshTokenPair();
+        } finally {
+          bootstrapRefreshInFlightRef.current = false;
+        }
+
+        if (isCancelled || sessionGenRef.current !== gen) {
           return;
         }
 
-        bootstrapAccessToken = tokenPair.access_token;
         setAccessToken(tokenPair.access_token);
         scheduleRefresh(tokenPair.expires_in, refreshTimerRef, refresh);
 
         const me = await api.get<CurrentUserResponse>('/auth/me');
-        if (!isCancelled && accessTokenRef.current === bootstrapAccessToken) {
-          setUser({ ...me, spaces: me.spaces });
+        if (isCancelled || sessionGenRef.current !== gen) {
+          return;
         }
+        setUser({ ...me, spaces: me.spaces });
       } catch {
-        if (!isCancelled && bootstrapAccessToken !== null && accessTokenRef.current === bootstrapAccessToken) {
+        if (!isCancelled && sessionGenRef.current === gen) {
           clearSession();
         }
       } finally {

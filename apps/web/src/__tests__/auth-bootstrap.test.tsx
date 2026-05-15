@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '../i18n';
 import { ProtectedShell } from '../App';
-import { AuthProvider, type AuthUser } from '../lib/auth';
+import { AuthProvider, type AuthUser, useAuth } from '../lib/auth';
 import Login from '../pages/Login';
 import { ThemeProvider } from '../theme/ThemeProvider';
 
@@ -175,6 +175,97 @@ describe('auth bootstrap session persistence', () => {
     expect(seenAuthHeaders).toEqual(['Bearer access-login']);
   });
 
+  it('delayed bootstrap refresh 401 does not clear a login session established during bootstrap', async () => {
+    const refreshRequest = createDeferred<Response>();
+    const fetchMock = vi.fn<typeof fetch>((input) => {
+      const path = getRequestPath(input);
+
+      if (path === '/api/auth/refresh') {
+        return refreshRequest.promise;
+      }
+
+      if (path === '/api/auth/login') {
+        return Promise.resolve(jsonResponse({
+          data: {
+            access_token: 'access-login',
+            expires_in: 3600,
+            user: BOOTSTRAP_USER,
+          },
+        }));
+      }
+
+      if (path === '/api/auth/me') {
+        return Promise.resolve(jsonResponse({ data: BOOTSTRAP_USER }));
+      }
+
+      return Promise.resolve(notFoundResponse());
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderApp('/login');
+
+    expect(await screen.findByRole('heading', { name: '登录' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('邮箱'), { target: { value: 'bootstrap@example.com' } });
+    fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'password' } });
+    fireEvent.click(screen.getByRole('button', { name: /登\s*录/ }));
+
+    expect(await screen.findByText('protected-home')).toBeInTheDocument();
+    refreshRequest.resolve(unauthorizedResponse('NO_REFRESH_TOKEN'));
+    await waitForMicrotasks();
+
+    expect(screen.getByText('protected-home')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '登录' })).not.toBeInTheDocument();
+  });
+
+  it('delayed bootstrap does not resurrect a logged-out session', async () => {
+    const refreshRequest = createDeferred<Response>();
+    const fetchMock = vi.fn<typeof fetch>((input) => {
+      const path = getRequestPath(input);
+
+      if (path === '/api/auth/refresh') {
+        return refreshRequest.promise;
+      }
+
+      if (path === '/api/auth/login') {
+        return Promise.resolve(jsonResponse({
+          data: {
+            access_token: 'access-login',
+            expires_in: 3600,
+            user: BOOTSTRAP_USER,
+          },
+        }));
+      }
+
+      if (path === '/api/auth/me') {
+        return Promise.resolve(jsonResponse({ data: BOOTSTRAP_USER }));
+      }
+
+      if (path === '/api/auth/logout') {
+        return Promise.resolve(jsonResponse({ data: { success: true } }));
+      }
+
+      return Promise.resolve(notFoundResponse());
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderApp('/login');
+
+    expect(await screen.findByRole('heading', { name: '登录' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('邮箱'), { target: { value: 'bootstrap@example.com' } });
+    fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'password' } });
+    fireEvent.click(screen.getByRole('button', { name: /登\s*录/ }));
+
+    expect(await screen.findByText('protected-home')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'logout-test' }));
+    expect(await screen.findByRole('heading', { name: '登录' })).toBeInTheDocument();
+
+    refreshRequest.resolve(jsonResponse({ data: { access_token: 'access-bootstrap', expires_in: 3600 } }));
+    await waitForMicrotasks();
+
+    expect(screen.getByRole('heading', { name: '登录' })).toBeInTheDocument();
+    expect(screen.queryByText('protected-home')).not.toBeInTheDocument();
+  });
+
   it('does not authenticate login when /auth/me returns 401 during delayed bootstrap', async () => {
     const refreshRequest = createDeferred<Response>();
     const fetchMock = vi.fn<typeof fetch>((input) => {
@@ -261,7 +352,7 @@ function renderApp(path: string, options: { strictMode?: boolean } = {}): void {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route element={<ProtectedShell />}>
-              <Route path="/" element={<div>protected-home</div>} />
+              <Route path="/" element={<ProtectedHome />} />
               <Route path="/spaces/:spaceId/protected" element={<div>protected-space</div>} />
             </Route>
           </Routes>
@@ -276,6 +367,19 @@ function renderApp(path: string, options: { strictMode?: boolean } = {}): void {
     ) : (
       tree
     ),
+  );
+}
+
+function ProtectedHome() {
+  const { logout } = useAuth();
+
+  return (
+    <div>
+      <div>protected-home</div>
+      <button type="button" onClick={() => void logout()}>
+        logout-test
+      </button>
+    </div>
   );
 }
 
@@ -347,4 +451,10 @@ function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T) => void
   });
 
   return { promise, resolve, reject };
+}
+
+async function waitForMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
 }
