@@ -119,7 +119,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 │ ingestion-worker │ 文件解析
 │ url-fetcher      │ URL 抓取 + SSRF 防护
 │ indexer           │ chunk + embedding
-│ graphify-worker  │ Python 图谱生成
+│ graphify-worker  │ 编排 Claude Code 执行图谱抽取
 ├─────────┤ 基础设施
 │ postgres │ pgvector :15432
 │ redis    │ :6379
@@ -137,7 +137,7 @@ CherryWiki/
 │   ├── ingestion-worker/     # 文件解析 Worker
 │   ├── url-fetcher-worker/   # URL 抓取 Worker
 │   ├── indexer-worker/       # 索引构建 Worker
-│   └── graphify-worker/      # Python Graphify Worker
+│   └── graphify-worker/      # Graphify 编排器（Python，调用 Claude Code）
 ├── packages/
 │   ├── shared/               # 公共类型、Schema、错误码
 │   ├── auth-core/            # JWT、RBAC、权限缓存
@@ -211,7 +211,7 @@ docker compose down                           # 停止所有服务
 | 数据库 | PostgreSQL 16 + pgvector + pg_trgm |
 | 缓存/队列 | Redis 8, BullMQ |
 | 对象存储 | MinIO |
-| AI Worker | Python 3.11 (Graphify) |
+| AI Worker | Python 3.11（Graphify 编排器，通过 stream-json 协议调用 Claude Code）|
 | 部署 | Docker Compose |
 
 ## 文档

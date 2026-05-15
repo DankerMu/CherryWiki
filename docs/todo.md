@@ -54,6 +54,7 @@
 - [x] **I-04** Stage 4 Canonical Wiki Repo / wiki-core / 只读 Wiki 已完成；wiki-core 42 测试 + wiki API 25 测试 + wiki UI 5 测试 + schema/validation 21 测试已交付，移交测试债务记录在需求追踪矩阵 §6.1。
 - [x] **I-05** Stage 5 Graphify Worker / graph-core / wiki-normalization 已完成。
 - [x] **I-06** Stage 6 Indexer / Vector / BM25 / Source Chain 已完成；Drizzle schema（wikiChunks/embeddings + migration 0007/0008）、ai-core（EmbeddingProvider + OpenAI SDK）、rag-core（chunker + source chain + injection + ACL）、indexer-worker（完整索引管道 + snapshot 生命周期）、API 索引触发（Graphify 完成→reindex、手动 reindex、admin rebuild）已交付，679 自动化测试覆盖。
+- [x] **I-07** Stage 7 Chat Engine / SSE / Citation 已完成；chat.service（session CRUD + RAG 检索 + SSE 流式 + citation 提取与持久化）、vector + BM25 hybrid retrieval（ACL + published-only）、prompt injection 检测、降级策略（无命中时回退模型知识）、16 集成测试覆盖。
 
 ---
 

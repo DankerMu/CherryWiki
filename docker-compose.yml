@@ -316,7 +316,7 @@ services:
     restart: unless-stopped
     working_dir: /app/apps/graphify-worker
     command: >-
-      sh -c "chown -R 10001:10001 /work/graphify && pip install -r requirements.txt --quiet && python -m src"
+      sh -c "chown -R 10001:10001 /work/graphify 2>/dev/null || true; pip install -r requirements.txt --quiet && python -m src"
     mem_limit: 4g
     cpus: 2.0
     environment:
