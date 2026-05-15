@@ -9,7 +9,7 @@ import {
   useState,
 } from 'react';
 import { useNavigate } from 'react-router';
-import { api, configureApiClient } from './api';
+import { ApiError, api, configureApiClient } from './api';
 
 export type SpaceRole = 'viewer' | 'editor' | 'admin';
 
@@ -49,6 +49,7 @@ type AuthContextValue = {
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  isBootstrapping: boolean;
   isAuthenticated: boolean;
   isAdmin: boolean;
   hasSpacePermission: (spaceId: string, permission: string) => boolean;
@@ -68,13 +69,18 @@ export type AuthProviderProps = {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const REFRESH_LEEWAY_SECONDS = 5 * 60;
 const DEFAULT_EXPIRES_IN_SECONDS = 60 * 60;
+let bootstrapRefreshPromise: Promise<TokenPairResponse> | null = null;
 
 export function AuthProvider({ children, initialSession }: AuthProviderProps) {
   const navigate = useNavigate();
   const [user, setUser] = useState<AuthUser | null>(initialSession?.user ?? null);
   const [accessToken, setAccessTokenState] = useState<string | null>(initialSession?.accessToken ?? null);
+  const [isBootstrapping, setIsBootstrapping] = useState(initialSession === undefined);
   const accessTokenRef = useRef<string | null>(initialSession?.accessToken ?? null);
   const refreshTimerRef = useRef<number | undefined>(undefined);
+  const isBootstrappingRef = useRef(initialSession === undefined);
+  const bootstrapRefreshInFlightRef = useRef(false);
+  const sessionGenRef = useRef(0);
 
   const clearRefreshTimer = useCallback(() => {
     if (refreshTimerRef.current !== undefined) {
@@ -89,10 +95,16 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
   }, []);
 
   const clearSession = useCallback(() => {
+    sessionGenRef.current += 1;
     clearRefreshTimer();
     setAccessToken(null);
     setUser(null);
   }, [clearRefreshTimer, setAccessToken]);
+
+  const setBootstrapping = useCallback((nextValue: boolean) => {
+    isBootstrappingRef.current = nextValue;
+    setIsBootstrapping(nextValue);
+  }, []);
 
   const refresh = useCallback(async () => {
     const tokenPair = await api.post<TokenPairResponse>('/auth/refresh');
@@ -102,6 +114,7 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
 
   const login = useCallback(
     async (email: string, password: string): Promise<AuthUser> => {
+      sessionGenRef.current += 1;
       const result = await api.post<LoginResponse>('/auth/login', { email, password });
       setAccessToken(result.access_token);
       scheduleRefresh(result.expires_in, refreshTimerRef, refresh);
@@ -109,13 +122,21 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
         const me = await api.get<CurrentUserResponse>('/auth/me');
         const enriched: AuthUser = { ...result.user, spaces: me.spaces };
         setUser(enriched);
+        setBootstrapping(false);
         return enriched;
-      } catch {
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+          clearSession();
+          setBootstrapping(false);
+          throw err;
+        }
+
         setUser(result.user);
+        setBootstrapping(false);
         return result.user;
       }
     },
-    [refresh, setAccessToken],
+    [clearSession, refresh, setAccessToken, setBootstrapping],
   );
 
   const refreshUser = useCallback(async () => {
@@ -145,6 +166,10 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
     configureApiClient({
       getAccessToken: () => accessTokenRef.current,
       onUnauthorized: () => {
+        if (isBootstrappingRef.current || bootstrapRefreshInFlightRef.current) {
+          return;
+        }
+
         clearSession();
         void navigate('/login', { replace: true });
       },
@@ -153,13 +178,58 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
 
   useEffect(() => {
     if (initialSession?.accessToken !== undefined) {
+      setBootstrapping(false);
       scheduleRefresh(initialSession.expiresIn ?? DEFAULT_EXPIRES_IN_SECONDS, refreshTimerRef, refresh);
+      return () => {
+        clearRefreshTimer();
+      };
     }
 
+    let isCancelled = false;
+
+    async function bootstrapSession(): Promise<void> {
+      setBootstrapping(true);
+      const gen = sessionGenRef.current;
+
+      try {
+        bootstrapRefreshInFlightRef.current = true;
+        let tokenPair: TokenPairResponse;
+        try {
+          tokenPair = await getBootstrapRefreshTokenPair();
+        } finally {
+          bootstrapRefreshInFlightRef.current = false;
+        }
+
+        if (isCancelled || sessionGenRef.current !== gen) {
+          return;
+        }
+
+        setAccessToken(tokenPair.access_token);
+        scheduleRefresh(tokenPair.expires_in, refreshTimerRef, refresh);
+
+        const me = await api.get<CurrentUserResponse>('/auth/me');
+        if (isCancelled || sessionGenRef.current !== gen) {
+          return;
+        }
+        setUser({ ...me, spaces: me.spaces });
+      } catch {
+        if (!isCancelled && sessionGenRef.current === gen) {
+          clearSession();
+        }
+      } finally {
+        if (!isCancelled) {
+          setBootstrapping(false);
+        }
+      }
+    }
+
+    void bootstrapSession();
+
     return () => {
+      isCancelled = true;
       clearRefreshTimer();
     };
-  }, [clearRefreshTimer, initialSession?.accessToken, initialSession?.expiresIn, refresh]);
+  }, [clearRefreshTimer, clearSession, initialSession?.accessToken, initialSession?.expiresIn, refresh, setBootstrapping]);
 
   const hasSpacePermission = useCallback(
     (spaceId: string, permission: string): boolean => checkSpacePermission(user, spaceId, permission),
@@ -174,11 +244,12 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
       logout,
       refresh,
       refreshUser,
+      isBootstrapping,
       isAuthenticated: accessToken !== null && user !== null,
       isAdmin: user !== null && isAdminRole(user.role),
       hasSpacePermission,
     }),
-    [accessToken, hasSpacePermission, login, logout, refresh, refreshUser, user],
+    [accessToken, hasSpacePermission, isBootstrapping, login, logout, refresh, refreshUser, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -249,4 +320,14 @@ function scheduleRefresh(
   timerRef.current = window.setTimeout(() => {
     void refresh().catch(() => undefined);
   }, delaySeconds * 1000);
+}
+
+function getBootstrapRefreshTokenPair(): Promise<TokenPairResponse> {
+  if (bootstrapRefreshPromise === null) {
+    bootstrapRefreshPromise = api.post<TokenPairResponse>('/auth/refresh').finally(() => {
+      bootstrapRefreshPromise = null;
+    });
+  }
+
+  return bootstrapRefreshPromise;
 }

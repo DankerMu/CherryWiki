@@ -46,6 +46,15 @@ const VIEWER_NO_SPACES: AuthUser = {
 };
 
 function renderRoute(path: string, user?: AuthUser) {
+  if (user === undefined && !vi.isMockFunction(globalThis.fetch)) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(() =>
+        Promise.resolve(jsonResponse({ error: { code: 'NO_SESSION', message: 'Unauthorized' } }, 401)),
+      ),
+    );
+  }
+
   const routes = <AppRoutes />;
 
   return render(
@@ -65,6 +74,7 @@ function renderRoute(path: string, user?: AuthUser) {
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -73,9 +83,9 @@ describe('App routing', () => {
     await i18n.changeLanguage('zh-CN');
   });
 
-  it('redirects unauthenticated / to /login', async () => {
+  it('redirects unauthenticated / to /login', { timeout: 15000 }, async () => {
     renderRoute('/');
-    expect(await screen.findByRole('heading', { name: '登录' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '登录' }, { timeout: 10000 })).toBeInTheDocument();
   });
 
   it('redirects authenticated admin with spaces to first space overview', { timeout: 30000 }, async () => {
@@ -101,9 +111,9 @@ describe('App routing', () => {
     expect(screen.getByRole('heading', { name: '登录' })).toBeInTheDocument();
   });
 
-  it('redirects unauthenticated chat access to /login', () => {
+  it('redirects unauthenticated chat access to /login', async () => {
     renderRoute('/spaces/test-space/chat');
-    expect(screen.getByRole('heading', { name: '登录' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '登录' })).toBeInTheDocument();
   });
 
   it('renders Chat for /spaces/:spaceId/chat', async () => {
@@ -112,9 +122,9 @@ describe('App routing', () => {
     expect(await screen.findByRole('heading', { name: '聊天' })).toBeInTheDocument();
   });
 
-  it('redirects unauthenticated admin users to /login', () => {
+  it('redirects unauthenticated admin users to /login', async () => {
     renderRoute('/admin');
-    expect(screen.getByRole('heading', { name: '登录' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '登录' })).toBeInTheDocument();
   });
 
   it('redirects non-admin from admin routes to /', { timeout: 30000 }, async () => {
@@ -251,7 +261,8 @@ describe('AuthProvider', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Logout' }));
 
     expect(await screen.findByText('anonymous')).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledWith('/api/auth/refresh', expect.objectContaining({ method: 'POST' }));
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 });
 

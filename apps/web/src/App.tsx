@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router';
+import { Spin } from 'antd';
 import { lazy, Suspense } from 'react';
 import AppShell from './components/AppShell';
 import { GuardedSpaceRoute } from './components/SpacePermissionGate';
@@ -124,9 +125,17 @@ export function AppRoutes() {
   );
 }
 
-function ProtectedShell() {
+export function ProtectedShell() {
   const location = useLocation();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isBootstrapping } = useAuth();
+
+  if (isBootstrapping) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
