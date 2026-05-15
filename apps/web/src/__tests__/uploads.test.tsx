@@ -210,6 +210,93 @@ describe('UploadList', () => {
 });
 
 describe('UploadCenter', () => {
+  it('renders upload items when the API returns paginated data', async () => {
+    const upload = buildUpload({
+      id: 'source-visible',
+      filename: 'visible-document.md',
+      status: 'parsed',
+      mime_type: 'text/markdown',
+    });
+    stubUploadListApiResponse({
+      data: [upload],
+      meta: {
+        pagination: {
+          page: 1,
+          per_page: 20,
+          total: 1,
+          has_next: false,
+        },
+      },
+    });
+
+    renderUploadCenter();
+
+    expect(await screen.findByText('visible-document.md')).toBeInTheDocument();
+    expect(screen.queryByText('No documents in this space yet.')).not.toBeInTheDocument();
+  });
+
+  it('renders upload items when paginated data is nested in the wrapped response', async () => {
+    const upload = buildUpload({
+      id: 'source-nested',
+      filename: 'nested-document.pdf',
+      status: 'parsed',
+      mime_type: 'application/pdf',
+    });
+    stubUploadListApiResponse({
+      data: {
+        data: [upload],
+        pagination: {
+          page: 1,
+          per_page: 20,
+          total: 1,
+          has_next: false,
+        },
+      },
+      meta: {
+        request_id: 'req-nested',
+      },
+    });
+
+    renderUploadCenter();
+
+    expect(await screen.findByText('nested-document.pdf')).toBeInTheDocument();
+    expect(screen.queryByText('No documents in this space yet.')).not.toBeInTheDocument();
+  });
+
+  it('shows the empty state when the upload API returns no data', async () => {
+    stubUploadListApiResponse({
+      data: [],
+      meta: {
+        pagination: {
+          page: 1,
+          per_page: 20,
+          total: 0,
+          has_next: false,
+        },
+      },
+    });
+
+    renderUploadCenter();
+
+    expect(await screen.findByText('No documents in this space yet.')).toBeInTheDocument();
+  });
+
+  it('shows an error message when the upload API fails', async () => {
+    stubUploadListApiResponse(
+      {
+        error: {
+          code: 'UPLOAD_LIST_FAILED',
+          message: 'Could not load uploads',
+        },
+      },
+      500,
+    );
+
+    renderUploadCenter();
+
+    expect(await screen.findByText('Could not load uploads')).toBeInTheDocument();
+  });
+
   it('loads documents with search, source type, and sort query parameters', { timeout: 30000 }, async () => {
     const fetchMock = stubUploadListApi();
 
@@ -527,21 +614,23 @@ function stubUploadListApi(upload: UploadItem = buildUpload({
   status: 'parsed',
   mime_type: 'application/pdf',
 })) {
+  return stubUploadListApiResponse({
+    data: [upload],
+    meta: {
+      pagination: {
+        page: 1,
+        per_page: 20,
+        total: 1,
+        has_next: false,
+      },
+    },
+  });
+}
+
+function stubUploadListApiResponse(body: unknown, status = 200) {
   const fetchMock = vi.fn<typeof fetch>((input, init) => {
     if (getRequestPath(input) === '/api/spaces/space-1/uploads' && init?.method === 'GET') {
-      return Promise.resolve(
-        jsonResponse({
-          data: [upload],
-          meta: {
-            pagination: {
-              page: 1,
-              per_page: 20,
-              total: 1,
-              has_next: false,
-            },
-          },
-        }),
-      );
+      return Promise.resolve(jsonResponse(body, status));
     }
 
     return Promise.resolve(jsonResponse({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404));

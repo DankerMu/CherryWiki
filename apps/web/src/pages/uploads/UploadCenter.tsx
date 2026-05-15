@@ -6,7 +6,7 @@ import { Navigate, useParams } from 'react-router';
 import { getErrorMessage } from '../../components/adminUi';
 import { SpaceForbiddenState, useSpacePermissionGate } from '../../components/SpacePermissionGate';
 import { useUploadPolling } from '../../hooks/useUploadPolling';
-import { type ApiMeta, api } from '../../lib/api';
+import { type ApiMeta, type ApiWrappedResponse, api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import FileUploadZone from './FileUploadZone';
 import UploadDetail from './UploadDetail';
@@ -29,6 +29,13 @@ const DEFAULT_PAGINATION: NonNullable<ApiMeta['pagination']> = {
   total: 0,
   has_next: false,
 };
+
+type NestedUploadListResponse = {
+  data: UploadItem[];
+  pagination?: ApiMeta['pagination'];
+};
+
+type UploadListApiResponse = ApiWrappedResponse<UploadItem[] | NestedUploadListResponse>;
 
 export default function UploadCenter() {
   const { t } = useTranslation();
@@ -79,7 +86,7 @@ export default function UploadCenter() {
         const normalizedSourceType = normalizeUploadSourceTypeFilter(sourceTypeFilter);
         const normalizedSearch = searchTerm.trim();
         const normalizedSort = normalizeUploadSort(sortOrder);
-        const response = await api.getWrapped<UploadItem[]>(`/spaces/${encodeURIComponent(uploadSpaceId)}/uploads`, {
+        const response = await api.getWrapped<UploadItem[] | NestedUploadListResponse>(`/spaces/${encodeURIComponent(uploadSpaceId)}/uploads`, {
           page,
           per_page: UPLOAD_PAGE_SIZE,
           status: normalizedStatus,
@@ -87,16 +94,15 @@ export default function UploadCenter() {
           search: normalizedSearch,
           sort: normalizedSort,
         });
+        const normalized = normalizeUploadListResponse(response, {
+          page,
+          per_page: UPLOAD_PAGE_SIZE,
+          total: 0,
+          has_next: false,
+        });
         if (seq !== requestSeqRef.current) return;
-        setUploads(response.data);
-        setPagination(
-          response.meta?.pagination ?? {
-            page,
-            per_page: UPLOAD_PAGE_SIZE,
-            total: response.data.length,
-            has_next: false,
-          },
-        );
+        setUploads(normalized.uploads);
+        setPagination(normalized.pagination);
       } catch (err) {
         if (seq !== requestSeqRef.current) return;
         setError(getErrorMessage(err));
@@ -393,4 +399,35 @@ function uploadMatchesActiveFilters(
 
   const searchable = `${upload.filename} ${upload.classification ?? ''}`.toLowerCase();
   return searchable.includes(normalizedSearch);
+}
+
+function normalizeUploadListResponse(
+  response: UploadListApiResponse,
+  fallbackPagination: NonNullable<ApiMeta['pagination']>,
+): { uploads: UploadItem[]; pagination: NonNullable<ApiMeta['pagination']> } {
+  if (Array.isArray(response.data)) {
+    return {
+      uploads: response.data,
+      pagination: response.meta?.pagination ?? {
+        ...fallbackPagination,
+        total: response.data.length,
+      },
+    };
+  }
+
+  if (isRecord(response.data) && Array.isArray(response.data.data)) {
+    return {
+      uploads: response.data.data,
+      pagination: response.data.pagination ?? response.meta?.pagination ?? {
+        ...fallbackPagination,
+        total: response.data.data.length,
+      },
+    };
+  }
+
+  throw new Error('Upload list response was malformed');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
