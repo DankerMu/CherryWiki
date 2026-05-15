@@ -76,7 +76,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-secret-minimum-32-characters-long-replace-in-production}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       REFRESH_TOKEN_EXPIRES_IN: ${REFRESH_TOKEN_EXPIRES_IN:-7d}
-      COOKIE_SECURE: "false"
+      COOKIE_SECURE: "${COOKIE_SECURE:-false}"
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@cherrywiki.local}
       ADMIN_PASSWORD: "${ADMIN_PASSWORD:-ChangeMe123!}"
       DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-default}
