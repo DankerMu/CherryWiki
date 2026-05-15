@@ -22,6 +22,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { requireAdminPage } from '../../components/RequireAdminPage';
 import { api } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
 import { getErrorMessage } from '../../components/adminUi';
 import {
   SPACE_PERMISSION_OPTIONS,
@@ -47,6 +48,7 @@ function statusColor(status: string): string {
 
 function SpacesPage() {
   const { t } = useTranslation();
+  const { refreshUser } = useAuth();
   const [spaces, setSpaces] = useState<AdminSpace[]>([]);
   const [groups, setGroups] = useState<AdminGroup[]>([]);
   const [selectedSpace, setSelectedSpace] = useState<AdminSpaceDetail | null>(null);
@@ -92,6 +94,7 @@ function SpacesPage() {
       setCreateForm(null);
       formInstance.resetFields();
       await loadSpaces();
+      await refreshUser();
     } catch (err) {
       if (err && typeof err === 'object' && 'errorFields' in err) return;
       void message.error(getErrorMessage(err));
@@ -157,6 +160,7 @@ function SpacesPage() {
       await api.delete(`/spaces/${space.id}`);
       void message.success(t('admin.spaces.archiveSuccess'));
       await loadSpaces();
+      await refreshUser();
     } catch (err) {
       void message.error(getErrorMessage(err));
       throw err;

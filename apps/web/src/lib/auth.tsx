@@ -48,6 +48,7 @@ type AuthContextValue = {
   login: (email: string, password: string) => Promise<AuthUser>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+  refreshUser: () => Promise<void>;
   isAuthenticated: boolean;
   isAdmin: boolean;
   hasSpacePermission: (spaceId: string, permission: string) => boolean;
@@ -117,6 +118,19 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
     [refresh, setAccessToken],
   );
 
+  const refreshUser = useCallback(async () => {
+    const previousUser = user;
+    const previousAccessToken = accessTokenRef.current;
+
+    try {
+      const me = await api.get<CurrentUserResponse>('/auth/me');
+      setUser({ ...me, spaces: me.spaces });
+    } catch {
+      setAccessToken(previousAccessToken);
+      setUser(previousUser);
+    }
+  }, [setAccessToken, user]);
+
   const logout = useCallback(async () => {
     try {
       await api.post<{ success: true }>('/auth/logout');
@@ -160,11 +174,12 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
       login,
       logout,
       refresh,
+      refreshUser,
       isAuthenticated: accessToken !== null && user !== null,
       isAdmin: user !== null && isAdminRole(user.role),
       hasSpacePermission,
     }),
-    [accessToken, hasSpacePermission, login, logout, refresh, user],
+    [accessToken, hasSpacePermission, login, logout, refresh, refreshUser, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
