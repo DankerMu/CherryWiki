@@ -184,7 +184,7 @@ def _stats_json(
         "input_total_words": int(claude_result.get("input_total_words") or 0),
         "claude_session_id": claude_result.get("claude_session_id"),
         "duration_ms": duration_ms,
-        "empty_output_count": _empty_output_count(validation, output_dir),
+        "empty_output_count": _empty_output_count(validation, output_dir, claude_result),
         "timeout_count": int(claude_result.get("timeout_count") or 0),
         "requires_interaction_count": int(
             claude_result.get("requires_interaction_count") or 0
@@ -194,8 +194,12 @@ def _stats_json(
 
 
 def _empty_output_count(
-    validation: dict[str, Any], output_dir: Path | None = None
+    validation: dict[str, Any],
+    output_dir: Path | None = None,
+    claude_result: dict[str, Any] | None = None,
 ) -> int:
+    if claude_result and claude_result.get("reason") == "empty_output":
+        return 1
     if output_dir is not None and not (output_dir / "graph.json").exists():
         return 1
     if validation and int(validation.get("node_count") or 0) == 0:

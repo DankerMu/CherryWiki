@@ -292,6 +292,36 @@ def test_run_missing_graph_sets_empty_output_count(
     assert stats["empty_output_count"] == 1
 
 
+def test_run_claude_empty_output_reason_sets_empty_output_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_fake_storage(monkeypatch)
+    install_runner_config(monkeypatch, tmp_path)
+
+    async def fake_run_graphify(
+        _run_id: str, _input_dir: str, *, timeout: float | None = None
+    ) -> dict[str, Any]:
+        return {
+            "status": "failed",
+            "state": "FAILED",
+            "reason": "empty_output",
+            "retryable": False,
+            "input_file_count": 1,
+            "input_total_words": 10,
+            "claude_session_id": None,
+            "timeout_count": 0,
+            "requires_interaction_count": 0,
+        }
+
+    monkeypatch.setattr(runner.claude_runner, "run_graphify", fake_run_graphify)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        asyncio.run(runner.run(job_data()))
+
+    stats = json.loads(str(exc_info.value))["stats_json"]
+    assert stats["empty_output_count"] == 1
+
+
 def test_run_validation_failure_sets_failed_reason(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
