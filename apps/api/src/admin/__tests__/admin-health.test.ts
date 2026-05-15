@@ -229,6 +229,25 @@ describe('AdminHealthController', () => {
     });
   });
 
+  it('allows the Docker Docmost hostname when it is explicitly allowlisted', async () => {
+    const { controller } = createController();
+    const fetchMock = mockFetchResponse(200);
+    setDnsRecords('172.16.0.20');
+
+    const result = await withEnv('ADMIN_OUTBOUND_PROBE_ALLOWLIST', 'localhost,127.0.0.1,::1,docmost', () =>
+      withEnv('DOCMOST_BASE_URL', 'http://docmost:3000', () => controller.getHealth()),
+    );
+
+    expect(result.status).toBe('healthy');
+    expect(result.components.docmost_bridge.status).toBe('healthy');
+    expect(fetchMock).toHaveBeenCalledWith('http://docmost:3000/api/health', {
+      method: 'GET',
+      redirect: 'manual',
+      signal: expect.any(AbortSignal) as unknown,
+      dispatcher: expect.any(Object) as unknown,
+    });
+  });
+
   it('rejects credential-bearing Docmost URLs before fetching', async () => {
     const { controller } = createController();
     const fetchMock = mockFetchResponse(200);
