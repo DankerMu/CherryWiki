@@ -25,13 +25,18 @@ import {
   spaces,
 } from '@cherrygraph/shared';
 import {
+  retrieveFullGraphContext,
   retrieve,
+  rrfFuseThreeSource,
   type Bm25SearchFn,
+  type FusedRetrievalResult,
+  type GraphCandidate,
   type RetrievalResult,
   type SearchHit,
   type SourceChainJson,
   type VectorSearchFn,
 } from '@cherrygraph/rag-core';
+import { GraphQueryService } from '@cherrygraph/graph-core';
 import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
@@ -202,15 +207,15 @@ type RetrievedContext = {
     candidates: {
       vector: SearchHit[];
       bm25: SearchHit[];
-      graph: GraphHint[];
+      graph: Array<GraphHint | GraphCandidate>;
     };
     aclFiltered: {
       wiki: RetrievalResult[];
-      graph: GraphHint[];
+      graph: Array<GraphHint | GraphCandidate>;
     };
     finalContext: {
       wiki: Array<Pick<RetrievalResult, 'chunkId' | 'spaceId' | 'score' | 'pageTitle' | 'sectionTitle'>>;
-      graph_hints: GraphHint[];
+      graph_hints: Array<GraphHint | GraphCandidate>;
       wiki_tokens: number;
       graph_tokens: number;
     };
@@ -261,6 +266,7 @@ const AGENT_RETRIEVAL_MODES = new Set(['graph_rag', 'path_first', 'community_fir
 export class ChatService {
   private readonly chatProviderFactory: ChatProviderFactory;
   private readonly embeddingProviderFactory: EmbeddingProviderFactory;
+  private readonly graphQueryService: GraphQueryService;
 
   constructor(
     @Inject(DRIZZLE) private readonly db: ChatDatabase,
@@ -275,6 +281,7 @@ export class ChatService {
     this.embeddingProviderFactory =
       embeddingProviderFactory ??
       ((config: EmbeddingProviderConfig): EmbeddingProvider => new OpenAIEmbeddingProvider(config));
+    this.graphQueryService = new GraphQueryService(db);
   }
 
   async createSession(
@@ -827,15 +834,15 @@ export class ChatService {
       let retrievedContext = emptyRetrievedContext();
 
       if (spaceSnapshots.length > 0) {
-        retrievedContext = await this.retrieveContext(prepared, spaceSnapshots);
+        retrievedContext = await this.retrieveContext(prepared, spaceSnapshots, input.retrievalMode);
         retrievalResults = retrievedContext.results;
       }
 
       graphHints = await this.retrieveGraphHints(prepared);
-      retrievedContext.trace.candidates.graph = graphHints;
-      retrievedContext.trace.aclFiltered.graph = graphHints;
-      retrievedContext.trace.finalContext.graph_hints = graphHints;
-      retrievedContext.trace.finalContext.graph_tokens = graphHints.reduce(
+      retrievedContext.trace.candidates.graph.push(...graphHints);
+      retrievedContext.trace.aclFiltered.graph.push(...graphHints);
+      retrievedContext.trace.finalContext.graph_hints.push(...graphHints);
+      retrievedContext.trace.finalContext.graph_tokens += graphHints.reduce(
         (total, hint) => total + countTokens(hint.content, prepared.chatModel.model_id),
         0,
       );
@@ -846,7 +853,7 @@ export class ChatService {
           source: 'no_hit',
         });
         void this.maybeGenerateTitle(prepared, input.message, NO_HIT_MESSAGE);
-        await this.persistRetrievalTrace(prepared, input.retrievalMode ?? 'wiki_only', retrievedContext).catch(
+        await this.persistRetrievalTrace(prepared, input.retrievalMode ?? 'graph_rag', retrievedContext).catch(
           () => undefined,
         );
         yield { type: 'content', delta: NO_HIT_MESSAGE };
@@ -864,7 +871,7 @@ export class ChatService {
           agentAvailable: this.agentService !== undefined,
         })
       ) {
-        await this.persistRetrievalTrace(prepared, input.retrievalMode ?? 'wiki_only', retrievedContext).catch(
+        await this.persistRetrievalTrace(prepared, input.retrievalMode ?? 'graph_rag', retrievedContext).catch(
           () => undefined,
         );
         yield* this.runAgentCompletion(prepared, input, { yieldSession: false });
@@ -919,7 +926,7 @@ export class ChatService {
       );
       void this.maybeGenerateTitle(prepared, input.message, assistantText);
       await this.persistCitations(assistant.id, citations);
-      await this.persistRetrievalTrace(prepared, input.retrievalMode ?? 'wiki_only', retrievedContext).catch(
+      await this.persistRetrievalTrace(prepared, input.retrievalMode ?? 'graph_rag', retrievedContext).catch(
         () => undefined,
       );
       await this.recordStaticModelUsage(prepared, usage, Date.now() - startedAt).catch(() => undefined);
@@ -1260,11 +1267,14 @@ export class ChatService {
   private async retrieveContext(
     prepared: PreparedCompletion,
     spaceSnapshots: Array<{ spaceId: string; snapshot: IndexSnapshotRow }>,
+    retrievalModeInput?: string,
   ): Promise<RetrievedContext> {
     if (spaceSnapshots.length === 0) {
       return emptyRetrievedContext();
     }
 
+    const retrievalMode = normalizeContextRetrievalMode(retrievalModeInput);
+    const includeGraph = retrievalMode !== 'wiki_only';
     const candidates: RetrievedContext['trace']['candidates'] = {
       vector: [],
       bm25: [],
@@ -1281,6 +1291,8 @@ export class ChatService {
     }
 
     let results: RetrievalResult[] = [];
+    const allVectorHits: SearchHit[] = [];
+    const allBm25Hits: SearchHit[] = [];
 
     for (const groupSnapshots of modelGroups.values()) {
       const firstSnapshot = groupSnapshots[0]?.snapshot;
@@ -1312,16 +1324,47 @@ export class ChatService {
         async (params) => {
           const hits = await vectorSearch(params);
           candidates.vector.push(...hits);
+          allVectorHits.push(...hits.map((hit) => ({ ...hit, spaceId: params.spaceId })));
           return hits;
         },
         async (params) => {
           const hits = await bm25Search(params);
           candidates.bm25.push(...hits);
+          allBm25Hits.push(...hits.map((hit) => ({ ...hit, spaceId: params.spaceId })));
           return hits;
         },
       );
 
       results.push(...groupResults);
+    }
+
+    if (includeGraph) {
+      const activeRunIds = activeGraphifyRunIdsFromSnapshots(spaceSnapshots);
+      if (activeRunIds.size > 0) {
+        const graphCandidates = await retrieveFullGraphContext(
+          {
+            query: prepared.message,
+            spaceIds: prepared.spaceIds,
+            activeRunIds,
+          },
+          this.graphQueryService,
+        );
+        candidates.graph.push(...graphCandidates);
+
+        if (graphCandidates.length > 0) {
+          allVectorHits.sort((left, right) => right.score - left.score);
+          allBm25Hits.sort((left, right) => right.score - left.score);
+          const fusedResults = rrfFuseThreeSource(allVectorHits, allBm25Hits, graphCandidates, {
+            topK: RETRIEVAL_TOP_K,
+          });
+          results = fusedResults
+            .filter((result): result is Extract<FusedRetrievalResult, { type: 'wiki_chunk' }> => result.type === 'wiki_chunk')
+            .map((result) => ({
+              ...result.hit,
+              score: result.score,
+            }));
+        }
+      }
     }
 
     results = results.sort((left, right) => right.score - left.score).slice(0, RETRIEVAL_TOP_K);
@@ -1332,7 +1375,7 @@ export class ChatService {
         candidates,
         aclFiltered: {
           wiki: results,
-          graph: [],
+          graph: candidates.graph,
         },
         finalContext: {
           wiki: results.map((result) => ({
@@ -1342,12 +1385,15 @@ export class ChatService {
             pageTitle: result.pageTitle,
             sectionTitle: result.sectionTitle,
           })),
-          graph_hints: [],
+          graph_hints: candidates.graph,
           wiki_tokens: results.reduce(
             (total, result) => total + countTokens(result.content, prepared.chatModel.model_id),
             0,
           ),
-          graph_tokens: 0,
+          graph_tokens: candidates.graph.reduce(
+            (total, candidate) => total + countTokens(candidate.content, prepared.chatModel.model_id),
+            0,
+          ),
         },
       },
     };
@@ -1978,6 +2024,26 @@ function toSimpleTsQuery(query: string): string {
 function normalizeRetrievalMode(value: string | undefined): string {
   const normalized = value?.trim().toLowerCase();
   return normalized === undefined || normalized.length === 0 ? 'wiki_only' : normalized;
+}
+
+function normalizeContextRetrievalMode(value: string | undefined): string {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === undefined || normalized.length === 0 ? 'graph_rag' : normalized;
+}
+
+function activeGraphifyRunIdsFromSnapshots(
+  spaceSnapshots: Array<{ spaceId: string; snapshot: IndexSnapshotRow }>,
+): Map<string, string> {
+  const activeRunIds = new Map<string, string>();
+
+  for (const { spaceId, snapshot } of spaceSnapshots) {
+    const runId = snapshot.graphify_run_id?.trim();
+    if (runId !== undefined && runId.length > 0) {
+      activeRunIds.set(spaceId, runId);
+    }
+  }
+
+  return activeRunIds;
 }
 
 function normalizePositiveInt(value: number | undefined, fallback: number, max = Number.POSITIVE_INFINITY): number {

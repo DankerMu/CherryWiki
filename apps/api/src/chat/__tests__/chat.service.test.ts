@@ -777,6 +777,86 @@ describe('ChatService streamCompletion', () => {
     expect(context.results.map((result) => result.spaceId)).toEqual(['space-a', 'space-b']);
   });
 
+  it('graph_rag retrieveContext records graph candidates and uses three-source fusion for wiki ranking', async () => {
+    const { service, db } = createServiceContext({
+      embeddingProvider: new ScriptedEmbeddingProvider([[0.1, 0.2, 0.3]]),
+    });
+    const prepared = createPreparedCompletion({
+      message: 'How is Auth connected?',
+      space: createSpaceRow({ active_graphify_run_id: 'run-1' }),
+    });
+    const retrieveContext = bindRetrieveContext(service);
+    db.queueSelect([createModelRow({ id: 'embedding-model', model_type: 'embedding' })]);
+    db.queueExecute([createSearchRow({ id: 'chunk-vector', score: 0.95 })]);
+    db.queueExecute([createSearchRow({ id: 'chunk-bm25', score: 0.9 })]);
+    db.queueExecute([createGraphNodeRow({ id: 'node-auth', label: 'Auth', community_id: 'community-1', score: 0.9 })]);
+    db.queueExecute([createCommunityRow({ id: 'community-1', label: 'Auth Cluster', summary: 'Auth service relationships' })]);
+    db.queueExecute([createGraphNodeRow({ id: 'node-api', label: 'API', community_id: 'community-1', score: 1 })]);
+
+    const context = await retrieveContext(
+      prepared,
+      [{ spaceId: TEST_SPACE_ID, snapshot: createSnapshotRow({ graphify_run_id: 'run-1' }) }],
+      'graph_rag',
+    );
+
+    expect(context.trace.candidates.graph.map((candidate) => candidate.id)).toEqual(
+      expect.arrayContaining(['node-auth', 'node-api', 'community-1']),
+    );
+    expect(context.trace.aclFiltered.graph).toHaveLength(context.trace.candidates.graph.length);
+    expect(context.trace.finalContext.graph_tokens).toBeGreaterThan(0);
+    expect(context.results.map((result) => result.chunkId)).toEqual(['chunk-vector', 'chunk-bm25']);
+  });
+
+  it('wiki_only retrieveContext skips graph candidates', async () => {
+    const { service, db } = createServiceContext({
+      embeddingProvider: new ScriptedEmbeddingProvider([[0.1, 0.2, 0.3]]),
+    });
+    const prepared = createPreparedCompletion({
+      message: 'How is Auth connected?',
+      space: createSpaceRow({ active_graphify_run_id: 'run-1' }),
+    });
+    const retrieveContext = bindRetrieveContext(service);
+    db.queueSelect([createModelRow({ id: 'embedding-model', model_type: 'embedding' })]);
+    db.queueExecute([createSearchRow({ id: 'chunk-vector', score: 0.95 })]);
+    db.queueExecute([createSearchRow({ id: 'chunk-bm25', score: 0.9 })]);
+
+    const context = await retrieveContext(
+      prepared,
+      [{ spaceId: TEST_SPACE_ID, snapshot: createSnapshotRow({ graphify_run_id: 'run-1' }) }],
+      'wiki_only',
+    );
+
+    expect(context.trace.candidates.graph).toEqual([]);
+    expect(context.trace.finalContext.graph_hints).toEqual([]);
+    expect(context.results.map((result) => result.chunkId)).toEqual(['chunk-vector', 'chunk-bm25']);
+  });
+
+  it('graph_rag retrieveContext completes simple fusion under 500ms', async () => {
+    const { service, db } = createServiceContext({
+      embeddingProvider: new ScriptedEmbeddingProvider([[0.1, 0.2, 0.3]]),
+    });
+    const prepared = createPreparedCompletion({
+      message: 'How is Auth connected?',
+      space: createSpaceRow({ active_graphify_run_id: 'run-1' }),
+    });
+    const retrieveContext = bindRetrieveContext(service);
+    db.queueSelect([createModelRow({ id: 'embedding-model', model_type: 'embedding' })]);
+    db.queueExecute([createSearchRow({ id: 'chunk-vector', score: 0.95 })]);
+    db.queueExecute([]);
+    db.queueExecute([createGraphNodeRow({ id: 'node-auth', label: 'Auth', community_id: 'community-1', score: 0.9 })]);
+    db.queueExecute([createCommunityRow({ id: 'community-1' })]);
+    db.queueExecute([]);
+
+    const startedAt = performance.now();
+    await retrieveContext(
+      prepared,
+      [{ spaceId: TEST_SPACE_ID, snapshot: createSnapshotRow({ graphify_run_id: 'run-1' }) }],
+      'graph_rag',
+    );
+
+    expect(performance.now() - startedAt).toBeLessThan(500);
+  });
+
   it('passes real user groups to graph hint retrieval without fabricating space permissions', async () => {
     const chatProvider = new ScriptedChatProvider([
       { type: 'content', delta: 'Use the graph hint.' },
@@ -1230,6 +1310,65 @@ function queueExistingCompletion(db: ScriptedChatDb, spaceIds: string[]): void {
   db.queueInsert([createMessageRow({ id: 'assistant-no-hit', role: 'assistant', content: NO_HIT_MESSAGE })]);
 }
 
+function createPreparedCompletion(overrides: Partial<{
+  tenantId: string;
+  userId: string;
+  userGroupIds: string[];
+  message: string;
+  chatModel: ModelConfigRow;
+  space: SpaceRow;
+  spaces: SpaceRow[];
+  spaceIds: string[];
+  session: ChatSessionRow;
+  history: ChatMessageRow[];
+  auditContext: Record<string, string>;
+}> = {}) {
+  const space = overrides.space ?? createSpaceRow();
+  const spaceIds = overrides.spaceIds ?? [space.id];
+
+  return {
+    tenantId: overrides.tenantId ?? TEST_TENANT_ID,
+    userId: overrides.userId ?? TEST_USER_ID,
+    userGroupIds: overrides.userGroupIds ?? [TEST_GROUP_ID],
+    message: overrides.message ?? 'How is SSO configured?',
+    chatModel: overrides.chatModel ?? createModelRow({ model_type: 'chat' }),
+    space,
+    spaces: overrides.spaces ?? spaceIds.map((spaceId) => createSpaceRow({ id: spaceId })),
+    spaceIds,
+    session: overrides.session ?? createSessionRow({ space_id: space.id }),
+    history: overrides.history ?? [],
+    auditContext: overrides.auditContext ?? {},
+  };
+}
+
+function bindRetrieveContext(service: ChatService): (
+  preparedCompletion: ReturnType<typeof createPreparedCompletion>,
+  snapshots: Array<{ spaceId: string; snapshot: IndexSnapshotRow }>,
+  retrievalMode?: string,
+) => Promise<{
+  results: RetrievalResult[];
+  trace: {
+    candidates: { graph: Array<{ id: string; content: string }> };
+    aclFiltered: { graph: unknown[] };
+    finalContext: { graph_hints: unknown[]; graph_tokens: number };
+  };
+}> {
+  return (service as unknown as {
+    retrieveContext: (
+      preparedCompletion: ReturnType<typeof createPreparedCompletion>,
+      snapshots: Array<{ spaceId: string; snapshot: IndexSnapshotRow }>,
+      retrievalMode?: string,
+    ) => Promise<{
+      results: RetrievalResult[];
+      trace: {
+        candidates: { graph: Array<{ id: string; content: string }> };
+        aclFiltered: { graph: unknown[] };
+        finalContext: { graph_hints: unknown[]; graph_tokens: number };
+      };
+    }>;
+  }).retrieveContext.bind(service);
+}
+
 class ScriptedChatDb {
   readonly inserts: Array<{ table?: unknown; value?: unknown }> = [];
   readonly updates: Array<{ table?: unknown; value?: unknown }> = [];
@@ -1499,6 +1638,32 @@ function createSearchRow(overrides: Record<string, unknown> = {}): Record<string
     page_title: 'Auth',
     section_title: 'SSO',
     score: 0.9,
+    ...overrides,
+  };
+}
+
+function createGraphNodeRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 'node-1',
+    node_key: 'node-1',
+    stable_key: 'node-1',
+    label: 'Auth',
+    node_type: 'service',
+    description: null,
+    space_id: TEST_SPACE_ID,
+    community_id: null,
+    score: 0.9,
+    ...overrides,
+  };
+}
+
+function createCommunityRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 'community-1',
+    community_key: 'community-1',
+    label: 'Auth Cluster',
+    summary: 'Auth service relationships',
+    node_count: 3,
     ...overrides,
   };
 }

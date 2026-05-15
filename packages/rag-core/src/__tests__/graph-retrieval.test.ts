@@ -1,8 +1,14 @@
-import type { GraphPath, GraphQueryEdge, GraphQueryNode, GraphQueryService } from '@cherrygraph/graph-core';
+import type {
+  GraphCommunitySummary,
+  GraphPath,
+  GraphQueryEdge,
+  GraphQueryNode,
+  GraphQueryService,
+} from '@cherrygraph/graph-core';
 import { describe, expect, it, vi } from 'vitest';
 
 import { packContext } from '../context-packer.js';
-import { retrieveGraphCandidates } from '../graph-retrieval.js';
+import { retrieveFullGraphContext, retrieveGraphCandidates } from '../graph-retrieval.js';
 import { rrfFuseThreeSource, type FusedRetrievalResult } from '../rrf-fusion.js';
 import {
   DEFAULT_RETRIEVAL_CONFIG,
@@ -149,6 +155,108 @@ describe('retrieveGraphCandidates', () => {
   });
 });
 
+describe('retrieveFullGraphContext', () => {
+  it('local mode returns search nodes plus community neighbor expansion', async () => {
+    const nodes = [
+      makeNode('node-a', 'Alpha', { community_id: 'community-1', score: 0.9 }),
+      makeNode('node-b', 'Beta', { community_id: 'community-2', score: 0.8 }),
+    ];
+    const communityNodes = new Map([
+      ['community-1', [nodes[0]!, makeNode('node-neighbor', 'Neighbor', { community_id: 'community-1', score: 1 })]],
+      ['community-2', [nodes[1]!]],
+    ]);
+    const service = makeFullGraphQueryService({ nodes, communityNodes });
+
+    const candidates = await retrieveFullGraphContext(
+      { ...makeFullGraphParams(), mode: 'local', neighborExpansionTopK: 1 },
+      service,
+    );
+
+    expect(candidates.map((candidate) => candidate.id)).toContain('node-a');
+    expect(candidates.map((candidate) => candidate.id)).toContain('node-neighbor');
+    expect(candidates.every((candidate) => candidate.type === 'graph_node')).toBe(true);
+    expect(service.getCommunityNodes).toHaveBeenCalledTimes(1);
+    expect(service.getCommunityNodes.mock.calls[0]?.[0]).toBe('community-1');
+    expect(service.getCommunityNodes.mock.calls[0]?.[1]).toEqual(['space-1']);
+    expect(Array.from(service.getCommunityNodes.mock.calls[0]?.[2].entries() ?? [])).toEqual([['space-1', 'run-1']]);
+  });
+
+  it('global mode returns matching community summaries', async () => {
+    const nodes = [makeNode('node-a', 'Alpha', { community_id: 'community-1', score: 0.9 })];
+    const communities = [
+      makeCommunity('community-1', { label: 'Auth', summary: 'Authentication cluster' }),
+      makeCommunity('community-2', { label: 'Billing', summary: 'Billing cluster' }),
+    ];
+
+    const candidates = await retrieveFullGraphContext(
+      { ...makeFullGraphParams(), mode: 'global' },
+      makeFullGraphQueryService({ nodes, communities }),
+    );
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({
+      type: 'community',
+      id: 'community-1',
+      content: '[Community] Auth: Authentication cluster',
+    });
+  });
+
+  it('hybrid mode merges, deduplicates, scores, sorts, and limits candidates', async () => {
+    const nodes = [
+      makeNode('node-low', 'Low', { community_id: 'community-1', score: 0.1 }),
+      makeNode('node-high', 'High', { community_id: 'community-2', score: 0.95 }),
+    ];
+    const communities = [
+      makeCommunity('community-1', { node_count: 2 }),
+      makeCommunity('community-2', { node_count: 20 }),
+    ];
+    const communityNodes = new Map([
+      ['community-1', [nodes[0]!]],
+      ['community-2', [nodes[1]!, makeNode('node-neighbor', 'Neighbor', { community_id: 'community-2', score: 1 })]],
+    ]);
+
+    const candidates = await retrieveFullGraphContext(
+      { ...makeFullGraphParams(), maxCandidates: 3 },
+      makeFullGraphQueryService({ nodes, communities, communityNodes }),
+    );
+
+    expect(candidates).toHaveLength(3);
+    expect(new Set(candidates.map((candidate) => `${candidate.type}:${candidate.id}`)).size).toBe(3);
+    expect(candidates[0]?.score).toBeGreaterThanOrEqual(candidates[1]?.score ?? 0);
+    expect(candidates.map((candidate) => candidate.id)).toContain('community-2');
+  });
+
+  it('returns empty array when node search has no graph hits', async () => {
+    const service = makeFullGraphQueryService({ nodes: [] });
+
+    await expect(retrieveFullGraphContext(makeFullGraphParams(), service)).resolves.toEqual([]);
+    expect(service.getCommunities).not.toHaveBeenCalled();
+    expect(service.getCommunityNodes).not.toHaveBeenCalled();
+  });
+
+  it('passes spaceIds and activeRunIds through graph queries for ACL scoping', async () => {
+    const params = {
+      ...makeFullGraphParams(),
+      spaceIds: ['space-1', 'space-2'],
+      activeRunIds: new Map([
+        ['space-1', 'run-1'],
+        ['space-2', 'run-2'],
+      ]),
+    };
+    const service = makeFullGraphQueryService({
+      nodes: [makeNode('node-a', 'Alpha', { community_id: 'community-1' })],
+      communities: [makeCommunity('community-1')],
+      communityNodes: new Map([['community-1', [makeNode('node-neighbor', 'Neighbor', { community_id: 'community-1' })]]]),
+    });
+
+    await retrieveFullGraphContext(params, service);
+
+    expect(service.searchNodes).toHaveBeenCalledWith(params.query, params.spaceIds, params.activeRunIds, 20);
+    expect(service.getCommunities).toHaveBeenCalledWith(params.spaceIds, params.activeRunIds);
+    expect(service.getCommunityNodes).toHaveBeenCalledWith('community-1', params.spaceIds, params.activeRunIds);
+  });
+});
+
 describe('packContext', () => {
   it('allocates token budgets by source and trims overflow items', () => {
     const fusedResults: FusedRetrievalResult[] = [
@@ -272,9 +380,19 @@ function makeGraphParams(ambiguousEdgePolicy: 'exclude' | 'explain_only' | 'incl
   };
 }
 
+function makeFullGraphParams() {
+  return {
+    query: 'alpha beta',
+    spaceIds: ['space-1'],
+    activeRunIds: new Map([['space-1', 'run-1']]),
+  };
+}
+
 type MockGraphQueryService = {
   searchNodes: ReturnType<typeof vi.fn<GraphQueryService['searchNodes']>>;
   findPath: ReturnType<typeof vi.fn<GraphQueryService['findPath']>>;
+  getCommunities: ReturnType<typeof vi.fn<GraphQueryService['getCommunities']>>;
+  getCommunityNodes: ReturnType<typeof vi.fn<GraphQueryService['getCommunityNodes']>>;
 };
 
 function makeGraphQueryService(
@@ -284,6 +402,25 @@ function makeGraphQueryService(
   const service: MockGraphQueryService = {
     searchNodes: vi.fn<GraphQueryService['searchNodes']>().mockResolvedValue(nodes),
     findPath: vi.fn<GraphQueryService['findPath']>().mockResolvedValue(paths),
+    getCommunities: vi.fn<GraphQueryService['getCommunities']>().mockResolvedValue([]),
+    getCommunityNodes: vi.fn<GraphQueryService['getCommunityNodes']>().mockResolvedValue([]),
+  };
+
+  return service as unknown as GraphQueryService & MockGraphQueryService;
+}
+
+function makeFullGraphQueryService(input: {
+  nodes: GraphQueryNode[];
+  communities?: GraphCommunitySummary[];
+  communityNodes?: Map<string, GraphQueryNode[]>;
+}): GraphQueryService & MockGraphQueryService {
+  const service: MockGraphQueryService = {
+    searchNodes: vi.fn<GraphQueryService['searchNodes']>().mockResolvedValue(input.nodes),
+    findPath: vi.fn<GraphQueryService['findPath']>().mockResolvedValue([]),
+    getCommunities: vi.fn<GraphQueryService['getCommunities']>().mockResolvedValue(input.communities ?? []),
+    getCommunityNodes: vi.fn<GraphQueryService['getCommunityNodes']>().mockImplementation((communityId) =>
+      Promise.resolve(input.communityNodes?.get(communityId) ?? []),
+    ),
   };
 
   return service as unknown as GraphQueryService & MockGraphQueryService;
@@ -314,7 +451,7 @@ function makeGraphCandidate(id: string, overrides: Partial<GraphCandidate> = {})
   };
 }
 
-function makeNode(id: string, label: string): GraphQueryNode {
+function makeNode(id: string, label: string, overrides: Partial<GraphQueryNode> = {}): GraphQueryNode {
   return {
     id,
     node_key: id,
@@ -325,6 +462,18 @@ function makeNode(id: string, label: string): GraphQueryNode {
     space_id: 'space-1',
     community_id: null,
     score: 1,
+    ...overrides,
+  };
+}
+
+function makeCommunity(id: string, overrides: Partial<GraphCommunitySummary> = {}): GraphCommunitySummary {
+  return {
+    id,
+    community_key: id,
+    label: id,
+    summary: null,
+    node_count: 3,
+    ...overrides,
   };
 }
 
