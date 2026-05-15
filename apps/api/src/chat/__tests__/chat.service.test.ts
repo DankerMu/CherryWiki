@@ -519,6 +519,33 @@ describe('ChatService RAG prompt and citations', () => {
     expect(prompt.messages.at(-1)).toEqual({ role: 'user', content: 'How does SSO work?' });
   });
 
+  it('builds a RAG prompt with supplemental graph context', () => {
+    const { service } = createServiceContext();
+    const prompt = service.buildRagPrompt({
+      retrievalResults: [createRetrievalResult({ pageTitle: 'Auth', sectionTitle: 'SSO', content: 'Use SSO facts.' })],
+      graphHints: [
+        {
+          type: 'graph_node',
+          id: 'node-auth',
+          content: '[Node] Auth (service): connected to API',
+          score: 0.8,
+          confidence_label: 'EXTRACTED',
+          effective_confidence_score: 1,
+          evidence_count: 1,
+          space_id: TEST_SPACE_ID,
+        },
+      ],
+      history: [],
+      currentMessage: 'How does Auth connect?',
+      modelId: 'gpt-test',
+      modelMaxTokens: 4096,
+    });
+
+    expect(prompt.systemPrompt).toContain('Graph hints (supplemental, do not cite these with [^N]):');
+    expect(prompt.systemPrompt).toContain('[G1] (Space: space-1) [Node] Auth (service): connected to API');
+  });
+
+
   it('extracts valid citations and ignores invalid citation indices', () => {
     const { service } = createServiceContext();
     const citations = service.extractCitations('Use [^1] and [^3], not [^99].', [
@@ -804,8 +831,92 @@ describe('ChatService streamCompletion', () => {
     );
     expect(context.trace.aclFiltered.graph).toHaveLength(context.trace.candidates.graph.length);
     expect(context.trace.finalContext.graph_tokens).toBeGreaterThan(0);
+    expect(context.graphContext.map((candidate) => candidate.id)).toEqual(
+      expect.arrayContaining(['node-auth', 'node-api', 'community-1']),
+    );
     expect(context.results.map((result) => result.chunkId)).toEqual(['chunk-vector', 'chunk-bm25']);
   });
+
+  it('retrieveContext defaults to wiki_only for backward compatibility', async () => {
+    const { service, db } = createServiceContext({
+      embeddingProvider: new ScriptedEmbeddingProvider([[0.1, 0.2, 0.3]]),
+    });
+    const prepared = createPreparedCompletion({
+      message: 'How is Auth connected?',
+      space: createSpaceRow({ active_graphify_run_id: 'run-1' }),
+    });
+    const retrieveContext = bindRetrieveContext(service);
+    db.queueSelect([createModelRow({ id: 'embedding-model', model_type: 'embedding' })]);
+    db.queueExecute([createSearchRow({ id: 'chunk-vector', score: 0.95 })]);
+    db.queueExecute([createSearchRow({ id: 'chunk-bm25', score: 0.9 })]);
+
+    const context = await retrieveContext(
+      prepared,
+      [{ spaceId: TEST_SPACE_ID, snapshot: createSnapshotRow({ graphify_run_id: 'run-1' }) }],
+    );
+
+    expect(context.graphContext).toEqual([]);
+    expect(context.trace.candidates.graph).toEqual([]);
+    expect(context.results.map((result) => result.chunkId)).toEqual(['chunk-vector', 'chunk-bm25']);
+  });
+
+  it('graph_rag retrieveContext isolates graph query failures and keeps wiki results', async () => {
+    const { service, db } = createServiceContext({
+      embeddingProvider: new ScriptedEmbeddingProvider([[0.1, 0.2, 0.3]]),
+    });
+    const prepared = createPreparedCompletion({
+      message: 'How is Auth connected?',
+      space: createSpaceRow({ active_graphify_run_id: 'run-1' }),
+    });
+    const retrieveContext = bindRetrieveContext(service);
+    db.queueSelect([createModelRow({ id: 'embedding-model', model_type: 'embedding' })]);
+    db.queueExecute([createSearchRow({ id: 'chunk-vector', score: 0.95 })]);
+    db.queueExecute([createSearchRow({ id: 'chunk-bm25', score: 0.9 })]);
+    db.queueExecute([{ broken: true }]);
+
+    const context = await retrieveContext(
+      prepared,
+      [{ spaceId: TEST_SPACE_ID, snapshot: createSnapshotRow({ graphify_run_id: 'run-1' }) }],
+      'graph_rag',
+    );
+
+    expect(context.graphContext).toEqual([]);
+    expect(context.trace.candidates.graph).toEqual([]);
+    expect(context.results.map((result) => result.chunkId)).toEqual(['chunk-vector', 'chunk-bm25']);
+  });
+
+  it('graph_rag retrieveContext enforces graph context budget without reducing wiki results', async () => {
+    const { service, db } = createServiceContext({
+      embeddingProvider: new ScriptedEmbeddingProvider([[0.1, 0.2, 0.3]]),
+    });
+    const prepared = createPreparedCompletion({
+      message: 'How is Auth connected?',
+      space: createSpaceRow({ active_graphify_run_id: 'run-1' }),
+    });
+    const retrieveContext = bindRetrieveContext(service);
+    db.queueSelect([createModelRow({ id: 'embedding-model', model_type: 'embedding' })]);
+    db.queueExecute([createSearchRow({ id: 'chunk-vector', score: 0.95 })]);
+    db.queueExecute([createSearchRow({ id: 'chunk-bm25', score: 0.9 })]);
+    db.queueExecute([
+      createGraphNodeRow({ id: 'node-long', label: 'Long', description: 'token '.repeat(3000), score: 0.99 }),
+      createGraphNodeRow({ id: 'node-short', label: 'Short', description: 'short graph context', score: 0.98 }),
+    ]);
+    db.queueExecute([]);
+
+    const context = await retrieveContext(
+      prepared,
+      [{ spaceId: TEST_SPACE_ID, snapshot: createSnapshotRow({ graphify_run_id: 'run-1' }) }],
+      'graph_rag',
+    );
+
+    expect(context.trace.candidates.graph.map((candidate) => candidate.id)).toEqual(
+      expect.arrayContaining(['node-long', 'node-short']),
+    );
+    expect(context.graphContext.map((candidate) => candidate.id)).toEqual(['node-short']);
+    expect(context.trace.finalContext.graph_tokens).toBeLessThanOrEqual(2500);
+    expect(context.results.map((result) => result.chunkId)).toEqual(['chunk-vector', 'chunk-bm25']);
+  });
+
 
   it('wiki_only retrieveContext skips graph candidates', async () => {
     const { service, db } = createServiceContext({
@@ -1347,6 +1458,7 @@ function bindRetrieveContext(service: ChatService): (
   retrievalMode?: string,
 ) => Promise<{
   results: RetrievalResult[];
+  graphContext: Array<{ id: string; content: string }>;
   trace: {
     candidates: { graph: Array<{ id: string; content: string }> };
     aclFiltered: { graph: unknown[] };
@@ -1360,6 +1472,7 @@ function bindRetrieveContext(service: ChatService): (
       retrievalMode?: string,
     ) => Promise<{
       results: RetrievalResult[];
+      graphContext: Array<{ id: string; content: string }>;
       trace: {
         candidates: { graph: Array<{ id: string; content: string }> };
         aclFiltered: { graph: unknown[] };

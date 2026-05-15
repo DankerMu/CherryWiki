@@ -156,16 +156,21 @@ describe('retrieveGraphCandidates', () => {
 });
 
 describe('retrieveFullGraphContext', () => {
-  it('local mode returns search nodes plus community neighbor expansion', async () => {
+  it('local mode returns search nodes plus community and 1-hop path neighbor expansion', async () => {
     const nodes = [
       makeNode('node-a', 'Alpha', { community_id: 'community-1', score: 0.9 }),
       makeNode('node-b', 'Beta', { community_id: 'community-2', score: 0.8 }),
     ];
+    const pathNeighbor = makeNode('node-cross', 'Cross', { community_id: 'community-3', score: 0.7 });
+    const path = makePath(
+      [nodes[0]!, pathNeighbor],
+      [makeEdge('edge-cross', 'node-a', 'node-cross', 'relates_to', 'EXTRACTED', 1, 1)],
+    );
     const communityNodes = new Map([
       ['community-1', [nodes[0]!, makeNode('node-neighbor', 'Neighbor', { community_id: 'community-1', score: 1 })]],
       ['community-2', [nodes[1]!]],
     ]);
-    const service = makeFullGraphQueryService({ nodes, communityNodes });
+    const service = makeFullGraphQueryService({ nodes, communityNodes, paths: [path] });
 
     const candidates = await retrieveFullGraphContext(
       { ...makeFullGraphParams(), mode: 'local', neighborExpansionTopK: 1 },
@@ -174,8 +179,10 @@ describe('retrieveFullGraphContext', () => {
 
     expect(candidates.map((candidate) => candidate.id)).toContain('node-a');
     expect(candidates.map((candidate) => candidate.id)).toContain('node-neighbor');
+    expect(candidates.map((candidate) => candidate.id)).toContain('node-cross');
     expect(candidates.every((candidate) => candidate.type === 'graph_node')).toBe(true);
     expect(service.getCommunityNodes).toHaveBeenCalledTimes(1);
+    expect(service.findPath).toHaveBeenCalledWith('node-a', 'node-b', 1, ['space-1'], expect.any(Map));
     expect(service.getCommunityNodes.mock.calls[0]?.[0]).toBe('community-1');
     expect(service.getCommunityNodes.mock.calls[0]?.[1]).toEqual(['space-1']);
     expect(Array.from(service.getCommunityNodes.mock.calls[0]?.[2].entries() ?? [])).toEqual([['space-1', 'run-1']]);
@@ -254,6 +261,19 @@ describe('retrieveFullGraphContext', () => {
     expect(service.searchNodes).toHaveBeenCalledWith(params.query, params.spaceIds, params.activeRunIds, 20);
     expect(service.getCommunities).toHaveBeenCalledWith(params.spaceIds, params.activeRunIds);
     expect(service.getCommunityNodes).toHaveBeenCalledWith('community-1', params.spaceIds, params.activeRunIds);
+  });
+
+  it('caps full graph context at top 30 candidates', async () => {
+    const nodes = Array.from({ length: 35 }, (_, index) =>
+      makeNode(`node-${index.toString().padStart(2, '0')}`, `Node ${index}`, { score: 1 - index / 100 }),
+    );
+
+    const candidates = await retrieveFullGraphContext(
+      { ...makeFullGraphParams(), mode: 'local', maxCandidates: 50 },
+      makeFullGraphQueryService({ nodes }),
+    );
+
+    expect(candidates).toHaveLength(30);
   });
 });
 
@@ -413,10 +433,11 @@ function makeFullGraphQueryService(input: {
   nodes: GraphQueryNode[];
   communities?: GraphCommunitySummary[];
   communityNodes?: Map<string, GraphQueryNode[]>;
+  paths?: GraphPath[];
 }): GraphQueryService & MockGraphQueryService {
   const service: MockGraphQueryService = {
     searchNodes: vi.fn<GraphQueryService['searchNodes']>().mockResolvedValue(input.nodes),
-    findPath: vi.fn<GraphQueryService['findPath']>().mockResolvedValue([]),
+    findPath: vi.fn<GraphQueryService['findPath']>().mockResolvedValue(input.paths ?? []),
     getCommunities: vi.fn<GraphQueryService['getCommunities']>().mockResolvedValue(input.communities ?? []),
     getCommunityNodes: vi.fn<GraphQueryService['getCommunityNodes']>().mockImplementation((communityId) =>
       Promise.resolve(input.communityNodes?.get(communityId) ?? []),

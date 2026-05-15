@@ -40,7 +40,7 @@ const MAX_PATH_TOP_K = 10;
 const MAX_HOPS = 6;
 const DEFAULT_NEIGHBOR_EXPANSION_TOP_K = 5;
 const DEFAULT_MAX_CANDIDATES = 30;
-const MAX_FULL_GRAPH_CANDIDATES = 50;
+const MAX_FULL_GRAPH_CANDIDATES = 30;
 
 type CandidateWithScoringContext = {
   candidate: GraphCandidate;
@@ -196,14 +196,25 @@ async function retrieveLocalCandidateContexts(
 ): Promise<CandidateWithScoringContext[]> {
   const candidateContexts = nodes.map((node) => toNodeCandidateContext(node, node.score));
   const expansionNodes = nodes.slice(0, neighborExpansionTopK).filter((node) => node.community_id !== null);
-  const communityNodeResults = await Promise.all(
-    expansionNodes.map((node) =>
-      graphQueryService.getCommunityNodes(node.community_id!, params.spaceIds, params.activeRunIds),
+  const topNodePairs = buildAllTopNodePairs(nodes.slice(0, DEFAULT_NEIGHBOR_EXPANSION_TOP_K));
+  const [communityNodeResults, oneHopPathResults] = await Promise.all([
+    Promise.all(
+      expansionNodes.map((node) =>
+        graphQueryService.getCommunityNodes(node.community_id!, params.spaceIds, params.activeRunIds),
+      ),
     ),
-  );
+    Promise.all(
+      topNodePairs.map(({ source, target }) =>
+        graphQueryService.findPath(source.id, target.id, 1, params.spaceIds, params.activeRunIds),
+      ),
+    ),
+  ]);
   const searchScoreByCommunityId = new Map<string, number>();
+  const searchScoreByNodeId = new Map<string, number>();
 
   for (const node of nodes) {
+    searchScoreByNodeId.set(node.id, normalizeNonNegativeNumber(node.score, 0));
+
     if (node.community_id === null) {
       continue;
     }
@@ -217,6 +228,17 @@ async function retrieveLocalCandidateContexts(
   for (const communityNodes of communityNodeResults) {
     for (const node of communityNodes) {
       candidateContexts.push(toNodeCandidateContext(node, searchScoreByCommunityId.get(node.community_id ?? '') ?? node.score));
+    }
+  }
+
+  for (const path of oneHopPathResults.flat()) {
+    if (!isUsablePath(path)) {
+      continue;
+    }
+
+    const pathScore = normalizeNonNegativeNumber(path.total_confidence, 0);
+    for (const node of path.nodes) {
+      candidateContexts.push(toNodeCandidateContext(node, searchScoreByNodeId.get(node.id) ?? pathScore));
     }
   }
 
@@ -323,6 +345,28 @@ function buildTopNodePairs(
       if (pairs.length >= maxPairs) {
         return pairs;
       }
+    }
+  }
+
+  return pairs;
+}
+
+function buildAllTopNodePairs(nodes: GraphQueryNode[]): Array<{ source: GraphQueryNode; target: GraphQueryNode }> {
+  const pairs: Array<{ source: GraphQueryNode; target: GraphQueryNode }> = [];
+
+  for (let sourceIndex = 0; sourceIndex < nodes.length; sourceIndex += 1) {
+    const source = nodes[sourceIndex];
+    if (source === undefined) {
+      continue;
+    }
+
+    for (let targetIndex = sourceIndex + 1; targetIndex < nodes.length; targetIndex += 1) {
+      const target = nodes[targetIndex];
+      if (target === undefined) {
+        continue;
+      }
+
+      pairs.push({ source, target });
     }
   }
 

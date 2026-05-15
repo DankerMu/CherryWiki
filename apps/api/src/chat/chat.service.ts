@@ -25,6 +25,7 @@ import {
   spaces,
 } from '@cherrygraph/shared';
 import {
+  DEFAULT_RETRIEVAL_CONFIG,
   retrieveFullGraphContext,
   retrieve,
   rrfFuseThreeSource,
@@ -56,6 +57,7 @@ import {
   paginatedResponse,
   type PaginatedResponse,
 } from '../common/dto/pagination.dto.js';
+import { getApiLogger } from '../common/logger/logger.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { GraphService } from '../graph/graph.service.js';
 import { decryptSpaceDatabaseConfig } from '../spaces/database-config.js';
@@ -203,6 +205,7 @@ type PreparedCompletion = {
 
 type RetrievedContext = {
   results: RetrievalResult[];
+  graphContext: Array<GraphHint | GraphCandidate>;
   trace: {
     candidates: {
       vector: SearchHit[];
@@ -634,7 +637,7 @@ export class ChatService {
 
   buildRagPrompt(input: {
     retrievalResults: RetrievalResult[];
-    graphHints?: GraphHint[];
+    graphHints?: Array<GraphHint | GraphCandidate>;
     history: ChatMessageRow[];
     currentMessage: string;
     modelId: string;
@@ -819,7 +822,7 @@ export class ChatService {
     yield { type: 'session', session_id: prepared.session.id };
 
     let retrievalResults: RetrievalResult[] = [];
-    let graphHints: GraphHint[] = [];
+    let graphContext: Array<GraphHint | GraphCandidate> = [];
     let usage = emptyUsage();
     const startedAt = Date.now();
 
@@ -836,24 +839,28 @@ export class ChatService {
       if (spaceSnapshots.length > 0) {
         retrievedContext = await this.retrieveContext(prepared, spaceSnapshots, input.retrievalMode);
         retrievalResults = retrievedContext.results;
+        graphContext = retrievedContext.graphContext;
       }
 
-      graphHints = await this.retrieveGraphHints(prepared);
-      retrievedContext.trace.candidates.graph.push(...graphHints);
-      retrievedContext.trace.aclFiltered.graph.push(...graphHints);
-      retrievedContext.trace.finalContext.graph_hints.push(...graphHints);
-      retrievedContext.trace.finalContext.graph_tokens += graphHints.reduce(
-        (total, hint) => total + countTokens(hint.content, prepared.chatModel.model_id),
-        0,
-      );
+      if (graphContext.length === 0 && normalizeContextRetrievalMode(input.retrievalMode) === 'wiki_only') {
+        const graphHints = await this.retrieveGraphHints(prepared);
+        graphContext = graphHints;
+        retrievedContext.trace.candidates.graph.push(...graphHints);
+        retrievedContext.trace.aclFiltered.graph.push(...graphHints);
+        retrievedContext.trace.finalContext.graph_hints.push(...graphHints);
+        retrievedContext.trace.finalContext.graph_tokens += graphHints.reduce(
+          (total, hint) => total + countTokens(hint.content, prepared.chatModel.model_id),
+          0,
+        );
+      }
 
-      const noHit = retrievalResults.length === 0 && graphHints.length === 0;
+      const noHit = retrievalResults.length === 0 && graphContext.length === 0;
       if (noHit && prepared.space.strict_knowledge_only) {
         const assistant = await this.persistMessage(prepared.session.id, 'assistant', NO_HIT_MESSAGE, 0, [], {
           source: 'no_hit',
         });
         void this.maybeGenerateTitle(prepared, input.message, NO_HIT_MESSAGE);
-        await this.persistRetrievalTrace(prepared, input.retrievalMode ?? 'graph_rag', retrievedContext).catch(
+        await this.persistRetrievalTrace(prepared, input.retrievalMode ?? 'wiki_only', retrievedContext).catch(
           () => undefined,
         );
         yield { type: 'content', delta: NO_HIT_MESSAGE };
@@ -871,7 +878,7 @@ export class ChatService {
           agentAvailable: this.agentService !== undefined,
         })
       ) {
-        await this.persistRetrievalTrace(prepared, input.retrievalMode ?? 'graph_rag', retrievedContext).catch(
+        await this.persistRetrievalTrace(prepared, input.retrievalMode ?? 'wiki_only', retrievedContext).catch(
           () => undefined,
         );
         yield* this.runAgentCompletion(prepared, input, { yieldSession: false });
@@ -881,7 +888,7 @@ export class ChatService {
       const relaxedNoHit = noHit;
       const prompt = this.buildRagPrompt({
         retrievalResults,
-        graphHints,
+        graphHints: graphContext,
         history: prepared.history,
         currentMessage: prepared.message,
         modelId: prepared.chatModel.model_id,
@@ -1291,6 +1298,7 @@ export class ChatService {
     }
 
     let results: RetrievalResult[] = [];
+    let graphContext: Array<GraphHint | GraphCandidate> = [];
     const allVectorHits: SearchHit[] = [];
     const allBm25Hits: SearchHit[] = [];
 
@@ -1341,21 +1349,30 @@ export class ChatService {
     if (includeGraph) {
       const activeRunIds = activeGraphifyRunIdsFromSnapshots(spaceSnapshots);
       if (activeRunIds.size > 0) {
-        const graphCandidates = await retrieveFullGraphContext(
-          {
-            query: prepared.message,
-            spaceIds: prepared.spaceIds,
-            activeRunIds,
-          },
-          this.graphQueryService,
-        );
+        let graphCandidates: GraphCandidate[] = [];
+        try {
+          graphCandidates = await retrieveFullGraphContext(
+            {
+              query: prepared.message,
+              spaceIds: prepared.spaceIds,
+              activeRunIds,
+            },
+            this.graphQueryService,
+          );
+        } catch (err) {
+          getApiLogger().warn(
+            { err, tenant_id: prepared.tenantId, space_ids: prepared.spaceIds },
+            'Full graph retrieval failed; continuing with wiki retrieval only',
+          );
+        }
         candidates.graph.push(...graphCandidates);
 
         if (graphCandidates.length > 0) {
           allVectorHits.sort((left, right) => right.score - left.score);
           allBm25Hits.sort((left, right) => right.score - left.score);
+          const fusedTopK = allVectorHits.length + allBm25Hits.length + graphCandidates.length;
           const fusedResults = rrfFuseThreeSource(allVectorHits, allBm25Hits, graphCandidates, {
-            topK: RETRIEVAL_TOP_K,
+            topK: fusedTopK,
           });
           results = fusedResults
             .filter((result): result is Extract<FusedRetrievalResult, { type: 'wiki_chunk' }> => result.type === 'wiki_chunk')
@@ -1363,6 +1380,13 @@ export class ChatService {
               ...result.hit,
               score: result.score,
             }));
+          graphContext = truncateGraphContextForBudget(
+            fusedResults
+              .filter((result): result is Extract<FusedRetrievalResult, { type: 'graph' }> => result.type === 'graph')
+              .map((result) => ({ ...result.candidate, score: result.score })),
+            prepared.chatModel.model_id,
+            DEFAULT_RETRIEVAL_CONFIG.graph_context_budget,
+          );
         }
       }
     }
@@ -1371,6 +1395,7 @@ export class ChatService {
 
     return {
       results,
+      graphContext,
       trace: {
         candidates,
         aclFiltered: {
@@ -1385,12 +1410,12 @@ export class ChatService {
             pageTitle: result.pageTitle,
             sectionTitle: result.sectionTitle,
           })),
-          graph_hints: candidates.graph,
+          graph_hints: graphContext,
           wiki_tokens: results.reduce(
             (total, result) => total + countTokens(result.content, prepared.chatModel.model_id),
             0,
           ),
-          graph_tokens: candidates.graph.reduce(
+          graph_tokens: graphContext.reduce(
             (total, candidate) => total + countTokens(candidate.content, prepared.chatModel.model_id),
             0,
           ),
@@ -1670,7 +1695,7 @@ export function shouldFallbackToAgentAfterNoHit(input: {
 function buildSystemPrompt(
   retrievalResults: RetrievalResult[],
   relaxedNoHit: boolean,
-  graphHints: GraphHint[] = [],
+  graphHints: Array<GraphHint | GraphCandidate> = [],
   spaces: SpaceDisplayInfo[] = [],
 ): string {
   const spaceLabels = new Map(spaces.map((space) => [space.id, space.name]));
@@ -1717,7 +1742,10 @@ function formatContextBlock(results: RetrievalResult[], spaceLabels: Map<string,
     .join('\n');
 }
 
-function formatGraphHintBlock(hints: GraphHint[], spaceLabels: Map<string, string> = new Map()): string {
+function formatGraphHintBlock(
+  hints: Array<GraphHint | GraphCandidate>,
+  spaceLabels: Map<string, string> = new Map(),
+): string {
   return hints
     .map((hint, index) => {
       const space = spaceLabels.get(hint.space_id) ?? hint.space_id;
@@ -1753,6 +1781,7 @@ function toGraphHint(node: {
 function emptyRetrievedContext(): RetrievedContext {
   return {
     results: [],
+    graphContext: [],
     trace: {
       candidates: {
         vector: [],
@@ -2027,8 +2056,28 @@ function normalizeRetrievalMode(value: string | undefined): string {
 }
 
 function normalizeContextRetrievalMode(value: string | undefined): string {
-  const normalized = value?.trim().toLowerCase();
-  return normalized === undefined || normalized.length === 0 ? 'graph_rag' : normalized;
+  return normalizeRetrievalMode(value);
+}
+
+function truncateGraphContextForBudget<T extends { content: string }>(
+  candidates: T[],
+  modelId: string,
+  budget: number,
+): T[] {
+  const selected: T[] = [];
+  let used = 0;
+
+  for (const candidate of candidates) {
+    const tokens = countTokens(candidate.content, modelId);
+    if (used + tokens > budget) {
+      continue;
+    }
+
+    selected.push(candidate);
+    used += tokens;
+  }
+
+  return selected;
 }
 
 function activeGraphifyRunIdsFromSnapshots(
