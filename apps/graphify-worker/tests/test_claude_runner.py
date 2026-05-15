@@ -327,6 +327,82 @@ def test_timeout_sends_sigterm_after_timeout(
     assert fake_proc.killed is False
 
 
+def test_run_graphify_returns_input_metrics_and_claude_session_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    input_dir = _input_dir(tmp_path)
+    fake_proc = FakeProc(
+        stdout=LineStdout(
+            [
+                '{"type":"system","session_id":"session-1"}\n',
+                '{"type":"result","result":{"is_error":false}}\n',
+            ]
+        )
+    )
+    _enable_runner(monkeypatch, tmp_path)
+
+    def fake_spawn(
+        session_dir: Path, _config_dir: Path, _settings_path: Path
+    ) -> FakeProc:
+        output_dir = session_dir / "graphify-out"
+        output_dir.mkdir()
+        (output_dir / "graph.json").write_text(
+            '{"nodes":[{"id":"a"}],"links":[]}', encoding="utf-8"
+        )
+        wiki_dir = output_dir / "wiki"
+        wiki_dir.mkdir()
+        (wiki_dir / "index.md").write_text("# Index\n", encoding="utf-8")
+        return fake_proc
+
+    monkeypatch.setattr(claude_runner, "spawn_claude", fake_spawn)
+
+    result = asyncio.run(claude_runner.run_graphify("run-1", input_dir, timeout=1))
+
+    assert result["input_file_count"] == 1
+    assert result["input_total_words"] == 2
+    assert result["claude_session_id"] == "session-1"
+
+
+def test_stream_loop_counts_requires_interaction_events(tmp_path: Path) -> None:
+    proc = FakeProc(
+        stdout=LineStdout(
+            [
+                '{"type":"system","session_id":"session-1"}\n',
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "role": "assistant",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": "Please confirm which option to use.",
+                                }
+                            ],
+                        },
+                    }
+                )
+                + "\n",
+                '{"type":"result","result":{"is_error":false}}\n',
+            ]
+        )
+    )
+
+    result = asyncio.run(claude_runner._run_stream_loop(proc, tmp_path, 1))
+
+    assert result["reason"] == "requires_interaction"
+    assert result["requires_interaction_count"] == 1
+
+
+def test_stream_loop_counts_timeout(tmp_path: Path) -> None:
+    proc = FakeProc(stdout=BlockingStdout())
+
+    result = asyncio.run(claude_runner._run_stream_loop(proc, tmp_path, 0.01))
+
+    assert result["reason"] == "timeout"
+    assert result["timeout_count"] == 1
+
+
 def test_preflight_151_files_fails_input_too_large(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
