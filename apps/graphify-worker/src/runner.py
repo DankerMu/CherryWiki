@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import stat
+import time
 from pathlib import Path
 from typing import Any
 
@@ -27,12 +28,19 @@ _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
 async def run(job_data: dict[str, Any]) -> dict[str, Any]:
+    start_time = time.monotonic()
     if os.environ.get("GRAPHIFY_RUNNER_MODE", "claude_code") == "disabled":
-        raise RuntimeError(json.dumps({"reason": "runner_disabled", "retryable": True}))
+        _raise_runtime_error(
+            {"reason": "runner_disabled", "retryable": True},
+            _stats_json(duration_ms=_duration_ms(start_time)),
+        )
     if not os.environ.get("AGENT_ANTHROPIC_API_KEY") or not os.environ.get(
         "AGENT_ANTHROPIC_BASE_URL"
     ):
-        raise RuntimeError(json.dumps({"reason": "missing_api_key"}))
+        _raise_runtime_error(
+            {"reason": "missing_api_key"},
+            _stats_json(duration_ms=_duration_ms(start_time)),
+        )
 
     job_id = job_data.get("id") or job_data.get("job_id")
     payload = _payload(job_data)
@@ -57,6 +65,8 @@ async def run(job_data: dict[str, Any]) -> dict[str, Any]:
         extra={"job_id": job_id, "run_id": run_id, "input_count": len(input_uris)},
     )
 
+    stats_json = _stats_json()
+
     try:
         input_dir.mkdir(parents=True, exist_ok=True)
 
@@ -70,8 +80,10 @@ async def run(job_data: dict[str, Any]) -> dict[str, Any]:
         result = await claude_runner.run_graphify(
             run_id, str(input_dir), timeout=GRAPHIFY_TIMEOUT
         )
+        stats_json = _stats_json(claude_result=result)
         if result.get("status") != "success":
-            raise RuntimeError(json.dumps(result))
+            stats_json["duration_ms"] = _duration_ms(start_time)
+            _raise_runtime_error(result, stats_json)
 
         output_dir = _output_dir_from_result(result)
         if output_dir.is_symlink():
@@ -82,6 +94,12 @@ async def run(job_data: dict[str, Any]) -> dict[str, Any]:
         validation = _validate_output(
             output_dir, run_id=run_id, graphify_ref=GRAPHIFY_REF
         )
+        stats_json = _stats_json(
+            validation=validation,
+            claude_result=result,
+            output_dir=output_dir,
+            duration_ms=_duration_ms(start_time),
+        )
         report_path = output_dir / "validation_report.json"
         _write_validation_report(report_path, validation)
         if not validation["validation_passed"]:
@@ -91,7 +109,7 @@ async def run(job_data: dict[str, Any]) -> dict[str, Any]:
                 )
             except Exception:
                 logger.warning("Failed to upload validation report", exc_info=True)
-            raise RuntimeError(json.dumps(_validation_error(validation)))
+            _raise_runtime_error(_validation_error(validation), stats_json)
 
         storage.upload_directory(output_dir, OUTPUT_BUCKET, key_prefix)
 
@@ -99,6 +117,7 @@ async def run(job_data: dict[str, Any]) -> dict[str, Any]:
         graph_html_path = output_dir / "graph.html"
         report_md_path = output_dir / "GRAPH_REPORT.md"
 
+        stats_json["duration_ms"] = _duration_ms(start_time)
         return {
             "status": "success",
             "graph_json_uri": f"{base_uri}/graph.json",
@@ -111,13 +130,12 @@ async def run(job_data: dict[str, Any]) -> dict[str, Any]:
             else None,
             "validation_report_uri": f"{base_uri}/validation_report.json",
             "stats_json": {
-                "node_count": validation.get("node_count", 0),
-                "edge_count": validation.get("edge_count", 0),
-                "wiki_page_count": validation.get("wiki_page_count", 0),
-                "total_output_bytes": validation.get("total_output_bytes", 0),
+                **stats_json,
             },
             "schema_version": "v1",
         }
+    except RuntimeError as exc:
+        _raise_with_duration(exc, stats_json, start_time)
     finally:
         if workdir.exists():
             shutil.rmtree(workdir, ignore_errors=True)
@@ -142,6 +160,84 @@ def _write_validation_report(report_path: Path, validation: dict[str, Any]) -> N
         else:
             report_path.unlink()
     report_path.write_text(json.dumps(validation, indent=2), encoding="utf-8")
+
+
+def _duration_ms(start_time: float) -> int:
+    return max(1, int((time.monotonic() - start_time) * 1000))
+
+
+def _stats_json(
+    *,
+    validation: dict[str, Any] | None = None,
+    claude_result: dict[str, Any] | None = None,
+    output_dir: Path | None = None,
+    duration_ms: int = 0,
+) -> dict[str, Any]:
+    validation = validation or {}
+    claude_result = claude_result or {}
+    return {
+        "node_count": int(validation.get("node_count") or 0),
+        "edge_count": int(validation.get("edge_count") or 0),
+        "wiki_page_count": int(validation.get("wiki_page_count") or 0),
+        "total_output_bytes": int(validation.get("total_output_bytes") or 0),
+        "input_file_count": int(claude_result.get("input_file_count") or 0),
+        "input_total_words": int(claude_result.get("input_total_words") or 0),
+        "claude_session_id": claude_result.get("claude_session_id"),
+        "duration_ms": duration_ms,
+        "empty_output_count": _empty_output_count(
+            validation, output_dir, claude_result
+        ),
+        "timeout_count": int(claude_result.get("timeout_count") or 0),
+        "requires_interaction_count": int(
+            claude_result.get("requires_interaction_count") or 0
+        ),
+        "validation_failed_reason": _validation_failed_reason(validation),
+    }
+
+
+def _empty_output_count(
+    validation: dict[str, Any],
+    output_dir: Path | None = None,
+    claude_result: dict[str, Any] | None = None,
+) -> int:
+    if claude_result and claude_result.get("reason") == "empty_output":
+        return 1
+    if output_dir is not None and not (output_dir / "graph.json").exists():
+        return 1
+    if validation and int(validation.get("node_count") or 0) == 0:
+        return 1
+    return 0
+
+
+def _validation_failed_reason(validation: dict[str, Any]) -> str | None:
+    if not validation or validation.get("validation_passed") is not False:
+        return None
+    for check in validation.get("checks", []):
+        if check.get("status") == "failed":
+            return f"{check.get('name', '')}: {check.get('details', '')}"
+    return None
+
+
+def _raise_runtime_error(error: dict[str, Any], stats_json: dict[str, Any]) -> None:
+    raise RuntimeError(json.dumps({**error, "stats_json": stats_json}))
+
+
+def _raise_with_duration(
+    exc: RuntimeError, stats_json: dict[str, Any], start_time: float
+) -> None:
+    try:
+        error = json.loads(str(exc))
+    except json.JSONDecodeError:
+        raise
+    if not isinstance(error, dict):
+        raise
+    error_stats = error.get("stats_json")
+    if isinstance(error_stats, dict):
+        error_stats["duration_ms"] = _duration_ms(start_time)
+    else:
+        stats_json["duration_ms"] = _duration_ms(start_time)
+        error["stats_json"] = stats_json
+    raise RuntimeError(json.dumps(error)) from exc
 
 
 def _validation_error(validation: dict[str, Any]) -> dict[str, Any]:

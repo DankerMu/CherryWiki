@@ -50,6 +50,20 @@ def test_run_success_uploads_outputs_and_cleans_workdir(
     assert result["stats_json"]["node_count"] == fixture_count("nodes")
     assert result["stats_json"]["edge_count"] == fixture_count("edges")
     assert result["stats_json"]["wiki_page_count"] == 5
+    assert set(result["stats_json"]) == {
+        "node_count",
+        "edge_count",
+        "wiki_page_count",
+        "total_output_bytes",
+        "input_file_count",
+        "input_total_words",
+        "claude_session_id",
+        "duration_ms",
+        "empty_output_count",
+        "timeout_count",
+        "requires_interaction_count",
+        "validation_failed_reason",
+    }
     assert captured_manifest["space_id"] == "space-1"
     assert captured_manifest["run_id"] == "run-1"
     assert captured_manifest["mode"] == "full"
@@ -116,7 +130,9 @@ def test_run_disabled_mode_fails_before_download(
         asyncio.run(runner.run(job_data()))
 
     error = json.loads(str(exc_info.value))
-    assert error == {"reason": "runner_disabled", "retryable": True}
+    assert error["reason"] == "runner_disabled"
+    assert error["retryable"] is True
+    assert error["stats_json"]["duration_ms"] > 0
     assert storage.downloads == []
     assert not any(tmp_path.iterdir())
 
@@ -137,7 +153,9 @@ def test_run_missing_api_key_fails_before_download(
     with pytest.raises(RuntimeError) as exc_info:
         asyncio.run(runner.run(job_data()))
 
-    assert json.loads(str(exc_info.value)) == {"reason": "missing_api_key"}
+    error = json.loads(str(exc_info.value))
+    assert error["reason"] == "missing_api_key"
+    assert error["stats_json"]["duration_ms"] > 0
     assert storage.downloads == []
     assert not any(tmp_path.iterdir())
 
@@ -166,6 +184,175 @@ def test_run_pipeline_error_reports_and_cleans_workdir(
 
     assert json.loads(str(exc_info.value))["reason"] == "llm_error"
     assert not (tmp_path / "run-1").exists()
+
+
+def test_run_stats_contains_claude_metrics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_fake_storage(monkeypatch)
+    install_runner_config(monkeypatch, tmp_path)
+    install_fake_run_graphify(
+        monkeypatch,
+        input_file_count=2,
+        input_total_words=7,
+        claude_session_id="session-1",
+        timeout_count=1,
+        requires_interaction_count=3,
+    )
+
+    result = asyncio.run(runner.run(job_data()))
+
+    stats = result["stats_json"]
+    assert stats["input_file_count"] == 2
+    assert stats["input_total_words"] == 7
+    assert stats["claude_session_id"] == "session-1"
+    assert stats["timeout_count"] == 1
+    assert stats["requires_interaction_count"] == 3
+
+
+def test_run_duration_ms_is_positive_on_success_and_exception(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_fake_storage(monkeypatch)
+    install_runner_config(monkeypatch, tmp_path)
+    install_fake_run_graphify(monkeypatch)
+
+    result = asyncio.run(runner.run(job_data()))
+
+    assert isinstance(result["stats_json"]["duration_ms"], int)
+    assert result["stats_json"]["duration_ms"] > 0
+
+    install_fake_storage(monkeypatch)
+    install_runner_config(monkeypatch, tmp_path)
+
+    async def fake_run_graphify(
+        _run_id: str, _input_dir: str, *, timeout: float | None = None
+    ) -> dict[str, Any]:
+        return {
+            "status": "failed",
+            "state": "FAILED",
+            "reason": "llm_error",
+            "input_file_count": 2,
+            "input_total_words": 4,
+            "claude_session_id": None,
+            "timeout_count": 0,
+            "requires_interaction_count": 0,
+        }
+
+    monkeypatch.setattr(runner.claude_runner, "run_graphify", fake_run_graphify)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        asyncio.run(runner.run(job_data()))
+
+    stats = json.loads(str(exc_info.value))["stats_json"]
+    assert isinstance(stats["duration_ms"], int)
+    assert stats["duration_ms"] > 0
+
+
+def test_run_empty_graph_sets_empty_output_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_fake_storage(monkeypatch)
+    install_runner_config(monkeypatch, tmp_path)
+
+    def build_output(_input_dir: Path, output_dir: Path) -> None:
+        (output_dir / "graph.json").write_text(
+            '{"nodes":[],"edges":[]}', encoding="utf-8"
+        )
+        wiki_dir = output_dir / "wiki"
+        wiki_dir.mkdir(parents=True)
+        (wiki_dir / "index.md").write_text("# Index", encoding="utf-8")
+        (output_dir / "GRAPH_REPORT.md").write_text("report", encoding="utf-8")
+
+    install_fake_run_graphify(monkeypatch, build_output)
+
+    result = asyncio.run(runner.run(job_data()))
+
+    assert result["stats_json"]["empty_output_count"] == 1
+
+
+def test_run_missing_graph_sets_empty_output_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_fake_storage(monkeypatch)
+    install_runner_config(monkeypatch, tmp_path)
+
+    def build_output(_input_dir: Path, output_dir: Path) -> None:
+        wiki_dir = output_dir / "wiki"
+        wiki_dir.mkdir(parents=True)
+        (wiki_dir / "index.md").write_text("# Index", encoding="utf-8")
+        (output_dir / "GRAPH_REPORT.md").write_text("report", encoding="utf-8")
+
+    install_fake_run_graphify(monkeypatch, build_output)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        asyncio.run(runner.run(job_data()))
+
+    stats = json.loads(str(exc_info.value))["stats_json"]
+    assert stats["empty_output_count"] == 1
+
+
+def test_run_claude_empty_output_reason_sets_empty_output_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_fake_storage(monkeypatch)
+    install_runner_config(monkeypatch, tmp_path)
+
+    async def fake_run_graphify(
+        _run_id: str, _input_dir: str, *, timeout: float | None = None
+    ) -> dict[str, Any]:
+        return {
+            "status": "failed",
+            "state": "FAILED",
+            "reason": "empty_output",
+            "retryable": False,
+            "input_file_count": 1,
+            "input_total_words": 10,
+            "claude_session_id": None,
+            "timeout_count": 0,
+            "requires_interaction_count": 0,
+        }
+
+    monkeypatch.setattr(runner.claude_runner, "run_graphify", fake_run_graphify)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        asyncio.run(runner.run(job_data()))
+
+    stats = json.loads(str(exc_info.value))["stats_json"]
+    assert stats["empty_output_count"] == 1
+
+
+def test_run_validation_failure_sets_failed_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_fake_storage(monkeypatch)
+    install_runner_config(monkeypatch, tmp_path)
+
+    def build_output(_input_dir: Path, output_dir: Path) -> None:
+        (output_dir / "graph.json").write_text(
+            '{"nodes":[{"id":"a"}],"edges":[]}', encoding="utf-8"
+        )
+        (output_dir / "GRAPH_REPORT.md").write_text("report", encoding="utf-8")
+
+    install_fake_run_graphify(monkeypatch, build_output)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        asyncio.run(runner.run(job_data()))
+
+    stats = json.loads(str(exc_info.value))["stats_json"]
+    assert stats["validation_failed_reason"] == "missing_wiki_dir: wiki/ not found"
+
+
+def test_run_validation_success_sets_failed_reason_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_fake_storage(monkeypatch)
+    install_runner_config(monkeypatch, tmp_path)
+    install_fake_run_graphify(monkeypatch)
+
+    result = asyncio.run(runner.run(job_data()))
+
+    assert result["stats_json"]["validation_failed_reason"] is None
 
 
 def test_run_missing_graph_json_fails_validation_and_cleans_workdir(
@@ -400,6 +587,11 @@ def install_fake_run_graphify(
     build_output: Callable[[Path, Path], None] | None = None,
     *,
     expected_run_id: str = "run-1",
+    input_file_count: int = 2,
+    input_total_words: int = 6,
+    claude_session_id: str | None = "session-1",
+    timeout_count: int = 0,
+    requires_interaction_count: int = 0,
 ) -> None:
     async def fake_run_graphify(
         run_id: str, input_dir: str, *, timeout: float | None = None
@@ -413,19 +605,40 @@ def install_fake_run_graphify(
             shutil.copytree(FIXTURE_OUTPUT, output_dir, dirs_exist_ok=True)
         else:
             build_output(input_path, output_dir)
-        return success_run_graphify_result(output_dir)
+        return success_run_graphify_result(
+            output_dir,
+            input_file_count=input_file_count,
+            input_total_words=input_total_words,
+            claude_session_id=claude_session_id,
+            timeout_count=timeout_count,
+            requires_interaction_count=requires_interaction_count,
+        )
 
     monkeypatch.setattr(runner.claude_runner, "run_graphify", fake_run_graphify)
 
 
-def success_run_graphify_result(output_dir: Path) -> dict[str, Any]:
+def success_run_graphify_result(
+    output_dir: Path,
+    *,
+    input_file_count: int = 2,
+    input_total_words: int = 6,
+    claude_session_id: str | None = "session-1",
+    timeout_count: int = 0,
+    requires_interaction_count: int = 0,
+) -> dict[str, Any]:
     return {
         "status": "success",
         "state": "SUCCEEDED",
+        "session_id": claude_session_id,
+        "claude_session_id": claude_session_id,
         "output_dir": str(output_dir),
         "graph_json_path": str(output_dir / "graph.json"),
         "wiki_output_path": str(output_dir / "wiki"),
         "report_path": str(output_dir / "GRAPH_REPORT.md"),
+        "input_file_count": input_file_count,
+        "input_total_words": input_total_words,
+        "timeout_count": timeout_count,
+        "requires_interaction_count": requires_interaction_count,
     }
 
 

@@ -458,6 +458,7 @@ async def run_graphify(
             "state": RunState.FAILED.value,
             "reason": "runner_disabled",
             "retryable": True,
+            **_default_graphify_metrics(),
         }
 
     if not os.environ.get("AGENT_ANTHROPIC_API_KEY") or not os.environ.get(
@@ -468,11 +469,12 @@ async def run_graphify(
             "state": RunState.FAILED.value,
             "reason": "missing_api_key",
             "retryable": False,
+            **_default_graphify_metrics(),
         }
 
     preflight = preflight_check(input_dir)
     if not preflight.get("ok"):
-        return preflight
+        return _with_graphify_metrics(preflight, preflight)
 
     dirs = prepare_run_dirs(run_id)
     _copy_inputs(Path(input_dir), dirs.input_dir)
@@ -487,7 +489,8 @@ async def run_graphify(
     try:
         proc = spawn_claude(dirs.session_dir, dirs.config_dir, settings_path)
         write_user_message(proc, FIRST_GRAPHIFY_MESSAGE)
-        return await _run_stream_loop(proc, dirs.session_dir, float(timeout_seconds))
+        result = await _run_stream_loop(proc, dirs.session_dir, float(timeout_seconds))
+        return _with_graphify_metrics(result, preflight)
     finally:
         if proc is not None:
             await _cleanup_process(proc)
@@ -501,11 +504,16 @@ async def _run_stream_loop(
     state = RunState.STARTING
     session_id: str | None = None
     waiting_for_input = False
+    requires_interaction_count = 0
 
     while True:
         remaining = deadline - loop.time()
         if remaining <= 0:
-            return await _terminate_for_timeout(proc)
+            return await _terminate_for_timeout(
+                proc,
+                session_id=session_id,
+                requires_interaction_count=requires_interaction_count,
+            )
 
         try:
             line = await asyncio.wait_for(
@@ -513,7 +521,11 @@ async def _run_stream_loop(
                 timeout=remaining,
             )
         except TimeoutError:
-            return await _terminate_for_timeout(proc)
+            return await _terminate_for_timeout(
+                proc,
+                session_id=session_id,
+                requires_interaction_count=requires_interaction_count,
+            )
 
         if line == "":
             if output_complete(session_dir):
@@ -522,7 +534,7 @@ async def _run_stream_loop(
                     assistant_waiting_for_input=False,
                     proc=proc,
                     session_id=session_id,
-                )
+                ) | _stream_metrics(requires_interaction_count, 0)
             _log_and_remove_stderr(proc)
             return {
                 "status": "failed",
@@ -530,6 +542,7 @@ async def _run_stream_loop(
                 "reason": "claude_exited",
                 "retryable": True,
                 "session_id": session_id,
+                **_stream_metrics(requires_interaction_count, 0),
             }
 
         event = parse_stream_event(line)
@@ -551,9 +564,10 @@ async def _run_stream_loop(
             text = event.get("text", "")
             if text:
                 _LOGGER.debug("claude assistant: %.500s", text)
-            waiting_for_input = waiting_for_input or bool(
-                event.get("waiting_for_input")
-            )
+            event_waiting_for_input = bool(event.get("waiting_for_input"))
+            if event_waiting_for_input:
+                requires_interaction_count += 1
+            waiting_for_input = waiting_for_input or event_waiting_for_input
             continue
 
         if event["type"] == "error":
@@ -567,6 +581,7 @@ async def _run_stream_loop(
                 "message": event.get("message", ""),
                 "retryable": True,
                 "session_id": session_id,
+                **_stream_metrics(requires_interaction_count, 0),
             }
 
         if event["type"] == "result":
@@ -581,6 +596,7 @@ async def _run_stream_loop(
                     "message": event.get("message", ""),
                     "retryable": True,
                     "session_id": session_id,
+                    **_stream_metrics(requires_interaction_count, 0),
                 }
 
             state = RunState.IDLE
@@ -593,7 +609,7 @@ async def _run_stream_loop(
             await _wait_for_process_exit(proc, 10)
             if result.get("status") != "success":
                 _log_and_remove_stderr(proc)
-            return result
+            return result | _stream_metrics(requires_interaction_count, 0)
 
         if state == RunState.FAILED:
             return {
@@ -602,10 +618,16 @@ async def _run_stream_loop(
                 "reason": "unknown",
                 "retryable": True,
                 "session_id": session_id,
+                **_stream_metrics(requires_interaction_count, 0),
             }
 
 
-async def _terminate_for_timeout(proc: subprocess.Popen[str]) -> dict[str, Any]:
+async def _terminate_for_timeout(
+    proc: subprocess.Popen[str],
+    *,
+    session_id: str | None = None,
+    requires_interaction_count: int = 0,
+) -> dict[str, Any]:
     _request_terminate(proc)
     try:
         await _wait_for_process_exit(proc, 10)
@@ -618,6 +640,42 @@ async def _terminate_for_timeout(proc: subprocess.Popen[str]) -> dict[str, Any]:
         "state": RunState.FAILED.value,
         "reason": "timeout",
         "retryable": True,
+        "session_id": session_id,
+        **_stream_metrics(requires_interaction_count, 1),
+    }
+
+
+def _default_graphify_metrics() -> dict[str, Any]:
+    return {
+        "input_file_count": 0,
+        "input_total_words": 0,
+        "claude_session_id": None,
+        "requires_interaction_count": 0,
+        "timeout_count": 0,
+    }
+
+
+def _with_graphify_metrics(
+    result: dict[str, Any], preflight: dict[str, Any]
+) -> dict[str, Any]:
+    return {
+        **result,
+        "input_file_count": int(preflight.get("file_count") or 0),
+        "input_total_words": int(preflight.get("total_words") or 0),
+        "claude_session_id": result.get("session_id"),
+        "requires_interaction_count": int(
+            result.get("requires_interaction_count") or 0
+        ),
+        "timeout_count": int(result.get("timeout_count") or 0),
+    }
+
+
+def _stream_metrics(
+    requires_interaction_count: int, timeout_count: int
+) -> dict[str, int]:
+    return {
+        "requires_interaction_count": requires_interaction_count,
+        "timeout_count": timeout_count,
     }
 
 
