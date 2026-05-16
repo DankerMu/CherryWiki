@@ -1,6 +1,6 @@
 import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { ErrorCode, model_configs, tenants } from '@cherrygraph/shared';
-import { and, asc, count, desc, eq, ne, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, isNotNull, ne, type SQL } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { randomUUID } from 'node:crypto';
 
@@ -483,7 +483,7 @@ export class ModelConfigService {
     const [row] = await this.db
       .select({ total: count() })
       .from(model_configs)
-      .where(and(eq(model_configs.tenant_id, tenantId), eq(model_configs.model_type, 'chat'), eq(model_configs.enabled, true)))
+      .where(and(eq(model_configs.tenant_id, tenantId), eq(model_configs.model_type, 'chat'), eq(model_configs.enabled, true), isNotNull(model_configs.encrypted_api_key_ref)))
       .limit(1);
 
     return {

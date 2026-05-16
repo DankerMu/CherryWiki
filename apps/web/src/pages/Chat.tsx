@@ -420,7 +420,7 @@ export default function Chat() {
 
   const chatErrorMessage = getChatErrorMessage(streamError, selectedSpaceIds.length);
   const selectorLocked = isStreaming;
-  const chatInputDisabled = isStreaming || (!chatModelAvailable.loading && !chatModelAvailable.available);
+  const chatInputDisabled = isStreaming || chatModelAvailable.loading || !chatModelAvailable.available;
 
   return (
     <div className={`chat-page${isSidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
