@@ -74,7 +74,7 @@
 
 | ID | 优先级 | 状态 | 描述 | Issue |
 |---|---|---|---|---|
-| — | — | — | 当前无活跃 BUG | — |
+| BUG-008 | P1 | 未修复 | chart.data SSE 事件未触发 — persistent runner 不转发 tool_result 到 event mapper | — |
 
 ### 已修复 BUG (本轮)
 

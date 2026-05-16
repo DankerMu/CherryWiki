@@ -48,7 +48,23 @@
 
 ## P1 — 功能缺陷
 
-（暂无）
+### BUG-008: chart.data SSE 事件未触发（persistent runner 不转发 tool_result）
+
+- **现象**: Chat 使用 `cherrydb chart bar "SQL"` 工具时，工具正确输出 `{"type": "cherrywiki.chart", ...}` JSON，但前端未收到 `chart.data` SSE 事件，图表不渲染
+- **根因**: `persistent-stream-parser.ts` 从 Claude Code CLI 的 JSONL stdout 读取事件，只处理 `type: 'assistant'`（文本+tool_use）和 `type: 'result'`（完成）。`type: 'user'`（含 tool_result content blocks）不会被 CLI 输出到 stdout，因此 `claude-event-mapper.ts:51-74` 中的 `extractChartEnvelopes` 逻辑永远不会被触发
+- **复现**:
+  1. 配置 Space 的 database_config（enabled=true, 有效 DSN）
+  2. Chat 中要求 "cherrydb chart bar 'SELECT ...'"
+  3. Agent 正确执行命令，输出 cherrywiki.chart JSON
+  4. 前端 SSE 流中无 `event: chart.data`
+- **影响**: P1 — 数据库图表功能不可用，但不阻塞核心 RAG/Chat 流程
+- **修复方向**: 在 `persistent-stream-parser.ts` 中，解析 tool 执行结果（可能需要 Claude Code CLI 输出 tool_result 事件，或在 agent service 层面拦截 Bash tool 的 stdout 并调用 `extractChartEnvelopes`）
+- **关联文件**:
+  - `apps/api/src/agent/persistent-stream-parser.ts` — 事件流解析
+  - `apps/api/src/agent/claude-event-mapper.ts:51-74` — chart 提取逻辑（正确但无法触达）
+  - `tools/cherrydb/cli.py:238-246` — chart 命令（正确输出 cherrywiki.chart JSON）
+- **发现日期**: 2026-05-16
+- **状态**: [ ] 未修复
 
 ---
 
