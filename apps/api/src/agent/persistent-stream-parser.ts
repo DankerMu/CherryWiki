@@ -4,6 +4,7 @@ import type { Interface } from 'node:readline';
 import type { Readable } from 'node:stream';
 
 import { isRecord, mapClaudeEvent, parseJsonLine } from './claude-event-mapper.js';
+import type { AgentEvent } from './dto/agent.dto.js';
 import { TurnEventQueue } from './turn-event-queue.js';
 
 export type PersistentParserCallbacks = {
@@ -38,6 +39,10 @@ export class PersistentStreamParser {
     const queue = new TurnEventQueue();
     this.activeTurn = queue;
     return queue;
+  }
+
+  injectToActiveTurn(event: AgentEvent): boolean {
+    return this.activeTurn?.inject(event) ?? false;
   }
 
   cancelActiveTurn(): void {

@@ -1,7 +1,7 @@
 # CherryWiki 项目进度
 
 > 本文件是 session 间的状态接力棒。每次重大变更后更新。上限 200 行。
-> 最后更新: 2026-05-15
+> 最后更新: 2026-05-16
 
 ## 1. 系统架构一句话
 
@@ -74,7 +74,7 @@
 
 | ID | 优先级 | 状态 | 描述 | Issue |
 |---|---|---|---|---|
-| BUG-008 | P1 | 未修复 | chart.data SSE 事件未触发 — persistent runner 不转发 tool_result 到 event mapper | — |
+| BUG-008 | P1 | 部分修复 | chart.data SSE 事件未触发 — #364 已实现 active turn 事件注入机制；待 #365/#366 接入 HTTP callback 与 CLI 调用 | #364 |
 
 ### 已修复 BUG (本轮)
 
@@ -94,6 +94,7 @@
 
 | Change | 状态 | 说明 |
 |---|---|---|
+| agent-chart-event-injection | issue #364 complete | TurnEventQueue/PersistentStreamParser/AgentService 注入机制 + env 注入，待 endpoint/CLI callback |
 | auth-session-persist | 4/4 complete, issue #356 | BUG-005 修复 |
 | fix-xlsx-mime-validation | 4/4 complete, issue #358 | BUG-006 修复 |
 | chat-no-model-precheck | 4/4 complete, issue #359 | BUG-007 修复 |

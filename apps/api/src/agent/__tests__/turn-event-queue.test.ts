@@ -66,6 +66,52 @@ describe('TurnEventQueue', () => {
     await expect(collectAsync(queue)).resolves.toEqual([]);
   });
 
+  it('inject returns true and event is yielded when queue is active', async () => {
+    const queue = new TurnEventQueue();
+
+    expect(queue.inject(delta('injected'))).toBe(true);
+    queue.complete();
+
+    await expect(collectAsync(queue)).resolves.toEqual([delta('injected')]);
+  });
+
+  it('inject returns false after complete()', async () => {
+    const queue = new TurnEventQueue();
+
+    queue.complete();
+
+    expect(queue.inject(delta('late'))).toBe(false);
+    await expect(collectAsync(queue)).resolves.toEqual([]);
+  });
+
+  it('inject returns false after dispose()', async () => {
+    const queue = new TurnEventQueue();
+
+    queue.dispose();
+
+    expect(queue.inject(delta('late'))).toBe(false);
+    await expect(collectAsync(queue)).resolves.toEqual([]);
+  });
+
+  it('inject returns false after error()', () => {
+    const queue = new TurnEventQueue();
+
+    queue.error(new Error('stream failed'));
+
+    expect(queue.inject(delta('late'))).toBe(false);
+  });
+
+  it('inject resolves a pending consumer (like push)', async () => {
+    const queue = new TurnEventQueue();
+    const iterator = queue[Symbol.asyncIterator]();
+    const next = iterator.next();
+
+    expect(queue.inject(delta('live injected'))).toBe(true);
+
+    await expect(next).resolves.toEqual({ value: delta('live injected'), done: false });
+    queue.dispose();
+  });
+
   it('delivers multiple events in sequence', async () => {
     const queue = new TurnEventQueue();
     const events = [delta('one'), toolUse('Bash'), delta('two')];
