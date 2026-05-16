@@ -105,6 +105,44 @@ def _emit_audit(sql: str, row_count: int, duration_ms: int) -> None:
     print(json.dumps(payload, ensure_ascii=False, default=_json_default), file=sys.stderr)
 
 
+def _send_chart_callback(envelope: dict[str, Any]) -> None:
+    """POST chart envelope to the internal callback URL. Failures are non-fatal."""
+    callback_url = os.environ.get("CHERRY_CHART_CALLBACK_URL", "")
+    if not callback_url:
+        return
+
+    agent_token = os.environ.get("CHERRY_AGENT_TOKEN", "")
+    conversation_id = os.environ.get("CHERRY_CONVERSATION_ID", "")
+
+    if not agent_token or not conversation_id:
+        print("WARN: CHERRY_AGENT_TOKEN or CHERRY_CONVERSATION_ID missing - skipping chart callback", file=sys.stderr)
+        return
+
+    import urllib.request
+
+    body = json.dumps(
+        {
+            "conversationId": conversation_id,
+            "chart": envelope,
+        }
+    ).encode("utf-8")
+
+    req = urllib.request.Request(
+        callback_url,
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {agent_token}",
+        },
+        method="POST",
+    )
+
+    try:
+        urllib.request.urlopen(req, timeout=3)
+    except Exception as exc:
+        print(f"WARN: chart callback failed: {exc}", file=sys.stderr)
+
+
 def _rows_to_dicts(columns: list[str], rows: Iterable[Iterable[Any]]) -> list[dict[str, Any]]:
     masked = _masked_columns()
     result: list[dict[str, Any]] = []
@@ -246,6 +284,7 @@ def chart_command(chart_type: str, sql: str) -> None:
             "echarts_option": build_echarts_option(chart_type, rows),
         }
         click.echo(json.dumps(envelope, ensure_ascii=False, default=_json_default))
+        _send_chart_callback(envelope)
     except (CherryDBError, ValueError) as exc:
         _fail(str(exc))
 
