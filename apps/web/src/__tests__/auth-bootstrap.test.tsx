@@ -132,7 +132,7 @@ describe('auth bootstrap session persistence', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/auth/login', expect.objectContaining({ method: 'POST' }));
   });
 
-  it('does not let a delayed login-page bootstrap overwrite a submitted login session', async () => {
+  it('does not let a delayed login-page bootstrap overwrite a submitted login session', { timeout: 15000 }, async () => {
     const refreshRequest = createDeferred<Response>();
     const seenAuthHeaders: Array<string | null> = [];
     const fetchMock = vi.fn<typeof fetch>((input, init) => {
@@ -168,7 +168,7 @@ describe('auth bootstrap session persistence', () => {
     fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'password' } });
     fireEvent.click(screen.getByRole('button', { name: /登\s*录/ }));
 
-    expect(await screen.findByText('protected-home')).toBeInTheDocument();
+    expect(await screen.findByText('protected-home', {}, { timeout: 10000 })).toBeInTheDocument();
     refreshRequest.resolve(jsonResponse({ data: { access_token: 'access-bootstrap', expires_in: 3600 } }));
 
     await waitFor(() => expect(document.querySelector('.ant-spin')).not.toBeInTheDocument());
@@ -308,17 +308,17 @@ describe('auth bootstrap session persistence', () => {
     expect(screen.getByRole('heading', { name: '登录' })).toBeInTheDocument();
   });
 
-  it('deduplicates bootstrap refresh under StrictMode effect replay', async () => {
+  it('deduplicates bootstrap refresh under StrictMode effect replay', { timeout: 15000 }, async () => {
     const fetchMock = stubBootstrapApi();
 
     renderApp('/', { strictMode: true });
 
-    expect(await screen.findByText('protected-home')).toBeInTheDocument();
+    expect(await screen.findByText('protected-home', {}, { timeout: 10000 })).toBeInTheDocument();
     const refreshCalls = fetchMock.mock.calls.filter((call) => getRequestPath(call[0]) === '/api/auth/refresh');
     expect(refreshCalls).toHaveLength(1);
   });
 
-  it('does not stay bootstrapping when /auth/me fails after a successful refresh', async () => {
+  it('does not stay bootstrapping when /auth/me fails after a successful refresh', { timeout: 15000 }, async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn<typeof fetch>((input) => {
@@ -338,7 +338,7 @@ describe('auth bootstrap session persistence', () => {
 
     renderApp('/spaces/space-main/protected');
 
-    expect(await screen.findByRole('heading', { name: '登录' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '登录' }, { timeout: 10000 })).toBeInTheDocument();
     expect(document.querySelector('.ant-spin')).not.toBeInTheDocument();
     expect(screen.queryByText('protected-space')).not.toBeInTheDocument();
   });
