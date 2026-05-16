@@ -763,10 +763,10 @@ export class InternalJobsService {
     try {
       const { bucket, key } = parseS3Uri(graphJsonUri);
       const stream = await this.storageService.download(bucket, key);
-      const chunks: Buffer[] = [];
+      const chunks: Uint8Array[] = [];
       let totalBytes = 0;
       for await (const chunk of stream) {
-        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        const buffer: Uint8Array = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
         totalBytes += buffer.byteLength;
         if (totalBytes > MAX_GRAPH_JSON_BYTES) {
           getApiLogger().warn(

@@ -20,18 +20,27 @@ export class TurnEventQueue implements AsyncIterable<AgentEvent> {
   private iterating = false;
 
   push(event: AgentEvent): void {
+    this.enqueue(event);
+  }
+
+  inject(event: AgentEvent): boolean {
+    return this.enqueue(event);
+  }
+
+  private enqueue(event: AgentEvent): boolean {
     if (this.done || this.disposed || this.failure !== undefined) {
-      return;
+      return false;
     }
 
     const pending = this.pending;
     if (pending !== undefined) {
       this.pending = undefined;
       pending.resolve(event);
-      return;
+      return true;
     }
 
     this.buffer.push(event);
+    return true;
   }
 
   complete(): void {

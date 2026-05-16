@@ -156,6 +156,26 @@ describe('PersistentStreamParser', () => {
       { type: 'message.error', code: 'error_during_execution', message: 'tool failed' },
     ]);
   });
+
+  it('injectToActiveTurn delegates to activeTurn.inject and returns true when turn exists', async () => {
+    const proc = createMockProcess();
+    const parser = createParser();
+    parser.startReading(proc.stdout);
+    const turn = parser.createTurn();
+
+    expect(parser.injectToActiveTurn({ type: 'message.delta', delta: 'injected' })).toBe(true);
+    proc.stdout.end();
+
+    await expect(collectAsync(turn)).resolves.toEqual([{ type: 'message.delta', delta: 'injected' }]);
+  });
+
+  it('injectToActiveTurn returns false when no active turn', () => {
+    const proc = createMockProcess();
+    const parser = createParser();
+    parser.startReading(proc.stdout);
+
+    expect(parser.injectToActiveTurn({ type: 'message.delta', delta: 'ignored' })).toBe(false);
+  });
 });
 
 function createParser(): PersistentStreamParser {

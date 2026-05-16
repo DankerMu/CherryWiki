@@ -178,6 +178,23 @@ export class AgentService implements OnModuleDestroy {
     return this.queue.length;
   }
 
+  injectChartEvent(conversationId: string, chartData: Record<string, unknown>): 'injected' | 'not_found' {
+    const parser = this.persistentParsers.get(conversationId);
+    if (parser === undefined) {
+      return 'not_found';
+    }
+
+    const chartType = chartData.chart_type;
+    const event: AgentEvent = {
+      type: 'chart.data',
+      ...(typeof chartType === 'string' ? { chart_type: chartType } : {}),
+      ...(chartData.echarts_option !== undefined ? { echarts_option: chartData.echarts_option } : {}),
+      data: chartData,
+    };
+
+    return parser.injectToActiveTurn(event) ? 'injected' : 'not_found';
+  }
+
   close(conversationId: string): Promise<void> {
     this.timings.delete(conversationId);
     return this.sessionManager.close(conversationId);
@@ -964,7 +981,7 @@ function buildPersistentClaudeArgs(session: PersistentAgentSession): string[] {
   return args;
 }
 
-function buildAgentEnv(session: AgentSessionRecord): NodeJS.ProcessEnv {
+export function buildAgentEnv(session: AgentSessionRecord): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH ?? '',
     HOME: session.agentHome,
@@ -973,6 +990,9 @@ function buildAgentEnv(session: AgentSessionRecord): NodeJS.ProcessEnv {
     CHERRY_API_INTERNAL_URL:
       session.options.apiInternalUrl ?? process.env.CHERRY_API_INTERNAL_URL ?? DEFAULT_INTERNAL_API_URL,
   };
+  env.CHERRY_CHART_CALLBACK_URL = `${env.CHERRY_API_INTERNAL_URL}/api/internal/agent/chart-event`;
+  env.CHERRY_CONVERSATION_ID = session.conversationId;
+
   const apiKey = process.env.AGENT_ANTHROPIC_API_KEY ?? process.env.ANTHROPIC_API_KEY;
   const baseUrl = process.env.AGENT_ANTHROPIC_BASE_URL ?? process.env.ANTHROPIC_BASE_URL;
   const model = session.options.model ?? process.env.AGENT_ANTHROPIC_MODEL ?? process.env.ANTHROPIC_MODEL;
