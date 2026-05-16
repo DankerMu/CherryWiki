@@ -278,7 +278,7 @@
 - [x] SSE 流包含 citations 事件 ✅ 2026-05-15
 - [x] SSE 流包含 usage 事件（token 用量） ✅ 2026-05-15
 - [x] SSE 流包含 message.completed 结束事件 ✅ 2026-05-15
-- [ ] **CA-10**: chart.data 事件触发图表渲染（如 database 模式启用） — database_config 已就绪 2026-05-16，触发取决于 agent 是否以图表格式返回数据
+- [ ] **CA-10**: chart.data 事件触发图表渲染（如 database 模式启用） — database_config 已就绪，cherrydb chart 工具正确输出 cherrywiki.chart JSON，但 persistent runner 事件协议未转发 tool_result 到 event mapper（runtime 集成问题，非功能缺失）
 - [x] **CA-8**: Agent 模式下 SSE 流包含 `agent.tool_use` 事件 ✅ 2026-05-16 enable_deep_analysis=true → agent.tool_use(Bash, cherrywiki search)
 
 ### 7.3 Citation 验证 `P0`
