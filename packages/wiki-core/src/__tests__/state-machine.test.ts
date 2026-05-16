@@ -18,6 +18,23 @@ describe('PublishStateMachine', () => {
     expect(() => machine.publish('archived')).toThrow();
   });
 
+  it('unpublishes published versions', () => {
+    expect(machine.unpublish('published')).toBe('draft');
+  });
+
+  it('rejects unpublishing already draft versions', () => {
+    expect(() => machine.unpublish('draft')).toThrow('VERSION_ALREADY_DRAFT');
+  });
+
+  it('rejects unpublishing archived versions', () => {
+    expect(() => machine.unpublish('archived')).toThrow('INVALID_UNPUBLISH_TRANSITION');
+  });
+
+  it('checks whether versions can be unpublished', () => {
+    expect(machine.canUnpublish('published')).toBe(true);
+    expect(machine.canUnpublish('draft')).toBe(false);
+  });
+
   it('archives published pages', () => {
     expect(machine.canArchive('published')).toBe(true);
     expect(machine.archive('published')).toBe('archived');

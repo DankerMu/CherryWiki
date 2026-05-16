@@ -13,9 +13,11 @@ import {
   jobs,
   type JobRow,
 } from '@cherrygraph/job-core';
-import { ErrorCode, graphifyRuns, spaces } from '@cherrygraph/shared';
+import { ErrorCode, graphEdges, graphifyRuns, graphNodes, spaces } from '@cherrygraph/shared';
+import { GraphImportService, parseGraphJson, validateGraphOutput } from '@cherrygraph/graph-core';
 import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { randomUUID } from 'node:crypto';
 
 import { AuditService } from '../audit/audit.service.js';
 import { BridgeQueueService } from '../bridge/bridge-queue.service.js';
@@ -23,6 +25,7 @@ import { getApiLogger } from '../common/logger/logger.module.js';
 import { REDIS_CLIENT, type OptionalRedisClient } from '../common/redis/redis.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { GraphifyService } from '../graphify/graphify.service.js';
+import { StorageService } from '../storage/storage.service.js';
 import { deriveDisplayName } from '../jobs/jobs.service.js';
 import type { JobDto, JobProgressDto } from '../jobs/jobs.dto.js';
 import { UploadsService } from '../uploads/uploads.service.js';
@@ -50,9 +53,13 @@ const DEAD_WORKER_SCAN_INTERVAL_MS = 30_000;
 const DEAD_WORKER_THRESHOLD_MS = 90_000;
 const DEFAULT_LOCK_TTL_SECONDS = 600;
 const HEARTBEAT_TTL_SECONDS = 180;
+const MAX_GRAPH_JSON_BYTES = 128 * 1024 * 1024;
+const GRAPH_IMPORT_BATCH_SIZE = 500;
 
 @Injectable()
 export class InternalJobsService {
+  private readonly graphImportService = new GraphImportService();
+
   constructor(
     @Inject(DRIZZLE) private readonly db: JobsDatabase,
     @Optional() @Inject(REDIS_CLIENT) private readonly redis?: OptionalRedisClient,
@@ -60,6 +67,7 @@ export class InternalJobsService {
     @Optional() private readonly auditService?: AuditService,
     @Optional() private readonly graphifyService?: GraphifyService,
     @Optional() private readonly bridgeQueueService?: BridgeQueueService,
+    @Optional() private readonly storageService?: StorageService,
   ) {}
 
   async pollPendingJobs(type: string, limit: number, tenantId?: string): Promise<JobDto[]> {
@@ -661,6 +669,9 @@ export class InternalJobsService {
         return;
       }
 
+      const graphJsonUri = readString(asJsonRecord(job.result_json).graph_json_uri) ?? null;
+      await this.importGraphData(job.tenant_id, job.space_id ?? completedRun.space_id, runId, graphJsonUri, job.id);
+
       const indexJob = await JobRepository.create(this.db, {
         tenant_id: job.tenant_id,
         space_id: job.space_id,
@@ -728,6 +739,128 @@ export class InternalJobsService {
       getApiLogger().error(
         { err, job_id: job.id, run_id: runId },
         'Graphify job succeeded but API post-completion pipeline failed — run may require manual reconciliation',
+      );
+    }
+  }
+
+  private async importGraphData(
+    tenantId: string,
+    spaceId: string,
+    runId: string,
+    graphJsonUri: string | null,
+    jobId: string,
+  ): Promise<void> {
+    if (graphJsonUri === null || graphJsonUri.length === 0) {
+      getApiLogger().info({ job_id: jobId, run_id: runId }, 'No graph_json_uri — skipping graph import');
+      return;
+    }
+
+    if (this.storageService === undefined || !this.storageService.isConfigured()) {
+      getApiLogger().warn({ job_id: jobId, run_id: runId }, 'StorageService not configured — skipping graph import');
+      return;
+    }
+
+    try {
+      const { bucket, key } = parseS3Uri(graphJsonUri);
+      const stream = await this.storageService.download(bucket, key);
+      const chunks: Buffer[] = [];
+      let totalBytes = 0;
+      for await (const chunk of stream) {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        totalBytes += buffer.byteLength;
+        if (totalBytes > MAX_GRAPH_JSON_BYTES) {
+          getApiLogger().warn(
+            { job_id: jobId, run_id: runId, graph_json_uri: graphJsonUri, size_bytes: totalBytes, limit_bytes: MAX_GRAPH_JSON_BYTES },
+            'Graph JSON exceeds import size limit — skipping graph import',
+          );
+          return;
+        }
+        chunks.push(buffer);
+      }
+      const raw = Buffer.concat(chunks).toString('utf-8');
+
+      const parsed = parseGraphJson(raw);
+      const validation = validateGraphOutput(parsed);
+      if (!validation.valid) {
+        getApiLogger().warn(
+          { job_id: jobId, run_id: runId, errors: validation.errors },
+          'Graph validation failed — skipping graph import',
+        );
+        return;
+      }
+
+      const importOp = this.graphImportService.importRun(tenantId, spaceId, runId, validation);
+
+      const edgesCreated = await this.db.transaction(async (tx) => {
+        const txDb = tx as JobsDatabase;
+
+        const nodeValues = importOp.nodes.map((node) => ({
+          id: randomUUID(),
+          tenant_id: tenantId,
+          space_id: spaceId,
+          graphify_run_id: runId,
+          node_key: node.nodeKey,
+          stable_key: node.stableKey,
+          label: node.label,
+          norm_label: node.normLabel,
+          type: node.type,
+          community_id: node.communityId,
+          source_refs_json: node.sourceRefsJson,
+        }));
+
+        for (const nodeBatch of chunkArray(nodeValues, GRAPH_IMPORT_BATCH_SIZE)) {
+          await txDb.insert(graphNodes).values(nodeBatch).onConflictDoNothing();
+        }
+
+        const nodeRows = await txDb
+          .select({ id: graphNodes.id, node_key: graphNodes.node_key })
+          .from(graphNodes)
+          .where(
+            and(
+              eq(graphNodes.tenant_id, tenantId),
+              eq(graphNodes.space_id, spaceId),
+              eq(graphNodes.graphify_run_id, runId),
+            ),
+          );
+        const nodeKeyToId = new Map(nodeRows.map((row) => [row.node_key, row.id]));
+
+        const edgeValues = importOp.edges.flatMap((edge) => {
+          const sourceNodeId = nodeKeyToId.get(edge.sourceNodeKey);
+          const targetNodeId = nodeKeyToId.get(edge.targetNodeKey);
+          if (sourceNodeId === undefined || targetNodeId === undefined) {
+            return [];
+          }
+
+          return [{
+            id: randomUUID(),
+            tenant_id: tenantId,
+            space_id: spaceId,
+            graphify_run_id: runId,
+            source_node_id: sourceNodeId,
+            target_node_id: targetNodeId,
+            relation_type: edge.relationType,
+            confidence_label: edge.confidenceLabel,
+            raw_confidence_score: edge.rawScore,
+            effective_confidence_score: edge.effectiveScore,
+            evidence_count: edge.evidenceCount,
+          }];
+        });
+
+        for (const edgeBatch of chunkArray(edgeValues, GRAPH_IMPORT_BATCH_SIZE)) {
+          await txDb.insert(graphEdges).values(edgeBatch).onConflictDoNothing();
+        }
+
+        return edgeValues.length;
+      });
+
+      getApiLogger().info(
+        { job_id: jobId, run_id: runId, nodes: importOp.nodes.length, edges: edgesCreated },
+        'Graph data imported successfully',
+      );
+    } catch (err) {
+      getApiLogger().error(
+        { err, job_id: jobId, run_id: runId },
+        'Graph data import failed — nodes/edges may be incomplete',
       );
     }
   }
@@ -837,6 +970,14 @@ function toJobDto(job: JobRow, progress: JobProgressDto | null = null): JobDto {
   };
 }
 
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
 function toProgressDto(percent: number, stage: string | undefined): JobProgressDto {
   return {
     percent,
@@ -915,4 +1056,12 @@ function readFiniteInteger(value: unknown): number | undefined {
   }
 
   return Math.trunc(value);
+}
+
+function parseS3Uri(uri: string): { bucket: string; key: string } {
+  const match = /^s3:\/\/([^/]+)\/(.+)$/.exec(uri);
+  if (match === null || match[1] === undefined || match[2] === undefined) {
+    throw new Error(`Invalid S3 URI: ${uri}`);
+  }
+  return { bucket: match[1], key: match[2] };
 }

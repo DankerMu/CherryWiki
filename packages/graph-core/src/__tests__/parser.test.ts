@@ -71,6 +71,37 @@ describe('parseGraphJson', () => {
     expect(parsed.hyperedges).toEqual([{ id: 'h1' }]);
   });
 
+  it('reads networkx links as graph edges', () => {
+    const parsed = parseGraphJson(
+      JSON.stringify({
+        nodes: [
+          { id: 'auth', label: 'Auth' },
+          { id: 'session', label: 'Session' },
+        ],
+        links: [
+          {
+            source: 'auth',
+            target: 'session',
+            relation: 'creates',
+            confidence: 'EXTRACTED',
+            confidence_score: 0.9,
+          },
+        ],
+        edges: [],
+      }),
+    );
+
+    expect(parsed.edges).toEqual([
+      {
+        source: 'auth',
+        target: 'session',
+        relation: 'creates',
+        confidence: 'EXTRACTED',
+        confidence_score: 0.9,
+      },
+    ]);
+  });
+
   it('applies defaults for missing optional fields', () => {
     const parsed = parseGraphJson(
       JSON.stringify({

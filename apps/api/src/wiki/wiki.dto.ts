@@ -22,6 +22,16 @@ export class PublishDto {
   publish_note?: string;
 }
 
+export class UnpublishDto {
+  @IsNotEmpty()
+  @IsString()
+  version_id!: string;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
 export class RollbackDto {
   @IsNotEmpty()
   @IsString()

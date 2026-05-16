@@ -30,6 +30,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ src/
 
+RUN mkdir -p /work/graphify && chown -R graphify:graphify /work/graphify
+
 EXPOSE 9094
 USER graphify
 CMD ["python", "-m", "src"]

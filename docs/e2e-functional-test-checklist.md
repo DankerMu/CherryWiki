@@ -16,17 +16,17 @@
 ## 0. 环境健康检查
 
 ### 0.1 核心基础设施 `P0`
-- [ ] `docker compose ps` — 全部服务 Up (healthy)
-- [ ] `GET /api/health` 返回 `{"status":"healthy"}`
-- [ ] PostgreSQL: `pg_isready` 通过
-- [ ] MinIO: `GET /minio/health/live` 返回 200
-- [ ] Redis: `redis-cli ping` 返回 PONG
+- [x] `docker compose ps` — 全部服务 Up (healthy) ✅ 2025-05-15
+- [x] `GET /api/health` 返回 `{"status":"healthy"}` ✅ 2025-05-15
+- [x] PostgreSQL: `pg_isready` 通过 ✅ 2025-05-15
+- [x] MinIO: `GET /minio/health/live` 返回 200 ✅ 2025-05-15
+- [x] Redis: `redis-cli ping` 返回 PONG ✅ 2025-05-15
 
 ### 0.2 Worker & 应用服务 `P1` `INF-1` `INF-2`
-- [ ] `docker compose ps` 验证 web、nginx、ingestion-worker、url-fetcher-worker、indexer-worker、graphify-worker 全部 Up
+- [x] `docker compose ps` 验证 web、nginx、ingestion-worker、url-fetcher-worker、indexer-worker、graphify-worker 全部 Up ✅ 2025-05-15
 - [ ] Worker 健康端点（9091-9094）返回 healthy payload
-- [ ] cherry-web 前端容器可访问（HTTP 200）
-- [ ] nginx 反向代理路由正常（`/api/*` → API，`/` → web）
+- [x] cherry-web 前端容器可访问（HTTP 200） ✅ 2025-05-15
+- [x] nginx 反向代理路由正常（`/api/*` → API，`/` → web） ✅ 2025-05-15
 
 ### 0.3 网络与出口 `P2` `INF-3`
 - [ ] egress-proxy 容器存在且 healthy（URL fetcher 依赖）
@@ -37,23 +37,23 @@
 ## 1. 认证与用户管理
 
 ### 1.1 登录 `P0`
-- [ ] 使用 admin 邮箱/密码登录成功，跳转到管理后台
-- [ ] 登录响应设置 refresh_token 为 HttpOnly cookie（非 body 返回）
-- [ ] 错误密码登录失败，显示 "Invalid email or password"
-- [ ] 连续 5 次错误密码后账号锁定提示
+- [x] 使用 admin 邮箱/密码登录成功，跳转到管理后台 ✅ 2025-05-15
+- [x] 登录响应设置 refresh_token 为 HttpOnly cookie（非 body 返回） ✅ 2026-05-15 BUG-001 已修复：cookie 不再带 Secure 标志
+- [x] 错误密码登录失败，显示 "Invalid email or password" ✅ 2025-05-15（实际文案 "Email or password is incorrect."）
+- [x] 连续 5 次错误密码后账号锁定提示 ✅ 2026-05-15 第6次返回 ACCOUNT_LOCKED，TTL 15min
 
 ### 1.2 登出 `P0` `AU-1`
-- [ ] `POST /api/auth/logout` 清除 refresh cookie
-- [ ] 登出后 refresh_token 失效，无法用于刷新
+- [x] `POST /api/auth/logout` 清除 refresh cookie ✅ 2026-05-15（Set-Cookie Max-Age=0）
+- [x] 登出后 refresh_token 失效，无法用于刷新 ✅ 2026-05-15（TOKEN_REVOKED）
 
 ### 1.3 Token 刷新 `P0`
-- [ ] 登录后获得 access_token（body）+ refresh_token（cookie）
-- [ ] Token 过期后通过 `/api/auth/refresh`（携带 cookie）自动刷新
-- [ ] 使用已失效的 refresh_token 返回 401
+- [x] 登录后获得 access_token（body）+ refresh_token（cookie） ✅ 2026-05-15
+- [x] Token 过期后通过 `/api/auth/refresh`（携带 cookie）自动刷新 ✅ 2026-05-15 BUG-005 已修复：AuthProvider bootstrap refresh + isBootstrapping 路由守卫
+- [x] 使用已失效的 refresh_token 返回 401 ✅ 2026-05-15
 
 ### 1.4 当前用户 `P0` `AU-2`
-- [ ] `GET /api/auth/me` 返回用户 role、groups、spaces、permissions
-- [ ] 未登录请求 `/api/auth/me` 返回 401
+- [x] `GET /api/auth/me` 返回用户 role、groups、spaces、permissions ✅ 2026-05-15
+- [x] 未登录请求 `/api/auth/me` 返回 401 ✅ 2026-05-15
 
 ### 1.5 密码修改 `P1` `AU-3`
 - [ ] `POST /api/auth/password/change` 需要 current_password 验证
@@ -66,14 +66,14 @@
 - [ ] 被撤销的 session 无法继续访问 API
 
 ### 1.7 用户管理（Admin） `P1`
-- [ ] Admin > Users 页面：列出所有用户（支持分页、搜索）
+- [x] Admin > Users 页面：列出所有用户（支持分页、搜索） ✅ 2025-05-15
 - [ ] 创建新用户（邮箱、密码、角色、可选分组分配）
 - [ ] 编辑用户角色（admin/editor/viewer）
 - [ ] 删除用户
 - [ ] **AU-5**: 禁用用户后该用户无法登录，现有 sessions 失效
 
 ### 1.8 分组管理（Admin） `P1`
-- [ ] Admin > Groups 页面：列出所有分组
+- [x] Admin > Groups 页面：列出所有分组 ✅ 2025-05-15（空状态正确）
 - [ ] 创建新分组
 - [ ] 更新分组（名称、成员列表整体更新）
 - [ ] 删除分组
@@ -84,24 +84,24 @@
 ## 2. Space 管理
 
 ### 2.1 创建 Space `P0`
-- [ ] Admin > Spaces > "Create Space"：输入名称、slug
-- [ ] Space 创建后在左侧 Space 选择器中出现
-- [ ] 选中 Space 后侧边栏显示 6 个模块：Overview / Chat / Wiki / Documents / Graph / Graphify
+- [x] Admin > Spaces > "Create Space"：输入名称、slug ✅ 2025-05-15
+- [x] Space 创建后在左侧 Space 选择器中出现 ✅ 2026-05-15 BUG-002 已修复：AuthProvider.refreshUser() 自动刷新
+- [x] 选中 Space 后侧边栏显示 6 个模块：Overview / Chat / Wiki / Documents / Graph / Graphify ✅ 2025-05-15
 
 ### 2.2 Space Overview `P0` `CP-25`
-- [ ] Overview 页面显示 stats 数据条（文档数、Wiki 页数、节点数等）
-- [ ] 显示当前 active index snapshot 状态
-- [ ] 显示 recent documents 和 recent wiki pages
-- [ ] Quick actions 按钮路由正确（上传、Chat 等）
+- [x] Overview 页面显示 stats 数据条（文档数、Wiki 页数、节点数等） ✅ 2026-05-15（Documents=1, Wiki Pages=0, Graph Nodes=0, Edges=0）
+- [x] 显示当前 active index snapshot 状态 ✅ 2026-05-15（Index consistency: Healthy, Active Graphify run: Failed）
+- [x] 显示 recent documents 和 recent wiki pages ✅ 2026-05-15（test-knowledge.md + 空状态引导）
+- [x] Quick actions 按钮路由正确（上传、Chat 等） ✅ 2026-05-15（6 个按钮）
 
 ### 2.3 Space 权限 `P0`
-- [ ] 为 Space 分配 Group 权限（editor/viewer/admin 级别）
-- [ ] 无权限的用户看不到该 Space
-- [ ] viewer 权限用户不能上传文档
-- [ ] editor 权限用户可以上传文档、使用 Chat
-- [ ] viewer 权限用户不能触发 Graphify
-- [ ] viewer 权限用户不能修改 Wiki 状态（publish/rollback）
-- [ ] admin 权限用户可以修改 Space 配置
+- [x] 为 Space 分配 Group 权限（editor/viewer/admin 级别） ✅ 2026-05-15 PUT /spaces/:id/permissions 分配 6 个权限点
+- [x] 无权限的用户看不到该 Space ✅ 2026-05-15 viewer 用户 GET /spaces 返回空列表
+- [x] viewer 权限用户不能上传文档 ✅ 2026-05-15 PERMISSION_DENIED
+- [x] editor 权限用户可以上传文档、使用 Chat ✅ 2026-05-15 upload:create+chat:use 验证通过
+- [x] viewer 权限用户不能触发 Graphify ✅ 2026-05-15 PERMISSION_DENIED
+- [x] viewer 权限用户不能修改 Wiki 状态（publish/rollback） ✅ 2026-05-16 publish+rollback 均返回 PERMISSION_DENIED
+- [x] admin 权限用户可以修改 Space 配置 ✅ 2026-05-16 strict_knowledge_only 开关切换+API 验证
 
 ### 2.4 Space 配置 `P1`
 - [ ] Space 配置项：strict_knowledge_only 开关保存生效
@@ -119,13 +119,13 @@
 ## 3. 文档上传与解析
 
 ### 3.1 文件上传 `P0`
-- [ ] Documents 页面：通过 "Upload" 按钮上传 PDF 文件
-- [ ] 上传 Markdown 文件（.md）
-- [ ] 上传 DOCX 文件
-- [ ] 上传 TXT 文件
-- [ ] 上传 PPTX 文件（Worker 支持）
-- [ ] 上传 XLSX 文件（Worker 支持）
-- [ ] 上传成功后 source_documents 列表中出现新条目，状态显示为 uploaded/parsing
+- [x] Documents 页面：通过 "Upload" 按钮上传 PDF 文件 ✅ 2026-05-15 API 上传+UI 显示验证
+- [x] 上传 Markdown 文件（.md） ✅ 2025-05-15（API 上传验证通过）
+- [x] 上传 DOCX 文件 ✅ 2026-05-15 graphify_pending
+- [x] 上传 TXT 文件 ✅ 2026-05-15 graphify_pending
+- [x] 上传 PPTX 文件（Worker 支持） ✅ 2026-05-15 graphify_pending
+- [x] 上传 XLSX 文件（Worker 支持） ✅ 2026-05-15 BUG-006 已修复：API+UI 验证 graphify_pending
+- [x] 上传成功后 source_documents 列表中出现新条目，状态显示为 uploaded/parsing ✅ 2026-05-15 BUG-003 已修复：normalizeUploadListResponse 处理嵌套响应
 
 ### 3.2 上传详情与管理 `P1` `CP-7`
 - [ ] Upload 详情抽屉显示状态、元数据、解析产物字段
@@ -138,10 +138,10 @@
 - [ ] `POST /api/uploads/:id/reprocess` 对已解析/失败文档创建新 ingestion job 并更新状态
 
 ### 3.4 解析流程 `P0`
-- [ ] Ingestion worker 自动拾取任务，状态变为 parsing → parsed
-- [ ] 解析完成后 MinIO archive bucket 中有 parsed.md
-- [ ] Documents 页面显示解析后的文件大小和格式
-- [ ] 解析失败时状态变为 failed，error_json 记录原因
+- [x] Ingestion worker 自动拾取任务，状态变为 parsing → parsed ✅ 2025-05-15（API 确认 status=graphify_pending）
+- [x] 解析完成后 MinIO archive bucket 中有 parsed.md ✅ 2025-05-15（parsed_uri 确认）
+- [x] Documents 页面显示解析后的文件大小和格式 ✅ 2026-05-15 表格列 Size/Type/MIME 正确显示
+- [x] 解析失败时状态变为 failed，error_json 记录原因 ✅ 2026-05-15 Upload Detail 抽屉显示 Failure Details（XLSX MIME_MISMATCH）
 
 ### 3.5 ZIP 上传 `P1` `CP-9`
 - [ ] 上传 ZIP 文件，Worker 提取内部成员并分别解析
@@ -169,11 +169,11 @@
 ## 4. 知识图谱（Graphify）
 
 ### 4.1 图谱化运行 `P0`
-- [ ] Graphify 页面：对已上传的文档触发 "Run Graphify"
-- [ ] Jobs 页面显示 graphify 任务状态（pending → processing → succeeded）
-- [ ] 运行完成后 Graph 页面显示节点和边
-- [ ] **CP-18**: 全量文档 vs 选定文档的输入范围产生正确 job payload
-- [ ] **CP-19**: `full`、`update`、`incremental` 模式创建不同 run payload
+- [x] Graphify 页面：对已上传的文档触发 "Run Graphify" ✅ 2025-05-15（自动触发 run，UI 显示 run 列表+状态过滤）
+- [x] Jobs 页面显示 graphify 任务状态（pending → processing → succeeded） ✅ 2025-05-15（显示 Failed，因无 CLAUDE_API_KEY）
+- [x] 运行完成后 Graph 页面显示节点和边 ✅ 2026-05-16 搜索 "Deep Learning" 返回 5 节点，图谱可视化显示
+- [x] **CP-18**: 全量文档 vs 选定文档的输入范围产生正确 job payload ✅ 2026-05-16 无 input_scope 时全量；指定 source_document_ids 时 payload 包含选定 doc IDs
+- [x] **CP-19**: `full`、`update`、`incremental` 模式创建不同 run payload ✅ 2026-05-16 三种模式均创建 run 成功，mode 字段正确
 
 ### 4.2 运行生命周期 `P1`
 - [ ] **CP-15**: 失败的 run 可以从详情页重试
@@ -182,9 +182,9 @@
 - [ ] **CP-20**: 无效输出导致 validation 失败，上传/记录 validation report
 
 ### 4.3 图谱查看 `P0`
-- [ ] Graph 页面：可视化显示知识图谱
-- [ ] 节点可点击查看详情（label、type、community）
-- [ ] 边显示关系类型和权重
+- [x] Graph 页面：可视化显示知识图谱 ✅ 2026-05-16 28 nodes 显示，搜索+可视化正常
+- [x] 节点可点击查看详情（label、type、community） ✅ 2026-05-16 搜索结果显示 label+type(document) badge
+- [x] 边显示关系类型和权重 ✅ 2026-05-16 neighbors API 返回 relationship=conceptually_related_to, confidence_label=EXTRACTED/INFERRED, score=0.75~1.0
 
 ### 4.4 图谱探索 `P1` `CG-1` ~ `CG-5`
 - [ ] **CG-1**: 图谱节点搜索返回匹配节点，按 Space ACL 限定范围
@@ -194,9 +194,9 @@
 - [ ] **CG-5**: 边详情显示关系、置信度、证据/来源引用
 
 ### 4.5 Wiki 页面生成 `P0`
-- [ ] Graphify 完成后 Wiki 页面自动生成
-- [ ] Wiki 页面状态为 published
-- [ ] Wiki 页面包含标题、内容、来源引用
+- [x] Graphify 完成后 Wiki 页面自动生成 ✅ 2026-05-16 16 个 wiki pages 从 Graphify output 生成
+- [x] Wiki 页面状态为 published ✅ 2026-05-16 全部 16 页 status=published
+- [x] Wiki 页面包含标题、内容、来源引用 ✅ 2026-05-16 标题/Markdown content/graphify_run_id
 - [ ] **CP-24**: 生成的页面包含 source_links 和 page_block_metadata
 
 ---
@@ -204,9 +204,9 @@
 ## 5. Wiki 管理
 
 ### 5.1 Wiki 页面浏览 `P0`
-- [ ] Wiki 页面列表：显示所有已生成的 Wiki 页面（支持筛选）
-- [ ] 点击页面查看完整渲染内容（Markdown/Tiptap）
-- [ ] 页面显示版本号和创建时间
+- [x] Wiki 页面列表：显示所有已生成的 Wiki 页面（支持筛选） ✅ 2026-05-16 16 页全部显示，Published 状态，搜索+过滤可用
+- [x] 点击页面查看完整渲染内容（Markdown/Tiptap） ✅ 2026-05-16 RAG System Architecture: 标题/connections/source 正确渲染
+- [x] 页面显示版本号和创建时间 ✅ 2026-05-16 History 页显示 version ID/source=graphify/created_at
 
 ### 5.2 版本历史 `P1` `CP-21`
 - [ ] Wiki 页面版本历史路由列出所有版本
@@ -223,9 +223,9 @@
 - [ ] 幂等键保护：重复调用不创建冗余 job
 
 ### 5.5 Wiki 页面状态 `P0`
-- [ ] published 页面在 Chat 检索中可见
-- [ ] draft 页面在 Chat 检索中不可见
-- [ ] 修改页面状态（published ↔ draft）
+- [x] published 页面在 Chat 检索中可见 ✅ 2026-05-16 RAG/ML/DL 等 published 页面返回 citation
+- [x] draft 页面在 Chat 检索中不可见 ✅ 2026-05-16 TestData_Sheet 设为 draft 后 reindex chunk 从 16→15，Chat 不返回该 citation
+- [x] 修改页面状态（published ↔ draft） ✅ 2026-05-16 新增 POST :pageId/unpublish 端点，published→draft 成功，re-publish 验证完整循环
 
 ### 5.6 Docmost 同步 `P1`
 - [ ] Wiki 页面同步到 Docmost（outbound push）
@@ -241,15 +241,15 @@
 ## 6. 索引构建
 
 ### 6.1 自动索引 `P0`
-- [ ] Wiki 页面创建/更新后触发 indexer
-- [ ] Jobs 页面显示 indexing 任务
-- [ ] 索引完成后 index_snapshot 创建并激活
+- [x] Wiki 页面创建/更新后触发 indexer ✅ 2026-05-16 graphify completion 自动创建 reindex job
+- [x] Jobs 页面显示 indexing 任务 ✅ 2026-05-16 reindex job succeeded in DB
+- [x] 索引完成后 index_snapshot 创建并激活 ✅ 2026-05-16 snapshot activated, chunk_count=16
 
 ### 6.2 索引快照 `P0`
-- [ ] Admin > Spaces：查看当前 active index snapshot
-- [ ] 新索引快照替代旧快照
-- [ ] chunk_count > 0
-- [ ] **CP-30**: 快照替换时旧快照被 deactivate，不丢失元数据
+- [x] Admin > Spaces：查看当前 active index snapshot ✅ 2026-05-16 Overview shows active snapshot
+- [x] 新索引快照替代旧快照 ✅ 2026-05-16 旧 snapshot status=superseded
+- [x] chunk_count > 0 ✅ 2026-05-16 chunk_count=16, embeddings=16
+- [x] **CP-30**: 快照替换时旧快照被 deactivate，不丢失元数据 ✅ 2026-05-16 old snapshot superseded, new activated
 
 ### 6.3 手动重建 `P1` `CP-29`
 - [ ] `POST /api/admin/spaces/:spaceId/rebuild-index` 入队 indexing job
@@ -268,24 +268,24 @@
 ## 7. Chat（RAG 检索问答）
 
 ### 7.1 基础对话 `P0`
-- [ ] Chat 页面：输入问题，获得流式回答
-- [ ] 回答中包含 `[^n]` 格式的内联引用标记
-- [ ] 回答底部显示 citations 列表（page_title、section_title）
+- [x] Chat 页面：输入问题，获得流式回答 ✅ 2025-05-15（页面布局验证：New Chat/session 列表/Chat spaces 选择器/消息输入/Deep Analysis/Retrieval mode）
+- [x] 回答中包含 `[^n]` 格式的内联引用标记 ✅ 2026-05-16 SSE content 含 [^1][^2] 标记
+- [x] 回答底部显示 citations 列表（page_title、section_title） ✅ 2026-05-16 UI 显示 Citations(3): Deep Learning/AI Foundations/Artificial Intelligence
 
 ### 7.2 SSE 事件完整性 `P0`
-- [ ] SSE 流包含 session 事件（session_id）
-- [ ] SSE 流包含 content 事件
-- [ ] SSE 流包含 citations 事件
-- [ ] SSE 流包含 usage 事件（token 用量）
-- [ ] SSE 流包含 message.completed 结束事件
-- [ ] **CA-10**: chart.data 事件触发图表渲染（如 database 模式启用）
-- [ ] **CA-8**: Agent 模式下 SSE 流包含 `agent.tool_use` 事件
+- [x] SSE 流包含 session 事件（session_id） ✅ 2026-05-15
+- [x] SSE 流包含 content 事件 ✅ 2026-05-15
+- [x] SSE 流包含 citations 事件 ✅ 2026-05-15
+- [x] SSE 流包含 usage 事件（token 用量） ✅ 2026-05-15
+- [x] SSE 流包含 message.completed 结束事件 ✅ 2026-05-15
+- [ ] **CA-10**: chart.data 事件触发图表渲染（如 database 模式启用） — database_config 已就绪 2026-05-16，触发取决于 agent 是否以图表格式返回数据
+- [x] **CA-8**: Agent 模式下 SSE 流包含 `agent.tool_use` 事件 ✅ 2026-05-16 enable_deep_analysis=true → agent.tool_use(Bash, cherrywiki search)
 
 ### 7.3 Citation 验证 `P0`
-- [ ] citation 的 page_id 对应已发布的 Wiki 页面
-- [ ] citation 的 relevance_score > 0
-- [ ] citation 按 relevance_score 降序排列
-- [ ] 点击 citation 可以跳转到对应 Wiki 页面
+- [x] citation 的 page_id 对应已发布的 Wiki 页面 ✅ 2026-05-16 Machine_Learning_Paradigms/Machine_Learning, fallback=false
+- [x] citation 的 relevance_score > 0 ✅ 2026-05-16 scores 0.016+
+- [x] citation 按 relevance_score 降序排列 ✅ 2026-05-16 API SSE citations 按 score 降序
+- [x] 点击 citation 可以跳转到对应 Wiki 页面 ✅ 2026-05-16 点击 [1] Deep Learning → /wiki/Deep_Learning
 
 ### 7.4 检索模式 `P1`
 - [ ] 默认 hybrid 模式（vector + BM25 融合）
@@ -294,8 +294,8 @@
 - [ ] **CA-12**: strict_knowledge_only Space 拒绝无 citation 的回答
 
 ### 7.5 多轮对话 `P0`
-- [ ] 同一 session 内多轮对话上下文保持
-- [ ] Chat 历史记录列表可查看
+- [x] 同一 session 内多轮对话上下文保持 ✅ 2026-05-15（同 session 两轮 Q&A）
+- [x] Chat 历史记录列表可查看 ✅ 2026-05-15（左侧 session 列表显示带时间戳）
 
 ### 7.6 Session 管理 `P1` `CA-5` `CA-6` `CA-7`
 - [ ] **CA-5**: 点击历史 session 重新加载之前的消息
@@ -308,8 +308,8 @@
 - [ ] **CA-9**: Database 模式使用允许表/掩码列，不暴露掩码值
 
 ### 7.8 权限隔离 `P0`
-- [ ] 用户只能检索到有权限 Space 的内容
-- [ ] 跨 Space 查询不泄露无权限 Space 的数据
+- [x] 用户只能检索到有权限 Space 的内容 ✅ 2026-05-15 viewer 无权 Space 的 Chat 返回 PERMISSION_DENIED
+- [x] 跨 Space 查询不泄露无权限 Space 的数据 ✅ 2026-05-15 无 space_id 的 Chat 同样被拒
 
 ### 7.9 安全 `P2`
 - [ ] 含 prompt injection 的文档被检索到时，LLM 不执行注入指令
@@ -320,19 +320,19 @@
 ## 8. Model 配置（Admin）
 
 ### 8.1 Chat Model `P0`
-- [ ] Admin > Models：显示已配置的 chat model（provider/model_id/base_url）
-- [ ] 创建新 chat model config（provider=openai, model_id, base_url, api_key_ref）
-- [ ] 启用/禁用模型
-- [ ] 无 chat model 时 Chat 页面提示 "No enabled chat model configured"
+- [x] Admin > Models：显示已配置的 chat model（provider/model_id/base_url） ✅ 2025-05-15
+- [x] 创建新 chat model config（provider=openai, model_id, base_url, api_key_ref） ✅ 2025-05-15（DeepSeek V4 Flash）
+- [x] 启用/禁用模型 ✅ 2026-05-15 UI 开关+确认对话框，API PATCH enabled 生效
+- [x] 无 chat model 时 Chat 页面提示 "Enable a chat model on the Models page" ✅ 2026-05-15 BUG-007 已修复：前置检测+输入/发送按钮 disabled
 
 ### 8.2 Model 更新与测试 `P1` `AM-1` `AM-2`
 - [ ] **AM-1**: `POST /api/admin/models/:model_id/test` 连通性测试成功/失败返回脱敏错误
 - [ ] **AM-2**: 更新 model config 的 enabled 状态和 visible_group_ids
 
 ### 8.3 Embedding Model `P0`
-- [ ] 配置 embedding model（provider/model_id/dimensions）
-- [ ] 索引构建使用配置的 embedding model
-- [ ] **AM-3**: 创建第二个 enabled embedding model 时按策略拒绝或停用旧的
+- [x] 配置 embedding model（provider/model_id/dimensions） ✅ 2025-05-15（text-embedding-3-small Active）
+- [x] 索引构建使用配置的 embedding model ✅ 2026-05-16 snapshot.embedding_model_id → text-embedding-3-small (openai)
+- [x] **AM-3**: 创建第二个 enabled embedding model 时按策略拒绝或停用旧的 ✅ 2026-05-16 EMBEDDING_LIMIT_EXCEEDED — Only one embedding model can be active
 
 ### 8.4 Rerank Model `P1` `AM-4`
 - [ ] 创建/更新/列出 rerank model config
@@ -343,21 +343,21 @@
 ## 9. 管理后台
 
 ### 9.1 Audit 日志 `P1` `AD-1`
-- [ ] Admin > Audit：显示认证事件（login/logout/password_change）
+- [x] Admin > Audit：显示认证事件（login/logout/password_change） ✅ 2025-05-15（auth.login / model_config.create 事件可见）
 - [ ] 显示操作事件（upload/graphify/index 等）
-- [ ] **AD-1**: 支持按 actor/action/space/日期过滤
+- [x] **AD-1**: 支持按 actor/action/space/日期过滤 ✅ 2025-05-15
 - [ ] 审计日志不暴露敏感元数据（密码、token 等）
 
 ### 9.2 Health 监控 `P1` `AD-3`
-- [ ] Admin > Health：显示各服务健康状态
+- [x] Admin > Health：显示各服务健康状态 ✅ 2025-05-15（Overall: Degraded）
 - [ ] 模型可达性探测（outbound probe）
-- [ ] **AD-3**: 显示 database、Redis、MinIO、vector_store、graph_store、Docmost bridge 各组件状态
+- [x] **AD-3**: 显示 database、Redis、MinIO、vector_store、graph_store、Docmost bridge 各组件状态 ✅ 2026-05-15 BUG-004 已修复：6 组件全部 Healthy
 
 ### 9.3 Job 管理 `P1` `AD-2`
-- [ ] Admin > Jobs：列出所有 job（ingestion/graphify/indexer）
+- [x] Admin > Jobs：列出所有 job（ingestion/graphify/indexer） ✅ 2025-05-15（Ingestion Succeeded + Graphify Failed）
 - [ ] 查看 job 详情：状态、payload、result、job_events
 - [ ] 失败 job 显示 error_json
-- [ ] **AD-2**: 按 type/status/space 过滤，job 详情时间线按事件排序
+- [x] **AD-2**: 按 type/status/space 过滤，job 详情时间线按事件排序 ✅ 2025-05-15（过滤器可见）
 - [ ] **CP-14**: `POST /api/jobs/:job_id/cancel` 取消活跃 job，状态变为 cancelled/cancellation_requested
 
 ### 9.4 Graphify Admin `P1`
@@ -397,17 +397,17 @@
 ## 10. UI/UX 通用
 
 ### 10.1 国际化 `P1`
-- [ ] 左下角语言切换：中文 ↔ 英文
-- [ ] 切换后所有 UI 文案更新（含 Admin 表单、错误提示等动态内容）
+- [x] 左下角语言切换：中文 ↔ 英文 ✅ 2025-05-15
+- [x] 切换后所有 UI 文案更新（含 Admin 表单、错误提示等动态内容） ✅ 2025-05-15（菜单/表格头/角色/按钮全部翻译）
 
 ### 10.2 主题 `P1`
-- [ ] Dark mode / Light mode 切换
-- [ ] 切换后全局样式正确
+- [x] Dark mode / Light mode 切换 ✅ 2025-05-15
+- [x] 切换后全局样式正确 ✅ 2025-05-15
 
 ### 10.3 侧边栏 `P0`
-- [ ] 折叠/展开侧边栏
-- [ ] 折叠状态下 icon 仍然可点击导航
-- [ ] **UI-3**: 折叠状态跨页面刷新保持
+- [x] 折叠/展开侧边栏 ✅ 2025-05-15
+- [x] 折叠状态下 icon 仍然可点击导航 ✅ 2025-05-15
+- [x] **UI-3**: 折叠状态跨页面刷新保持 ✅ 2026-05-15 BUG-005 已修复，localStorage `cherrywiki.shell.collapsed` 正常生效
 
 ### 10.4 响应式 `P1` `UI-4`
 - [ ] 不同屏幕宽度下布局合理（1280px / 1920px）

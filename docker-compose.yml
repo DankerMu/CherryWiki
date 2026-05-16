@@ -95,6 +95,7 @@ services:
       DOCMOST_BRIDGE_SECRET_NEXT: ${DOCMOST_BRIDGE_SECRET_NEXT:-}
       DOCMOST_ADMIN_EMAIL: ${DOCMOST_ADMIN_EMAIL:-admin@cherrywiki.local}
       DOCMOST_ADMIN_PASSWORD: ${DOCMOST_ADMIN_PASSWORD:-changeme-initial-setup}
+      DB_ENCRYPTION_KEY: ${DB_ENCRYPTION_KEY:-dev-encryption-key-32chars-min!!}
       AGENT_ANTHROPIC_API_KEY: ${AGENT_ANTHROPIC_API_KEY:-}
       AGENT_ANTHROPIC_BASE_URL: ${AGENT_ANTHROPIC_BASE_URL:-}
       AGENT_ANTHROPIC_MODEL: ${AGENT_ANTHROPIC_MODEL:-deepseek-v4-flash}
@@ -280,7 +281,15 @@ services:
       REDIS_URL: ${COMPOSE_REDIS_URL:-redis://redis:6379}
       MODEL_API_BASE_URL: ${MODEL_API_BASE_URL:-http://localhost:11434}
       MODEL_API_KEY: ${MODEL_API_KEY:-dev-model-key}
+      model_api_key: ${MODEL_API_KEY:-dev-model-key}
       DEFAULT_EMBEDDING_MODEL: ${DEFAULT_EMBEDDING_MODEL:-text-embedding-3-large}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin_dev_secret}
+      STORAGE_BUCKET_PREFIX: ${STORAGE_BUCKET_PREFIX:-cherrywiki}
+      CHERRY_API_URL: ${CHERRY_API_URL:-http://cherry-api:8080/api}
+      API_BASE_URL: http://cherry-api:8080/api
+      WORKER_API_KEY: ${WORKER_API_KEY:-dev-worker-api-key}
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
       http_proxy: ""

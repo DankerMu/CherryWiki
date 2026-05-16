@@ -69,7 +69,9 @@ export function parseGraphJson(raw: string): GraphOutput {
 
   const record = isRecord(data) ? data : {};
   const rawNodes = readArray(record, 'nodes');
-  const rawEdges = readArray(record, 'edges');
+  // networkx exports use 'links'; our own format uses 'edges' — try both
+  const linksArray = readArray(record, 'links');
+  const rawEdges = linksArray.length > 0 ? linksArray : readArray(record, 'edges');
 
   if (rawNodes.length > MAX_NODES) {
     throw new Error(`graph.json node count ${rawNodes.length} exceeds limit ${MAX_NODES}`);
