@@ -3,7 +3,7 @@ import { Permissions, type AuthenticatedRequestUser } from '@cherrygraph/auth-co
 import { ErrorCode } from '@cherrygraph/shared';
 
 import { PaginationQueryDto } from '../common/dto/pagination.dto.js';
-import { PublishDto, RollbackDto, WikiListQueryDto } from './wiki.dto.js';
+import { PublishDto, RollbackDto, UnpublishDto, WikiListQueryDto } from './wiki.dto.js';
 import { WikiService, type WikiAuditContext } from './wiki.service.js';
 
 type RequestWithAuth = {
@@ -82,6 +82,27 @@ export class WikiController {
       pageId,
       body.version_id,
       body.publish_note,
+      user.sub,
+      buildAuditContext(request),
+    );
+  }
+
+  @Post(':pageId/unpublish')
+  @HttpCode(HttpStatus.OK)
+  @Permissions('wiki:publish')
+  async unpublish(
+    @Param('spaceId') spaceId: string,
+    @Param('pageId') pageId: string,
+    @Body() body: UnpublishDto,
+    @Req() request: RequestWithAuth,
+  ): ReturnType<WikiService['unpublish']> {
+    const user = getAuthenticatedUser(request);
+    return this.wikiService.unpublish(
+      user.tenant_id,
+      spaceId,
+      pageId,
+      body.version_id,
+      body.reason,
       user.sub,
       buildAuditContext(request),
     );

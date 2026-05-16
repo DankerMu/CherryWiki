@@ -297,6 +297,65 @@ export class WikiService {
     };
   }
 
+  async unpublish(
+    tenantId: string,
+    spaceId: string,
+    pageId: string,
+    versionId: string,
+    reason: string | undefined,
+    actorUserId: string,
+    auditContext: WikiAuditContext = {},
+  ): Promise<WikiPublishResponse> {
+    const page = await this.requirePage(tenantId, spaceId, pageId);
+    const version = await this.findPageVersion(tenantId, spaceId, page.id, versionId);
+    if (version === undefined) {
+      throwApiError(ErrorCode.VERSION_NOT_FOUND, 'Wiki page version was not found', HttpStatus.NOT_FOUND);
+    }
+    if (version.status === 'draft') {
+      throwApiError(ErrorCode.ILLEGAL_STATUS_TRANSITION, 'Wiki page version is already a draft', HttpStatus.CONFLICT);
+    }
+
+    let nextStatus: string;
+    try {
+      nextStatus = this.publishStateMachine.unpublish(version.status);
+    } catch (err) {
+      if (err instanceof Error && err.message === 'VERSION_ALREADY_DRAFT') {
+        throwApiError(ErrorCode.ILLEGAL_STATUS_TRANSITION, 'Wiki page version is already a draft', HttpStatus.CONFLICT);
+      }
+      throwApiError(ErrorCode.ILLEGAL_STATUS_TRANSITION, 'Wiki page version cannot be unpublished', HttpStatus.CONFLICT);
+    }
+
+    const unpublishedAt = new Date();
+    await this.withTransaction(async (tx) => {
+      await this.updateVersionStatus(tx, version.id, nextStatus);
+      await this.updatePageCurrentVersion(tx, page.id, version.id, nextStatus, unpublishedAt);
+    });
+
+    this.auditService.push({
+      tenant_id: tenantId,
+      actor_user_id: actorUserId,
+      action: 'wiki.page.unpublish',
+      resource_type: 'wiki_page',
+      resource_id: pageId,
+      space_id: spaceId,
+      ...(auditContext.ip !== undefined ? { ip: auditContext.ip } : {}),
+      ...(auditContext.userAgent !== undefined ? { user_agent: auditContext.userAgent } : {}),
+      ...(auditContext.requestId !== undefined ? { request_id: auditContext.requestId } : {}),
+      metadata_json: {
+        version_id: versionId,
+        ...(reason !== undefined ? { reason } : {}),
+      },
+    });
+
+    return {
+      page_id: pageId,
+      version_id: versionId,
+      status: nextStatus,
+      published_at: unpublishedAt,
+      published_by: actorUserId,
+    };
+  }
+
   async rollback(
     tenantId: string,
     spaceId: string,

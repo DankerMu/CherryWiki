@@ -48,36 +48,42 @@
 
 | 类别 | 已通过 | 有BUG | 未测 | 覆盖率 |
 |---|---|---|---|---|
-| P0 核心路径 | 37 | 2 | 55 | ~40% |
+| P0 核心路径 | 88 | 0 | ~1 | ~99% |
 | P1 管理功能 | — | — | ~75 | 未开始 |
 | P2 边界安全 | — | — | ~15 | 未开始 |
 | E2E 自动化 | 11 pass | 0 | ~60 | ~15% |
 
 ### P0 已测通过的模块
 
-- §1 认证: 登录/登出/token 刷新/auth-me/页面刷新恢复 (10/10 ✅)
-- §2 Space: 创建/Overview stats/recent docs/quick actions (6/6 ✅)
-- §3 上传: Markdown 上传+解析+UI 列表 (3/3 ✅, 多格式未测)
-- §7 Chat: 基础对话/多轮/session 历史 (4/4 ✅, citation 需索引)
-- §9 Health: 6 组件全 healthy (1/1 ✅)
-- §10 侧边栏: 折叠/展开/icon 导航 (2/2 ✅, 刷新登录态阻塞已解除)
+- §1 认证: 登录/登出/token 刷新/auth-me/页面刷新恢复/账号锁定 (11/11 ✅)
+- §2 Space: 创建/Overview/权限/隔离/admin 配置/viewer Wiki 拒绝 (13/13 ✅)
+- §3 上传: MD/TXT/PDF/DOCX/PPTX/XLSX 上传+解析+UI 列表 (10/10 ✅)
+- §4 Graphify: 运行/完成/节点显示/搜索/Wiki 生成/边关系权重/全量vs选定/模式验证 (12/12 ✅)
+- §5 Wiki: 列表/内容渲染/版本历史/published 可见/draft 不可见/unpublish (6/6 ✅)
+- §6 索引: 自动触发/snapshot/chunk_count=16/superseded/embedding model (8/8 ✅)
+- §7 Chat: 对话/多轮/SSE/权限/引用/citations/跳转/agent.tool_use (17/17 ✅)
+- §8 Model: 创建/显示/启用/禁用/前置提示/embedding 验证/第二 embedding 拒绝 (8/8 ✅)
+- §9 Health: 6 组件 healthy (1/1 ✅)
+- §10 侧边栏: 折叠/展开/icon/刷新保持 (3/3 ✅)
 
-### P0 未测项分类 (55 项)
+### P0 未测项 (~1 项)
 
-**可立即测 (~20 项)**: §1.1 登录锁定、§2.3 Space 权限 (7项)、§3.1 多格式上传 PDF/DOCX/TXT/PPTX/XLSX、§7.2 SSE 事件 (5项)、§8.1 Model 启用/禁用
-**需 Graphify 数据 (~20 项)**: §4 Graph 显示+Wiki 生成、§5 Wiki 浏览/状态、§6 索引构建/快照、§7.1+7.3 Citation
-**需多用户 (~5 项)**: §2.3 权限隔离部分、§7.8 Chat 权限隔离
+**Agent 行为依赖**: §7.2 CA-10 chart.data 事件触发（database_config 已就绪，触发取决于 agent 是否以图表格式返回数据）
 
 ## 7. 活跃 BUG
 
 | ID | 优先级 | 状态 | 描述 | Issue |
 |---|---|---|---|---|
-| BUG-005 | P0 | 已修复 | 页面刷新丢登录 — AuthProvider bootstrap refresh | #356 |
+| — | — | — | 当前无活跃 BUG | — |
 
 ### 已修复 BUG (本轮)
 
 | ID | 描述 | Fix |
 |---|---|---|
+| BUG-007 | Chat 页面无 model 时缺少前置提示 | 新增 `GET /api/models/chat-available` boolean-only endpoint；Chat 页预检查并显示无模型提示、禁用输入 |
+| PR-360-R1 | OOXML 文件被 `isZipUpload()` 当普通 ZIP 触发 ZipValidator 误拒 | `apps/api/src/uploads/validators/mime-validator.ts` 对 `.xlsx/.docx/.pptx` 返回 false，新增 MIME + pipeline 回归测试 |
+| BUG-006 | XLSX 上传被安全检查误拒 | 当前分支：OOXML MIME `application/zip` 通过，且排除普通 ZIP 解包校验 |
+| PR-357-R1 | Auth bootstrap race: delayed refresh 401 清除已登录 session、延迟 bootstrap 复活已登出 session | `apps/web/src/lib/auth.tsx` 增加 bootstrap in-flight 401 抑制 + session generation stale guard，新增 2 个回归测试 |
 | BUG-005 | 页面刷新丢登录 | 当前分支：bootstrap refresh + `isBootstrapping` 路由守卫 |
 | BUG-001 | cookie Secure 标志 HTTP 下不持久 | `ae11d58` |
 | BUG-002 | Space 创建后选择器不刷新 | `eb85819` |
@@ -89,6 +95,8 @@
 | Change | 状态 | 说明 |
 |---|---|---|
 | auth-session-persist | 4/4 complete, issue #356 | BUG-005 修复 |
+| fix-xlsx-mime-validation | 4/4 complete, issue #358 | BUG-006 修复 |
+| chat-no-model-precheck | 4/4 complete, issue #359 | BUG-007 修复 |
 
 ## 9. 下一步
 

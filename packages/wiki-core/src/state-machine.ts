@@ -17,6 +17,22 @@ export class PublishStateMachine {
     throw new Error('INVALID_PUBLISH_TRANSITION');
   }
 
+  canUnpublish(currentStatus: string): boolean {
+    return currentStatus === 'published';
+  }
+
+  unpublish(currentStatus: string): WikiPageStatus {
+    if (this.canUnpublish(currentStatus)) {
+      return 'draft';
+    }
+
+    if (currentStatus === 'draft') {
+      throw new Error('VERSION_ALREADY_DRAFT');
+    }
+
+    throw new Error('INVALID_UNPUBLISH_TRANSITION');
+  }
+
   canArchive(currentStatus: string): boolean {
     return currentStatus === 'published';
   }
