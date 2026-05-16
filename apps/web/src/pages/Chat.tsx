@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
-import { Navigate, useNavigate, useParams } from 'react-router';
+import { Link, Navigate, useNavigate, useParams } from 'react-router';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
 import { Alert, Button, Collapse, Empty, Input, List, message, Popconfirm, Select, Spin, Tag } from 'antd';
@@ -35,6 +35,7 @@ import {
   type SendMessageOptions,
   type SpaceDisplayInfo,
 } from '../hooks/useChatStream.js';
+import { useChatModelAvailable } from '../hooks/useChatModelAvailable.js';
 import { api } from '../lib/api.js';
 import { useAuth, type AuthUser } from '../lib/auth.js';
 import NotFound from './NotFound.js';
@@ -107,8 +108,9 @@ const CHAT_SIDEBAR_COLLAPSED_KEY = 'cherry-chat-sidebar-collapsed';
 export default function Chat() {
   const { t } = useTranslation();
   const { spaceId = '' } = useParams();
-  const { accessToken, hasSpacePermission, isAuthenticated, user } = useAuth();
+  const { accessToken, hasSpacePermission, isAdmin, isAuthenticated, user } = useAuth();
   const gate = useSpacePermissionGate(['space:view', 'chat:use']);
+  const chatModelAvailable = useChatModelAvailable(isAuthenticated && gate.isAllowed);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
@@ -418,6 +420,7 @@ export default function Chat() {
 
   const chatErrorMessage = getChatErrorMessage(streamError, selectedSpaceIds.length);
   const selectorLocked = isStreaming;
+  const chatInputDisabled = isStreaming || chatModelAvailable.loading || !chatModelAvailable.available;
 
   return (
     <div className={`chat-page${isSidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
@@ -511,6 +514,24 @@ export default function Chat() {
         </section>
 
         <div className="chat-bottom-area">
+          {!chatModelAvailable.loading && !chatModelAvailable.available ? (
+            <Alert
+              type="warning"
+              showIcon
+              message={
+                isAdmin ? (
+                  <span>
+                    {t('chat.noModelAdminPrefix')}
+                    <Link to="/admin/models">{t('chat.noModelAdminLink')}</Link>
+                    {t('chat.noModelAdminSuffix')}
+                  </span>
+                ) : (
+                  t('chat.noModelUser')
+                )
+              }
+            />
+          ) : null}
+
           {chatErrorMessage !== null ? (
             <div className="chat-error-bar" role="alert">
               <span>{chatErrorMessage}</span>
@@ -537,7 +558,7 @@ export default function Chat() {
             onStartNewSession={newChat}
           />
           <MessageInput
-            disabled={isStreaming}
+            disabled={chatInputDisabled}
             isStreaming={isStreaming}
             settings={chatSettings}
             databaseAvailable={selectedSpaceIds.length === 1 && spaceDatabaseEnabled}

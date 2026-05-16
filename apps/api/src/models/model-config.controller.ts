@@ -20,6 +20,7 @@ import { PaginationQueryDto } from '../common/dto/pagination.dto.js';
 import {
   ModelConfigService,
   type AdminModelConfigResponse,
+  type ChatModelAvailabilityResponse,
   type ModelConnectivityTestResponse,
 } from './model-config.service.js';
 
@@ -156,6 +157,20 @@ class TestModelConnectivityDto {
 type RequestWithAuth = {
   user?: AuthenticatedRequestUser;
 };
+
+@Controller('models')
+export class PublicModelConfigController {
+  constructor(private readonly modelConfigService: ModelConfigService) {}
+
+  @Get('chat-available')
+  async isChatModelAvailable(@Req() request: RequestWithAuth): Promise<ChatModelAvailabilityResponse> {
+    const user = getAuthenticatedUser(request);
+    return this.modelConfigService.hasAvailableChatModel({
+      tenantId: user.tenant_id,
+      actorUserId: user.sub,
+    });
+  }
+}
 
 @Permissions('admin:model_manage')
 @Controller('admin/models')
