@@ -2,7 +2,7 @@ import { ErrorCode } from '@cherrygraph/shared';
 import { fileTypeFromBuffer } from 'file-type';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { MimeValidator, validateUploadMagicBytes } from '../validators/mime-validator.js';
+import { MimeValidator, isZipUpload, validateUploadMagicBytes } from '../validators/mime-validator.js';
 
 vi.mock('file-type', async (importOriginal) => {
   const actual = await importOriginal<typeof import('file-type')>();
@@ -206,6 +206,23 @@ describe('MimeValidator', () => {
     });
   });
 
+  it('passes ZIP files detected as ZIP containers', async () => {
+    fileTypeFromBufferMock.mockResolvedValueOnce({ ext: 'zip', mime: 'application/zip' });
+
+    const result = await validateUploadMagicBytes({
+      filename: 'archive.zip',
+      buffer: Buffer.from('zip container'),
+    });
+
+    expect(result).toMatchObject({
+      pass: true,
+      details: {
+        extension: '.zip',
+        detected_mime: 'application/zip',
+      },
+    });
+  });
+
   it('rejects XLSX files detected as executables', async () => {
     fileTypeFromBufferMock.mockResolvedValueOnce({ ext: 'elf', mime: 'application/x-executable' });
 
@@ -222,6 +239,16 @@ describe('MimeValidator', () => {
         detected_mime: 'application/x-executable',
       },
     });
+  });
+});
+
+describe('isZipUpload', () => {
+  it.each(['.xlsx', '.docx', '.pptx'] as const)('does not treat OOXML %s files detected as ZIP as archive uploads', (extension) => {
+    expect(isZipUpload(`file${extension}`, { detected_mime: 'application/zip' })).toBe(false);
+  });
+
+  it('still treats .zip files detected as ZIP as archive uploads', () => {
+    expect(isZipUpload('archive.zip', { detected_mime: 'application/zip' })).toBe(true);
   });
 });
 

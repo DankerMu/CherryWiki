@@ -41,6 +41,7 @@ type FileTypeDetection = {
 
 export const MIME_HEADER_BYTES = 4096;
 const PLAIN_TEXT_EXTENSIONS = new Set<AllowedUploadExtension>(['.md', '.mdx', '.txt', '.rst']);
+const OOXML_EXTENSIONS = new Set<AllowedUploadExtension>(['.docx', '.pptx', '.xlsx']);
 const EXTENSION_MIME_MAP = {
   '.md': ['text/markdown', 'text/plain'],
   '.mdx': ['text/markdown', 'text/mdx', 'text/plain'],
@@ -81,6 +82,10 @@ export function isZipUpload(filename: string, mimeDetails?: Record<string, unkno
   const extension = getUploadExtension(filename);
   if (extension === '.zip') {
     return true;
+  }
+
+  if (extension !== undefined && OOXML_EXTENSIONS.has(extension)) {
+    return false;
   }
 
   return mimeDetails?.detected_mime === 'application/zip' || mimeDetails?.declared_mime === 'application/zip';
