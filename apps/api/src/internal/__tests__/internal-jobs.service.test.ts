@@ -10,6 +10,7 @@ import {
 } from '@cherrygraph/job-core';
 import { ErrorCode } from '@cherrygraph/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Readable } from 'node:stream';
 
 import { InternalJobsService } from '../internal-jobs.service.js';
 
@@ -396,6 +397,48 @@ describe('InternalJobsService', () => {
 
     expect(createJobSpy).not.toHaveBeenCalled();
     expect(createQueueSpy).not.toHaveBeenCalled();
+  });
+
+  describe('importGraphData', () => {
+    it('returns early for null or empty graphJsonUri without calling storage', async () => {
+      const storageService = createStorageServiceMock();
+      const service = new InternalJobsService(
+        createDb().asDb() as never,
+        createRedisMock().asClient() as never,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        storageService as never,
+      );
+
+      await callImportGraphData(service, null);
+      await callImportGraphData(service, '');
+
+      expect(storageService.download).not.toHaveBeenCalled();
+    });
+
+    it('returns early when storageService is undefined', async () => {
+      const service = new InternalJobsService(createDb().asDb() as never, createRedisMock().asClient() as never);
+
+      await expect(callImportGraphData(service, 's3://bucket/graph.json')).resolves.toBeUndefined();
+    });
+
+    it('returns without crashing when graph validation fails', async () => {
+      const storageService = createStorageServiceMock(JSON.stringify({ nodes: [], edges: [] }));
+      const service = new InternalJobsService(
+        createDb().asDb() as never,
+        createRedisMock().asClient() as never,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        storageService as never,
+      );
+
+      await expect(callImportGraphData(service, 's3://bucket/graph.json')).resolves.toBeUndefined();
+      expect(storageService.download).toHaveBeenCalledWith('bucket', 'graph.json');
+    });
   });
 
   it('completes upload validation when a validation job succeeds', async () => {
@@ -1213,6 +1256,28 @@ function createQueueMock(): {
   return {
     add: vi.fn(() => Promise.resolve()),
     close: vi.fn(() => Promise.resolve()),
+  };
+}
+
+async function callImportGraphData(service: InternalJobsService, graphJsonUri: string | null): Promise<void> {
+  await (service as unknown as {
+    importGraphData: (
+      tenantId: string,
+      spaceId: string,
+      runId: string,
+      graphJsonUri: string | null,
+      jobId: string,
+    ) => Promise<void>;
+  }).importGraphData('tenant-1', 'space-1', 'run-1', graphJsonUri, 'job-1');
+}
+
+function createStorageServiceMock(body = '{"nodes":[{"id":"n1","label":"Node 1"}],"edges":[]}'): {
+  isConfigured: ReturnType<typeof vi.fn<() => boolean>>;
+  download: ReturnType<typeof vi.fn<(bucket: string, key: string) => Promise<Readable>>>;
+} {
+  return {
+    isConfigured: vi.fn(() => true),
+    download: vi.fn(() => Promise.resolve(Readable.from([body]))),
   };
 }
 

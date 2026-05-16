@@ -53,6 +53,8 @@ const DEAD_WORKER_SCAN_INTERVAL_MS = 30_000;
 const DEAD_WORKER_THRESHOLD_MS = 90_000;
 const DEFAULT_LOCK_TTL_SECONDS = 600;
 const HEARTBEAT_TTL_SECONDS = 180;
+const MAX_GRAPH_JSON_BYTES = 128 * 1024 * 1024;
+const GRAPH_IMPORT_BATCH_SIZE = 500;
 
 @Injectable()
 export class InternalJobsService {
@@ -762,8 +764,18 @@ export class InternalJobsService {
       const { bucket, key } = parseS3Uri(graphJsonUri);
       const stream = await this.storageService.download(bucket, key);
       const chunks: Buffer[] = [];
+      let totalBytes = 0;
       for await (const chunk of stream) {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        totalBytes += buffer.byteLength;
+        if (totalBytes > MAX_GRAPH_JSON_BYTES) {
+          getApiLogger().warn(
+            { job_id: jobId, run_id: runId, graph_json_uri: graphJsonUri, size_bytes: totalBytes, limit_bytes: MAX_GRAPH_JSON_BYTES },
+            'Graph JSON exceeds import size limit — skipping graph import',
+          );
+          return;
+        }
+        chunks.push(buffer);
       }
       const raw = Buffer.concat(chunks).toString('utf-8');
 
@@ -779,52 +791,47 @@ export class InternalJobsService {
 
       const importOp = this.graphImportService.importRun(tenantId, spaceId, runId, validation);
 
-      // Insert nodes
-      for (const node of importOp.nodes) {
-        const nodeId = randomUUID();
-        await this.db
-          .insert(graphNodes)
-          .values({
-            id: nodeId,
-            tenant_id: tenantId,
-            space_id: spaceId,
-            graphify_run_id: runId,
-            node_key: node.nodeKey,
-            stable_key: node.stableKey,
-            label: node.label,
-            norm_label: node.normLabel,
-            type: node.type,
-            community_id: node.communityId,
-            source_refs_json: node.sourceRefsJson,
-          })
-          .onConflictDoNothing();
-      }
+      const edgesCreated = await this.db.transaction(async (tx) => {
+        const txDb = tx as JobsDatabase;
 
-      // Build node_key -> node_id mapping for edge insertion
-      const nodeRows = await this.db
-        .select({ id: graphNodes.id, node_key: graphNodes.node_key })
-        .from(graphNodes)
-        .where(
-          and(
-            eq(graphNodes.tenant_id, tenantId),
-            eq(graphNodes.space_id, spaceId),
-            eq(graphNodes.graphify_run_id, runId),
-          ),
-        );
-      const nodeKeyToId = new Map(nodeRows.map((row) => [row.node_key, row.id]));
+        const nodeValues = importOp.nodes.map((node) => ({
+          id: randomUUID(),
+          tenant_id: tenantId,
+          space_id: spaceId,
+          graphify_run_id: runId,
+          node_key: node.nodeKey,
+          stable_key: node.stableKey,
+          label: node.label,
+          norm_label: node.normLabel,
+          type: node.type,
+          community_id: node.communityId,
+          source_refs_json: node.sourceRefsJson,
+        }));
 
-      // Insert edges
-      let edgesCreated = 0;
-      for (const edge of importOp.edges) {
-        const sourceNodeId = nodeKeyToId.get(edge.sourceNodeKey);
-        const targetNodeId = nodeKeyToId.get(edge.targetNodeKey);
-        if (sourceNodeId === undefined || targetNodeId === undefined) {
-          continue;
+        for (const nodeBatch of chunkArray(nodeValues, GRAPH_IMPORT_BATCH_SIZE)) {
+          await txDb.insert(graphNodes).values(nodeBatch).onConflictDoNothing();
         }
 
-        await this.db
-          .insert(graphEdges)
-          .values({
+        const nodeRows = await txDb
+          .select({ id: graphNodes.id, node_key: graphNodes.node_key })
+          .from(graphNodes)
+          .where(
+            and(
+              eq(graphNodes.tenant_id, tenantId),
+              eq(graphNodes.space_id, spaceId),
+              eq(graphNodes.graphify_run_id, runId),
+            ),
+          );
+        const nodeKeyToId = new Map(nodeRows.map((row) => [row.node_key, row.id]));
+
+        const edgeValues = importOp.edges.flatMap((edge) => {
+          const sourceNodeId = nodeKeyToId.get(edge.sourceNodeKey);
+          const targetNodeId = nodeKeyToId.get(edge.targetNodeKey);
+          if (sourceNodeId === undefined || targetNodeId === undefined) {
+            return [];
+          }
+
+          return [{
             id: randomUUID(),
             tenant_id: tenantId,
             space_id: spaceId,
@@ -836,10 +843,15 @@ export class InternalJobsService {
             raw_confidence_score: edge.rawScore,
             effective_confidence_score: edge.effectiveScore,
             evidence_count: edge.evidenceCount,
-          })
-          .onConflictDoNothing();
-        edgesCreated++;
-      }
+          }];
+        });
+
+        for (const edgeBatch of chunkArray(edgeValues, GRAPH_IMPORT_BATCH_SIZE)) {
+          await txDb.insert(graphEdges).values(edgeBatch).onConflictDoNothing();
+        }
+
+        return edgeValues.length;
+      });
 
       getApiLogger().info(
         { job_id: jobId, run_id: runId, nodes: importOp.nodes.length, edges: edgesCreated },
@@ -956,6 +968,14 @@ function toJobDto(job: JobRow, progress: JobProgressDto | null = null): JobDto {
     started_at: job.started_at,
     completed_at: job.completed_at,
   };
+}
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
 }
 
 function toProgressDto(percent: number, stage: string | undefined): JobProgressDto {

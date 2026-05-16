@@ -34,6 +34,7 @@ import {
 } from '../common/dto/pagination.dto.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { AuditService } from '../audit/audit.service.js';
+import { getApiLogger } from '../common/logger/logger.module.js';
 import { REDIS_CLIENT, type OptionalRedisClient } from '../common/redis/redis.module.js';
 
 type WikiDatabase = NodePgDatabase;
@@ -346,6 +347,31 @@ export class WikiService {
         ...(reason !== undefined ? { reason } : {}),
       },
     });
+
+    // Remove from search index via incremental reindex
+    try {
+      const reindexJob = await JobRepository.create(this.db, {
+        tenant_id: tenantId,
+        space_id: spaceId,
+        queue_name: QUEUE_INDEXING,
+        type: 'reindex',
+        payload_json: {
+          tenant_id: tenantId,
+          space_id: spaceId,
+          page_id: pageId,
+          trigger: 'unpublish',
+          scope: 'incremental',
+        },
+        created_by: actorUserId,
+      });
+      await this.enqueueIndexingJob(reindexJob.id);
+    } catch (reindexErr) {
+      // Non-fatal: page is unpublished even if reindex fails
+      getApiLogger().warn(
+        { err: reindexErr, page_id: pageId, space_id: spaceId },
+        'Failed to enqueue reindex after unpublish — search index may be stale',
+      );
+    }
 
     return {
       page_id: pageId,
