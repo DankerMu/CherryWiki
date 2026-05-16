@@ -4,8 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AuditEntry, AuditService } from '../../audit/audit.service.js';
 import { PromptInjectionScanner } from '../validators/prompt-injection-scanner.js';
 import { ValidationPipeline } from '../validators/validation-pipeline.js';
-import type { MimeValidator } from '../validators/mime-validator.js';
-import type { ZipValidator } from '../validators/zip-validator.js';
+import { MimeValidator } from '../validators/mime-validator.js';
+import { ZipValidator } from '../validators/zip-validator.js';
 import type { SecurityValidationResult } from '../validators/validation-result.js';
 import type { SourceDocumentRepository, SourceDocumentRow } from '../uploads.repository.js';
 
@@ -89,6 +89,36 @@ describe('ValidationPipeline', () => {
       },
     });
   });
+
+  it('passes OOXML files detected as ZIP containers without running ZIP validation', async () => {
+    const repository = {
+      updateStatus: vi.fn(),
+      updateMetadata: vi.fn(),
+    };
+    const zip = new ZipValidator();
+    const zipValidateSpy = vi.spyOn(zip, 'validate');
+    const pipeline = new ValidationPipeline(
+      new MimeValidator(),
+      zip,
+      new PromptInjectionScanner(),
+      repository as unknown as SourceDocumentRepository,
+    );
+
+    const result = await pipeline.validate({
+      filename: 'workbook.xlsx',
+      declaredMimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      buffer: minimalZipBuffer(),
+    });
+
+    expect(result).toMatchObject({
+      pass: true,
+      details: {
+        extension: '.xlsx',
+        detected_mime: 'application/zip',
+      },
+    });
+    expect(zipValidateSpy).not.toHaveBeenCalled();
+  });
 });
 
 function createPipelineContext(overrides: {
@@ -154,4 +184,8 @@ function createSourceDocumentRow(): SourceDocumentRow {
     created_at: new Date('2026-04-30T00:00:00.000Z'),
     updated_at: new Date('2026-04-30T00:00:00.000Z'),
   };
+}
+
+function minimalZipBuffer(): Buffer {
+  return Buffer.from([0x50, 0x4b, 0x05, 0x06, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 }
