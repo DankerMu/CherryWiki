@@ -74,12 +74,13 @@
 
 | ID | 优先级 | 状态 | 描述 | Issue |
 |---|---|---|---|---|
-| BUG-008 | P1 | 已修复待端到端复测 | chart.data SSE 事件未触发 — #364 active turn 事件注入、#365 内部 HTTP callback endpoint、#366 cherrydb chart CLI callback 已完成 | #364/#365/#366 |
+| BUG-008 | P1 | 已完成 | chart.data SSE 事件未触发 — #364 active turn 事件注入、#365 内部 HTTP callback endpoint、#366 cherrydb chart CLI callback、#367 endpoint→SSE 集成验证已完成 | #364/#365/#366/#367 |
 
 ### 已修复 BUG (本轮)
 
 | ID | 描述 | Fix |
 |---|---|---|
+| BUG-008/#367 | chart-event endpoint 到 SSE consumer 全链路验证 | 新增 `apps/api/src/internal/__tests__/chart-event-e2e.test.ts`，覆盖 POST `/api/internal/agent/chart-event` → `AgentService.injectChartEvent` → `TurnEventQueue` → consumer 收到 `chart.data`，并验证 `chart.data` 早于 `message.completed` |
 | BUG-008/#366 | cherrydb chart CLI 未回调内部 chart-event endpoint | `tools/cherrydb/cli.py` 在输出 chart envelope 后 POST `CHERRY_CHART_CALLBACK_URL`，新增 callback 单测；`tools/cherrydb` 16 tests pass |
 | BUG-007 | Chat 页面无 model 时缺少前置提示 | 新增 `GET /api/models/chat-available` boolean-only endpoint；Chat 页预检查并显示无模型提示、禁用输入 |
 | PR-360-R1 | OOXML 文件被 `isZipUpload()` 当普通 ZIP 触发 ZipValidator 误拒 | `apps/api/src/uploads/validators/mime-validator.ts` 对 `.xlsx/.docx/.pptx` 返回 false，新增 MIME + pipeline 回归测试 |
@@ -95,7 +96,7 @@
 
 | Change | 状态 | 说明 |
 |---|---|---|
-| agent-chart-event-injection | issues #364/#365/#366 complete | TurnEventQueue/PersistentStreamParser/AgentService 注入机制 + env 注入 + internal endpoint + cherrydb CLI callback，待端到端复测 |
+| agent-chart-event-injection | issues #364/#365/#366/#367 complete | TurnEventQueue/PersistentStreamParser/AgentService 注入机制 + env 注入 + internal endpoint + cherrydb CLI callback + endpoint→SSE 集成验证 |
 | auth-session-persist | 4/4 complete, issue #356 | BUG-005 修复 |
 | fix-xlsx-mime-validation | 4/4 complete, issue #358 | BUG-006 修复 |
 | chat-no-model-precheck | 4/4 complete, issue #359 | BUG-007 修复 |
