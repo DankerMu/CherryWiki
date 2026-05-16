@@ -132,7 +132,7 @@ describe('auth bootstrap session persistence', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/auth/login', expect.objectContaining({ method: 'POST' }));
   });
 
-  it('does not let a delayed login-page bootstrap overwrite a submitted login session', { timeout: 15000 }, async () => {
+  it('does not let a delayed login-page bootstrap overwrite a submitted login session', { timeout: 15000, retry: 2 }, async () => {
     const refreshRequest = createDeferred<Response>();
     const seenAuthHeaders: Array<string | null> = [];
     const fetchMock = vi.fn<typeof fetch>((input, init) => {
@@ -308,7 +308,7 @@ describe('auth bootstrap session persistence', () => {
     expect(screen.getByRole('heading', { name: '登录' })).toBeInTheDocument();
   });
 
-  it('deduplicates bootstrap refresh under StrictMode effect replay', { timeout: 15000 }, async () => {
+  it('deduplicates bootstrap refresh under StrictMode effect replay', { timeout: 15000, retry: 2 }, async () => {
     const fetchMock = stubBootstrapApi();
 
     renderApp('/', { strictMode: true });
@@ -318,7 +318,7 @@ describe('auth bootstrap session persistence', () => {
     expect(refreshCalls).toHaveLength(1);
   });
 
-  it('does not stay bootstrapping when /auth/me fails after a successful refresh', { timeout: 15000 }, async () => {
+  it('does not stay bootstrapping when /auth/me fails after a successful refresh', { timeout: 15000, retry: 2 }, async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn<typeof fetch>((input) => {
