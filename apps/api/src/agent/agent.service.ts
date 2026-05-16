@@ -184,10 +184,11 @@ export class AgentService implements OnModuleDestroy {
       return 'not_found';
     }
 
+    const chartType = chartData.chart_type;
     const event: AgentEvent = {
       type: 'chart.data',
-      chart_type: chartData.chart_type as string | undefined,
-      echarts_option: chartData.echarts_option,
+      ...(typeof chartType === 'string' ? { chart_type: chartType } : {}),
+      ...(chartData.echarts_option !== undefined ? { echarts_option: chartData.echarts_option } : {}),
       data: chartData,
     };
 
