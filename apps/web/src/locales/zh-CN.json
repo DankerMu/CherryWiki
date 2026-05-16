@@ -941,6 +941,10 @@
     "agentThinking": "Agent 思考中",
     "completed": "完成",
     "responseInterrupted": "响应中断，请重试",
+    "noModelAdminPrefix": "请先在 ",
+    "noModelAdminLink": "Models 页面",
+    "noModelAdminSuffix": "启用聊天模型",
+    "noModelUser": "请联系管理员配置聊天模型",
     "forbidden": {
       "code": "403",
       "title": "无权访问",

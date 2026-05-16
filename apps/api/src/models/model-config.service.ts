@@ -95,6 +95,10 @@ export type ModelConnectivityTestResponse = {
   error?: string;
 };
 
+export type ChatModelAvailabilityResponse = {
+  available: boolean;
+};
+
 type ModelSortField = keyof Pick<
   typeof model_configs,
   'created_at' | 'updated_at' | 'provider' | 'model_id' | 'model_type' | 'display_name' | 'enabled'
@@ -472,6 +476,19 @@ export class ModelConfigService {
     await targetValidation.dispatcher.close().catch(() => undefined);
     this.auditModelTest(tenantId, existing, result, context);
     return result;
+  }
+
+  async hasAvailableChatModel(context: AdminContext = {}): Promise<ChatModelAvailabilityResponse> {
+    const tenantId = await this.resolveTenantId(context);
+    const [row] = await this.db
+      .select({ total: count() })
+      .from(model_configs)
+      .where(and(eq(model_configs.tenant_id, tenantId), eq(model_configs.model_type, 'chat'), eq(model_configs.enabled, true)))
+      .limit(1);
+
+    return {
+      available: normalizeCount(row?.total) > 0,
+    };
   }
 
   resolveApiKey(encryptedApiKeyRef: string | null): string {

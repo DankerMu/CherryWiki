@@ -38,6 +38,26 @@ afterEach(() => {
 });
 
 describe('ModelConfigService', () => {
+  it('returns chat availability true when an enabled chat model exists', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([{ total: 1 }]);
+
+    const result = await service.hasAvailableChatModel(createContext());
+
+    expect(result).toEqual({ available: true });
+    expect(result).not.toHaveProperty('id');
+    expect(result).not.toHaveProperty('model_id');
+    expect(result).not.toHaveProperty('provider');
+    expect(db.limitCalls).toEqual([1]);
+  });
+
+  it('returns chat availability false when no enabled chat model exists', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([{ total: 0 }]);
+
+    await expect(service.hasAvailableChatModel(createContext())).resolves.toEqual({ available: false });
+  });
+
   it('lists models with API field mapping', async () => {
     const { service, db } = createServiceContext();
     db.queueSelect([

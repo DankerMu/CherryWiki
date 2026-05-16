@@ -941,6 +941,10 @@
     "agentThinking": "Agent is thinking",
     "completed": "Completed",
     "responseInterrupted": "Response interrupted, please retry",
+    "noModelAdminPrefix": "Enable a chat model on the ",
+    "noModelAdminLink": "Models page",
+    "noModelAdminSuffix": "",
+    "noModelUser": "Contact an administrator to configure a chat model",
     "forbidden": {
       "code": "403",
       "title": "Access Denied",

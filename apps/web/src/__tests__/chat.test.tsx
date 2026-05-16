@@ -351,6 +351,39 @@ describe('Chat bottom area layout', () => {
   });
 });
 
+describe('Chat model availability pre-check', () => {
+  it('shows a no-model banner and disables input when chat models are unavailable', async () => {
+    stubChatFetch({ chatModelAvailable: false });
+
+    renderChatRoute();
+
+    expect(await screen.findByText('请联系管理员配置聊天模型')).toBeInTheDocument();
+    const textarea = screen.getByLabelText<HTMLTextAreaElement>('消息');
+    expect(textarea).toBeDisabled();
+    expect(screen.getByRole('button', { name: /发送/ })).toBeDisabled();
+  });
+
+  it('shows no no-model banner and keeps input enabled when chat models are available', async () => {
+    stubChatFetch({ chatModelAvailable: true });
+
+    renderChatRoute();
+
+    const textarea = await screen.findByLabelText<HTMLTextAreaElement>('消息');
+    await waitFor(() => expect(screen.queryByText('请联系管理员配置聊天模型')).not.toBeInTheDocument());
+    expect(textarea).not.toBeDisabled();
+  });
+
+  it('shows no no-model banner and keeps input enabled when the availability API fails', async () => {
+    stubChatFetch({ chatModelAvailableStatus: 500 });
+
+    renderChatRoute();
+
+    const textarea = await screen.findByLabelText<HTMLTextAreaElement>('消息');
+    await waitFor(() => expect(screen.queryByText('请联系管理员配置聊天模型')).not.toBeInTheDocument());
+    expect(textarea).not.toBeDisabled();
+  });
+});
+
 describe('Sidebar collapse', () => {
   it('renders collapse toggle button in sidebar header', async () => {
     stubChatFetch();
@@ -722,6 +755,10 @@ describe('Chat error state', () => {
           return Promise.resolve(jsonResponse({ data: { id: 'space-1', database_config: { enabled: false } } }));
         }
 
+        if (path === '/api/models/chat-available') {
+          return Promise.resolve(jsonResponse({ data: { available: true }, meta: { request_id: 'req-chat-model' } }));
+        }
+
         if (path === '/api/chat/completions') {
           return Promise.resolve(
             jsonResponse(
@@ -862,6 +899,8 @@ type StubSessionDetail = {
 
 function stubChatFetch({
   databaseEnabled = false,
+  chatModelAvailable = true,
+  chatModelAvailableStatus = 200,
   spaces = [
     { id: 'space-1', name: 'Space One' },
     { id: 'space-2', name: 'Space Two' },
@@ -872,6 +911,8 @@ function stubChatFetch({
   patchSessionSpacesStatus = 200,
 }: {
   databaseEnabled?: boolean;
+  chatModelAvailable?: boolean;
+  chatModelAvailableStatus?: number;
   spaces?: StubSpace[];
   sessions?: StubSession[];
   sessionDetails?: Record<string, StubSessionDetail>;
@@ -886,6 +927,17 @@ function stubChatFetch({
       const path = getRequestPath(input);
       const requestBody = parseRequestBody(init?.body);
       calls.push({ path, body: requestBody });
+
+      if (path === '/api/models/chat-available') {
+        return Promise.resolve(
+          chatModelAvailableStatus >= 200 && chatModelAvailableStatus < 300
+            ? jsonResponse({ data: { available: chatModelAvailable }, meta: { request_id: 'req-chat-model' } })
+            : jsonResponse(
+                { error: { code: 'INTERNAL_ERROR', message: 'Failed to check model availability' } },
+                chatModelAvailableStatus,
+              ),
+        );
+      }
 
       if (path === '/api/spaces') {
         return Promise.resolve(
