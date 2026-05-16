@@ -1,9 +1,24 @@
 import { ErrorCode } from '@cherrygraph/shared';
-import { describe, expect, it } from 'vitest';
+import { fileTypeFromBuffer } from 'file-type';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { MimeValidator } from '../validators/mime-validator.js';
+import { MimeValidator, validateUploadMagicBytes } from '../validators/mime-validator.js';
+
+vi.mock('file-type', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('file-type')>();
+  return {
+    ...actual,
+    fileTypeFromBuffer: vi.fn(actual.fileTypeFromBuffer),
+  };
+});
+
+const fileTypeFromBufferMock = vi.mocked(fileTypeFromBuffer);
 
 describe('MimeValidator', () => {
+  afterEach(() => {
+    fileTypeFromBufferMock.mockClear();
+  });
+
   it('passes when magic bytes, declared MIME, and extension match', async () => {
     const result = await new MimeValidator().validate({
       filename: 'report.pdf',
@@ -136,6 +151,75 @@ describe('MimeValidator', () => {
       details: {
         extension: '.md',
         detected_mime: 'text/plain',
+      },
+    });
+  });
+
+  it('passes XLSX files detected as ZIP containers', async () => {
+    fileTypeFromBufferMock.mockResolvedValueOnce({ ext: 'zip', mime: 'application/zip' });
+
+    const result = await validateUploadMagicBytes({
+      filename: 'workbook.xlsx',
+      buffer: Buffer.from('zip container'),
+    });
+
+    expect(result).toMatchObject({
+      pass: true,
+      details: {
+        extension: '.xlsx',
+        detected_mime: 'application/zip',
+      },
+    });
+  });
+
+  it('passes DOCX files detected as ZIP containers', async () => {
+    fileTypeFromBufferMock.mockResolvedValueOnce({ ext: 'zip', mime: 'application/zip' });
+
+    const result = await validateUploadMagicBytes({
+      filename: 'document.docx',
+      buffer: Buffer.from('zip container'),
+    });
+
+    expect(result).toMatchObject({
+      pass: true,
+      details: {
+        extension: '.docx',
+        detected_mime: 'application/zip',
+      },
+    });
+  });
+
+  it('passes PPTX files detected as ZIP containers', async () => {
+    fileTypeFromBufferMock.mockResolvedValueOnce({ ext: 'zip', mime: 'application/zip' });
+
+    const result = await validateUploadMagicBytes({
+      filename: 'slides.pptx',
+      buffer: Buffer.from('zip container'),
+    });
+
+    expect(result).toMatchObject({
+      pass: true,
+      details: {
+        extension: '.pptx',
+        detected_mime: 'application/zip',
+      },
+    });
+  });
+
+  it('rejects XLSX files detected as executables', async () => {
+    fileTypeFromBufferMock.mockResolvedValueOnce({ ext: 'elf', mime: 'application/x-executable' });
+
+    const result = await validateUploadMagicBytes({
+      filename: 'workbook.xlsx',
+      buffer: Buffer.from('executable content'),
+    });
+
+    expect(result).toMatchObject({
+      pass: false,
+      code: ErrorCode.MIME_MISMATCH,
+      details: {
+        extension: '.xlsx',
+        detected_mime: 'application/x-executable',
       },
     });
   });
