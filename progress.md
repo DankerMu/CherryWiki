@@ -74,7 +74,7 @@
 
 | ID | 优先级 | 状态 | 描述 | Issue |
 |---|---|---|---|---|
-| BUG-008 | P1 | 部分修复 | chart.data SSE 事件未触发 — #364 已实现 active turn 事件注入机制；待 #365/#366 接入 HTTP callback 与 CLI 调用 | #364 |
+| BUG-008 | P1 | 部分修复 | chart.data SSE 事件未触发 — #364 已实现 active turn 事件注入机制；#365 已接入内部 HTTP callback endpoint + nginx 阻断；待 #366 CLI 调用 | #364/#365 |
 
 ### 已修复 BUG (本轮)
 

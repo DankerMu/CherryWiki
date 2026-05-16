@@ -5,6 +5,8 @@ import { AuditModule } from '../audit/audit.module.js';
 import { BridgeModule } from '../bridge/bridge.module.js';
 import { GraphifyModule } from '../graphify/graphify.module.js';
 import { UploadsModule } from '../uploads/uploads.module.js';
+import { AgentModule } from '../agent/agent.module.js';
+import { InternalChartEventController } from './internal-chart-event.controller.js';
 import { InternalJobsController } from './internal-jobs.controller.js';
 import { InternalJobsService } from './internal-jobs.service.js';
 import { InternalWikiController } from './internal-wiki.controller.js';
@@ -13,8 +15,8 @@ import { AgentTokenGuard } from './agent-token.guard.js';
 import { WorkerApiKeyGuard } from './worker-api-key.guard.js';
 
 @Module({
-  imports: [ScheduleModule.forRoot(), UploadsModule, AuditModule, GraphifyModule, BridgeModule],
-  controllers: [InternalJobsController, InternalWorkersController, InternalWikiController],
+  imports: [ScheduleModule.forRoot(), UploadsModule, AuditModule, GraphifyModule, BridgeModule, AgentModule],
+  controllers: [InternalJobsController, InternalWorkersController, InternalWikiController, InternalChartEventController],
   providers: [InternalJobsService, WorkerApiKeyGuard, AgentTokenGuard],
 })
 export class InternalModule {}
