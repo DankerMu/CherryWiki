@@ -1,4 +1,5 @@
 import { HttpException, HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
+import { diffLines, type Change } from 'diff';
 import {
   batchCreateSourceLinks as normalizeSourceLinks,
   createSourceLink as normalizeSourceLink,
@@ -87,6 +88,26 @@ export type WikiPageVersionResponse = {
   source_run_id: string | null;
   status: 'current' | 'archived';
   created_at: Date;
+};
+
+export type WikiDiffLine = ` ${string}` | `-${string}` | `+${string}`;
+
+export type WikiDiffHunk = {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: WikiDiffLine[];
+};
+
+export type WikiDiffResponse = {
+  from_version_id: string;
+  to_version_id: string;
+  hunks: WikiDiffHunk[];
+  stats: {
+    additions: number;
+    deletions: number;
+  };
 };
 
 export type WikiPublishResponse = {
@@ -236,6 +257,30 @@ export class WikiService {
       rows.map((version) => toVersionResponse(version, pageRow.current_version_id)),
       buildPaginationMeta(page, perPage, normalizeCount(countRow?.total)),
     );
+  }
+
+  async diffVersions(
+    tenantId: string,
+    spaceId: string,
+    pageId: string,
+    fromVersionId: string,
+    toVersionId: string,
+  ): Promise<WikiDiffResponse> {
+    const page = await this.requirePage(tenantId, spaceId, pageId);
+    const fromVersion = await this.findPageVersion(tenantId, spaceId, page.id, fromVersionId);
+    const toVersion = fromVersionId === toVersionId
+      ? fromVersion
+      : await this.findPageVersion(tenantId, spaceId, page.id, toVersionId);
+
+    if (fromVersion === undefined || toVersion === undefined) {
+      throwApiError(ErrorCode.VERSION_NOT_FOUND, 'Wiki page version was not found', HttpStatus.NOT_FOUND);
+    }
+
+    return {
+      from_version_id: fromVersion.id,
+      to_version_id: toVersion.id,
+      ...buildLineDiff(fromVersion.content_markdown, toVersion.content_markdown),
+    };
   }
 
   async publish(
@@ -964,6 +1009,69 @@ function normalizeCount(value: unknown): number {
   }
 
   return 0;
+}
+
+function buildLineDiff(
+  oldContent: string,
+  newContent: string,
+): Pick<WikiDiffResponse, 'hunks' | 'stats'> {
+  const changes = diffLines(oldContent, newContent);
+  const hunks: WikiDiffHunk[] = [];
+  let oldLine = 1;
+  let newLine = 1;
+  let additions = 0;
+  let deletions = 0;
+
+  for (const change of changes) {
+    const lines = splitDiffLines(change);
+    if (lines.length === 0) {
+      continue;
+    }
+
+    const oldStart = oldLine;
+    const newStart = newLine;
+    const hunkLines = lines.map((line): WikiDiffLine => {
+      if (change.added === true) {
+        return `+${line}`;
+      }
+      if (change.removed === true) {
+        return `-${line}`;
+      }
+      return ` ${line}`;
+    });
+
+    const oldLines = change.added === true ? 0 : lines.length;
+    const newLines = change.removed === true ? 0 : lines.length;
+
+    if (change.added === true) {
+      additions += lines.length;
+      newLine += lines.length;
+    } else if (change.removed === true) {
+      deletions += lines.length;
+      oldLine += lines.length;
+    } else {
+      oldLine += lines.length;
+      newLine += lines.length;
+    }
+
+    hunks.push({
+      oldStart,
+      oldLines,
+      newStart,
+      newLines,
+      lines: hunkLines,
+    });
+  }
+
+  return {
+    hunks: additions === 0 && deletions === 0 ? [] : hunks,
+    stats: { additions, deletions },
+  };
+}
+
+function splitDiffLines(change: Change): string[] {
+  const value = change.value.endsWith('\n') ? change.value.slice(0, -1) : change.value;
+  return value.length === 0 ? [] : value.split('\n');
 }
 
 function escapeLikePattern(value: string): string {

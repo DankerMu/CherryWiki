@@ -3,7 +3,7 @@ import { Permissions, type AuthenticatedRequestUser } from '@cherrygraph/auth-co
 import { ErrorCode } from '@cherrygraph/shared';
 
 import { PaginationQueryDto } from '../common/dto/pagination.dto.js';
-import { PublishDto, RollbackDto, UnpublishDto, WikiListQueryDto } from './wiki.dto.js';
+import { DiffQueryDto, PublishDto, RollbackDto, UnpublishDto, WikiListQueryDto } from './wiki.dto.js';
 import { WikiService, type WikiAuditContext } from './wiki.service.js';
 
 type RequestWithAuth = {
@@ -64,6 +64,18 @@ export class WikiController {
   ): ReturnType<WikiService['listVersions']> {
     const user = getAuthenticatedUser(request);
     return this.wikiService.listVersions(user.tenant_id, spaceId, pageId, query);
+  }
+
+  @Get(':pageId/diff')
+  @Permissions('space:view')
+  async diffVersions(
+    @Param('spaceId') spaceId: string,
+    @Param('pageId') pageId: string,
+    @Query() query: DiffQueryDto,
+    @Req() request: RequestWithAuth,
+  ): ReturnType<WikiService['diffVersions']> {
+    const user = getAuthenticatedUser(request);
+    return this.wikiService.diffVersions(user.tenant_id, spaceId, pageId, query.from_version_id, query.to_version_id);
   }
 
   @Post(':pageId/publish')

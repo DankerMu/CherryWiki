@@ -12,6 +12,16 @@ export class WikiListQueryDto extends PaginationQueryDto {
   search?: string;
 }
 
+export class DiffQueryDto {
+  @IsNotEmpty()
+  @IsString()
+  from_version_id!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  to_version_id!: string;
+}
+
 export class PublishDto {
   @IsNotEmpty()
   @IsString()
