@@ -36,6 +36,7 @@ tmp/
 /*-auth.json
 /auth-state.json
 /storage-state.json
+cherrywiki-admin.json
 /playwright/.auth/*.json
 /test-checklist.csv
 

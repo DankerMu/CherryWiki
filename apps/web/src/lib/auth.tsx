@@ -331,3 +331,8 @@ function getBootstrapRefreshTokenPair(): Promise<TokenPairResponse> {
 
   return bootstrapRefreshPromise;
 }
+
+/** @internal Test-only: reset module-level singleton to prevent cross-test leakage. */
+export function __resetBootstrapState(): void {
+  bootstrapRefreshPromise = null;
+}

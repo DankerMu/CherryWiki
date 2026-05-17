@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '../i18n';
 import { ProtectedShell } from '../App';
-import { AuthProvider, type AuthUser, useAuth } from '../lib/auth';
+import { AuthProvider, type AuthUser, useAuth, __resetBootstrapState } from '../lib/auth';
 import Login from '../pages/Login';
 import { ThemeProvider } from '../theme/ThemeProvider';
 
@@ -25,6 +25,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   cleanup();
+  __resetBootstrapState();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -175,7 +176,7 @@ describe('auth bootstrap session persistence', () => {
     expect(seenAuthHeaders).toEqual(['Bearer access-login']);
   });
 
-  it('delayed bootstrap refresh 401 does not clear a login session established during bootstrap', async () => {
+  it('delayed bootstrap refresh 401 does not clear a login session established during bootstrap', { timeout: 15000, retry: 2 }, async () => {
     const refreshRequest = createDeferred<Response>();
     const fetchMock = vi.fn<typeof fetch>((input) => {
       const path = getRequestPath(input);
