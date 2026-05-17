@@ -177,11 +177,32 @@ function toBridgeQueueJobData(event: BridgeEventRow): {
 }
 
 function isUniqueViolation(err: unknown, constraint: string): boolean {
-  if (!isRecord(err)) {
-    return false;
+  const seen = new WeakSet<object>();
+  let current: unknown = err;
+
+  while (isRecord(current)) {
+    if (seen.has(current)) {
+      return false;
+    }
+    seen.add(current);
+
+    if (current.code === '23505') {
+      if (current.constraint === constraint) {
+        return true;
+      }
+      if (typeof current.detail === 'string' && current.detail.includes(constraint)) {
+        return true;
+      }
+      if (current.constraint !== undefined) {
+        return false;
+      }
+      return false;
+    }
+
+    current = current.cause;
   }
 
-  return err.code === '23505' && (err.constraint === constraint || err.constraint === undefined);
+  return false;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
