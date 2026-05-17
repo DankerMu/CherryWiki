@@ -8,18 +8,31 @@ import type {
 } from '@cherrygraph/ai-core';
 import { indexSnapshots, model_configs, spaces } from '@cherrygraph/shared';
 import type { RetrievalResult } from '@cherrygraph/rag-core';
-import { describe, expect, it, vi, afterEach } from 'vitest';
+import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 
 import type { AuditService } from '../../audit/audit.service.js';
+import { validateAdminOutboundProbeUrl } from '../../common/outbound-probe-safety.js';
 import { TEST_GROUP_ID, TEST_SPACE_ID, TEST_TENANT_ID, TEST_USER_ID } from '../../users/__tests__/user-group-service-test-utils.js';
 import { ChatService } from '../chat.service.js';
 import type { RerankModelConfig } from '../../models/model-config.service.js';
+
+vi.mock('../../common/outbound-probe-safety.js', () => ({
+  validateAdminOutboundProbeUrl: vi.fn(),
+}));
 
 type ModelConfigRow = typeof model_configs.$inferSelect;
 type SpaceRow = typeof spaces.$inferSelect;
 type IndexSnapshotRow = typeof indexSnapshots.$inferSelect;
 
 const originalFetch = globalThis.fetch;
+const validateAdminOutboundProbeUrlMock = vi.mocked(validateAdminOutboundProbeUrl);
+
+let validatedDispatcher: { close: ReturnType<typeof vi.fn<() => Promise<void>>> };
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  validatedDispatcher = mockOutboundProbeValidation();
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -70,8 +83,11 @@ describe('ChatService static RAG rerank', () => {
           documents: ['First chunk', 'Second chunk'],
           top_n: 2,
         }),
+        dispatcher: validatedDispatcher,
       }),
     );
+    expect(validateAdminOutboundProbeUrlMock).toHaveBeenCalledWith('https://rerank.example/v1', { dnsTimeoutMs: 2000 });
+    expect(validatedDispatcher.close).toHaveBeenCalledTimes(1);
   });
 
   it('keeps RRF order when no rerank model is enabled', async () => {
@@ -89,6 +105,7 @@ describe('ChatService static RAG rerank', () => {
     expect(context.trace.finalContext.rerank_status).toBe('skipped');
     expect(context.trace.finalContext.rerank_skip_reason).toBe('no_rerank_model');
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(validateAdminOutboundProbeUrlMock).not.toHaveBeenCalled();
   });
 
   it('keeps RRF order and records timeout when rerank request aborts', async () => {
@@ -110,6 +127,7 @@ describe('ChatService static RAG rerank', () => {
     expect(context.trace.finalContext.rerank_status).toBe('timeout');
     expect(context.trace.finalContext.rerank_model_id).toBe('rerank-config');
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(validatedDispatcher.close).toHaveBeenCalledTimes(1);
   });
 
   it('keeps RRF order and records error when rerank API fails', async () => {
@@ -127,6 +145,7 @@ describe('ChatService static RAG rerank', () => {
     expect(context.results.map((result) => result.chunkId)).toEqual(['chunk-a', 'chunk-b']);
     expect(context.trace.finalContext.rerank_status).toBe('error');
     expect(context.trace.finalContext.rerank_model_id).toBe('rerank-config');
+    expect(validatedDispatcher.close).toHaveBeenCalledTimes(1);
   });
 
   it('skips rerank without calling fetch when retrieval results are empty', async () => {
@@ -148,9 +167,23 @@ describe('ChatService static RAG rerank', () => {
     expect(context.trace.finalContext.rerank_status).toBe('skipped');
     expect(context.trace.finalContext.rerank_skip_reason).toBe('empty_results');
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(validateAdminOutboundProbeUrlMock).not.toHaveBeenCalled();
     expect(db.selects).toHaveLength(1);
   });
 });
+
+function mockOutboundProbeValidation(rawUrl = 'https://rerank.example/v1'): { close: ReturnType<typeof vi.fn<() => Promise<void>>> } {
+  const dispatcher = {
+    close: vi.fn<() => Promise<void>>(() => Promise.resolve()),
+  };
+  validateAdminOutboundProbeUrlMock.mockResolvedValue({
+    ok: true,
+    url: new URL(rawUrl),
+    dispatcher: dispatcher as unknown as NonNullable<RequestInit['dispatcher']> & { close: () => Promise<void> },
+  });
+
+  return dispatcher;
+}
 
 function createServiceContext(options: {
   rerankConfig: RerankModelConfig | null;

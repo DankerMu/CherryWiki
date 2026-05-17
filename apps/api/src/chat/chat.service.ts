@@ -58,6 +58,7 @@ import {
   type PaginatedResponse,
 } from '../common/dto/pagination.dto.js';
 import { getApiLogger } from '../common/logger/logger.module.js';
+import { validateAdminOutboundProbeUrl } from '../common/outbound-probe-safety.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { GraphService } from '../graph/graph.service.js';
 import { ModelConfigService, type RerankModelConfig } from '../models/model-config.service.js';
@@ -1537,9 +1538,13 @@ export class ChatService {
     const apiKey = this.modelConfigService!.resolveApiKey(config.encrypted_api_key_ref);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), RERANK_TIMEOUT_MS);
+    const targetValidation = await validateAdminOutboundProbeUrl(config.base_url!, { dnsTimeoutMs: 2000 });
+    if (!targetValidation.ok) {
+      throw new Error(`Rerank URL validation failed: ${targetValidation.error}`);
+    }
 
     try {
-      const response = await fetch(`${config.base_url!.replace(/\/+$/, '')}/rerank`, {
+      const response = await fetch(`${targetValidation.url.toString().replace(/\/+$/, '')}/rerank`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -1552,6 +1557,7 @@ export class ChatService {
           top_n: results.length,
         }),
         signal: controller.signal,
+        dispatcher: targetValidation.dispatcher,
       });
 
       if (!response.ok) {
@@ -1568,6 +1574,7 @@ export class ChatService {
       return reorderByRerankScores(results, rerankResults);
     } finally {
       clearTimeout(timeout);
+      await targetValidation.dispatcher.close().catch(() => undefined);
     }
   }
 
@@ -2256,7 +2263,7 @@ function reorderByRerankScores(results: RetrievalResult[], rerankResults: Rerank
   }
 
   if (scoresByIndex.size === 0) {
-    throw new Error('Rerank API returned indexes outside result range');
+    throw new Error('Rerank API returned no usable scores');
   }
 
   return results
