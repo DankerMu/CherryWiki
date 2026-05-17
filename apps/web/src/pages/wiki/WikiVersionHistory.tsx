@@ -232,7 +232,7 @@ export default function WikiVersionHistory({ spaceId, pageId }: WikiVersionHisto
           {page !== null && <Typography.Text type="secondary">{page.title}</Typography.Text>}
         </div>
         <Space wrap>
-          <Button icon={<SwapOutlined />} type={isCompareMode ? 'primary' : 'default'} onClick={toggleCompareMode}>
+          <Button icon={<SwapOutlined />} type={isCompareMode ? 'primary' : 'default'} onClick={toggleCompareMode} disabled={pagination.total < 2}>
             {t('wiki.history.compare')}
           </Button>
           {isCompareMode && (

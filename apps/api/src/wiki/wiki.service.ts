@@ -1011,67 +1011,113 @@ function normalizeCount(value: unknown): number {
   return 0;
 }
 
+const MAX_DIFF_BYTES = 512 * 1024;
+const CONTEXT_LINES = 3;
+
 function buildLineDiff(
   oldContent: string,
   newContent: string,
 ): Pick<WikiDiffResponse, 'hunks' | 'stats'> {
+  if (oldContent.length + newContent.length > MAX_DIFF_BYTES) {
+    return {
+      hunks: [],
+      stats: { additions: -1, deletions: -1 },
+    };
+  }
+
   const changes = diffLines(oldContent, newContent);
-  const hunks: WikiDiffHunk[] = [];
-  let oldLine = 1;
-  let newLine = 1;
+
+  const allLines: AnnotatedLine[] = [];
   let additions = 0;
   let deletions = 0;
 
   for (const change of changes) {
     const lines = splitDiffLines(change);
-    if (lines.length === 0) {
-      continue;
-    }
-
-    const oldStart = oldLine;
-    const newStart = newLine;
-    const hunkLines = lines.map((line): WikiDiffLine => {
+    for (const line of lines) {
       if (change.added === true) {
-        return `+${line}`;
+        allLines.push({ prefix: '+', text: line });
+        additions += 1;
+      } else if (change.removed === true) {
+        allLines.push({ prefix: '-', text: line });
+        deletions += 1;
+      } else {
+        allLines.push({ prefix: ' ', text: line });
       }
-      if (change.removed === true) {
-        return `-${line}`;
-      }
-      return ` ${line}`;
-    });
-
-    const oldLines = change.added === true ? 0 : lines.length;
-    const newLines = change.removed === true ? 0 : lines.length;
-
-    if (change.added === true) {
-      additions += lines.length;
-      newLine += lines.length;
-    } else if (change.removed === true) {
-      deletions += lines.length;
-      oldLine += lines.length;
-    } else {
-      oldLine += lines.length;
-      newLine += lines.length;
     }
-
-    hunks.push({
-      oldStart,
-      oldLines,
-      newStart,
-      newLines,
-      lines: hunkLines,
-    });
   }
 
-  return {
-    hunks: additions === 0 && deletions === 0 ? [] : hunks,
-    stats: { additions, deletions },
-  };
+  if (additions === 0 && deletions === 0) {
+    return { hunks: [], stats: { additions: 0, deletions: 0 } };
+  }
+
+  const hunks = buildBoundedHunks(allLines, CONTEXT_LINES);
+  return { hunks, stats: { additions, deletions } };
+}
+
+type AnnotatedLine = { prefix: string; text: string };
+
+function buildBoundedHunks(allLines: AnnotatedLine[], context: number): WikiDiffHunk[] {
+  const changedIndices: number[] = [];
+  for (let i = 0; i < allLines.length; i += 1) {
+    const line = allLines[i] as AnnotatedLine;
+    if (line.prefix !== ' ') {
+      changedIndices.push(i);
+    }
+  }
+
+  if (changedIndices.length === 0) return [];
+
+  const firstIdx = changedIndices[0] as number;
+  const ranges: [number, number][] = [];
+  let rangeStart = Math.max(0, firstIdx - context);
+  let rangeEnd = Math.min(allLines.length - 1, firstIdx + context);
+
+  for (let i = 1; i < changedIndices.length; i += 1) {
+    const idx = changedIndices[i] as number;
+    const candidateStart = Math.max(0, idx - context);
+    const candidateEnd = Math.min(allLines.length - 1, idx + context);
+    if (candidateStart <= rangeEnd + 1) {
+      rangeEnd = candidateEnd;
+    } else {
+      ranges.push([rangeStart, rangeEnd]);
+      rangeStart = candidateStart;
+      rangeEnd = candidateEnd;
+    }
+  }
+  ranges.push([rangeStart, rangeEnd]);
+
+  const hunks: WikiDiffHunk[] = [];
+  for (const [start, end] of ranges) {
+    let oldStart = 1;
+    let newStart = 1;
+    for (let i = 0; i < start; i += 1) {
+      const line = allLines[i] as AnnotatedLine;
+      if (line.prefix !== '+') oldStart += 1;
+      if (line.prefix !== '-') newStart += 1;
+    }
+
+    let oldLines = 0;
+    let newLines = 0;
+    const hunkLines: WikiDiffLine[] = [];
+    for (let i = start; i <= end; i += 1) {
+      const line = allLines[i] as AnnotatedLine;
+      hunkLines.push(`${line.prefix}${line.text}` as WikiDiffLine);
+      if (line.prefix !== '+') oldLines += 1;
+      if (line.prefix !== '-') newLines += 1;
+    }
+
+    hunks.push({ oldStart, oldLines, newStart, newLines, lines: hunkLines });
+  }
+
+  return hunks;
 }
 
 function splitDiffLines(change: Change): string[] {
   const value = change.value.endsWith('\n') ? change.value.slice(0, -1) : change.value;
-  return value.length === 0 ? [] : value.split('\n');
+  if (value.length === 0) {
+    return change.added === true || change.removed === true ? [''] : [];
+  }
+  return value.split('\n');
 }
 
 function escapeLikePattern(value: string): string {
