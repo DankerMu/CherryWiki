@@ -542,6 +542,6 @@ networks:
   default:
     name: cherry-net
   url_fetch_private:
-    internal: true
+    internal: false
   agent_private:
     internal: true

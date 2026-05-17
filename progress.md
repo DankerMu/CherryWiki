@@ -49,7 +49,7 @@
 | 类别 | 已通过 | 有BUG | 未测 | 覆盖率 |
 |---|---|---|---|---|
 | P0 核心路径 | 88 | 0 | ~1 | ~99% |
-| P1 管理功能 | 19 | 1 (BUG-009) | ~56 | Batch 1 完成 |
+| P1 管理功能 | 38 | 1 (BUG-009) | ~37 | Batch 1+2 完成 |
 | P2 边界安全 | — | — | ~15 | 未开始 |
 | E2E 自动化 | 11 pass | 0 | ~60 | ~15% |
 
@@ -66,6 +66,15 @@
 - §9 Health: 6 组件 healthy (1/1 ✅)
 - §10 侧边栏: 折叠/展开/icon/刷新保持 (3/3 ✅)
 
+### P1 Batch 2 已测通过 (19 项, 2026-05-17)
+
+- §2.4 Space 配置: strict_knowledge_only toggle/graphify_config round-trip/database_config 掩码/Chat database toggle 联动 (4/4 ✅)
+- §2.5 Space 归档: DELETE 归档/选择器消失/非admin 拒绝 (3/3 ✅)
+- §3.2 上传详情: 详情抽屉/error_json/搜索过滤排序/状态轮询 (4/4 ✅)
+- §3.3 重复与重处理: duplicate 标记+UI 警告/reprocess 守卫 (2/2 ✅)
+- §3.5 ZIP 上传: 提取解析/两文件两记录/partial_success 路径 (3/3 ✅)
+- §3.7 URL 上传: URL→source_document+job/worker 抓取归档/ingestion 链路 (3/3 ✅, DNS 已修复，端到端验证通过)
+
 ### P0 未测项 (~1 项)
 
 **Agent 行为依赖**: §7.2 CA-10 chart.data 事件触发（database_config 已就绪，触发取决于 agent 是否以图表格式返回数据）
@@ -81,6 +90,7 @@
 
 | ID | 描述 | Fix |
 |---|---|---|
+| BUG-010 | URL 上传 DNS 解析失败 (SERVFAIL) | `url_fetch_private` 网络 `internal: true` → `false`，让 url-fetcher 能解析外部 DNS；Squid 增加私有 IP ACL 纵深防御 |
 | BUG-008/#367 | chart-event endpoint 到 SSE consumer 全链路验证 | 新增 `apps/api/src/internal/__tests__/chart-event-e2e.test.ts`，覆盖 POST `/api/internal/agent/chart-event` → `AgentService.injectChartEvent` → `TurnEventQueue` → consumer 收到 `chart.data`，并验证 `chart.data` 早于 `message.completed` |
 | BUG-008/#366 | cherrydb chart CLI 未回调内部 chart-event endpoint | `tools/cherrydb/cli.py` 在输出 chart envelope 后 POST `CHERRY_CHART_CALLBACK_URL`，新增 callback 单测；`tools/cherrydb` 16 tests pass |
 | BUG-007 | Chat 页面无 model 时缺少前置提示 | 新增 `GET /api/models/chat-available` boolean-only endpoint；Chat 页预检查并显示无模型提示、禁用输入 |

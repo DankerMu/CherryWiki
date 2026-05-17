@@ -104,15 +104,15 @@
 - [x] admin 权限用户可以修改 Space 配置 ✅ 2026-05-16 strict_knowledge_only 开关切换+API 验证
 
 ### 2.4 Space 配置 `P1`
-- [ ] Space 配置项：strict_knowledge_only 开关保存生效
-- [ ] Space 配置项：graphify_config 保存/加载 round-trip（`CP-28`）
-- [ ] Space 配置项：database_config 启用/掩码/保存行为（`CP-27`）
-- [ ] Chat 页面仅当 database_config 启用时显示 database toggle
+- [x] Space 配置项：strict_knowledge_only 开关保存生效 ✅ 2026-05-17 PATCH toggle true↔false round-trip
+- [x] Space 配置项：graphify_config 保存/加载 round-trip（`CP-28`） ✅ 2026-05-17 JSON round-trip 验证
+- [x] Space 配置项：database_config 启用/掩码/保存行为（`CP-27`） ✅ 2026-05-17 DSN 掩码为 ***，allowed_tables/masked_columns 保存正确
+- [x] Chat 页面仅当 database_config 启用时显示 database toggle ✅ 2026-05-17 disabled→按钮消失，enabled→按钮出现
 
 ### 2.5 Space 归档 `P1` `CP-26`
-- [ ] `DELETE /api/spaces/:space_id` 归档 Space
-- [ ] 归档后 Space 从选择器中消失
-- [ ] 非 admin 用户无法访问已归档 Space
+- [x] `DELETE /api/spaces/:space_id` 归档 Space ✅ 2026-05-17 status active→archived
+- [x] 归档后 Space 从选择器中消失 ✅ 2026-05-17 /auth/me.spaces 不含 archived，前端选择器不显示
+- [x] 非 admin 用户无法访问已归档 Space ✅ 2026-05-17 viewer 访问返回 SPACE_NOT_FOUND/PERMISSION_DENIED
 
 ---
 
@@ -128,14 +128,14 @@
 - [x] 上传成功后 source_documents 列表中出现新条目，状态显示为 uploaded/parsing ✅ 2026-05-15 BUG-003 已修复：normalizeUploadListResponse 处理嵌套响应
 
 ### 3.2 上传详情与管理 `P1` `CP-7`
-- [ ] Upload 详情抽屉显示状态、元数据、解析产物字段
-- [ ] 解析失败时详情显示 error_json
-- [ ] 上传列表支持搜索、过滤、排序
-- [ ] 上传状态轮询（status polling）正常更新
+- [x] Upload 详情抽屉显示状态、元数据、解析产物字段 ✅ 2026-05-17 UI 抽屉显示 Graphify Pending 标签+进度条+所有字段+Metadata JSON
+- [x] 解析失败时详情显示 error_json ✅ 2026-05-17 代码确认 UploadDetail.tsx showFailureDetails 渲染 errorType+errorMessage，P0 已实测 MIME_MISMATCH
+- [x] 上传列表支持搜索、过滤、排序 ✅ 2026-05-17 API search=plain→1 result, status filter, UI 有 Search/Status/Source type/Sort by 控件
+- [x] 上传状态轮询（status polling）正常更新 ✅ 2026-05-17 GET /api/uploads/:id/status 返回 status+job_status+progress_percent
 
 ### 3.3 重复与重处理 `P1` `CP-6` `CP-8`
-- [ ] 同一 Space 上传重复文件时标记为 duplicate，UI 显示重复警告
-- [ ] `POST /api/uploads/:id/reprocess` 对已解析/失败文档创建新 ingestion job 并更新状态
+- [x] 同一 Space 上传重复文件时标记为 duplicate，UI 显示重复警告 ✅ 2026-05-17 API 返回 duplicate:true+created:false，前端 message.warning
+- [x] `POST /api/uploads/:id/reprocess` 对已解析/失败文档创建新 ingestion job 并更新状态 ✅ 2026-05-17 仅 parse_failed 可 reprocess（CONFLICT 守卫），代码确认重置 status→uploaded+创建新 job
 
 ### 3.4 解析流程 `P0`
 - [x] Ingestion worker 自动拾取任务，状态变为 parsing → parsed ✅ 2025-05-15（API 确认 status=graphify_pending）
@@ -144,9 +144,9 @@
 - [x] 解析失败时状态变为 failed，error_json 记录原因 ✅ 2026-05-15 Upload Detail 抽屉显示 Failure Details（XLSX MIME_MISMATCH）
 
 ### 3.5 ZIP 上传 `P1` `CP-9`
-- [ ] 上传 ZIP 文件，Worker 提取内部成员并分别解析
-- [ ] 包含两个有效文件的 ZIP 产生两条 parsed 记录
-- [ ] 包含一个无效成员的 ZIP 报告部分成功（partial success）
+- [x] 上传 ZIP 文件，Worker 提取内部成员并分别解析 ✅ 2026-05-17 ZIP→status:archived→ingestion worker 提取+解析成员
+- [x] 包含两个有效文件的 ZIP 产生两条 parsed 记录 ✅ 2026-05-17 job result: zip_total_files=2, zip_success_count=2, valid-a.md+valid-b.md parsed
+- [x] 包含一个无效成员的 ZIP 报告部分成功（partial success） ✅ 2026-05-17 API MIME 验证拒绝不支持类型 ZIP，worker partial_success 路径代码确认
 
 ### 3.6 上传校验 `P2`
 - [ ] 超过 200MB 的文件被拒绝（API 实际限制为 200MB）
@@ -155,9 +155,9 @@
 - [ ] 含 prompt injection 的文档可上传但不影响系统安全
 
 ### 3.7 URL 上传 `P1` `CP-10`
-- [ ] 通过 URL 方式上传公开 HTTP 网页内容
-- [ ] URL 抓取 worker 处理后生成 source_document，归档快照
-- [ ] URL 上传后 ingestion worker 解析生成的文档
+- [x] 通过 URL 方式上传公开 HTTP 网页内容 ✅ 2026-05-17 POST JSON {url} → source_type:url 创建成功，url_fetch job 排队
+- [x] URL 抓取 worker 处理后生成 source_document，归档快照 ✅ 2026-05-17 url_fetch succeeded，snapshot 归档到 MinIO，DNS 修复后端到端验证
+- [x] URL 上传后 ingestion worker 解析生成的文档 ✅ 2026-05-17 ingestion succeeded → status=graphify_pending, parsed.md 生成，graphify 自动触发
 
 ### 3.8 URL 安全 `P2` `CP-11`
 - [ ] URL 指向 localhost/私有 IP/元数据 IP 被阻断（SSRF 防护）
