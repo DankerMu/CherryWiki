@@ -18,6 +18,7 @@ import type { Readable } from 'node:stream';
 
 import { buildPaginationMeta, paginatedResponse, type PaginatedResponse } from '../common/dto/pagination.dto.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
+import { UPLOAD_CREATE_PERMISSIONS, UPLOAD_READ_PERMISSIONS } from '../shared/permission-constants.js';
 import { getBucketName, STORAGE_BUCKET_NAMES } from '../storage/storage.constants.js';
 import { StorageService } from '../storage/storage.service.js';
 import {
@@ -81,8 +82,6 @@ export type CompleteValidationInput = {
   quarantineKey: string;
 };
 
-const READ_SATISFYING_PERMISSIONS = ['upload:read', 'upload:create', 'space:view', 'space:edit', 'space:admin'] as const;
-const CREATE_SATISFYING_PERMISSIONS = ['upload:create', 'space:edit', 'space:admin'] as const;
 const IMPLICIT_SPACE_ROLES = new Set(['owner', 'admin']);
 
 @Injectable()
@@ -99,7 +98,7 @@ export class UploadsService {
     const tenantId = resolveTenantId(context);
     const userId = resolveContextUserId(context);
     await this.assertSpaceExists(tenantId, input.spaceId);
-    await this.assertSpacePermission(tenantId, userId, input.spaceId, context, [...CREATE_SATISFYING_PERMISSIONS]);
+    await this.assertSpacePermission(tenantId, userId, input.spaceId, context, [...UPLOAD_CREATE_PERMISSIONS]);
 
     if (input.file.size > UPLOAD_MAX_BYTES || input.file.buffer.length > UPLOAD_MAX_BYTES) {
       throwApiError(ErrorCode.FILE_TOO_LARGE, 'File exceeds the 200MB upload limit', HttpStatus.PAYLOAD_TOO_LARGE);
@@ -247,7 +246,7 @@ export class UploadsService {
     const tenantId = resolveTenantId(context);
     const userId = resolveContextUserId(context);
     await this.assertSpaceExists(tenantId, input.spaceId);
-    await this.assertSpacePermission(tenantId, userId, input.spaceId, context, [...CREATE_SATISFYING_PERMISSIONS]);
+    await this.assertSpacePermission(tenantId, userId, input.spaceId, context, [...UPLOAD_CREATE_PERMISSIONS]);
 
     const url = parseHttpUrl(input.url);
     const batchId = await this.assignBatchId(tenantId, input.spaceId, new Date());
@@ -291,7 +290,7 @@ export class UploadsService {
       resolveContextUserId(context),
       document.space_id,
       context,
-      [...READ_SATISFYING_PERMISSIONS],
+      [...UPLOAD_READ_PERMISSIONS],
     );
 
     return this.toUploadDetail(document);
@@ -305,7 +304,7 @@ export class UploadsService {
       resolveContextUserId(context),
       document.space_id,
       context,
-      [...READ_SATISFYING_PERMISSIONS],
+      [...UPLOAD_READ_PERMISSIONS],
     );
 
     const job = await this.findLatestJobForSourceDocument(tenantId, document.id);
@@ -333,7 +332,7 @@ export class UploadsService {
       resolveContextUserId(context),
       spaceId,
       context,
-      [...READ_SATISFYING_PERMISSIONS],
+      [...UPLOAD_READ_PERMISSIONS],
     );
 
     const result = await this.sourceDocumentRepository.findByFilter({
@@ -355,7 +354,7 @@ export class UploadsService {
     const tenantId = resolveTenantId(context);
     const userId = resolveContextUserId(context);
     const document = await this.getTenantDocument(sourceDocumentId, tenantId);
-    await this.assertSpacePermissionOrNotFound(tenantId, userId, document.space_id, context, [...CREATE_SATISFYING_PERMISSIONS]);
+    await this.assertSpacePermissionOrNotFound(tenantId, userId, document.space_id, context, [...UPLOAD_CREATE_PERMISSIONS]);
 
     if (document.status === 'security_rejected') {
       throwApiError(

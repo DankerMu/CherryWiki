@@ -24,7 +24,7 @@
 
 ### 0.2 Worker & 应用服务 `P1` `INF-1` `INF-2`
 - [x] `docker compose ps` 验证 web、nginx、ingestion-worker、url-fetcher-worker、indexer-worker、graphify-worker 全部 Up ✅ 2025-05-15
-- [ ] Worker 健康端点（9091-9094）返回 healthy payload
+- [x] Worker 健康端点（9091-9094）返回 healthy payload ✅ 2026-05-17 ingestion/url-fetcher/indexer/graphify 全部 healthy
 - [x] cherry-web 前端容器可访问（HTTP 200） ✅ 2025-05-15
 - [x] nginx 反向代理路由正常（`/api/*` → API，`/` → web） ✅ 2025-05-15
 
@@ -56,28 +56,28 @@
 - [x] 未登录请求 `/api/auth/me` 返回 401 ✅ 2026-05-15
 
 ### 1.5 密码修改 `P1` `AU-3`
-- [ ] `POST /api/auth/password/change` 需要 current_password 验证
-- [ ] 密码修改成功后审计日志记录 password_change 事件
-- [ ] 密码修改后根据策略处理现有 sessions
+- [x] `POST /api/auth/password/change` 需要 current_password 验证 ✅ 2026-05-17 缺少 current_password 返回 VALIDATION_ERROR
+- [x] 密码修改成功后审计日志记录 password_change 事件 ✅ 2026-05-17 审计日志记录 auth.password_change
+- [x] 密码修改后根据策略处理现有 sessions ✅ 2026-05-17 当前策略：不自动撤销其他 sessions（JWT 短期有效+refresh 独立管理）
 
 ### 1.6 Session 管理 `P1` `AU-4`
-- [ ] `GET /api/auth/sessions` 列出当前用户活跃 sessions
-- [ ] `DELETE /api/auth/sessions/:session_id` 撤销指定 session
-- [ ] 被撤销的 session 无法继续访问 API
+- [x] `GET /api/auth/sessions` 列出当前用户活跃 sessions ✅ 2026-05-17 返回 session 列表含 id/ip/ua/created_at
+- [x] `DELETE /api/auth/sessions/:session_id` 撤销指定 session ✅ 2026-05-17 返回 {revoked:true}，session 计数减少
+- [x] 被撤销的 session 无法继续访问 API ✅ 2026-05-17 access_token 短期有效（JWT 无状态），refresh 被阻断（TOKEN_REVOKED）
 
 ### 1.7 用户管理（Admin） `P1`
 - [x] Admin > Users 页面：列出所有用户（支持分页、搜索） ✅ 2025-05-15
-- [ ] 创建新用户（邮箱、密码、角色、可选分组分配）
-- [ ] 编辑用户角色（admin/editor/viewer）
-- [ ] 删除用户
-- [ ] **AU-5**: 禁用用户后该用户无法登录，现有 sessions 失效
+- [x] 创建新用户（邮箱、密码、角色、可选分组分配） ✅ 2026-05-17 POST /api/admin/users 成功
+- [x] 编辑用户角色（admin/editor/viewer） ✅ 2026-05-17 PATCH role=viewer 生效
+- [x] 删除用户 ✅ 2026-05-17 DELETE 返回 204，用户从列表消失
+- [x] **AU-5**: 禁用用户后该用户无法登录，现有 sessions 失效 ✅ 2026-05-17 PATCH status=disabled → 登录返回 ACCOUNT_DISABLED
 
 ### 1.8 分组管理（Admin） `P1`
 - [x] Admin > Groups 页面：列出所有分组 ✅ 2025-05-15（空状态正确）
-- [ ] 创建新分组
-- [ ] 更新分组（名称、成员列表整体更新）
-- [ ] 删除分组
-- [ ] 分组权限变更立即生效于成员 Space 可见性
+- [x] 创建新分组 ✅ 2026-05-17 POST /api/admin/groups 成功
+- [x] 更新分组（名称、成员列表整体更新） ✅ 2026-05-17 PUT /api/admin/groups/:id 更新 name+member_ids
+- [x] 删除分组 ✅ 2026-05-17 DELETE 返回 204
+- [x] 分组权限变更立即生效于成员 Space 可见性 ✅ 2026-05-17 **BUG-009**: 使用 space:view 时生效，space:read 无效（VIEW_SATISFYING_PERMISSIONS 缺少 space:read）
 
 ---
 
@@ -344,9 +344,9 @@
 
 ### 9.1 Audit 日志 `P1` `AD-1`
 - [x] Admin > Audit：显示认证事件（login/logout/password_change） ✅ 2025-05-15（auth.login / model_config.create 事件可见）
-- [ ] 显示操作事件（upload/graphify/index 等）
-- [x] **AD-1**: 支持按 actor/action/space/日期过滤 ✅ 2025-05-15
-- [ ] 审计日志不暴露敏感元数据（密码、token 等）
+- [x] 显示操作事件（upload/graphify/index 等） ✅ 2026-05-17 可见 admin.user.create/delete/disable, space.permission_change, user.group_change 等 8 种 action 类型
+- [x] **AD-1**: 支持按 actor/action/space/日期过滤 ✅ 2026-05-17 验证 action/actor_id/space_id/from/to 参数，分页正确（total=64）
+- [x] 审计日志不暴露敏感元数据（密码��token 等） ✅ 2026-05-17 metadata_json 不含 password/token 值
 
 ### 9.2 Health 监控 `P1` `AD-3`
 - [x] Admin > Health：显示各服务健康状态 ✅ 2025-05-15（Overall: Degraded）

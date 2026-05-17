@@ -36,6 +36,18 @@ describe('SpaceService', () => {
     expect(result.pagination.total).toBe(2);
   });
 
+  it('lists spaces when the group permission is space:read', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([{ space_id: TEST_SPACE_ID }]);
+    db.queueSelect([createSpaceRow()]);
+    db.queueSelect([{ total: 1 }]);
+
+    const result = await service.listSpaces({ page: 1, per_page: 20 }, createViewerContext());
+
+    expect(result.data.map((space) => space.id)).toEqual([TEST_SPACE_ID]);
+    expect(collectStringValues(db.whereClauses)).toContain('space:read');
+  });
+
   it.each(['owner', 'admin'] as const)('lists all spaces for %s role', async (role) => {
     const { service, db } = createServiceContext();
     db.queueSelect([createSpaceRow(), createSpaceRow({ id: 'space-2', slug: 'product' })]);
@@ -375,6 +387,23 @@ function findInsertedPermissionVersions(db: ScriptedDb): Record<string, unknown>
     .filter((value): value is Record<string, unknown> => (
       isRecord(value) && typeof value.change_type === 'string'
     ));
+}
+
+function collectStringValues(value: unknown, seen = new WeakSet<object>(), depth = 0): string[] {
+  if (typeof value === 'string') {
+    return [value];
+  }
+
+  if (typeof value !== 'object' || value === null || depth > 8) {
+    return [];
+  }
+
+  if (seen.has(value)) {
+    return [];
+  }
+  seen.add(value);
+
+  return Object.values(value).flatMap((item) => collectStringValues(item, seen, depth + 1));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

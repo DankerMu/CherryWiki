@@ -17,6 +17,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import type { DrizzleDatabase } from '../database/drizzle.module.js';
+import { SPACE_VIEW_PERMISSIONS } from '../shared/permission-constants.js';
 import type {
   GraphCommunitiesQueryDto,
   GraphCommunitiesResponseDto,
@@ -42,8 +43,6 @@ export type GraphContext = {
   actorPermissions?: string[];
   spacePermissions?: Record<string, string[]>;
 };
-
-const READ_SATISFYING_PERMISSIONS = ['space:read', 'space:view', 'space:edit', 'space:admin'] as const;
 
 @Injectable()
 export class GraphService {
@@ -214,8 +213,8 @@ export class GraphService {
 
     if (
       hasImplicitSpaceAccess(context.actorRole) ||
-      permissionSetSatisfies(context.actorPermissions ?? [], READ_SATISFYING_PERMISSIONS) ||
-      permissionSetSatisfies(context.spacePermissions?.[spaceId] ?? [], READ_SATISFYING_PERMISSIONS)
+      permissionSetSatisfies(context.actorPermissions ?? [], SPACE_VIEW_PERMISSIONS) ||
+      permissionSetSatisfies(context.spacePermissions?.[spaceId] ?? [], SPACE_VIEW_PERMISSIONS)
     ) {
       return space;
     }
@@ -279,7 +278,7 @@ export class GraphService {
         and(
           eq(group_members.tenant_id, tenantId),
           eq(group_members.user_id, userId),
-          inArray(space_permissions.permission, [...READ_SATISFYING_PERMISSIONS]),
+          inArray(space_permissions.permission, [...SPACE_VIEW_PERMISSIONS]),
         ),
       );
 
@@ -312,7 +311,7 @@ export class GraphService {
           eq(group_members.tenant_id, tenantId),
           eq(group_members.user_id, userId),
           eq(space_permissions.space_id, spaceId),
-          inArray(space_permissions.permission, [...READ_SATISFYING_PERMISSIONS]),
+          inArray(space_permissions.permission, [...SPACE_VIEW_PERMISSIONS]),
         ),
       )
       .limit(1);
@@ -340,7 +339,7 @@ export class GraphService {
         and(
           eq(space_permissions.tenant_id, tenantId),
           inArray(space_permissions.group_id, groupIds),
-          inArray(space_permissions.permission, [...READ_SATISFYING_PERMISSIONS]),
+          inArray(space_permissions.permission, [...SPACE_VIEW_PERMISSIONS]),
         ),
       );
 
@@ -369,7 +368,7 @@ export class GraphService {
           eq(space_permissions.tenant_id, tenantId),
           eq(space_permissions.space_id, spaceId),
           inArray(space_permissions.group_id, groupIds),
-          inArray(space_permissions.permission, [...READ_SATISFYING_PERMISSIONS]),
+          inArray(space_permissions.permission, [...SPACE_VIEW_PERMISSIONS]),
         ),
       )
       .limit(1);
@@ -474,7 +473,7 @@ function readableSpaceIdsFromContext(context: GraphContext): string[] | undefine
   }
 
   return Object.entries(context.spacePermissions)
-    .filter(([, permissions]) => permissionSetSatisfies(permissions, READ_SATISFYING_PERMISSIONS))
+    .filter(([, permissions]) => permissionSetSatisfies(permissions, SPACE_VIEW_PERMISSIONS))
     .map(([spaceId]) => spaceId);
 }
 
