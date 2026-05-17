@@ -95,6 +95,22 @@ export type ModelConnectivityTestResponse = {
   error?: string;
 };
 
+export type EnabledModelConfig = {
+  id: string;
+  model_id: string;
+  model_type: string;
+  base_url: string | null;
+  encrypted_api_key_ref: string | null;
+};
+
+export type ModelProbeResponse = {
+  model_id: string;
+  model_type: string;
+  reachable: boolean;
+  latency_ms: number;
+  error?: string;
+};
+
 export type ChatModelAvailabilityResponse = {
   available: boolean;
 };
@@ -379,110 +395,38 @@ export class ModelConfigService {
       throwModelNotFound();
     }
 
-    const startedAt = Date.now();
-    let result: ModelConnectivityTestResponse;
-
-    let apiKey: string;
-    try {
-      apiKey = this.resolveApiKey(existing.encrypted_api_key_ref);
-    } catch {
-      result = {
-        reachable: false,
-        latency_ms: elapsedMs(startedAt),
-        error: 'No API key configured',
-      };
-
-      this.auditModelTest(tenantId, existing, result, context);
-      return result;
-    }
-
-    const baseUrl = resolveModelBaseUrl(existing);
-    if (baseUrl === null) {
-      result = {
-        reachable: false,
-        latency_ms: elapsedMs(startedAt),
-        error: 'No base URL configured',
-      };
-
-      this.auditModelTest(tenantId, existing, result, context);
-      return result;
-    }
-
-    const targetValidation = await validateAdminOutboundProbeUrl(baseUrl, {
-      dnsTimeoutMs: remainingDeadlineMs(startedAt, MODEL_PROBE_TIMEOUT_MS),
-    });
-    if (!targetValidation.ok) {
-      result = {
-        reachable: false,
-        latency_ms: elapsedMs(startedAt),
-        error: targetValidation.error,
-      };
-
-      this.auditModelTest(tenantId, existing, result, context);
-      return result;
-    }
-
-    try {
-      const remainingMs = remainingDeadlineMs(startedAt, MODEL_PROBE_TIMEOUT_MS);
-      if (remainingMs <= 0) {
-        await targetValidation.dispatcher.close().catch(() => undefined);
-        result = {
-          reachable: false,
-          latency_ms: elapsedMs(startedAt),
-          error: 'Request timed out (10s total)',
-        };
-
-        this.auditModelTest(tenantId, existing, result, context);
-        return result;
-      }
-
-      const response = await probeModelEndpoint(
-        targetValidation.url.toString(),
-        apiKey,
-        existing.model_id,
-        normalizeModelTypeOrThrow(existing.model_type),
-        remainingMs,
-        targetValidation.dispatcher,
-      );
-      const latencyMs = elapsedMs(startedAt);
-
-      if (response.ok) {
-        result = {
-          reachable: true,
-          latency_ms: latencyMs,
-        };
-      } else if (response.status === 401 || response.status === 403) {
-        result = {
-          reachable: false,
-          latency_ms: latencyMs,
-          error: `Authentication failed (HTTP ${response.status})`,
-        };
-      } else {
-        result = {
-          reachable: false,
-          latency_ms: latencyMs,
-          error: `HTTP ${response.status}`,
-        };
-      }
-    } catch (err) {
-      if (isAbortError(err)) {
-        result = {
-          reachable: false,
-          latency_ms: elapsedMs(startedAt),
-          error: 'Request timed out (10s total)',
-        };
-      } else {
-        result = {
-          reachable: false,
-          latency_ms: elapsedMs(startedAt),
-          error: sanitizeOutboundProbeError(err, [apiKey]),
-        };
-      }
-    }
-
-    await targetValidation.dispatcher.close().catch(() => undefined);
+    const result = await this.runModelProbe(existing, MODEL_PROBE_TIMEOUT_MS, 'Request timed out (10s total)');
     this.auditModelTest(tenantId, existing, result, context);
     return result;
+  }
+
+  async listEnabledModels(tenantId: string): Promise<EnabledModelConfig[]> {
+    return this.db
+      .select({
+        id: model_configs.id,
+        model_id: model_configs.model_id,
+        model_type: model_configs.model_type,
+        base_url: model_configs.base_url,
+        encrypted_api_key_ref: model_configs.encrypted_api_key_ref,
+      })
+      .from(model_configs)
+      .where(and(eq(model_configs.tenant_id, tenantId), eq(model_configs.enabled, true)))
+      .orderBy(asc(model_configs.created_at));
+  }
+
+  async probeModel(config: EnabledModelConfig, timeoutMs: number): Promise<ModelProbeResponse> {
+    const normalizedTimeoutMs = normalizeProbeTimeoutMs(timeoutMs);
+    const result = await this.runModelProbe(
+      config,
+      normalizedTimeoutMs,
+      `Probe timed out (${formatTimeoutSeconds(normalizedTimeoutMs)})`,
+    );
+
+    return {
+      model_id: config.model_id,
+      model_type: config.model_type,
+      ...result,
+    };
   }
 
   async hasAvailableChatModel(context: AdminContext = {}): Promise<ChatModelAvailabilityResponse> {
@@ -532,6 +476,103 @@ export class ModelConfigService {
     }
 
     return apiKey;
+  }
+
+  private async runModelProbe(
+    config: EnabledModelConfig,
+    timeoutMs: number,
+    timeoutError: string,
+  ): Promise<ModelConnectivityTestResponse> {
+    const startedAt = Date.now();
+
+    let apiKey: string;
+    try {
+      apiKey = this.resolveApiKey(config.encrypted_api_key_ref);
+    } catch {
+      return {
+        reachable: false,
+        latency_ms: elapsedMs(startedAt),
+        error: 'No API key configured',
+      };
+    }
+
+    const baseUrl = resolveModelBaseUrl(config);
+    if (baseUrl === null) {
+      return {
+        reachable: false,
+        latency_ms: elapsedMs(startedAt),
+        error: 'No base URL configured',
+      };
+    }
+
+    const targetValidation = await validateAdminOutboundProbeUrl(baseUrl, {
+      dnsTimeoutMs: remainingDeadlineMs(startedAt, timeoutMs),
+    });
+    if (!targetValidation.ok) {
+      return {
+        reachable: false,
+        latency_ms: elapsedMs(startedAt),
+        error: targetValidation.error,
+      };
+    }
+
+    try {
+      const remainingMs = remainingDeadlineMs(startedAt, timeoutMs);
+      if (remainingMs <= 0) {
+        return {
+          reachable: false,
+          latency_ms: elapsedMs(startedAt),
+          error: timeoutError,
+        };
+      }
+
+      const response = await probeModelEndpoint(
+        targetValidation.url.toString(),
+        apiKey,
+        config.model_id,
+        normalizeModelTypeOrThrow(config.model_type),
+        remainingMs,
+        targetValidation.dispatcher,
+      );
+      const latencyMs = elapsedMs(startedAt);
+
+      if (response.ok) {
+        return {
+          reachable: true,
+          latency_ms: latencyMs,
+        };
+      }
+
+      if (response.status === 401 || response.status === 403) {
+        return {
+          reachable: false,
+          latency_ms: latencyMs,
+          error: `Authentication failed (HTTP ${response.status})`,
+        };
+      }
+
+      return {
+        reachable: false,
+        latency_ms: latencyMs,
+        error: `HTTP ${response.status}`,
+      };
+    } catch (err) {
+      if (isAbortError(err)) {
+        return {
+          reachable: false,
+          latency_ms: elapsedMs(startedAt),
+          error: timeoutError,
+        };
+      }
+
+      return {
+        reachable: false,
+        latency_ms: elapsedMs(startedAt),
+        error: sanitizeOutboundProbeError(err, [apiKey]),
+      };
+    } finally {
+      await targetValidation.dispatcher.close().catch(() => undefined);
+    }
   }
 
   private async resolveTenantId(context: AdminContext): Promise<string> {
@@ -653,7 +694,7 @@ function buildProbeRequest(modelId: string, modelType: ModelType): ProbeRequest 
   }
 }
 
-function resolveModelBaseUrl(model: ModelConfigRow): string | null {
+function resolveModelBaseUrl(model: { base_url: string | null }): string | null {
   const modelBaseUrl = model.base_url?.trim();
   if (modelBaseUrl !== undefined && modelBaseUrl.length > 0) {
     return modelBaseUrl;
@@ -869,6 +910,15 @@ function elapsedMs(startedAt: number): number {
 
 function remainingDeadlineMs(startedAt: number, deadlineMs: number): number {
   return Math.max(0, deadlineMs - (Date.now() - startedAt));
+}
+
+function normalizeProbeTimeoutMs(timeoutMs: number): number {
+  return Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.round(timeoutMs) : MODEL_PROBE_TIMEOUT_MS;
+}
+
+function formatTimeoutSeconds(timeoutMs: number): string {
+  const seconds = timeoutMs / 1000;
+  return Number.isInteger(seconds) ? `${seconds}s` : `${seconds.toFixed(1)}s`;
 }
 
 function toModelStatus(enabled: boolean): ModelStatus {

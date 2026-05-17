@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AdminHealthController } from '../admin-health.controller.js';
 import type { AdminSystemHealthResponse, HealthComponent } from '../admin-health.controller.js';
+import type { EnabledModelConfig, ModelConfigService, ModelProbeResponse } from '../../models/model-config.service.js';
 import type { StorageService } from '../../storage/storage.service.js';
 
 vi.mock('node:dns/promises', () => ({
@@ -13,6 +14,8 @@ type DbQuery = ReturnType<typeof vi.fn<(queryText: string) => Promise<unknown>>>
 type RedisPing = ReturnType<typeof vi.fn<() => Promise<unknown>>>;
 type StorageConfigured = ReturnType<typeof vi.fn<() => boolean>>;
 type StorageHealthCheck = ReturnType<typeof vi.fn<() => Promise<HealthComponent>>>;
+type ListEnabledModels = ReturnType<typeof vi.fn<(tenantId: string) => Promise<EnabledModelConfig[]>>>;
+type ProbeModel = ReturnType<typeof vi.fn<(config: EnabledModelConfig, timeoutMs: number) => Promise<ModelProbeResponse>>>;
 const dnsLookupMock = vi.mocked(dnsLookup);
 
 describe('AdminHealthController', () => {
@@ -421,12 +424,161 @@ describe('AdminHealthController', () => {
   });
 });
 
+describe('AdminHealthController - models component', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    dnsLookupMock.mockClear();
+    setDnsRecords('93.184.216.34');
+  });
+
+  it('reports models healthy when all enabled models are reachable', async () => {
+    const models = [createEnabledModel({ id: 'chat-1' }), createEnabledModel({ id: 'embed-1', model_id: 'embed', model_type: 'embedding' })];
+    const { controller } = createController({
+      modelConfigService: createModelConfigServiceMock({
+        listEnabledModels: vi.fn(() => Promise.resolve(models)),
+        probeModel: vi.fn((model) =>
+          Promise.resolve({
+            model_id: model.model_id,
+            model_type: model.model_type,
+            reachable: true,
+            latency_ms: 15,
+          }),
+        ),
+      }),
+    });
+
+    const result = await withEnv('DEFAULT_TENANT_ID', 'tenant-1', () => getHealthWithDocmostUnset(controller));
+
+    expect(result.components.models.status).toBe('healthy');
+    const details = parseModelDetails(result.components.models);
+    expect(details).toEqual([
+      expect.objectContaining({ model_id: 'gpt-4.1', model_type: 'chat', reachable: true }),
+      expect.objectContaining({ model_id: 'embed', model_type: 'embedding', reachable: true }),
+    ]);
+  });
+
+  it('reports models unhealthy and overall degraded when one model is unreachable', async () => {
+    const models = [createEnabledModel({ id: 'chat-1' }), createEnabledModel({ id: 'rerank-1', model_id: 'rerank', model_type: 'rerank' })];
+    const { controller } = createController({
+      modelConfigService: createModelConfigServiceMock({
+        listEnabledModels: vi.fn(() => Promise.resolve(models)),
+        probeModel: vi.fn((model) =>
+          Promise.resolve({
+            model_id: model.model_id,
+            model_type: model.model_type,
+            reachable: model.model_type === 'chat',
+            latency_ms: 20,
+            ...(model.model_type === 'rerank' ? { error: 'HTTP 500' } : {}),
+          }),
+        ),
+      }),
+    });
+
+    const result = await withEnv('DEFAULT_TENANT_ID', 'tenant-1', () => getHealthWithDocmostUnset(controller));
+
+    expect(result.components.models.status).toBe('unhealthy');
+    expect(result.status).toBe('degraded');
+  });
+
+  it('reports overall degraded, not unhealthy, when all models are unreachable', async () => {
+    const models = [createEnabledModel({ id: 'chat-1' }), createEnabledModel({ id: 'embed-1', model_id: 'embed', model_type: 'embedding' })];
+    const { controller } = createController({
+      modelConfigService: createModelConfigServiceMock({
+        listEnabledModels: vi.fn(() => Promise.resolve(models)),
+        probeModel: vi.fn((model) =>
+          Promise.resolve({
+            model_id: model.model_id,
+            model_type: model.model_type,
+            reachable: false,
+            latency_ms: 30,
+            error: 'HTTP 503',
+          }),
+        ),
+      }),
+    });
+
+    const result = await withEnv('DEFAULT_TENANT_ID', 'tenant-1', () => getHealthWithDocmostUnset(controller));
+
+    expect(result.components.models.status).toBe('unhealthy');
+    expect(result.status).toBe('degraded');
+  });
+
+  it('reports models not_configured when no enabled models exist', async () => {
+    const { controller } = createController({
+      modelConfigService: createModelConfigServiceMock({
+        listEnabledModels: vi.fn(() => Promise.resolve([])),
+      }),
+    });
+
+    const result = await withEnv('DEFAULT_TENANT_ID', 'tenant-1', () => getHealthWithDocmostUnset(controller));
+
+    expect(result.components.models).toEqual({ status: 'not_configured' });
+  });
+
+  it('does not let hanging model probes block other health components', async () => {
+    vi.useFakeTimers();
+    const startedAt = Date.now();
+    const models = [createEnabledModel()];
+    const { controller } = createController({
+      modelConfigService: createModelConfigServiceMock({
+        listEnabledModels: vi.fn(() => Promise.resolve(models)),
+        probeModel: vi.fn(() => new Promise(() => undefined)),
+      }),
+    });
+
+    await withEnv('DEFAULT_TENANT_ID', 'tenant-1', async () => {
+      const resultPromise = getHealthWithDocmostUnset(controller);
+
+      await vi.advanceTimersByTimeAsync(8000);
+      const result = await resultPromise;
+
+      expect(Date.now() - startedAt).toBe(8000);
+      expect(result.components.database.status).toBe('healthy');
+      expect(result.components.redis.status).toBe('healthy');
+      expect(result.components.models.status).toBe('unhealthy');
+      expect(parseModelDetails(result.components.models)[0]).toEqual(
+        expect.objectContaining({
+          reachable: false,
+          error: 'Models health check timed out (8s total)',
+        }),
+      );
+    });
+  });
+
+  it('does not expose API keys in model probe error details', async () => {
+    const secret = 'sk-test-secret-1234567890';
+    const { controller } = createController({
+      modelConfigService: createModelConfigServiceMock({
+        listEnabledModels: vi.fn(() => Promise.resolve([createEnabledModel()])),
+        probeModel: vi.fn((model) =>
+          Promise.resolve({
+            model_id: model.model_id,
+            model_type: model.model_type,
+            reachable: false,
+            latency_ms: 10,
+            error: 'Outbound request failed',
+          }),
+        ),
+      }),
+    });
+
+    const result = await withEnv('DEFAULT_TENANT_ID', 'tenant-1', () => getHealthWithDocmostUnset(controller));
+
+    const detailText = result.components.models.details ?? '';
+    expect(detailText).toContain('Outbound request failed');
+    expect(detailText).not.toContain(secret);
+    expect(detailText).not.toMatch(/sk-test-secret/i);
+  });
+});
+
 function createController(
   overrides: Partial<{
     dbQuery: DbQuery;
     redisPing: RedisPing | undefined;
     storageConfigured: StorageConfigured;
     storageHealthCheck: StorageHealthCheck;
+    modelConfigService: ModelConfigService;
   }> = {},
 ): {
   controller: AdminHealthController;
@@ -456,7 +608,12 @@ function createController(
   };
 
   return {
-    controller: new AdminHealthController(db, redis, storage as unknown as StorageService),
+    controller: new AdminHealthController(
+      db,
+      redis,
+      storage as unknown as StorageService,
+      overrides.modelConfigService,
+    ),
     dbQuery,
     redisPing,
     storageConfigured,
@@ -519,4 +676,40 @@ function setDnsRecords(...addresses: string[]): void {
       ReturnType<typeof dnsLookup>
     >,
   );
+}
+
+function createEnabledModel(overrides: Partial<EnabledModelConfig> = {}): EnabledModelConfig {
+  return {
+    id: 'model-1',
+    model_id: 'gpt-4.1',
+    model_type: 'chat',
+    base_url: 'https://models.example/v1',
+    encrypted_api_key_ref: 'secret:model_api_key',
+    ...overrides,
+  };
+}
+
+function createModelConfigServiceMock(
+  overrides: Partial<{
+    listEnabledModels: ListEnabledModels;
+    probeModel: ProbeModel;
+  }> = {},
+): ModelConfigService {
+  return {
+    listEnabledModels: overrides.listEnabledModels ?? vi.fn(() => Promise.resolve([])),
+    probeModel:
+      overrides.probeModel ??
+      vi.fn((model) =>
+        Promise.resolve({
+          model_id: model.model_id,
+          model_type: model.model_type,
+          reachable: true,
+          latency_ms: 1,
+        }),
+      ),
+  } as unknown as ModelConfigService;
+}
+
+function parseModelDetails(component: HealthComponent): ModelProbeResponse[] {
+  return JSON.parse(component.details ?? '[]') as ModelProbeResponse[];
 }
