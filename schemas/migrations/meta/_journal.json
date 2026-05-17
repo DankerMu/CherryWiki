@@ -134,6 +134,13 @@
       "when": 1778975700000,
       "tag": "0018_add_pgcrypto",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1779292800000,
+      "tag": "0019_fix_session_delete_cascade",
+      "breakpoints": true
     }
   ]
 }
