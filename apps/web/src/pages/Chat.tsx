@@ -779,6 +779,7 @@ export function MessageInput({
           <Select
             id="chat-retrieval-mode"
             size="small"
+            virtual={false}
             value={settings.retrievalMode}
             disabled={disabled}
             options={retrievalModeOptions}
