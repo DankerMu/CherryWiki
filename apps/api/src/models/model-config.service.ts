@@ -99,6 +99,13 @@ export type ChatModelAvailabilityResponse = {
   available: boolean;
 };
 
+export type RerankModelConfig = {
+  id: string;
+  model_id: string;
+  base_url: string | null;
+  encrypted_api_key_ref: string | null;
+};
+
 type ModelSortField = keyof Pick<
   typeof model_configs,
   'created_at' | 'updated_at' | 'provider' | 'model_id' | 'model_type' | 'display_name' | 'enabled'
@@ -488,6 +495,32 @@ export class ModelConfigService {
 
     return {
       available: normalizeCount(row?.total) > 0,
+    };
+  }
+
+  async getEnabledRerankModel(tenantId: string): Promise<RerankModelConfig | null> {
+    const [row] = await this.db
+      .select()
+      .from(model_configs)
+      .where(
+        and(
+          eq(model_configs.tenant_id, tenantId),
+          eq(model_configs.model_type, 'rerank'),
+          eq(model_configs.enabled, true),
+        ),
+      )
+      .orderBy(desc(model_configs.created_at))
+      .limit(1);
+
+    if (row === undefined) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      model_id: row.model_id,
+      base_url: resolveModelBaseUrl(row),
+      encrypted_api_key_ref: row.encrypted_api_key_ref,
     };
   }
 
