@@ -129,7 +129,7 @@ export function maskSpaceDatabaseConfig(value: unknown): SpaceDatabaseConfig {
 }
 
 export function databaseConfigStorageValue(config: SpaceDatabaseConfig): SQL {
-  const entries: SQL[] = [sql`'enabled', ${config.enabled}`];
+  const entries: SQL[] = [sql`'enabled', ${config.enabled}::boolean`];
 
   if (config.dsn !== undefined) {
     entries.push(
@@ -176,7 +176,7 @@ export async function decryptSpaceDatabaseConfig(
 }
 
 function encryptedDsnExpression(dsn: string): SQL {
-  return sql`${ENCRYPTED_DSN_PREFIX} || encode(pgp_sym_encrypt(${dsn}, ${getEncryptionKey()}), 'base64')`;
+  return sql`${ENCRYPTED_DSN_PREFIX} || encode(pgp_sym_encrypt(${dsn}::text, ${getEncryptionKey()}::text), 'base64')`;
 }
 
 function getEncryptionKey(): string {

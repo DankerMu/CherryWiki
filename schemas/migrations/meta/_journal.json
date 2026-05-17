@@ -127,6 +127,13 @@
       "when": 1778599997328,
       "tag": "0017_index_snapshot_building_lock",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1778975700000,
+      "tag": "0018_add_pgcrypto",
+      "breakpoints": true
     }
   ]
 }

@@ -51,7 +51,7 @@
 ### BUG-008: chart.data SSE 事件未触发（persistent runner 不转发 tool_result）
 
 - **现象**: Chat 使用 `cherrydb chart bar "SQL"` 工具时，工具正确输出 `{"type": "cherrywiki.chart", ...}` JSON，但前端未收到 `chart.data` SSE 事件，图表不渲染
-- **根因**: `persistent-stream-parser.ts` 从 Claude Code CLI 的 JSONL stdout 读取事件，只处理 `type: 'assistant'`（文本+tool_use）和 `type: 'result'`（完成）。`type: 'user'`（含 tool_result content blocks）不会被 CLI 输出到 stdout，因此 `claude-event-mapper.ts:51-74` 中的 `extractChartEnvelopes` 逻辑永远不会被触发
+- **根因**: `persistent-stream-parser.ts` 从 Claude Code CLI 的 JSONL stdout 读取事件，只处理 `type: 'assistant'`（文本+tool_use）和 `type: 'result'`（完成）。`type: 'user'`（含 tool_result content blocks）不会被 CLI 输出到 stdout，因此 `claude-event-mapper.ts:51-74` 中的 `extractChartEnvelopes` 逻辑永远不会被触发。当前修复改用 cherrydb CLI HTTP callback side-channel 将 chart envelope POST 到内部 API。
 - **复现**:
   1. 配置 Space 的 database_config（enabled=true, 有效 DSN）
   2. Chat 中要求 "cherrydb chart bar 'SELECT ...'"
@@ -62,9 +62,9 @@
 - **关联文件**:
   - `apps/api/src/agent/persistent-stream-parser.ts` — 事件流解析
   - `apps/api/src/agent/claude-event-mapper.ts:51-74` — chart 提取逻辑（正确但无法触达）
-  - `tools/cherrydb/cli.py:238-246` — chart 命令（正确输出 cherrywiki.chart JSON）
+  - `tools/cherrydb/cli.py` — chart 命令输出 JSON 后回调内部 endpoint
 - **发现日期**: 2026-05-16
-- **状态**: [ ] 未修复
+- **状态**: [x] 已修复待端到端复测 — #364 active turn 事件注入、#365 internal endpoint、#366 cherrydb CLI callback；`tools/cherrydb` 16 tests pass
 
 ---
 
@@ -73,6 +73,7 @@
 - BUG-006: XLSX 上传被安全检查误拒 → 当前分支：OOXML ZIP MIME 通过，且不作为普通 ZIP 解包校验 ✅
 - BUG-005: 页面刷新丢失登录状态 → 当前分支：bootstrap refresh + route guard loading ✅
 - BUG-007: Chat 页面在无 Chat Model 时缺少前置提示 → 当前分支：Chat 页预检查模型可用性，缺失时提示并禁用发送 ✅
+- BUG-008/#366: cherrydb chart CLI HTTP callback → chart 输出后非阻塞 POST 内部 endpoint，callback 缺失静默跳过、凭据缺失/HTTP 失败仅 stderr WARN ✅
 
 ## 已修复（上一轮）
 
