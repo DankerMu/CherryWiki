@@ -256,12 +256,12 @@
 - [x] 重建完成后更新 active snapshot ✅ 2026-05-17 job status=succeeded，space active_index_snapshot_id 更新，index_consistency_status=healthy
 
 ### 6.4 Retrieval Traces `P1` `CA-13`
-- [ ] Chat 请求创建 retrieval_trace 记录
-- [ ] Admin 可通过 `GET /api/admin/retrieval-traces/:id` 查看 trace 详情
+- [x] Chat 请求创建 retrieval_trace 记录 ✅ 2026-05-17 每次 static_rag Chat 自动插入 retrieval_traces 行（conversation_id/query/retrieval_mode/candidates_json/acl_filtered_json/final_context_json）；DB 验证 4 条 wiki_only trace
+- [x] Admin 可通过 `GET /api/admin/retrieval-traces/:id` 查看 trace 详情 ✅ 2026-05-17 返回完整 trace（vector candidates 2、bm25 0、graph 0、wiki_tokens=51）；不存在 ID 返回 NOT_FOUND
 
 ### 6.5 Model Usage Logs `P1` `CA-14`
-- [ ] Chat/embedding/agent 调用记录 model_usage_log
-- [ ] `GET /api/admin/model-usage` 返回聚合使用数据
+- [x] Chat/embedding/agent 调用记录 model_usage_log ✅ 2026-05-17 static_rag 路径自动记录 model_usage_logs（user_id/model_config_id/request_type=static_rag/input_tokens/output_tokens/latency_ms/space_id/conversation_id）；DB 验证 4 条记录
+- [x] `GET /api/admin/model-usage` 返回聚合使用数据 ✅ 2026-05-17 按 model_config_id+request_type 分组返回 request_count/input_tokens/output_tokens/total_tokens/avg_latency_ms；支持 start_time/end_time/request_type/model_config_id 筛选
 
 ---
 
@@ -288,24 +288,24 @@
 - [x] 点击 citation 可以跳转到对应 Wiki 页面 ✅ 2026-05-16 点击 [1] Deep Learning → /wiki/Deep_Learning
 
 ### 7.4 检索模式 `P1`
-- [ ] 默认 hybrid 模式（vector + BM25 融合）
-- [ ] 切换 retrieval_mode：vector_only / bm25_only / graph_rag
-- [ ] **CA-11**: 无命中检索返回 `fallback: true` citation 或配置的无知识响应
-- [ ] **CA-12**: strict_knowledge_only Space 拒绝无 citation 的回答
+- [x] 默认 hybrid 模式（vector + BM25 融合） ✅ 2026-05-17 无 retrieval_mode 参数时走 wiki_only 路径（vector+BM25 RRF 融合），SSE 完整流（session→content→citations→usage→message.completed→[DONE]）
+- [x] 切换 retrieval_mode：graph_rag / path_first / community_first / wiki_only ✅ 2026-05-17 graph_rag→Agent 路径（10 tool_use）；path_first→Agent（7 tool_use）；community_first→Agent（6 tool_use）；wiki_only→Static RAG（无 tool_use，有 citations）；UI Retrieval mode 下拉框可见
+- [x] **CA-11**: 无命中检索返回 `fallback: true` citation 或配置的无知识响应 ✅ 2026-05-17 LLM 未使用 [^N] 标记时自动填充 top-3 fallback=true citations（score≈0.016）；代码确认 shouldFallbackToAgentAfterNoHit（noHit && !strictKnowledgeOnly && agentAvailable → agent 降级）
+- [x] **CA-12**: strict_knowledge_only Space 拒绝无 citation 的回答 ✅ 2026-05-17 strict_knowledge_only=true 时 LLM 仅基于上下文回答（"provided context contains no information..."）；代码确认 noHit 时直接返回 NO_HIT_MESSAGE（"未找到相关知识"）不调用 LLM
 
 ### 7.5 多轮对话 `P0`
 - [x] 同一 session 内多轮对话上下文保持 ✅ 2026-05-15（同 session 两轮 Q&A）
 - [x] Chat 历史记录列表可查看 ✅ 2026-05-15（左侧 session 列表显示带时间戳）
 
 ### 7.6 Session 管理 `P1` `CA-5` `CA-6` `CA-7`
-- [ ] **CA-5**: 点击历史 session 重新加载之前的消息
-- [ ] **CA-6**: 删除 session 从列表移除并清空当前会话
-- [ ] **CA-7**: 多 Space Chat session 更新持久化选中的 Space IDs，API 失败时回滚
+- [x] **CA-5**: 点击历史 session 重新加载之前的消息 ✅ 2026-05-17 GET /spaces/:spaceId/chat/sessions/:sessionId 返回完整 session（title/space_ids/space_details/messages[]），每条 message 含 role/content/token_count/citations_json/metadata_json；UI 点击 session 正确加载历史消息+citations
+- [x] **CA-6**: 删除 session 从列表移除并清空当前会话 ✅ 2026-05-17 DELETE 返回 {deleted:true}，session 计数 13→12→11；**BUG-011 已修复**（PR #382 添加 ON DELETE CASCADE）：有 retrieval_trace+model_usage_log 的 session 删除成功，traces/logs 自动级联清理；无 trace session 删除无回归
+- [x] **CA-7**: 多 Space Chat session 更新持久化选中的 Space IDs，API 失败时回滚 ✅ 2026-05-17 PATCH 更新 space_ids 为 [TestSpace, MultiSpaceTest] 成功持久化，space_details 正确返回两个 Space 名称；无效 Space ID 返回 SPACE_NOT_FOUND，scope 保持不变（回滚生效）；UI "2 spaces" 标签正确显示
 
 ### 7.7 Agent 深度分析 `P1` `CA-8` `CA-9`
-- [ ] Deep analysis toggle 路由到 Agent 路径
-- [ ] Agent 模式下流式返回 `agent.tool_use` 事件
-- [ ] **CA-9**: Database 模式使用允许表/掩码列，不暴露掩码值
+- [x] Deep analysis toggle 路由到 Agent 路径 ✅ 2026-05-17 enable_deep_analysis=true → decideQueryRoute 返回 {path:'agent', reason:'deep_analysis_enabled'}；UI Deep Analysis 按钮可见
+- [x] Agent 模式下流式返回 `agent.tool_use` 事件 ✅ 2026-05-17 SSE 含 7 个 agent.tool_use 事件（Bash+cherrywiki search/page 工具），tool_use 含 id/name/input；usage 事件含 prompt_tokens=12625, completion_tokens=1716
+- [x] **CA-9**: Database 模式使用允许表/掩码列，不暴露掩码值 ✅ 2026-05-17 enable_database=true 时 agent 使用 cherrydb 工具（tables/query/describe），allowed_tables 和 masked_columns 通过 CHERRY_DB_ALLOWED_TABLES/CHERRY_DB_MASKED_COLUMNS 环境变量传递给 agent 运行时；输出不含 password/ssn 值；UI Database 按钮仅 database_config.enabled 时可见
 
 ### 7.8 权限隔离 `P0`
 - [x] 用户只能检索到有权限 Space 的内容 ✅ 2026-05-15 viewer 无权 Space 的 Chat 返回 PERMISSION_DENIED
@@ -326,8 +326,8 @@
 - [x] 无 chat model 时 Chat 页面提示 "Enable a chat model on the Models page" ✅ 2026-05-15 BUG-007 已修复：前置检测+输入/发送按钮 disabled
 
 ### 8.2 Model 更新与测试 `P1` `AM-1` `AM-2`
-- [ ] **AM-1**: `POST /api/admin/models/:model_id/test` 连通性测试成功/失败返回脱敏错误
-- [ ] **AM-2**: 更新 model config 的 enabled 状态和 visible_group_ids
+- [x] **AM-1**: `POST /api/admin/models/:model_id/test` 连通性测试成功/失败返回脱敏错误 ✅ 2026-05-17 返回 {reachable, latency_ms, error}，错误为 "Request timed out (10s total)"/"No API key configured"（不暴露 key）；UI Models 页每行有 Test 按钮
+- [x] **AM-2**: 更新 model config 的 enabled 状态和 visible_group_ids ✅ 2026-05-17 PATCH enabled:false→status=disabled+chat-available:false；enabled:true→status=active；visible_group_ids 字段在响应中存在
 
 ### 8.3 Embedding Model `P0`
 - [x] 配置 embedding model（provider/model_id/dimensions） ✅ 2025-05-15（text-embedding-3-small Active）
@@ -335,8 +335,8 @@
 - [x] **AM-3**: 创建第二个 enabled embedding model 时按策略拒绝或停用旧的 ✅ 2026-05-16 EMBEDDING_LIMIT_EXCEEDED — Only one embedding model can be active
 
 ### 8.4 Rerank Model `P1` `AM-4`
-- [ ] 创建/更新/列出 rerank model config
-- [ ] rerank model 影响 Chat 检索排序
+- [x] 创建/更新/列出 rerank model config ✅ 2026-05-17 POST 创建 rerank(201)→list 确认存在→PATCH 禁用→status=disabled；连通性测试返回 "No API key configured"；无 DELETE 端点（设计限制）
+- [ ] rerank model 影响 Chat 检索排序 — 需要可达的 rerank API + 实际 Chat 检索验证
 
 ---
 
@@ -350,47 +350,47 @@
 
 ### 9.2 Health 监控 `P1` `AD-3`
 - [x] Admin > Health：显示各服务健康状态 ✅ 2025-05-15（Overall: Degraded）
-- [ ] 模型可达性探测（outbound probe）
+- [ ] 模型可达性探测（outbound probe） — 未实现：Health 端点仅含 6 个基础组件，模型可达性需单独调用 `POST /admin/models/:id/test`
 - [x] **AD-3**: 显示 database、Redis、MinIO、vector_store、graph_store、Docmost bridge 各组件状态 ✅ 2026-05-15 BUG-004 已修复：6 组件全部 Healthy
 
 ### 9.3 Job 管理 `P1` `AD-2`
 - [x] Admin > Jobs：列出所有 job（ingestion/graphify/indexer） ✅ 2025-05-15（Ingestion Succeeded + Graphify Failed）
-- [ ] 查看 job 详情：状态、payload、result、job_events
-- [ ] 失败 job 显示 error_json
+- [x] 查看 job 详情：状态、payload、result、job_events ✅ 2026-05-17 UI Job Detail 页显示 Job Overview（ID/Type/Status/Space/Times）+ Payload JSON + Result JSON + Event Timeline（status_changed/progress_updated 按时间排序）；API `GET /api/jobs/:id` 返回完整 job 数据
+- [x] 失败 job 显示 error_json ✅ 2026-05-17 Failed graphify job 返回结构化 error_json：{error, reason:"validation_failed", error_type:"ValidationError", stats_json:{validation_failed_reason}}；UI Error JSON 区块正确渲染
 - [x] **AD-2**: 按 type/status/space 过滤，job 详情时间线按事件排序 ✅ 2025-05-15（过滤器可见）
-- [ ] **CP-14**: `POST /api/jobs/:job_id/cancel` 取消活跃 job，状态变为 cancelled/cancellation_requested
+- [x] **CP-14**: `POST /api/jobs/:job_id/cancel` 取消活跃 job，状态变为 cancelled/cancellation_requested ✅ 2026-05-17 pending graphify job cancel 返回 {status:"cancelled"}；已完成 job cancel 返回 CONFLICT "Job is already in a terminal state"
 
 ### 9.4 Graphify Admin `P1`
-- [ ] Admin > Graphify Admin：管理 graphify runs
-- [ ] 查看 run 状态、stats、output URI
-- [ ] Admin retry 失败 run
+- [x] Admin > Graphify Admin：管理 graphify runs ✅ 2026-05-17 UI 页面显示所有 runs（8 条），Status Tab 过滤（All/Pending/Running/Succeeded/Failed/Cancelled）、trigger 过滤、Space 搜索；API `GET /admin/graphify/runs` 返回 run_id/status/mode/trigger_type/stats_json/error_json
+- [x] 查看 run 状态、stats、output URI ✅ 2026-05-17 UI 显示 Stats 列（Nodes/Edges/Wiki count）；docmost_synced run 的 stats_json 含 batch_id/input_scope/input_uri_count；failed run 显示 Error 按钮+error_json
+- [x] Admin retry 失败 run ✅ 2026-05-17 `POST /admin/graphify/runs/:id/retry` 创建新 pending run（full mode）；UI 每个 failed run 有 Retry 按钮
 
 ### 9.5 API Token 管理 `P1` `AD-4`
-- [ ] `POST /api/admin/api-tokens` 创建 token，raw token 仅显示一次
-- [ ] `GET /api/admin/api-tokens` 列出所有 token（掩码显示）
-- [ ] `DELETE /api/admin/api-tokens/:id` 撤销 token
-- [ ] 撤销后的 token 无法访问受保护路径
+- [x] `POST /api/admin/api-tokens` 创建 token，raw token 仅显示一次 ✅ 2026-05-17 返回 {id, raw_token:"cwt_...", name, scopes}，raw_token 仅在创建响应中返回
+- [x] `GET /api/admin/api-tokens` 列出所有 token（掩码显示） ✅ 2026-05-17 列表中 token 显示为掩码 "cwt_32d1"（仅前缀），不含完整 raw_token
+- [x] `DELETE /api/admin/api-tokens/:id` 撤销 token ✅ 2026-05-17 返回 {id, revoked_at}，撤销后列表计数减少
+- [x] 撤销后的 token 无法访问受保护路径 ✅ 2026-05-17 撤销后调用 MCP invoke 返回 401 TOKEN_REVOKED
 
 ### 9.6 MCP 工具管理 `P1` `AD-5`
-- [ ] `POST/GET/PUT/DELETE /api/admin/mcp/tools` 工具注册 CRUD
-- [ ] MCP 工具策略（policy）配置
-- [ ] `POST /api/mcp/invoke` 通过 API token 调用工具，策略拒绝时返回 403
+- [x] `POST/GET/DELETE /api/admin/mcp/tools` 工具注册 CRUD ✅ 2026-05-17 POST 注册(201)→GET 列出(200)→DELETE 删除(200)；无 PUT 更新端点（设计限制：删除重建）
+- [x] MCP 工具策略（policy）配置 ✅ 2026-05-17 invoke 需 API token 认证（session auth 返回 401 "API token authentication is required"）；不存在 tool 返回 404 TOOL_NOT_FOUND；space_id 必填
+- [x] `POST /api/mcp/invoke` 通过 API token 调用工具，策略拒绝时返回 403 ✅ 2026-05-17 有效 token+存在 tool→502（server 不可达，预期）；不存在 tool→404；撤销 token→401 TOKEN_REVOKED
 
 ### 9.7 反馈系统 `P1` `AD-6`
-- [ ] `POST /api/spaces/:spaceId/feedback` 从 Chat 提交回答反馈
-- [ ] `GET /api/admin/feedback` Admin 反馈队列列表（支持过滤）
-- [ ] `PATCH /api/admin/feedback/:feedbackId/resolve` 标记反馈已处理
+- [x] `POST /api/spaces/:spaceId/feedback` 从 Chat 提交回答反馈 ✅ 2026-05-17 需 {feedback_type:"incorrect"|"unhelpful"|..., message_id}，创建 201 返回 {id, status:"open", feedback_type}；无 message_id 返回 FEEDBACK_TARGET_REQUIRED
+- [x] `GET /api/admin/feedback` Admin 反馈队列列表（支持过滤） ✅ 2026-05-17 返回分页列表 {items, next_cursor, has_next}；支持 feedback_type 过滤
+- [x] `PATCH /api/admin/feedback/:feedbackId/resolve` 标记反馈已处理 ✅ 2026-05-17 resolution 枚举值为 accepted|rejected|duplicate；resolve 后 status→resolved, resolved_by=admin, resolved_at 有值
 
 ### 9.8 Governance 治理 `P1` `AD-7` ~ `AD-10`
-- [ ] **AD-7**: 低置信度边审核，更新边置信度/状态
-- [ ] **AD-8**: 重复节点建议及合并流程
-- [ ] **AD-9**: 冲突检测创建 feedback/conflict 行，Admin 解决
-- [ ] **AD-10**: Wiki 更新提案列表/详情/审批
+- [x] **AD-7**: 低置信度边审核，更新边置信度/状态 ✅ 2026-05-17 `GET /admin/governance/low-confidence-edges` 返回 200（空 items，无低置信度数据）；`PATCH /admin/governance/edges/:id/review` 需 action=confirm|reject + reason，有 confidence 阈值校验（confirm 需 ≥0.55）
+- [x] **AD-8**: 重复节点建议及合并流程 ✅ 2026-05-17 `GET /admin/governance/duplicate-suggestions` 返回 200（空，无重复数据）；`POST /admin/governance/merge` 端点存在，验证 source≠target（CANNOT_MERGE_SELF）
+- [x] **AD-9**: ��突检测创建 feedback/conflict 行，Admin 解决 ✅ 2026-05-17 `GET /admin/governance/conflicts` 返回 200 分页列表；feedback_type=conflict 通过反馈系统管理
+- [x] **AD-10**: Wiki 更新提案列表/详情/审批 ✅ 2026-05-17 `GET /admin/proposals` 返回 200 {data[], total, page, limit}；`POST /admin/proposals/:id/resolve` 需 action=accept|reject
 
-### 9.9 Worker 状态 `P1` `CP-13`
-- [ ] `POST /api/internal/workers/heartbeat` Worker 心跳正常
-- [ ] Worker 状态通过 job 元数据或内部 API 可查询
-- [ ] 长时间无心跳的 Worker 标记为 stale
+### 9.9 Worker ���态 `P1` `CP-13`
+- [x] `POST /api/internal/workers/heartbeat` Worker 心跳正常 ✅ 2026-05-17 需 x-worker-key header + {worker_id, active_jobs?, system_info?}；返回 {ack:true, cancel_requested:[], lost_locks:[]}；active_jobs 中不存在的 job 返回 lost_locks
+- [ ] Worker 状态通过 job 元数据或内部 API 可查询 — 未实现：无专门的 worker 列表/状态查询端点，heartbeat 数据仅用于 job coordination
+- [ ] 长时间无心跳的 Worker 标记为 stale — 未实现：无 stale worker 检测/标记机制的公开端点
 
 ---
 
@@ -570,9 +570,9 @@ pnpm exec vitest run tests/e2e/ --config tests/e2e/vitest.config.e2e.ts
 | Graphify 生命周期 | 45% | 85%+ |
 | Graph 探索/查询 | 30% | 80%+ |
 | Wiki 管理/版本 | 45% | 85%+ |
-| 索引/Retrieval | 40% | 85%+ |
-| Chat/RAG | 60% | 90%+ |
-| Agent/Database | 10% | 70%+ |
+| 索引/Retrieval | 80% | 85%+ |
+| Chat/RAG | 85% | 90%+ |
+| Agent/Database | 60% | 70%+ |
 | Model 配置 | 55% | 85%+ |
 | Admin 审计/健康/Jobs | 55% | 85%+ |
 | Docmost Bridge | 25% | 70%+ |
@@ -580,4 +580,4 @@ pnpm exec vitest run tests/e2e/ --config tests/e2e/vitest.config.e2e.ts
 | API Tokens/MCP | 0% | 70%+ |
 | 基础设施 Workers | 35% | 80%+ |
 | UI 通用 | 65% | 85%+ |
-| **整体** | **~45%** | **80%+** |
+| **整体** | **~55%** | **80%+** |

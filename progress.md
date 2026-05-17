@@ -49,7 +49,7 @@
 | 类别 | 已通过 | 有BUG | 未测 | 覆盖率 |
 |---|---|---|---|---|
 | P0 核心路径 | 88 | 0 | ~1 | ~99% |
-| P1 管理功能 | 42 | 1 (BUG-009) | ~33 | Batch 1+2+3 完成 |
+| P1 管理功能 | 63 | 1 (BUG-009) | ~5 | Batch 1-5 完成 |
 | P2 边界安全 | — | — | ~15 | 未开始 |
 | E2E 自动化 | 11 pass | 0 | ~60 | ~15% |
 
@@ -81,6 +81,25 @@
 - §5.2 版本 diff: API hunks+stats + UI Compare 按钮 + side-by-side diff modal (1/1 ✅)
 - §6.3 CP-29: 手动重建索引 POST rebuild-index + 幂等键 + job succeeded + snapshot 更新 + UI Rebuild Index 按钮 (2/2 ✅)
 
+### P1 Batch 5 已测通过 (21 项, 2026-05-17)
+
+- §8.2 Model: AM-1 连通性测试脱敏/AM-2 enabled+visible_group_ids (2/2 ✅)
+- §8.4 Rerank: CRUD 创建/列出/更新/禁用 (1/2 ✅)
+- §9.3 Job: 详情(Payload+Error+Events)/error_json/CP-14 cancel (3/3 ✅)
+- §9.4 Graphify Admin: 列表+Tab/stats/retry (3/3 ✅)
+- §9.5 API Token: 创建/列出/撤销/TOKEN_REVOKED (4/4 ✅)
+- §9.6 MCP: 注册/列出/删除/invoke+policy (3/3 ✅)
+- §9.7 反馈: 提交/列表/resolve (3/3 ✅)
+- §9.8 Governance: 边审核/重复建议/冲突/提案 (4/4 ✅)
+- §9.9 Worker: heartbeat (1/3 ✅)
+
+### P1 未测/未实现 (~4 项)
+
+- §9.2 模型可达性探测（Health 端点未集成）
+- §9.9 Worker 状态查询/stale 标记（无公开端点）
+- §10.4 响应式布局（Batch 6）
+- §10.5 导航与错误（Batch 6）
+
 ### P0 未测项 (~1 项)
 
 **Agent 行为依赖**: §7.2 CA-10 chart.data 事件触发（database_config 已就绪，触发取决于 agent 是否以图表格式返回数据）
@@ -96,6 +115,9 @@
 
 | ID | 描述 | Fix |
 |---|---|---|
+| PR-387-R1 | Rerank API SSRF 防护与错误语义修正 | `callRerankApi` 接入 `validateAdminOutboundProbeUrl` + validated dispatcher + finally close；保留非 OK 响应 body cancel；无可用 rerank scores 错误信息改为更准确文案；`npm run build`、rerank 回归测试通过 |
+| #384 | Chat static_rag 检索在 RRF 后接入 rerank，支持无模型/API 错误/超时非致命回退 | `ModelConfigService.getEnabledRerankModel()` + Chat rerank POST `/rerank` + trace metadata；新增 5 个 rerank 回归测试；`npm run build && npm test` 通过 |
+| BUG-011/#381 | Chat session 删除因 retrieval_traces/model_usage_logs/feedback_items FK 缺少级联导致 500 | Drizzle schema + `0019_fix_session_delete_cascade.sql` 为 3 个 FK 增加 `ON DELETE CASCADE`；新增 schema 回归测试；`npm run build`、`npm test` 通过 |
 | BUG-010 | URL 上传 DNS 解析失败 (SERVFAIL) | `url_fetch_private` 网络 `internal: true` → `false`，让 url-fetcher 能解析外部 DNS；Squid 增加私有 IP ACL 纵深防御 |
 | BUG-008/#367 | chart-event endpoint 到 SSE consumer 全链路验证 | 新增 `apps/api/src/internal/__tests__/chart-event-e2e.test.ts`，覆盖 POST `/api/internal/agent/chart-event` → `AgentService.injectChartEvent` → `TurnEventQueue` → consumer 收到 `chart.data`，并验证 `chart.data` 早于 `message.completed` |
 | BUG-008/#366 | cherrydb chart CLI 未回调内部 chart-event endpoint | `tools/cherrydb/cli.py` 在输出 chart envelope 后 POST `CHERRY_CHART_CALLBACK_URL`，新增 callback 单测；`tools/cherrydb` 16 tests pass |
@@ -114,6 +136,7 @@
 | Change | 状态 | 说明 |
 |---|---|---|
 | wiki-version-diff | API+UI complete, pending browser verification | `GET /wiki/pages/:pageId/diff` + version history compare modal；`npm run build`、Wiki API tests 通过 |
+| fix-session-delete-cascade | complete, issue #381 | Chat session 关联 retrieval traces/model usage logs/feedback items 删除级联修复 |
 | agent-chart-event-injection | issues #364/#365/#366/#367 complete | TurnEventQueue/PersistentStreamParser/AgentService 注入机制 + env 注入 + internal endpoint + cherrydb CLI callback + endpoint→SSE 集成验证 |
 | auth-session-persist | 4/4 complete, issue #356 | BUG-005 修复 |
 | fix-xlsx-mime-validation | 4/4 complete, issue #358 | BUG-006 修复 |

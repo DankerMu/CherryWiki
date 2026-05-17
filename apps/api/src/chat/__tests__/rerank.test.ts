@@ -76,7 +76,7 @@ describe('ChatService static RAG rerank', () => {
         headers: expect.objectContaining({
           Authorization: 'Bearer rerank-secret',
           'Content-Type': 'application/json',
-        }),
+        }) as unknown,
         body: JSON.stringify({
           model: 'bge-reranker',
           query: 'How is SSO configured?',
@@ -215,8 +215,8 @@ function createServiceContext(options: {
   const service = new ChatService(
     db.asDrizzle(),
     { push: vi.fn() } as unknown as AuditService,
-    vi.fn((_config: ChatProviderConfig) => new UnusedChatProvider()),
-    vi.fn((_config: EmbeddingProviderConfig) => new ScriptedEmbeddingProvider()),
+    vi.fn((_cfg: ChatProviderConfig) => new UnusedChatProvider()),
+    vi.fn((_cfg: EmbeddingProviderConfig) => new ScriptedEmbeddingProvider()),
     undefined,
     undefined,
     modelConfigService as never,

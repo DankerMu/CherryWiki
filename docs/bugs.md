@@ -79,11 +79,20 @@
 - **发现日期**: 2026-05-17
 - **状态**: [ ] 待修复
 
+### BUG-011: Chat session 删除 FK 未级联（Issue #381）
+
+- **现象**: `DELETE /api/spaces/:spaceId/chat/sessions/:sessionId` 在 session 有 `retrieval_traces`、`model_usage_logs` 或关联 `feedback_items` 时返回 500
+- **根因**: `retrieval_traces.conversation_id`、`model_usage_logs.conversation_id`、`feedback_items.message_id` 三个 FK 缺少 `ON DELETE CASCADE`
+- **修复**: Drizzle schema 增加 `{ onDelete: 'cascade' }`，新增 `0019_fix_session_delete_cascade.sql` 迁移重建三个 FK，新增 schema 回归测试
+- **发现日期**: 2026-05-17
+- **状态**: [x] 已修复 — `npm run build`、`npm test` 通过
+
 ---
 
 ## 已修复（本轮）
 
 - BUG-006: XLSX 上传被安全检查误拒 → 当前分支：OOXML ZIP MIME 通过，且不作为普通 ZIP 解包校验 ✅
+- BUG-011/#381: Chat session 删除 FK 未级联 → 三个关联 FK 改为 `ON DELETE CASCADE`，新增 schema 回归测试 ✅
 - BUG-005: 页面刷新丢失登录状态 → 当前分支：bootstrap refresh + route guard loading ✅
 - BUG-007: Chat 页面在无 Chat Model 时缺少前置提示 → 当前分支：Chat 页预检查模型可用性，缺失时提示并禁用发送 ✅
 - BUG-008/#366: cherrydb chart CLI HTTP callback → chart 输出后非阻塞 POST 内部 endpoint，callback 缺失静默跳过、凭据缺失/HTTP 失败仅 stderr WARN ✅
