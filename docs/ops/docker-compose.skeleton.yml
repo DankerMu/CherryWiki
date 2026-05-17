@@ -170,9 +170,8 @@ services:
       minio:
         condition: service_healthy
 
-  # Phase 2 启用：Docmost ↔ Canonical Wiki Repo 同步
+  # Docmost ↔ Canonical Wiki Repo 同步（默认启动）
   wiki-sync-worker:
-    profiles: ["phase2"]
     image: your-registry/cherrygraph-wiki-sync-worker:latest
     restart: unless-stopped
     environment:
@@ -228,10 +227,8 @@ services:
       redis:
         condition: service_healthy
 
-  # Phase 2 启用：Docmost Fork 开源版 + 自建 Bridge endpoint。
-  # 默认不启动。启用方式：docker compose --profile docmost up -d docmost
+  # Docmost Fork 开源版 + Bridge endpoint（默认启动）
   docmost:
-    profiles: ["docmost", "phase2"]
     image: ${DOCMOST_IMAGE:-docmost/docmost:0.80.1}
     restart: unless-stopped
     environment:
