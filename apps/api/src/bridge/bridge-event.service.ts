@@ -181,10 +181,10 @@ function isUniqueViolation(err: unknown, constraint: string): boolean {
   let current: unknown = err;
 
   while (isRecord(current)) {
-    if (seen.has(current as object)) {
+    if (seen.has(current)) {
       return false;
     }
-    seen.add(current as object);
+    seen.add(current);
 
     if (current.code === '23505') {
       if (current.constraint === constraint) {

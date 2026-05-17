@@ -462,7 +462,7 @@ class InMemoryBridgeDatabase {
         values: (value: Record<string, unknown>) => ({
           returning: (): Promise<StoredBridgeEvent[]> => {
             if (this.nextBridgeEventInsertError !== undefined) {
-              const error = this.nextBridgeEventInsertError;
+              const error = this.nextBridgeEventInsertError as Error;
               this.nextBridgeEventInsertError = undefined;
               throw error;
             }
@@ -472,7 +472,7 @@ class InMemoryBridgeDatabase {
             if (existing !== undefined) {
               this.pendingLookupEventId = eventId;
               if (this.nextDuplicateError !== undefined) {
-                const error = this.nextDuplicateError;
+                const error = this.nextDuplicateError as Error;
                 this.nextDuplicateError = undefined;
                 throw error;
               }
