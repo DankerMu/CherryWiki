@@ -58,8 +58,10 @@ import {
   type PaginatedResponse,
 } from '../common/dto/pagination.dto.js';
 import { getApiLogger } from '../common/logger/logger.module.js';
+import { validateAdminOutboundProbeUrl } from '../common/outbound-probe-safety.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { GraphService } from '../graph/graph.service.js';
+import { ModelConfigService, type RerankModelConfig } from '../models/model-config.service.js';
 import { decryptSpaceDatabaseConfig } from '../spaces/database-config.js';
 
 export const CHAT_PROVIDER_FACTORY = Symbol('CHAT_PROVIDER_FACTORY');
@@ -221,8 +223,26 @@ type RetrievedContext = {
       graph_hints: Array<GraphHint | GraphCandidate>;
       wiki_tokens: number;
       graph_tokens: number;
+      rerank_model_id?: string;
+      rerank_latency_ms?: number;
+      rerank_status?: RerankStatus;
+      rerank_skip_reason?: string;
     };
   };
+};
+
+type RerankStatus = 'success' | 'skipped' | 'timeout' | 'error';
+
+type RerankMeta = {
+  rerank_model_id?: string;
+  rerank_latency_ms?: number;
+  rerank_status: RerankStatus;
+  rerank_skip_reason?: string;
+};
+
+type RerankApiResult = {
+  index: number;
+  relevance_score: number;
 };
 
 export type GraphHint = {
@@ -263,6 +283,7 @@ const HISTORY_LIMIT = 10;
 const DEFAULT_MODEL_MAX_TOKENS = 8192;
 const RESPONSE_BUFFER_TOKENS = 1000;
 const RETRIEVAL_TOP_K = 8;
+const RERANK_TIMEOUT_MS = 3000;
 const AGENT_RETRIEVAL_MODES = new Set(['graph_rag', 'path_first', 'community_first']);
 
 @Injectable()
@@ -278,6 +299,7 @@ export class ChatService {
     @Optional() @Inject(EMBEDDING_PROVIDER_FACTORY) embeddingProviderFactory?: EmbeddingProviderFactory,
     @Optional() private readonly agentService?: AgentService,
     @Optional() private readonly graphService?: GraphService,
+    @Optional() private readonly modelConfigService?: ModelConfigService,
   ) {
     this.chatProviderFactory =
       chatProviderFactory ?? ((config: ChatProviderConfig): ChatProvider => new OpenAIChatProvider(config));
@@ -1392,6 +1414,8 @@ export class ChatService {
     }
 
     results = results.sort((left, right) => right.score - left.score).slice(0, RETRIEVAL_TOP_K);
+    const rerankOutcome = await this.rerankRetrievedResults(prepared, results);
+    results = rerankOutcome.results;
 
     return {
       results,
@@ -1419,9 +1443,140 @@ export class ChatService {
             (total, candidate) => total + countTokens(candidate.content, prepared.chatModel.model_id),
             0,
           ),
+          ...rerankOutcome.meta,
         },
       },
     };
+  }
+
+  private async rerankRetrievedResults(
+    prepared: PreparedCompletion,
+    results: RetrievalResult[],
+  ): Promise<{ results: RetrievalResult[]; meta: RerankMeta }> {
+    if (results.length === 0) {
+      return {
+        results,
+        meta: {
+          rerank_status: 'skipped',
+          rerank_skip_reason: 'empty_results',
+        },
+      };
+    }
+
+    if (this.modelConfigService === undefined) {
+      return {
+        results,
+        meta: {
+          rerank_status: 'skipped',
+          rerank_skip_reason: 'model_config_service_unavailable',
+        },
+      };
+    }
+
+    const startedAt = Date.now();
+    let config: RerankModelConfig | null = null;
+
+    try {
+      config = await this.modelConfigService.getEnabledRerankModel(prepared.tenantId);
+      if (config === null) {
+        return {
+          results,
+          meta: {
+            rerank_status: 'skipped',
+            rerank_skip_reason: 'no_rerank_model',
+          },
+        };
+      }
+
+      if (config.base_url === null) {
+        return {
+          results,
+          meta: {
+            rerank_model_id: config.id,
+            rerank_status: 'skipped',
+            rerank_skip_reason: 'missing_base_url',
+          },
+        };
+      }
+
+      const rankedResults = await this.callRerankApi(prepared, results, config);
+      return {
+        results: rankedResults,
+        meta: {
+          rerank_model_id: config.id,
+          rerank_latency_ms: elapsedMs(startedAt),
+          rerank_status: 'success',
+        },
+      };
+    } catch (err) {
+      const status: RerankStatus = isAbortError(err) ? 'timeout' : 'error';
+      getApiLogger().warn(
+        {
+          err,
+          tenant_id: prepared.tenantId,
+          rerank_model_id: config?.id,
+        },
+        'Rerank request failed; keeping RRF retrieval order',
+      );
+
+      return {
+        results,
+        meta: {
+          ...(config !== null ? { rerank_model_id: config.id } : {}),
+          rerank_latency_ms: elapsedMs(startedAt),
+          rerank_status: status,
+        },
+      };
+    }
+  }
+
+  private async callRerankApi(
+    prepared: PreparedCompletion,
+    results: RetrievalResult[],
+    config: RerankModelConfig,
+  ): Promise<RetrievalResult[]> {
+    const apiKey = this.modelConfigService!.resolveApiKey(config.encrypted_api_key_ref);
+    const targetValidation = await validateAdminOutboundProbeUrl(config.base_url!, { dnsTimeoutMs: 2000 });
+    if (!targetValidation.ok) {
+      throw new Error(`Rerank URL validation failed: ${targetValidation.error}`);
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), RERANK_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(`${targetValidation.url.toString().replace(/\/+$/, '')}/rerank`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: config.model_id,
+          query: prepared.message,
+          documents: results.map((result) => result.content),
+          top_n: results.length,
+        }),
+        signal: controller.signal,
+        dispatcher: targetValidation.dispatcher,
+      });
+
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new Error(`Rerank API returned ${response.status}`);
+      }
+
+      const payload = (await response.json()) as { results?: unknown };
+      const rerankResults = parseRerankResults(payload.results);
+      if (rerankResults.length === 0) {
+        throw new Error('Rerank API returned no valid results');
+      }
+
+      return reorderByRerankScores(results, rerankResults);
+    } finally {
+      clearTimeout(timeout);
+      await targetValidation.dispatcher.close().catch(() => undefined);
+    }
   }
 
   private async retrieveGraphHints(prepared: PreparedCompletion): Promise<GraphHint[]> {
@@ -2078,6 +2233,66 @@ function truncateGraphContextForBudget<T extends { content: string }>(
   }
 
   return selected;
+}
+
+function parseRerankResults(value: unknown): RerankApiResult[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item): RerankApiResult[] => {
+    if (!isRecord(item)) {
+      return [];
+    }
+
+    const index = Number(item.index);
+    const relevanceScore = Number(item.relevance_score);
+    if (!Number.isInteger(index) || index < 0 || !Number.isFinite(relevanceScore)) {
+      return [];
+    }
+
+    return [{ index, relevance_score: relevanceScore }];
+  });
+}
+
+function reorderByRerankScores(results: RetrievalResult[], rerankResults: RerankApiResult[]): RetrievalResult[] {
+  const scoresByIndex = new Map<number, number>();
+  for (const item of rerankResults) {
+    if (item.index < results.length) {
+      scoresByIndex.set(item.index, item.relevance_score);
+    }
+  }
+
+  if (scoresByIndex.size === 0) {
+    throw new Error('Rerank API returned no usable scores');
+  }
+
+  return results
+    .map((result, index) => ({
+      result: scoresByIndex.has(index) ? { ...result, score: scoresByIndex.get(index)! } : result,
+      index,
+      rerankScore: scoresByIndex.get(index) ?? Number.NEGATIVE_INFINITY,
+    }))
+    .sort((left, right) => {
+      if (right.rerankScore !== left.rerankScore) {
+        return right.rerankScore - left.rerankScore;
+      }
+
+      return left.index - right.index;
+    })
+    .map((entry) => entry.result);
+}
+
+function elapsedMs(startedAt: number): number {
+  return Math.max(1, Date.now() - startedAt);
+}
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'AbortError';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 function activeGraphifyRunIdsFromSnapshots(
