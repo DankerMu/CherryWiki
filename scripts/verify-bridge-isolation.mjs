@@ -18,9 +18,7 @@ const serviceNetworks = asRecord(docmost.networks);
 const composeNetworks = asRecord(compose.networks);
 const defaultNetwork = asRecord(composeNetworks.default);
 
-if (!profiles.includes('docmost')) {
-  fail('docmost service must include the docmost profile');
-}
+// docmost now starts by default (no profile required since phase2 removal)
 
 if (ports.length > 0) {
   fail(`docmost must not publish host ports; found ${JSON.stringify(ports)}`);

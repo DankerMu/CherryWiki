@@ -464,7 +464,6 @@ services:
         condition: service_healthy
 
   docmost:
-    profiles: ["docmost", "phase2"]
     image: ${DOCMOST_IMAGE:-docmost/docmost:0.80.1}
     restart: unless-stopped
     environment:
@@ -492,7 +491,6 @@ services:
         condition: service_healthy
 
   wiki-sync-worker:
-    profiles: ["phase2"]
     image: node:20-slim
     restart: unless-stopped
     working_dir: /app
