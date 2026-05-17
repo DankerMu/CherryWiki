@@ -30,10 +30,27 @@ export type WikiPageContent = {
   content_markdown: string;
 };
 
+export type WikiDiff = {
+  from_version_id: string;
+  to_version_id: string;
+  hunks: Array<{
+    oldStart: number;
+    oldLines: number;
+    newStart: number;
+    newLines: number;
+    lines: string[];
+  }>;
+  stats: {
+    additions: number;
+    deletions: number;
+  };
+};
+
 export type WikiPageListResponse = ApiWrappedResponse<WikiPage[]>;
 export type WikiPageResponse = ApiWrappedResponse<WikiPage>;
 export type WikiPageContentResponse = ApiWrappedResponse<WikiPageContent>;
 export type WikiPageVersionListResponse = ApiWrappedResponse<WikiPageVersion[]>;
+export type WikiDiffResponse = ApiWrappedResponse<WikiDiff>;
 
 export const wikiApi = {
   listPages(spaceId: string, params: { page?: number; per_page?: number; status?: string; search?: string } = {}) {
@@ -56,6 +73,13 @@ export const wikiApi = {
     return api.getWrapped<WikiPageVersion[]>(
       `/spaces/${encodeURIComponent(spaceId)}/wiki/pages/${encodeURIComponent(pageId)}/versions`,
       params,
+    );
+  },
+
+  getDiff(spaceId: string, pageId: string, fromVersionId: string, toVersionId: string) {
+    return api.getWrapped<WikiDiff>(
+      `/spaces/${encodeURIComponent(spaceId)}/wiki/pages/${encodeURIComponent(pageId)}/diff`,
+      { from_version_id: fromVersionId, to_version_id: toVersionId },
     );
   },
 

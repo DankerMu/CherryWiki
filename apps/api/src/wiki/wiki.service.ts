@@ -1,4 +1,5 @@
 import { HttpException, HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
+import { diffLines, type Change } from 'diff';
 import {
   batchCreateSourceLinks as normalizeSourceLinks,
   createSourceLink as normalizeSourceLink,
@@ -87,6 +88,26 @@ export type WikiPageVersionResponse = {
   source_run_id: string | null;
   status: 'current' | 'archived';
   created_at: Date;
+};
+
+export type WikiDiffLine = ` ${string}` | `-${string}` | `+${string}`;
+
+export type WikiDiffHunk = {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: WikiDiffLine[];
+};
+
+export type WikiDiffResponse = {
+  from_version_id: string;
+  to_version_id: string;
+  hunks: WikiDiffHunk[];
+  stats: {
+    additions: number;
+    deletions: number;
+  };
 };
 
 export type WikiPublishResponse = {
@@ -236,6 +257,30 @@ export class WikiService {
       rows.map((version) => toVersionResponse(version, pageRow.current_version_id)),
       buildPaginationMeta(page, perPage, normalizeCount(countRow?.total)),
     );
+  }
+
+  async diffVersions(
+    tenantId: string,
+    spaceId: string,
+    pageId: string,
+    fromVersionId: string,
+    toVersionId: string,
+  ): Promise<WikiDiffResponse> {
+    const page = await this.requirePage(tenantId, spaceId, pageId);
+    const fromVersion = await this.findPageVersion(tenantId, spaceId, page.id, fromVersionId);
+    const toVersion = fromVersionId === toVersionId
+      ? fromVersion
+      : await this.findPageVersion(tenantId, spaceId, page.id, toVersionId);
+
+    if (fromVersion === undefined || toVersion === undefined) {
+      throwApiError(ErrorCode.VERSION_NOT_FOUND, 'Wiki page version was not found', HttpStatus.NOT_FOUND);
+    }
+
+    return {
+      from_version_id: fromVersion.id,
+      to_version_id: toVersion.id,
+      ...buildLineDiff(fromVersion.content_markdown ?? '', toVersion.content_markdown ?? ''),
+    };
   }
 
   async publish(
@@ -964,6 +1009,115 @@ function normalizeCount(value: unknown): number {
   }
 
   return 0;
+}
+
+const MAX_DIFF_BYTES = 512 * 1024;
+const CONTEXT_LINES = 3;
+
+function buildLineDiff(
+  oldContent: string,
+  newContent: string,
+): Pick<WikiDiffResponse, 'hunks' | 'stats'> {
+  if (oldContent.length + newContent.length > MAX_DIFF_BYTES) {
+    return {
+      hunks: [],
+      stats: { additions: -1, deletions: -1 },
+    };
+  }
+
+  const changes = diffLines(oldContent, newContent);
+
+  const allLines: AnnotatedLine[] = [];
+  let additions = 0;
+  let deletions = 0;
+
+  for (const change of changes) {
+    const lines = splitDiffLines(change);
+    for (const line of lines) {
+      if (change.added === true) {
+        allLines.push({ prefix: '+', text: line });
+        additions += 1;
+      } else if (change.removed === true) {
+        allLines.push({ prefix: '-', text: line });
+        deletions += 1;
+      } else {
+        allLines.push({ prefix: ' ', text: line });
+      }
+    }
+  }
+
+  if (additions === 0 && deletions === 0) {
+    return { hunks: [], stats: { additions: 0, deletions: 0 } };
+  }
+
+  const hunks = buildBoundedHunks(allLines, CONTEXT_LINES);
+  return { hunks, stats: { additions, deletions } };
+}
+
+type AnnotatedLine = { prefix: string; text: string };
+
+function buildBoundedHunks(allLines: AnnotatedLine[], context: number): WikiDiffHunk[] {
+  const changedIndices: number[] = [];
+  for (let i = 0; i < allLines.length; i += 1) {
+    const line = allLines[i] as AnnotatedLine;
+    if (line.prefix !== ' ') {
+      changedIndices.push(i);
+    }
+  }
+
+  if (changedIndices.length === 0) return [];
+
+  const firstIdx = changedIndices[0] as number;
+  const ranges: [number, number][] = [];
+  let rangeStart = Math.max(0, firstIdx - context);
+  let rangeEnd = Math.min(allLines.length - 1, firstIdx + context);
+
+  for (let i = 1; i < changedIndices.length; i += 1) {
+    const idx = changedIndices[i] as number;
+    const candidateStart = Math.max(0, idx - context);
+    const candidateEnd = Math.min(allLines.length - 1, idx + context);
+    if (candidateStart <= rangeEnd + 1) {
+      rangeEnd = candidateEnd;
+    } else {
+      ranges.push([rangeStart, rangeEnd]);
+      rangeStart = candidateStart;
+      rangeEnd = candidateEnd;
+    }
+  }
+  ranges.push([rangeStart, rangeEnd]);
+
+  const hunks: WikiDiffHunk[] = [];
+  for (const [start, end] of ranges) {
+    let oldStart = 1;
+    let newStart = 1;
+    for (let i = 0; i < start; i += 1) {
+      const line = allLines[i] as AnnotatedLine;
+      if (line.prefix !== '+') oldStart += 1;
+      if (line.prefix !== '-') newStart += 1;
+    }
+
+    let oldLines = 0;
+    let newLines = 0;
+    const hunkLines: WikiDiffLine[] = [];
+    for (let i = start; i <= end; i += 1) {
+      const line = allLines[i] as AnnotatedLine;
+      hunkLines.push(`${line.prefix}${line.text}` as WikiDiffLine);
+      if (line.prefix !== '+') oldLines += 1;
+      if (line.prefix !== '-') newLines += 1;
+    }
+
+    hunks.push({ oldStart, oldLines, newStart, newLines, lines: hunkLines });
+  }
+
+  return hunks;
+}
+
+function splitDiffLines(change: Change): string[] {
+  const value = change.value.endsWith('\n') ? change.value.slice(0, -1) : change.value;
+  if (value.length === 0) {
+    return change.added === true || change.removed === true ? [''] : [];
+  }
+  return value.split('\n');
 }
 
 function escapeLikePattern(value: string): string {

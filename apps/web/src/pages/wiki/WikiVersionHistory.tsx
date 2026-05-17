@@ -1,5 +1,5 @@
-import { ArrowLeftOutlined } from '@ant-design/icons';
-import { Button, Popconfirm, Table, Typography, message } from 'antd';
+import { ArrowLeftOutlined, SwapOutlined } from '@ant-design/icons';
+import { Button, Checkbox, Popconfirm, Space, Table, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,6 +11,7 @@ import { useAuth } from '../../lib/auth';
 import { wikiApi, type WikiPage, type WikiPageVersion } from '../../lib/wikiApi';
 import NotFound from '../NotFound';
 import { WIKI_PAGE_SIZE, WikiStatusBadge } from './wikiUi';
+import WikiVersionDiff from './WikiVersionDiff';
 
 type WikiVersionHistoryProps = {
   spaceId: string;
@@ -36,6 +37,9 @@ export default function WikiVersionHistory({ spaceId, pageId }: WikiVersionHisto
   const [pagination, setPagination] = useState(DEFAULT_PAGINATION);
   const [isLoading, setIsLoading] = useState(true);
   const [rollingBackVersionId, setRollingBackVersionId] = useState<string | null>(null);
+  const [isCompareMode, setIsCompareMode] = useState(false);
+  const [selectedVersionIds, setSelectedVersionIds] = useState<string[]>([]);
+  const [diffVersionIds, setDiffVersionIds] = useState<{ fromVersionId: string; toVersionId: string } | null>(null);
   const [notFound, setNotFound] = useState(false);
 
   const loadVersions = useCallback(async () => {
@@ -62,6 +66,7 @@ export default function WikiVersionHistory({ spaceId, pageId }: WikiVersionHisto
           has_next: false,
         },
       );
+      setSelectedVersionIds([]);
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
         setNotFound(true);
@@ -93,9 +98,52 @@ export default function WikiVersionHistory({ spaceId, pageId }: WikiVersionHisto
   }
 
   function openVersion(version: WikiPageVersion): void {
+    if (isCompareMode) {
+      toggleSelectedVersion(version.version_id);
+      return;
+    }
+
     void navigate(
       `/spaces/${encodeURIComponent(spaceId)}/wiki/${encodeURIComponent(pageId)}?version_id=${encodeURIComponent(version.version_id)}`,
     );
+  }
+
+  function toggleCompareMode(): void {
+    setIsCompareMode((value) => {
+      const next = !value;
+      if (!next) {
+        setSelectedVersionIds([]);
+      }
+      return next;
+    });
+  }
+
+  function toggleSelectedVersion(versionId: string): void {
+    setSelectedVersionIds((current) => {
+      if (current.includes(versionId)) {
+        return current.filter((id) => id !== versionId);
+      }
+      if (current.length >= 2) {
+        return [current[1] as string, versionId];
+      }
+      return [...current, versionId];
+    });
+  }
+
+  function openDiff(): void {
+    const selectedVersions = versions
+      .filter((version) => selectedVersionIds.includes(version.version_id))
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+    if (selectedVersions.length !== 2) {
+      return;
+    }
+
+    const [fromVersion, toVersion] = selectedVersions as [WikiPageVersion, WikiPageVersion];
+    setDiffVersionIds({
+      fromVersionId: fromVersion.version_id,
+      toVersionId: toVersion.version_id,
+    });
   }
 
   if (notFound) {
@@ -103,6 +151,23 @@ export default function WikiVersionHistory({ spaceId, pageId }: WikiVersionHisto
   }
 
   const columns: ColumnsType<WikiPageVersion> = [
+    ...(isCompareMode
+      ? [
+          {
+            title: t('wiki.history.columns.select'),
+            key: 'select',
+            width: 64,
+            render: (_: unknown, version: WikiPageVersion) => (
+              <Checkbox
+                checked={selectedVersionIds.includes(version.version_id)}
+                onClick={(e) => e.stopPropagation()}
+                onChange={() => toggleSelectedVersion(version.version_id)}
+                aria-label={t('wiki.history.selectVersion', { id: version.version_id })}
+              />
+            ),
+          } satisfies ColumnsType<WikiPageVersion>[number],
+        ]
+      : []),
     {
       title: t('wiki.history.columns.version'),
       dataIndex: 'version_id',
@@ -166,10 +231,26 @@ export default function WikiVersionHistory({ spaceId, pageId }: WikiVersionHisto
           <Typography.Title level={4} style={{ margin: 0 }}>{t('wiki.history.title')}</Typography.Title>
           {page !== null && <Typography.Text type="secondary">{page.title}</Typography.Text>}
         </div>
-        <Link to={`/spaces/${encodeURIComponent(spaceId)}/wiki/${encodeURIComponent(pageId)}`}>
-          <Button icon={<ArrowLeftOutlined />}>{t('wiki.history.backToPage')}</Button>
-        </Link>
+        <Space wrap>
+          <Button icon={<SwapOutlined />} type={isCompareMode ? 'primary' : 'default'} onClick={toggleCompareMode} disabled={pagination.total < 2}>
+            {t('wiki.history.compare')}
+          </Button>
+          {isCompareMode && (
+            <Button type="primary" disabled={selectedVersionIds.length !== 2} onClick={openDiff}>
+              {t('wiki.history.compareSelected')}
+            </Button>
+          )}
+          <Link to={`/spaces/${encodeURIComponent(spaceId)}/wiki/${encodeURIComponent(pageId)}`}>
+            <Button icon={<ArrowLeftOutlined />}>{t('wiki.history.backToPage')}</Button>
+          </Link>
+        </Space>
       </div>
+
+      {isCompareMode && (
+        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+          {t('wiki.history.selectVersions', { count: selectedVersionIds.length })}
+        </Typography.Text>
+      )}
 
       <Table<WikiPageVersion>
         columns={columns}
@@ -189,6 +270,15 @@ export default function WikiVersionHistory({ spaceId, pageId }: WikiVersionHisto
         }}
         locale={{ emptyText: t('wiki.history.empty') }}
         size="middle"
+      />
+
+      <WikiVersionDiff
+        open={diffVersionIds !== null}
+        spaceId={spaceId}
+        pageId={pageId}
+        fromVersionId={diffVersionIds?.fromVersionId ?? null}
+        toVersionId={diffVersionIds?.toVersionId ?? null}
+        onClose={() => setDiffVersionIds(null)}
       />
     </>
   );

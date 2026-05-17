@@ -706,6 +706,7 @@
       "empty": "No versions are available for this page.",
       "backToPage": "Back to Page",
       "columns": {
+        "select": "Select",
         "version": "Version",
         "source": "Source",
         "status": "Status",
@@ -716,12 +717,25 @@
       "rollback": "Rollback",
       "rollingBack": "Rolling back...",
       "confirmRollback": "Are you sure you want to rollback to this version?",
+      "compare": "Compare",
+      "compareSelected": "Compare Selected",
+      "selectVersions": "Select exactly 2 versions. {{count}} selected.",
+      "selectVersion": "Select version {{id}}",
       "current": "Current",
       "manual": "Manual",
       "pagination": {
         "showing": "Showing {{from}}-{{to}} of {{total}}",
         "page": "Page {{current}} of {{total}}"
       }
+    },
+    "diff": {
+      "title": "Compare Versions",
+      "versionPair": "{{from}} → {{to}}",
+      "additions": "{{count}} additions",
+      "deletions": "{{count}} deletions",
+      "fromTitle": "From {{id}}",
+      "toTitle": "To {{id}}",
+      "tooLarge": "Content is too large to compare. Please review the versions individually."
     },
     "status": {
       "draft": "Draft",

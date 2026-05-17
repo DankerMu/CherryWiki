@@ -706,6 +706,7 @@
       "empty": "此页面没有可用版本。",
       "backToPage": "返回页面",
       "columns": {
+        "select": "选择",
         "version": "版本",
         "source": "来源",
         "status": "状态",
@@ -716,12 +717,25 @@
       "rollback": "回滚",
       "rollingBack": "回滚中...",
       "confirmRollback": "确定要回滚到此版本吗？",
+      "compare": "对比",
+      "compareSelected": "对比所选版本",
+      "selectVersions": "请选择 2 个版本，已选择 {{count}} 个。",
+      "selectVersion": "选择版本 {{id}}",
       "current": "当前",
       "manual": "手动",
       "pagination": {
         "showing": "显示 {{from}}-{{to}} / 共 {{total}}",
         "page": "第 {{current}} / {{total}} 页"
       }
+    },
+    "diff": {
+      "title": "版本对比",
+      "versionPair": "{{from}} → {{to}}",
+      "additions": "新增 {{count}} 行",
+      "deletions": "删除 {{count}} 行",
+      "fromTitle": "从 {{id}}",
+      "toTitle": "到 {{id}}",
+      "tooLarge": "内容过大，无法进行版本对比。请单独查看各版本。"
     },
     "status": {
       "draft": "草稿",
