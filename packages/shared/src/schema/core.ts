@@ -940,7 +940,7 @@ export const retrievalTraces = pgTable('retrieval_traces', {
     .notNull()
     .references(() => tenants.id),
   user_id: text('user_id').references(() => users.id),
-  conversation_id: text('conversation_id').references(() => chatSessions.id),
+  conversation_id: text('conversation_id').references(() => chatSessions.id, { onDelete: 'cascade' }),
   space_ids: text('space_ids').array().notNull(),
   query: text('query').notNull(),
   retrieval_mode: text('retrieval_mode').notNull(),
@@ -966,7 +966,7 @@ export const modelUsageLogs = pgTable(
     output_tokens: integer('output_tokens').notNull().default(0),
     latency_ms: integer('latency_ms'),
     space_id: text('space_id').references(() => spaces.id),
-    conversation_id: text('conversation_id').references(() => chatSessions.id),
+    conversation_id: text('conversation_id').references(() => chatSessions.id, { onDelete: 'cascade' }),
     created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -1050,7 +1050,7 @@ export const feedbackItems = pgTable('feedback_items', {
     .notNull()
     .references(() => tenants.id),
   user_id: text('user_id').references(() => users.id),
-  message_id: text('message_id').references(() => chatMessages.id),
+  message_id: text('message_id').references(() => chatMessages.id, { onDelete: 'cascade' }),
   space_id: text('space_id').references(() => spaces.id),
   feedback_type: text('feedback_type').notNull(),
   status: text('status').notNull().default('open'),

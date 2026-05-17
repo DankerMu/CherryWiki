@@ -29,7 +29,7 @@ export default defineConfig({
       'scripts/**/*.test.ts',
       'tests/**/*.test.ts',
     ],
-    exclude: runsExplicitWebTest ? configDefaults.exclude : [...configDefaults.exclude, 'apps/web/**'],
+    exclude: runsExplicitWebTest ? configDefaults.exclude : [...configDefaults.exclude, 'apps/web/**', 'tests/e2e/**'],
     environment: runsExplicitWebTest ? 'jsdom' : 'node',
     setupFiles: runsExplicitWebTest ? ['apps/web/src/__tests__/setup.ts'] : [],
     passWithNoTests: true,
