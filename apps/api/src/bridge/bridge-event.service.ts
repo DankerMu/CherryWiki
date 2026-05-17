@@ -187,11 +187,14 @@ function isUniqueViolation(err: unknown, constraint: string): boolean {
     seen.add(current as object);
 
     if (current.code === '23505') {
-      if (current.constraint === constraint || current.constraint === undefined) {
+      if (current.constraint === constraint) {
         return true;
       }
       if (typeof current.detail === 'string' && current.detail.includes(constraint)) {
         return true;
+      }
+      if (current.constraint !== undefined) {
+        return false;
       }
       return false;
     }

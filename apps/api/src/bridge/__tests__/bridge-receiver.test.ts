@@ -216,6 +216,28 @@ describe('Bridge receiver contract', () => {
     }));
   });
 
+  it('propagates 23505 errors from unrelated constraints without matching detail', async () => {
+    const testContext = requireContext();
+    const eventId = randomUUID();
+
+    await sendSignedBridgeEvent(testContext, '/page-saved', createPayload('page.saved', {
+      event_id: eventId,
+    })).expect(200);
+
+    testContext.db.overrideNextDuplicateError(createDatabaseError(
+      'duplicate key',
+      '23505',
+      undefined,
+      'Key (slug)=(test) already exists on spaces_slug_unique',
+    ));
+
+    const response = await sendSignedBridgeEvent(testContext, '/page-saved', createPayload('page.saved', {
+      event_id: eventId,
+    })).expect(500);
+
+    expect(getResponseDataIfPresent(response)).toBeUndefined();
+  });
+
   it('propagates non-unique database errors instead of treating them as deduplicated events', async () => {
     const testContext = requireContext();
     const eventId = randomUUID();
