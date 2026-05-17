@@ -169,6 +169,53 @@ describe('Bridge receiver contract', () => {
     expect(callsForProcessedEvent).toHaveLength(1);
   });
 
+  it('detects unique violation via detail string fallback when constraint property is absent', async () => {
+    const testContext = requireContext();
+    const eventId = randomUUID();
+
+    await sendSignedBridgeEvent(testContext, '/page-saved', createPayload('page.saved', {
+      event_id: eventId,
+    })).expect(200);
+
+    testContext.db.overrideNextDuplicateError(createDatabaseError(
+      'duplicate key value violates unique constraint',
+      '23505',
+      undefined,
+      'Key (event_id)=(abc) already exists on bridge_events_event_id_unique',
+    ));
+
+    const response = await sendSignedBridgeEvent(testContext, '/page-saved', createPayload('page.saved', {
+      event_id: eventId,
+    })).expect(200);
+
+    expect(getResponseData(response)).toEqual(expect.objectContaining({
+      accepted: true,
+      deduplicated: true,
+    }));
+  });
+
+  it('detects unique violation through deeply wrapped cause chain (depth > 3)', async () => {
+    const testContext = requireContext();
+    const eventId = randomUUID();
+
+    await sendSignedBridgeEvent(testContext, '/page-saved', createPayload('page.saved', {
+      event_id: eventId,
+    })).expect(200);
+
+    testContext.db.overrideNextDuplicateError(
+      createDeeplyWrappedDatabaseError('duplicate key', '23505', 'bridge_events_event_id_unique', 5),
+    );
+
+    const response = await sendSignedBridgeEvent(testContext, '/page-saved', createPayload('page.saved', {
+      event_id: eventId,
+    })).expect(200);
+
+    expect(getResponseData(response)).toEqual(expect.objectContaining({
+      accepted: true,
+      deduplicated: true,
+    }));
+  });
+
   it('propagates non-unique database errors instead of treating them as deduplicated events', async () => {
     const testContext = requireContext();
     const eventId = randomUUID();
@@ -384,6 +431,7 @@ class InMemoryBridgeDatabase {
   private readonly eventsByEventId = new Map<string, StoredBridgeEvent>();
   private pendingLookupEventId: string | undefined;
   private nextBridgeEventInsertError: unknown;
+  private nextDuplicateError: unknown;
   readonly deliveries: unknown[] = [];
 
   insert(table: unknown): unknown {
@@ -401,6 +449,11 @@ class InMemoryBridgeDatabase {
             const existing = this.eventsByEventId.get(eventId);
             if (existing !== undefined) {
               this.pendingLookupEventId = eventId;
+              if (this.nextDuplicateError !== undefined) {
+                const error = this.nextDuplicateError;
+                this.nextDuplicateError = undefined;
+                throw error;
+              }
               throw createDatabaseError(
                 'duplicate bridge event_id',
                 '23505',
@@ -462,6 +515,10 @@ class InMemoryBridgeDatabase {
     this.nextBridgeEventInsertError = error;
   }
 
+  overrideNextDuplicateError(error: unknown): void {
+    this.nextDuplicateError = error;
+  }
+
   setEventStatus(eventId: string, status: BridgeEventStatus): void {
     const event = this.eventsByEventId.get(eventId);
     if (event === undefined) {
@@ -478,13 +535,23 @@ function createBridgeQueueMock(): BridgeQueueMock {
   };
 }
 
-function createDatabaseError(message: string, code: string, constraint?: string): Error {
+function createDatabaseError(message: string, code: string, constraint?: string, detail?: string): Error {
   const cause = Object.assign(new Error(message), {
     code,
     ...(constraint !== undefined ? { constraint } : {}),
+    ...(detail !== undefined ? { detail } : {}),
   });
 
   return new Error('Failed query', { cause });
+}
+
+function createDeeplyWrappedDatabaseError(message: string, code: string, constraint: string, depth: number): Error {
+  const pgError = Object.assign(new Error(message), { code, constraint });
+  let wrapped: Error = pgError;
+  for (let i = 0; i < depth; i += 1) {
+    wrapped = new Error(`wrapper level ${i}`, { cause: wrapped });
+  }
+  return wrapped;
 }
 
 function requireString(value: unknown, fieldName: string): string {
