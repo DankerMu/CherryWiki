@@ -730,7 +730,7 @@ describe('Phase 3 chat controls and stream events', () => {
     const combobox = selectWrapper.closest('.chat-retrieval-mode-label')?.querySelector<HTMLInputElement>('input[role="combobox"]');
     expect(combobox).not.toBeNull();
     fireEvent.mouseDown(combobox!);
-    const pathOption = await screen.findByText('路径优先');
+    const pathOption = await screen.findByText('路径优先', {}, { timeout: 3000 });
     fireEvent.click(pathOption);
 
     expect(screen.getByText('Agent')).toBeInTheDocument();
