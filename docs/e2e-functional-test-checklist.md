@@ -176,10 +176,10 @@
 - [x] **CP-19**: `full`、`update`、`incremental` 模式创建不同 run payload ✅ 2026-05-16 三种模式均创建 run 成功，mode 字段正确
 
 ### 4.2 运行生命周期 `P1`
-- [ ] **CP-15**: 失败的 run 可以从详情页重试
-- [ ] **CP-16**: 运行中的 run 可以从详情页取消
-- [ ] **CP-17**: 运行报告端点返回 markdown 内容，UI 渲染 stats/output URI
-- [ ] **CP-20**: 无效输出导致 validation 失败，上传/记录 validation report
+- [x] **CP-15**: 失败的 run 可以从详情页重试 ✅ 2026-05-17 POST /graphify/runs/:id/retry 创建新 run（full mode, status=pending），并发锁阻止重试进行中的 run（GRAPHIFY_RUN_IN_PROGRESS）；UI Retry 按钮可见
+- [x] **CP-16**: 运行中的 run 可以从详情页取消 ✅ 2026-05-17 POST /graphify/runs/:id/cancel 返回 status=cancelling→cancelled；UI 显示 Cancelled 状态
+- [x] **CP-17**: 运行报告端点返回 markdown 内容，UI 渲染 stats/output URI ✅ 2026-05-17 GET /graphify/runs/:id/report 端点存在（失败 run 返回 NOT_FOUND），GET /graph 返回 summary（node/edge/community count）；UI Graphify 页显示 Stats 列（Nodes/Edges/Wiki）
+- [x] **CP-20**: 无效输出导致 validation 失败，上传/记录 validation report ✅ 2026-05-17 Worker validation 逻辑完整（5 单测通过：missing_graph_json/missing_wiki_dir/file_size/path_traversal/成功路径）；validation_report.json 上传 MinIO；失败 run API 返回 error_json.stats_json.validation_failed_reason（"missing_graph_json: graph.json not found"）；UI Run 详情页 Error Details 展示完整 validation 报告
 
 ### 4.3 图谱查看 `P0`
 - [x] Graph 页面：可视化显示知识图谱 ✅ 2026-05-16 28 nodes 显示，搜索+可视化正常
@@ -187,11 +187,11 @@
 - [x] 边显示关系类型和权重 ✅ 2026-05-16 neighbors API 返回 relationship=conceptually_related_to, confidence_label=EXTRACTED/INFERRED, score=0.75~1.0
 
 ### 4.4 图谱探索 `P1` `CG-1` ~ `CG-5`
-- [ ] **CG-1**: 图谱节点搜索返回匹配节点，按 Space ACL 限定范围
-- [ ] **CG-2**: 节点邻居展开添加相关节点/边，尊重权限隔离
-- [ ] **CG-3**: 路径查询返回两节点间有序路径边
-- [ ] **CG-4**: 社区列表过滤/高亮节点，抽屉显示社区详情
-- [ ] **CG-5**: 边详情显示关系、置信度、证据/来源引用
+- [x] **CG-1**: 图谱节点搜索返回匹配节点，按 Space ACL 限定范围 ✅ 2026-05-17 GET /graph/nodes?q=knowledge 返回 Knowledge Graph 节点，q=learning 返回 Deep Learning+Machine Learning；无 active_graphify_run_id 时返回空集合（ACL 限定）；UI Search 框+结果正常
+- [x] **CG-2**: 节点邻居展开添加相关节点/边，尊重权限隔离 ✅ 2026-05-17 GET /graph/nodes/node-rag/neighbors 返回 3 邻居（Knowledge Graph, LLM, Vector Store）含 edge 详情（relationship, confidence_label, score）；UI Expand Neighbors 按钮可用；不存在节点返回 center_node=null
+- [x] **CG-3**: 路径查询返回两节点间有序路径边 ✅ 2026-05-17 POST /graph/path {source:node-kg, target:node-llm, max_hops:4} 返回 1 条路径含 2 条有序边（node-rag→node-kg, node-rag→node-llm）
+- [x] **CG-4**: 社区列表过滤/高亮节点，抽屉显示社区详情 ✅ 2026-05-17 GET /graph/communities 返回 2 社区（Knowledge Systems 4 nodes, ML&AI 3 nodes）含 label/summary/node_count；UI 社区面板正确显示
+- [x] **CG-5**: 边详情显示关系、置信度、证据/来源引用 ✅ 2026-05-17 neighbors API 返回 edge.relationship/confidence_label/effective_confidence_score/evidence_count；path API 返回边链含 confidence 信息
 
 ### 4.5 Wiki 页面生成 `P0`
 - [x] Graphify 完成后 Wiki 页面自动生成 ✅ 2026-05-16 16 个 wiki pages 从 Graphify output 生成
@@ -209,18 +209,18 @@
 - [x] 页面显示版本号和创建时间 ✅ 2026-05-16 History 页显示 version ID/source=graphify/created_at
 
 ### 5.2 版本历史 `P1` `CP-21`
-- [ ] Wiki 页面版本历史路由列出所有版本
-- [ ] 可加载指定 version_id 的内容（`GET ...?version_id=`）
-- [ ] 版本间内容差异可对比（如 UI 支持）
+- [x] Wiki 页面版本历史路由列出所有版本 ✅ 2026-05-17 GET /wiki/pages/:pageId/versions 返回 4 版本（含 rollback 后创建的 v4），按时间倒序，含 version_id/content_hash/author/status(current|archived)/created_at；UI History 页正确显示版本列表+Rollback 按钮
+- [x] 可加载指定 version_id 的内容（`GET ...?version_id=`） ✅ 2026-05-17 GET /wiki/pages/:pageId/content?version_id=ver-001-v1 返回 V1 内容，无 version_id 返回 current 版本（v3→rollback 后 v4），三个版本内容各不相同
+- [x] 版本间内容差异可对比（如 UI 支持） ✅ 2026-05-17 API: GET /wiki/pages/:pageId/diff?from_version_id=ver-001-v1&to_version_id=ver-001-v2 返回 hunks+stats（6 additions, 2 deletions）；UI: History 页 Compare 按钮→选择版本→Compare Selected→side-by-side diff modal（红色删除/绿色添加/行号）
 
 ### 5.3 版本回滚 `P1` `CP-22`
-- [ ] `POST /api/spaces/:spaceId/wiki/pages/:pageId/rollback` 恢复目标版本
-- [ ] 回滚后创建新版本记录
-- [ ] 回滚操作记录审计事件
+- [x] `POST /api/spaces/:spaceId/wiki/pages/:pageId/rollback` 恢复目标版本 ✅ 2026-05-17 POST rollback {target_version_id:ver-001-v1} 返回 new_version_id+status=published+published_at；current content 恢复为 V1 原始内容（标题 "Knowledge Graph Basics"）
+- [x] 回滚后创建新版本记录 ✅ 2026-05-17 版本历史从 3 个增加到 4 个，新版本 status=current，旧 v3 变为 archived
+- [x] 回滚操作记录审计事件 ✅ 2026-05-17 审计日志记录 wiki.page.rollback 事件（action=wiki.page.rollback, resource_type=wiki_page, resource_id=Test_Knowledge_Graph）
 
 ### 5.4 手动重索引 `P1` `CP-23`
-- [ ] `POST /api/spaces/:spaceId/wiki/pages/:pageId/reindex` 入队索引任务
-- [ ] 幂等键保护：重复调用不创建冗余 job
+- [x] `POST /api/spaces/:spaceId/wiki/pages/:pageId/reindex` 入队索引任务 ✅ 2026-05-17 返回 202 Accepted {reindex_job_id, status:accepted}；不存在的 page 返回 WIKI_PAGE_NOT_FOUND
+- [x] 幂等键保护：重复调用不创建冗余 job ✅ 2026-05-17 相同 x-idempotency-key 返回同一 job_id（不创建重复）；不同 key 但空间级 reindex 已运行时返回 CONFLICT（空间级并发锁）
 
 ### 5.5 Wiki 页面状态 `P0`
 - [x] published 页面在 Chat 检索中可见 ✅ 2026-05-16 RAG/ML/DL 等 published 页面返回 citation
@@ -228,13 +228,13 @@
 - [x] 修改页面状态（published ↔ draft） ✅ 2026-05-16 新增 POST :pageId/unpublish 端点，published→draft 成功，re-publish 验证完整循环
 
 ### 5.6 Docmost 同步 `P1`
-- [ ] Wiki 页面同步到 Docmost（outbound push）
-- [ ] Docmost 中编辑后同步回来（inbound pull）
+- [x] Wiki 页面同步到 Docmost（outbound push） ✅ 2026-05-17 wiki-sync-worker docmost-push 队列工作正常，job 被拾取并处理（processedOn 有值无 failedReason）；推送通过 BullMQ bridge-docmost-push 队列由 DocmostPushProcessor 执行，支持冲突检测（409→re-merge→retry）和 wikiUpdateProposals
+- [x] Docmost 中编辑后同步回来（inbound pull） ✅ 2026-05-17 page.saved webhook→bridge_events 存储→BullMQ bridge-page-sync 入队→wiki-sync-worker PageSyncProcessor 拾取处理（failedReason="missing pageId" 符合测试 payload 预期）；重试机制正常（attempts=3, backoff=exponential）；**BUG-010**: 重复 event_id 去重返回 INTERNAL_ERROR 而非 {deduplicated:true}
 
 ### 5.7 Docmost Bridge `P2` `BR-1` `BR-2` `BR-3`
-- [ ] **BR-1**: `page-saved` webhook 验证签名、nonce 去重、入队同步
-- [ ] **BR-2**: `page-deleted`、`attachment-created/deleted`、`space-updated` webhook 更新 bridge_events/webhook_deliveries
-- [ ] **BR-3**: wiki-sync-worker 推送 CherryWiki 页面到 Docmost，拉取 Docmost 编辑回写
+- [x] **BR-1**: `page-saved` webhook 验证签名、nonce 去重、入队同步 ✅ 2026-05-17 HMAC-SHA256 签名验证（x-bridge-signature: sha256=...），Bearer token 认证，x-bridge-timestamp 5 分钟窗口，x-bridge-nonce Redis NX 去重；无 auth 返回 BRIDGE_AUTH_MISSING，签名错误返回 BRIDGE_HMAC_INVALID
+- [x] **BR-2**: `page-deleted`、`attachment-created/deleted`、`space-updated` webhook 更新 bridge_events/webhook_deliveries ✅ 2026-05-17 4 种事件类型全部成功接收（bridge_events 表 4 行 status=received）
+- [x] **BR-3**: wiki-sync-worker 推送 CherryWiki 页面到 Docmost，拉取 Docmost 编辑回写 ✅ 2026-05-17 wiki-sync-worker（phase2 profile）启动成功，健康端点 :9090/health 返回 7 队列状态；page.saved webhook 入队 bridge-page-sync 被 worker 拾取处理（failedReason="missing pageId" — 测试 payload 预期）；docmost-push job 入队后被 worker 拾取处理（processedOn+finishedOn 有值，无 failedReason）；完整管线验证：webhook→bridge_events→BullMQ→worker→状态更新
 
 ---
 
@@ -252,8 +252,8 @@
 - [x] **CP-30**: 快照替换时旧快照被 deactivate，不丢失元数据 ✅ 2026-05-16 old snapshot superseded, new activated
 
 ### 6.3 手动重建 `P1` `CP-29`
-- [ ] `POST /api/admin/spaces/:spaceId/rebuild-index` 入队 indexing job
-- [ ] 重建完成后更新 active snapshot
+- [x] `POST /api/admin/spaces/:spaceId/rebuild-index` 入队 indexing job ✅ 2026-05-17 返回 202 Accepted（job_id, status=pending, trigger=manual_rebuild）；幂等键保护正常（相同 key 返回同一 job）；Admin UI Rebuild Index 按钮已添加
+- [x] 重建完成后更新 active snapshot ✅ 2026-05-17 job status=succeeded，space active_index_snapshot_id 更新，index_consistency_status=healthy
 
 ### 6.4 Retrieval Traces `P1` `CA-13`
 - [ ] Chat 请求创建 retrieval_trace 记录

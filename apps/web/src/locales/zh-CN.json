@@ -253,6 +253,8 @@
         "strictKnowledgeHelp": "限制回答仅基于已索引的空间知识。",
         "repoPath": "仓库路径",
         "indexStatus": "索引状态",
+        "rebuildIndex": "重建索引",
+        "rebuildIndexQueued": "索引重建任务已入队",
         "groupPermissions": "分组权限",
         "savePermissions": "保存权限",
         "noGroupHint": "请先创建分组再分配权限。"

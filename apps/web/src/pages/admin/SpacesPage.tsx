@@ -155,6 +155,17 @@ function SpacesPage() {
     }
   }
 
+  async function rebuildIndex(): Promise<void> {
+    if (selectedSpace === null) return;
+
+    try {
+      await api.post(`/admin/spaces/${selectedSpace.id}/rebuild-index`, {});
+      void message.success(t('admin.spaces.detail.rebuildIndexQueued'));
+    } catch (err) {
+      void message.error(getErrorMessage(err));
+    }
+  }
+
   async function archiveSpace(space: AdminSpace): Promise<void> {
     try {
       await api.delete(`/spaces/${space.id}`);
@@ -278,9 +289,18 @@ function SpacesPage() {
                 <Typography.Text code>{selectedSpace.wiki_repo_path}</Typography.Text>
               </Descriptions.Item>
               <Descriptions.Item label={t('admin.spaces.detail.indexStatus')}>
-                <Tag color={statusColor(selectedSpace.index_consistency_status)}>
-                  {selectedSpace.index_consistency_status}
-                </Tag>
+                <Space>
+                  <Tag color={statusColor(selectedSpace.index_consistency_status)}>
+                    {selectedSpace.index_consistency_status}
+                  </Tag>
+                  <Button
+                    size="small"
+                    icon={<ReloadOutlined />}
+                    onClick={() => { void rebuildIndex(); }}
+                  >
+                    {t('admin.spaces.detail.rebuildIndex')}
+                  </Button>
+                </Space>
               </Descriptions.Item>
               <Descriptions.Item label={t('admin.spaces.detail.strictKnowledge')}>
                 <Space>

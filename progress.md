@@ -1,7 +1,7 @@
 # CherryWiki 项目进度
 
 > 本文件是 session 间的状态接力棒。每次重大变更后更新。上限 200 行。
-> 最后更新: 2026-05-16
+> 最后更新: 2026-05-17
 
 ## 1. 系统架构一句话
 
@@ -49,7 +49,7 @@
 | 类别 | 已通过 | 有BUG | 未测 | 覆盖率 |
 |---|---|---|---|---|
 | P0 核心路径 | 88 | 0 | ~1 | ~99% |
-| P1 管理功能 | 38 | 1 (BUG-009) | ~37 | Batch 1+2 完成 |
+| P1 管理功能 | 42 | 1 (BUG-009) | ~33 | Batch 1+2+3 完成 |
 | P2 边界安全 | — | — | ~15 | 未开始 |
 | E2E 自动化 | 11 pass | 0 | ~60 | ~15% |
 
@@ -74,6 +74,12 @@
 - §3.3 重复与重处理: duplicate 标记+UI 警告/reprocess 守卫 (2/2 ✅)
 - §3.5 ZIP 上传: 提取解析/两文件两记录/partial_success 路径 (3/3 ✅)
 - §3.7 URL 上传: URL→source_document+job/worker 抓取归档/ingestion 链路 (3/3 ✅, DNS 已修复，端到端验证通过)
+
+### P1 Batch 3 已测通过 (4 项, 2026-05-17)
+
+- §4.2 CP-20: Graphify validation 失败报告（worker 5 单测通过 + API error_json 返回 validation_failed_reason + UI 展示）(1/1 ✅)
+- §5.2 版本 diff: API hunks+stats + UI Compare 按钮 + side-by-side diff modal (1/1 ✅)
+- §6.3 CP-29: 手动重建索引 POST rebuild-index + 幂等键 + job succeeded + snapshot 更新 + UI Rebuild Index 按钮 (2/2 ✅)
 
 ### P0 未测项 (~1 项)
 
@@ -107,6 +113,7 @@
 
 | Change | 状态 | 说明 |
 |---|---|---|
+| wiki-version-diff | API+UI complete, pending browser verification | `GET /wiki/pages/:pageId/diff` + version history compare modal；`npm run build`、Wiki API tests 通过 |
 | agent-chart-event-injection | issues #364/#365/#366/#367 complete | TurnEventQueue/PersistentStreamParser/AgentService 注入机制 + env 注入 + internal endpoint + cherrydb CLI callback + endpoint→SSE 集成验证 |
 | auth-session-persist | 4/4 complete, issue #356 | BUG-005 修复 |
 | fix-xlsx-mime-validation | 4/4 complete, issue #358 | BUG-006 修复 |

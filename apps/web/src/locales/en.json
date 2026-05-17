@@ -253,6 +253,8 @@
         "strictKnowledgeHelp": "Restrict answers to indexed space knowledge.",
         "repoPath": "Repository path",
         "indexStatus": "Index status",
+        "rebuildIndex": "Rebuild Index",
+        "rebuildIndexQueued": "Index rebuild job queued",
         "groupPermissions": "Group Permissions",
         "savePermissions": "Save Permissions",
         "noGroupHint": "Create a group before assigning permissions."
