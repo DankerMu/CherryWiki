@@ -177,11 +177,21 @@ function toBridgeQueueJobData(event: BridgeEventRow): {
 }
 
 function isUniqueViolation(err: unknown, constraint: string): boolean {
-  if (!isRecord(err)) {
-    return false;
+  let current: unknown = err;
+
+  for (let depth = 0; depth <= 3; depth += 1) {
+    if (!isRecord(current)) {
+      return false;
+    }
+
+    if (current.code === '23505') {
+      return current.constraint === constraint || current.constraint === undefined;
+    }
+
+    current = current.cause;
   }
 
-  return err.code === '23505' && (err.constraint === constraint || err.constraint === undefined);
+  return false;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -12,7 +12,7 @@ import {
 } from '@cherrygraph/shared';
 import crypto, { randomUUID } from 'node:crypto';
 import request, { type Response } from 'supertest';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { configureApp } from '../../main.js';
 import { getApiLogger } from '../../common/logger/logger.module.js';
@@ -21,6 +21,7 @@ import { DRIZZLE } from '../../database/drizzle.constants.js';
 import { BridgeAuthGuard } from '../bridge-auth.guard.js';
 import { BridgeEventController } from '../bridge-event.controller.js';
 import { BridgeEventService } from '../bridge-event.service.js';
+import { BridgeQueueService } from '../bridge-queue.service.js';
 import { BridgeRateLimitGuard } from '../bridge-rate-limit.guard.js';
 
 const CURRENT_SECRET = 'bridge-current-secret';
@@ -36,7 +37,12 @@ type TestResponseData = {
 type BridgeReceiverTestContext = {
   app: NestFastifyApplication;
   db: InMemoryBridgeDatabase;
+  bridgeQueue: BridgeQueueMock;
   redis: InMemoryBridgeRedis;
+};
+
+type BridgeQueueMock = {
+  enqueueBridgeJob: ReturnType<typeof vi.fn>;
 };
 
 const originalBridgeSecret = process.env.DOCMOST_BRIDGE_SECRET;
@@ -124,11 +130,57 @@ describe('Bridge receiver contract', () => {
     );
     expect(getResponseData(secondResponse)).toEqual(
       expect.objectContaining({
+        accepted: true,
         event_id: eventId,
         deduplicated: true,
       }),
     );
     expect(requireContext().db.eventCount(eventId)).toBe(1);
+  });
+
+  it('re-enqueues duplicate received events and skips duplicate processed events', async () => {
+    const testContext = requireContext();
+    const receivedEventId = randomUUID();
+    const processedEventId = randomUUID();
+
+    await sendSignedBridgeEvent(testContext, '/page-saved', createPayload('page.saved', {
+      event_id: receivedEventId,
+    })).expect(200);
+    await sendSignedBridgeEvent(testContext, '/page-saved', createPayload('page.saved', {
+      event_id: receivedEventId,
+    })).expect(200);
+
+    await sendSignedBridgeEvent(testContext, '/page-saved', createPayload('page.saved', {
+      event_id: processedEventId,
+    })).expect(200);
+    testContext.db.setEventStatus(processedEventId, 'processed');
+    await sendSignedBridgeEvent(testContext, '/page-saved', createPayload('page.saved', {
+      event_id: processedEventId,
+    })).expect(200);
+
+    const callsForReceivedEvent = testContext.bridgeQueue.enqueueBridgeJob.mock.calls.filter(
+      ([, jobData]) => isRecord(jobData) && jobData.eventId === receivedEventId,
+    );
+    const callsForProcessedEvent = testContext.bridgeQueue.enqueueBridgeJob.mock.calls.filter(
+      ([, jobData]) => isRecord(jobData) && jobData.eventId === processedEventId,
+    );
+
+    expect(callsForReceivedEvent).toHaveLength(2);
+    expect(callsForProcessedEvent).toHaveLength(1);
+  });
+
+  it('propagates non-unique database errors instead of treating them as deduplicated events', async () => {
+    const testContext = requireContext();
+    const eventId = randomUUID();
+    testContext.db.failNextBridgeEventInsert(createDatabaseError('insert/update violates foreign key', '23503'));
+
+    const response = await sendSignedBridgeEvent(testContext, '/page-saved', createPayload('page.saved', {
+      event_id: eventId,
+    })).expect(500);
+
+    expect(getResponseDataIfPresent(response)).toBeUndefined();
+    expect(testContext.db.eventCount(eventId)).toBe(0);
+    expect(testContext.bridgeQueue.enqueueBridgeJob).not.toHaveBeenCalled();
   });
 
   it('returns 429 when the per-IP Bridge rate limit is exceeded', async () => {
@@ -167,6 +219,7 @@ describe('Bridge receiver contract', () => {
 async function createBridgeReceiverTestContext(): Promise<BridgeReceiverTestContext> {
   const redis = new InMemoryBridgeRedis();
   const db = new InMemoryBridgeDatabase();
+  const bridgeQueue = createBridgeQueueMock();
   const moduleRef = await Test.createTestingModule({
     controllers: [BridgeEventController],
     providers: [
@@ -174,6 +227,7 @@ async function createBridgeReceiverTestContext(): Promise<BridgeReceiverTestCont
       BridgeRateLimitGuard,
       BridgeEventService,
       { provide: DRIZZLE, useValue: db },
+      { provide: BridgeQueueService, useValue: bridgeQueue },
       { provide: REDIS_CLIENT, useValue: redis },
     ],
   }).compile();
@@ -185,7 +239,7 @@ async function createBridgeReceiverTestContext(): Promise<BridgeReceiverTestCont
   await app.init();
   await app.getHttpAdapter().getInstance().ready();
 
-  return { app, db, redis };
+  return { app, db, bridgeQueue, redis };
 }
 
 function sendSignedBridgeEvent(
@@ -259,6 +313,19 @@ function getResponseData(response: Response): TestResponseData {
   return body as TestResponseData;
 }
 
+function getResponseDataIfPresent(response: Response): TestResponseData | undefined {
+  const body = parseResponseBody(response);
+  if (body.accepted !== true) {
+    return undefined;
+  }
+
+  if (typeof body.event_id !== 'string' || typeof body.deduplicated !== 'boolean') {
+    throw new Error('Expected raw bridge response body');
+  }
+
+  return body as TestResponseData;
+}
+
 function getErrorCode(response: Response): unknown {
   const body = parseResponseBody(response);
   return isRecord(body.error) ? body.error.code : undefined;
@@ -316,6 +383,7 @@ type StoredBridgeEvent = {
 class InMemoryBridgeDatabase {
   private readonly eventsByEventId = new Map<string, StoredBridgeEvent>();
   private pendingLookupEventId: string | undefined;
+  private nextBridgeEventInsertError: unknown;
   readonly deliveries: unknown[] = [];
 
   insert(table: unknown): unknown {
@@ -323,14 +391,21 @@ class InMemoryBridgeDatabase {
       return {
         values: (value: Record<string, unknown>) => ({
           returning: (): Promise<StoredBridgeEvent[]> => {
+            if (this.nextBridgeEventInsertError !== undefined) {
+              const error = this.nextBridgeEventInsertError;
+              this.nextBridgeEventInsertError = undefined;
+              throw error;
+            }
+
             const eventId = requireString(value.event_id, 'event_id');
             const existing = this.eventsByEventId.get(eventId);
             if (existing !== undefined) {
               this.pendingLookupEventId = eventId;
-              throw Object.assign(new Error('duplicate bridge event_id'), {
-                code: '23505',
-                constraint: 'bridge_events_event_id_unique',
-              });
+              throw createDatabaseError(
+                'duplicate bridge event_id',
+                '23505',
+                'bridge_events_event_id_unique',
+              );
             }
 
             const event: StoredBridgeEvent = {
@@ -382,6 +457,34 @@ class InMemoryBridgeDatabase {
   eventCount(eventId: string): number {
     return this.eventsByEventId.has(eventId) ? 1 : 0;
   }
+
+  failNextBridgeEventInsert(error: unknown): void {
+    this.nextBridgeEventInsertError = error;
+  }
+
+  setEventStatus(eventId: string, status: BridgeEventStatus): void {
+    const event = this.eventsByEventId.get(eventId);
+    if (event === undefined) {
+      throw new Error(`Expected event ${eventId} to exist`);
+    }
+
+    this.eventsByEventId.set(eventId, { ...event, status });
+  }
+}
+
+function createBridgeQueueMock(): BridgeQueueMock {
+  return {
+    enqueueBridgeJob: vi.fn(() => Promise.resolve()),
+  };
+}
+
+function createDatabaseError(message: string, code: string, constraint?: string): Error {
+  const cause = Object.assign(new Error(message), {
+    code,
+    ...(constraint !== undefined ? { constraint } : {}),
+  });
+
+  return new Error('Failed query', { cause });
 }
 
 function requireString(value: unknown, fieldName: string): string {
