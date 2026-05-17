@@ -7,13 +7,23 @@ import {
   validateAdminOutboundProbeUrl,
 } from '../common/outbound-probe-safety.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
+import { ModelConfigService, type ModelProbeResponse } from '../models/model-config.service.js';
 import { StorageService } from '../storage/storage.service.js';
 
 const DOCMOST_HEALTH_TIMEOUT_MS = 5000;
+const MODEL_PROBE_TIMEOUT_MS = 5000;
+const MODELS_HEALTH_TIMEOUT_MS = 8000;
 
 type HealthStatus = 'healthy' | 'degraded' | 'unhealthy';
 type ComponentStatus = 'healthy' | 'unhealthy' | 'not_configured';
-type ComponentName = 'database' | 'redis' | 'minio' | 'vector_store' | 'graph_store' | 'docmost_bridge';
+type ComponentName =
+  | 'database'
+  | 'redis'
+  | 'minio'
+  | 'vector_store'
+  | 'graph_store'
+  | 'docmost_bridge'
+  | 'models';
 
 type DatabaseHealthClient = {
   $client: {
@@ -45,15 +55,17 @@ export class AdminHealthController {
     @Inject(DRIZZLE) private readonly db: DatabaseHealthClient,
     @Optional() @Inject(REDIS_CLIENT) private readonly redis?: RedisHealthClient,
     @Optional() private readonly storage?: StorageService,
+    @Optional() private readonly modelConfigService?: ModelConfigService,
   ) {}
 
   @Get('health')
   async getHealth(): Promise<AdminSystemHealthResponse> {
-    const [database, redis, minio, docmost] = await Promise.all([
+    const [database, redis, minio, docmost, models] = await Promise.all([
       this.checkDatabase(),
       this.checkRedis(),
       this.checkStorage(),
       this.checkDocmost(),
+      this.checkModels(),
     ]);
     const components: Record<ComponentName, HealthComponent> = {
       database,
@@ -62,6 +74,7 @@ export class AdminHealthController {
       vector_store: postgresBackedComponent(database, 'Postgres-backed vector store'),
       graph_store: postgresBackedComponent(database, 'Postgres-backed graph store'),
       docmost_bridge: docmost,
+      models,
     };
 
     return {
@@ -158,6 +171,62 @@ export class AdminHealthController {
       await targetValidation.dispatcher.close().catch(() => undefined);
     }
   }
+
+  private async checkModels(): Promise<HealthComponent> {
+    if (this.modelConfigService === undefined) {
+      return { status: 'not_configured' };
+    }
+
+    const tenantId = await this.resolveTenantIdForHealth();
+    const models = await this.modelConfigService.listEnabledModels(tenantId);
+    if (models.length === 0) {
+      return { status: 'not_configured' };
+    }
+
+    const timedOut = Symbol('models-health-timeout');
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<typeof timedOut>((resolve) => {
+      timeoutHandle = setTimeout(() => resolve(timedOut), MODELS_HEALTH_TIMEOUT_MS);
+      timeoutHandle.unref?.();
+    });
+    const probes = Promise.allSettled(
+      models.map((model) => this.modelConfigService!.probeModel(model, MODEL_PROBE_TIMEOUT_MS)),
+    );
+    const settled = await Promise.race([probes, timeout]);
+    if (timeoutHandle !== undefined) {
+      clearTimeout(timeoutHandle);
+    }
+
+    const results =
+      settled === timedOut
+        ? models.map((model) => ({
+            model_id: model.model_id,
+            model_type: model.model_type,
+            reachable: false,
+            latency_ms: MODELS_HEALTH_TIMEOUT_MS,
+            error: 'Models health check timed out (8s total)',
+          }))
+        : settled.map((result, index) => toModelProbeDetail(result, models[index]!));
+
+    return {
+      status: results.every((result) => result.reachable) ? 'healthy' : 'unhealthy',
+      details: JSON.stringify(results),
+    };
+  }
+
+  private async resolveTenantIdForHealth(): Promise<string> {
+    const configuredTenantId = process.env.DEFAULT_TENANT_ID;
+    if (configuredTenantId !== undefined && configuredTenantId.trim().length > 0) {
+      return configuredTenantId.trim();
+    }
+
+    const tenantId = extractFirstTenantId(await this.db.$client.query('select id from tenants limit 1'));
+    if (tenantId === null) {
+      throw new Error('No tenant configured');
+    }
+
+    return tenantId;
+  }
 }
 
 async function measureComponent(check: () => Promise<void>): Promise<HealthComponent> {
@@ -224,4 +293,39 @@ function toSafeErrorMessage(err: unknown): string {
 
 function isAbortError(err: unknown): boolean {
   return err instanceof Error && err.name === 'AbortError';
+}
+
+function toModelProbeDetail(
+  result: PromiseSettledResult<ModelProbeResponse>,
+  model: { model_id: string; model_type: string },
+): ModelProbeResponse {
+  if (result.status === 'fulfilled') {
+    return result.value;
+  }
+
+  return {
+    model_id: model.model_id,
+    model_type: model.model_type,
+    reachable: false,
+    latency_ms: 1,
+    error: sanitizeOutboundProbeError(result.reason),
+  };
+}
+
+function extractFirstTenantId(result: unknown): string | null {
+  if (!isRecord(result) || !Array.isArray(result.rows)) {
+    return null;
+  }
+
+  const rows = result.rows as unknown[];
+  const row = rows[0];
+  if (!isRecord(row) || typeof row.id !== 'string' || row.id.trim().length === 0) {
+    return null;
+  }
+
+  return row.id.trim();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
