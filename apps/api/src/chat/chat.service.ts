@@ -1536,12 +1536,13 @@ export class ChatService {
     config: RerankModelConfig,
   ): Promise<RetrievalResult[]> {
     const apiKey = this.modelConfigService!.resolveApiKey(config.encrypted_api_key_ref);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), RERANK_TIMEOUT_MS);
     const targetValidation = await validateAdminOutboundProbeUrl(config.base_url!, { dnsTimeoutMs: 2000 });
     if (!targetValidation.ok) {
       throw new Error(`Rerank URL validation failed: ${targetValidation.error}`);
     }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), RERANK_TIMEOUT_MS);
 
     try {
       const response = await fetch(`${targetValidation.url.toString().replace(/\/+$/, '')}/rerank`, {
