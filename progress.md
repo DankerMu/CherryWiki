@@ -49,7 +49,7 @@
 | 类别 | 已通过 | 有BUG | 未测 | 覆盖率 |
 |---|---|---|---|---|
 | P0 核心路径 | 88 | 0 | ~1 | ~99% |
-| P1 管理功能 | — | — | ~75 | 未开始 |
+| P1 管理功能 | 19 | 1 (BUG-009) | ~56 | Batch 1 完成 |
 | P2 边界安全 | — | — | ~15 | 未开始 |
 | E2E 自动化 | 11 pass | 0 | ~60 | ~15% |
 
@@ -75,6 +75,7 @@
 | ID | 优先级 | 状态 | 描述 | Issue |
 |---|---|---|---|---|
 | BUG-008 | P1 | 已完成 | chart.data SSE 事件未触发 — #364 active turn 事件注入、#365 内部 HTTP callback endpoint、#366 cherrydb chart CLI callback、#367 endpoint→SSE 集成验证已完成 | #364/#365/#366/#367 |
+| BUG-009 | P1 | change ready | Space 列表 VIEW_SATISFYING_PERMISSIONS 缺少 space:read，分组分配 space:read 后 /spaces 返回空 | #372 |
 
 ### 已修复 BUG (本轮)
 

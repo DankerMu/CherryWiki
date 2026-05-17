@@ -66,6 +66,19 @@
 - **发现日期**: 2026-05-16
 - **状态**: [x] 已修复待端到端复测 — #364 active turn 事件注入、#365 internal endpoint、#366 cherrydb CLI callback；`tools/cherrydb` 16 tests pass
 
+### BUG-009: Space 列表 VIEW_SATISFYING_PERMISSIONS 缺少 space:read
+
+- **现象**: 通过分组分配 `space:read` 权限后，`GET /api/spaces` 返回空列表；改为 `space:view` 则正常显示
+- **根因**: `apps/api/src/spaces/space.service.ts:120` 定义 `VIEW_SATISFYING_PERMISSIONS = ['space:view', 'space:edit', 'space:admin']`，缺少 `space:read`。同样的问题存在于 `apps/api/src/jobs/jobs.service.ts:60`。而 Graph 模块 (`apps/api/src/graph/graph.service.ts:46`) 正确包含了 `space:read`。
+- **影响**: P1 — 权限名称不一致导致部分 API 无法通过 `space:read` 获取 Space 列表。`/auth/me` 返回的 spaces 列表是正确的（不受此过滤影响），造成行为不一致。
+- **修复方向**: 在 `space.service.ts:120` 和 `jobs.service.ts:60` 的 `VIEW_SATISFYING_PERMISSIONS` 数组中添加 `'space:read'`
+- **关联文件**:
+  - `apps/api/src/spaces/space.service.ts:120` — Space 列表权限过滤
+  - `apps/api/src/jobs/jobs.service.ts:60` — Jobs 列表权限过滤
+  - `apps/api/src/graph/graph.service.ts:46` — Graph 正确实现（参考）
+- **发现日期**: 2026-05-17
+- **状态**: [ ] 待修复
+
 ---
 
 ## 已修复（本轮）

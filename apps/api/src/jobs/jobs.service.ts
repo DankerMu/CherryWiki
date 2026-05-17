@@ -38,6 +38,7 @@ import {
   JobEventsQueryDto,
   type JobProgressDto,
 } from './jobs.dto.js';
+import { SPACE_ADMIN_PERMISSIONS, SPACE_VIEW_PERMISSIONS } from '../shared/permission-constants.js';
 
 type JobsDatabase = NodePgDatabase;
 type JobSortField = (typeof JOB_SORT_FIELDS)[number];
@@ -57,8 +58,6 @@ export type JobContext = {
 
 type JobAccessMode = 'view' | 'cancel';
 
-const VIEW_SATISFYING_PERMISSIONS = ['space:view', 'space:edit', 'space:admin'] as const;
-const CANCEL_SATISFYING_PERMISSIONS = ['space:admin'] as const;
 const AUDIT_VIEW_PERMISSION = 'admin:audit_view';
 const MAX_CANCELLATION_RETRIES = 3;
 const PROGRESS_UPDATED_EVENT_TYPE = 'progress_updated';
@@ -243,7 +242,7 @@ export class JobsService {
     }
 
     const permissions =
-      mode === 'cancel' ? [...CANCEL_SATISFYING_PERMISSIONS] : [...VIEW_SATISFYING_PERMISSIONS];
+      mode === 'cancel' ? [...SPACE_ADMIN_PERMISSIONS] : [...SPACE_VIEW_PERMISSIONS];
     const allowed = await this.hasSpacePermission(tenantId, userId, job.space_id, permissions);
 
     if (!allowed) {

@@ -28,6 +28,7 @@ import { getApiLogger } from '../common/logger/logger.module.js';
 import { REDIS_CLIENT } from '../common/redis/redis.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { BridgeQueueService } from '../bridge/bridge-queue.service.js';
+import { SPACE_VIEW_PERMISSIONS } from '../shared/permission-constants.js';
 import {
   databaseConfigStorageValue,
   maskSpaceDatabaseConfig,
@@ -117,7 +118,6 @@ type SpaceSortField = keyof Pick<typeof spaces, 'created_at' | 'updated_at' | 'n
 const DEFAULT_PAGE = 1;
 const DEFAULT_PER_PAGE = 20;
 const MAX_PER_PAGE = 100;
-const VIEW_SATISFYING_PERMISSIONS = ['space:view', 'space:edit', 'space:admin'] as const;
 
 @Injectable()
 export class SpaceService {
@@ -523,7 +523,7 @@ export class SpaceService {
         and(
           eq(group_members.tenant_id, tenantId),
           eq(group_members.user_id, userId),
-          inArray(space_permissions.permission, [...VIEW_SATISFYING_PERMISSIONS]),
+          inArray(space_permissions.permission, [...SPACE_VIEW_PERMISSIONS]),
         ),
       );
 
@@ -552,7 +552,7 @@ export class SpaceService {
           eq(group_members.tenant_id, tenantId),
           eq(group_members.user_id, userId),
           eq(space_permissions.space_id, spaceId),
-          inArray(space_permissions.permission, [...VIEW_SATISFYING_PERMISSIONS]),
+          inArray(space_permissions.permission, [...SPACE_VIEW_PERMISSIONS]),
         ),
       )
       .limit(1);
