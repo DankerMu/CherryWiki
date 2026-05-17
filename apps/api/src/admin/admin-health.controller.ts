@@ -177,41 +177,48 @@ export class AdminHealthController {
       return { status: 'not_configured' };
     }
 
-    const tenantId = await this.resolveTenantIdForHealth();
-    const models = await this.modelConfigService.listEnabledModels(tenantId);
-    if (models.length === 0) {
-      return { status: 'not_configured' };
+    try {
+      const tenantId = await this.resolveTenantIdForHealth();
+      const models = await this.modelConfigService.listEnabledModels(tenantId);
+      if (models.length === 0) {
+        return { status: 'not_configured' };
+      }
+
+      const timedOut = Symbol('models-health-timeout');
+      let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<typeof timedOut>((resolve) => {
+        timeoutHandle = setTimeout(() => resolve(timedOut), MODELS_HEALTH_TIMEOUT_MS);
+        timeoutHandle.unref?.();
+      });
+      const probes = Promise.allSettled(
+        models.map((model) => this.modelConfigService!.probeModel(model, MODEL_PROBE_TIMEOUT_MS)),
+      );
+      const settled = await Promise.race([probes, timeout]);
+      if (timeoutHandle !== undefined) {
+        clearTimeout(timeoutHandle);
+      }
+
+      const results =
+        settled === timedOut
+          ? models.map((model) => ({
+              model_id: model.model_id,
+              model_type: model.model_type,
+              reachable: false,
+              latency_ms: MODELS_HEALTH_TIMEOUT_MS,
+              error: 'Models health check timed out (8s total)',
+            }))
+          : settled.map((result, index) => toModelProbeDetail(result, models[index]!));
+
+      return {
+        status: results.every((result) => result.reachable) ? 'healthy' : 'unhealthy',
+        details: JSON.stringify(results),
+      };
+    } catch (err) {
+      return {
+        status: 'unhealthy',
+        error: toSafeErrorMessage(err),
+      };
     }
-
-    const timedOut = Symbol('models-health-timeout');
-    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<typeof timedOut>((resolve) => {
-      timeoutHandle = setTimeout(() => resolve(timedOut), MODELS_HEALTH_TIMEOUT_MS);
-      timeoutHandle.unref?.();
-    });
-    const probes = Promise.allSettled(
-      models.map((model) => this.modelConfigService!.probeModel(model, MODEL_PROBE_TIMEOUT_MS)),
-    );
-    const settled = await Promise.race([probes, timeout]);
-    if (timeoutHandle !== undefined) {
-      clearTimeout(timeoutHandle);
-    }
-
-    const results =
-      settled === timedOut
-        ? models.map((model) => ({
-            model_id: model.model_id,
-            model_type: model.model_type,
-            reachable: false,
-            latency_ms: MODELS_HEALTH_TIMEOUT_MS,
-            error: 'Models health check timed out (8s total)',
-          }))
-        : settled.map((result, index) => toModelProbeDetail(result, models[index]!));
-
-    return {
-      status: results.every((result) => result.reachable) ? 'healthy' : 'unhealthy',
-      details: JSON.stringify(results),
-    };
   }
 
   private async resolveTenantIdForHealth(): Promise<string> {
