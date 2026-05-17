@@ -2,9 +2,7 @@ import 'reflect-metadata';
 
 import type {
   ChatProvider,
-  ChatProviderConfig,
   EmbeddingProvider,
-  EmbeddingProviderConfig,
 } from '@cherrygraph/ai-core';
 import { indexSnapshots, model_configs, spaces } from '@cherrygraph/shared';
 import type { RetrievalResult } from '@cherrygraph/rag-core';
@@ -73,10 +71,11 @@ describe('ChatService static RAG rerank', () => {
       'https://rerank.example/v1/rerank',
       expect.objectContaining({
         method: 'POST',
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         headers: expect.objectContaining({
           Authorization: 'Bearer rerank-secret',
           'Content-Type': 'application/json',
-        }) as unknown,
+        }),
         body: JSON.stringify({
           model: 'bge-reranker',
           query: 'How is SSO configured?',
@@ -215,8 +214,8 @@ function createServiceContext(options: {
   const service = new ChatService(
     db.asDrizzle(),
     { push: vi.fn() } as unknown as AuditService,
-    vi.fn((_cfg: ChatProviderConfig) => new UnusedChatProvider()),
-    vi.fn((_cfg: EmbeddingProviderConfig) => new ScriptedEmbeddingProvider()),
+    vi.fn(() => new UnusedChatProvider()),
+    vi.fn(() => new ScriptedEmbeddingProvider()),
     undefined,
     undefined,
     modelConfigService as never,
@@ -294,8 +293,9 @@ class ScriptedEmbeddingProvider implements EmbeddingProvider {
 }
 
 class UnusedChatProvider implements ChatProvider {
+  // eslint-disable-next-line require-yield
   async *streamCompletion(): AsyncIterable<never> {
-    throw new Error('chat provider should not be used');
+    await Promise.reject(new Error('chat provider should not be used'));
   }
 }
 
