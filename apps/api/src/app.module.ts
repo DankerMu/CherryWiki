@@ -6,6 +6,7 @@ import { RequestContextMiddleware } from './common/middleware/request-context.mi
 import { RedisModule } from './common/redis/redis.module.js';
 import { AdminHealthModule } from './admin/admin-health.module.js';
 import { AdminIndexModule } from './admin/admin-index.module.js';
+import { AdminWorkersModule } from './admin/admin-workers.module.js';
 import { ProposalModule } from './admin/proposals/proposal.module.js';
 import { AgentModule } from './agent/agent.module.js';
 import { ApiTokenModule } from './api-tokens/api-token.module.js';
@@ -57,6 +58,7 @@ import { WikiModule } from './wiki/wiki.module.js';
     ChatModule,
     HealthModule,
     AdminHealthModule,
+    AdminWorkersModule,
     AdminIndexModule,
     ProposalModule,
   ],
