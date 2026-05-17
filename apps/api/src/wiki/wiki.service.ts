@@ -279,7 +279,7 @@ export class WikiService {
     return {
       from_version_id: fromVersion.id,
       to_version_id: toVersion.id,
-      ...buildLineDiff(fromVersion.content_markdown, toVersion.content_markdown),
+      ...buildLineDiff(fromVersion.content_markdown ?? '', toVersion.content_markdown ?? ''),
     };
   }
 

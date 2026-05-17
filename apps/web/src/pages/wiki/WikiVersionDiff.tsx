@@ -94,7 +94,11 @@ export default function WikiVersionDiff({
 
       {!isLoading && error !== null && <Alert type="error" message={error} showIcon />}
 
-      {!isLoading && error === null && state !== null && (
+      {!isLoading && error === null && state !== null && state.diff.stats.additions === -1 && (
+        <Alert type="warning" message={t('wiki.diff.tooLarge')} showIcon />
+      )}
+
+      {!isLoading && error === null && state !== null && state.diff.stats.additions !== -1 && (
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
           <Space wrap>
             <Typography.Text type="secondary">

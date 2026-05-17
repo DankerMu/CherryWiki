@@ -734,7 +734,8 @@
       "additions": "{{count}} additions",
       "deletions": "{{count}} deletions",
       "fromTitle": "From {{id}}",
-      "toTitle": "To {{id}}"
+      "toTitle": "To {{id}}",
+      "tooLarge": "Content is too large to compare. Please review the versions individually."
     },
     "status": {
       "draft": "Draft",
