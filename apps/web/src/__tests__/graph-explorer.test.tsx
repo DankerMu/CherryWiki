@@ -320,7 +320,7 @@ describe('SpaceGraphExplorerPage', () => {
       'style',
       expect.stringContaining('color: var(--color-text-2)'),
     );
-    expect(screen.getByText('concept')).toHaveStyle({ color: '#fff' });
+    expect(screen.getByText('concept')).toHaveStyle({ color: 'rgba(0, 0, 0, 0.88)' });
   });
 
   it('shows empty state when no graph data is loaded', async () => {

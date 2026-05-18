@@ -567,7 +567,7 @@ function GraphLegend() {
     <Space wrap>
       <Typography.Text type="secondary">{t('graph.legend.title')}</Typography.Text>
       {Object.entries(GRAPH_NODE_TYPE_COLORS).map(([nodeType, color]) => (
-        <Tag key={nodeType} color={color} style={{ color: '#fff' }}>
+        <Tag key={nodeType} color={color} style={{ color: 'rgba(0, 0, 0, 0.88)' }}>
           {nodeType === 'default' ? t('graph.nodeType.unknown') : nodeType}
         </Tag>
       ))}
