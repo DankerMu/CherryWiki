@@ -87,7 +87,7 @@ describe('useGraphTheme', () => {
 
     expect(result.current.canvasBg).toBe('#f5f5f5');
 
-    await act(async () => {
+    act(() => {
       document.documentElement.dataset.theme = 'dark';
     });
 
