@@ -26,9 +26,52 @@ const NODE_TYPE_COLORS: Record<string, string> = {
   default: '#94a3b8',
 };
 const DEFAULT_NODE_COLOR = '#94a3b8';
+const SELECTED_GRAPH_COLOR = '#fab387';
 
 export function truncateNodeLabel(label: string, maxLength = 18): string {
   return label.length > maxLength ? `${label.slice(0, maxLength)}…` : label;
+}
+
+export function getNodeColor(
+  nodeId: string | number | undefined,
+  selectedNodeId: string | null,
+  activeCommunityId: string | null,
+  communityId: string | null | undefined,
+  nodeType: string | null | undefined,
+  primaryColor: string,
+): string {
+  if (nodeId !== undefined && selectedNodeId !== null && String(nodeId) === selectedNodeId) {
+    return SELECTED_GRAPH_COLOR;
+  }
+
+  if (activeCommunityId !== null && communityId === activeCommunityId) {
+    return primaryColor;
+  }
+
+  return NODE_TYPE_COLORS[nodeType ?? 'default'] ?? DEFAULT_NODE_COLOR;
+}
+
+export function getLinkColor(
+  linkId: string | number | undefined,
+  selectedEdgeId: string | null,
+  textTertiaryColor: string,
+): string {
+  return linkId !== undefined && selectedEdgeId !== null && String(linkId) === selectedEdgeId
+    ? SELECTED_GRAPH_COLOR
+    : textTertiaryColor;
+}
+
+function withHexAlpha(color: string, alphaHex: string): string {
+  if (/^#[0-9a-fA-F]{6}$/.test(color)) {
+    return `${color}${alphaHex}`;
+  }
+
+  if (/^#[0-9a-fA-F]{3}$/.test(color)) {
+    const [, red, green, blue] = color;
+    return `#${red}${red}${green}${green}${blue}${blue}${alphaHex}`;
+  }
+
+  return color;
 }
 
 function escapeHtml(value: string): string {
@@ -98,21 +141,11 @@ export default function GraphCanvas({
     graphRef.current?.zoomToFit(400, 48);
   }
 
-  function getNodeColor(node: NodeObject<GraphNode>): string {
-    if (node.id === selectedNodeId) {
-      return '#fab387';
-    }
+  const resolveNodeColor = (node: NodeObject<GraphNode>): string =>
+    getNodeColor(node.id, selectedNodeId, activeCommunityId, node.community_id, node.node_type, theme.primary);
 
-    if (activeCommunityId !== null && node.community_id === activeCommunityId) {
-      return theme.primary;
-    }
-
-    return NODE_TYPE_COLORS[node.node_type ?? 'default'] ?? DEFAULT_NODE_COLOR;
-  }
-
-  function getLinkColor(link: LinkObject<GraphNode, GraphLink>): string {
-    return link.id === selectedEdgeId ? '#fab387' : theme.textTertiary;
-  }
+  const resolveLinkColor = (link: LinkObject<GraphNode, GraphLink>): string =>
+    getLinkColor(link.id, selectedEdgeId, theme.textTertiary);
 
   return (
     <div
@@ -144,18 +177,37 @@ export default function GraphCanvas({
           width={size.width}
           height={size.height}
           backgroundColor={theme.canvasBg}
-          nodeColor={getNodeColor}
+          nodeColor={resolveNodeColor}
           nodeLabel={(node) => escapeHtml(node.label)}
           nodeCanvasObject={(node, ctx, globalScale) => {
             const label = node.label ?? '';
             const displayLabel = truncateNodeLabel(label);
             const size = 5;
-            const color = getNodeColor(node);
+            const color = resolveNodeColor(node);
+            const isSelected = node.id !== undefined && selectedNodeId !== null && String(node.id) === selectedNodeId;
 
+            ctx.shadowBlur = isSelected ? 12 : graphData.nodes.length > 300 ? 0 : 4;
+            ctx.shadowColor = isSelected ? SELECTED_GRAPH_COLOR : graphData.nodes.length > 300 ? 'transparent' : withHexAlpha(color, '66');
             ctx.beginPath();
             ctx.arc(node.x!, node.y!, size, 0, 2 * Math.PI, false);
             ctx.fillStyle = color;
             ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.shadowColor = 'transparent';
+
+            if (isSelected) {
+              ctx.beginPath();
+              ctx.arc(node.x!, node.y!, size + 1, 0, 2 * Math.PI, false);
+              ctx.strokeStyle = theme.background;
+              ctx.lineWidth = 2;
+              ctx.stroke();
+
+              ctx.beginPath();
+              ctx.arc(node.x!, node.y!, size + 4, 0, 2 * Math.PI, false);
+              ctx.strokeStyle = SELECTED_GRAPH_COLOR;
+              ctx.lineWidth = 3;
+              ctx.stroke();
+            }
 
             if (globalScale >= 0.5) {
               const fontSize = 12 / globalScale;
@@ -168,7 +220,7 @@ export default function GraphCanvas({
           }}
           nodeCanvasObjectMode={() => 'replace'}
           nodeRelSize={6}
-          linkColor={getLinkColor}
+          linkColor={resolveLinkColor}
           linkLabel={(link) => escapeHtml(link.relationship)}
           linkDirectionalArrowLength={4}
           linkDirectionalArrowRelPos={1}
