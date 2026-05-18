@@ -9,7 +9,7 @@ import { ThemeProvider } from '../theme/ThemeProvider';
 import SpaceGraphExplorerPage from '../pages/graph/SpaceGraphExplorerPage';
 import * as graphApi from '../lib/graphApi';
 import { AuthProvider, type AuthUser } from '../lib/auth';
-import { GRAPH_NODE_TYPE_COLORS, truncateNodeLabel, type GraphCanvasData } from '../pages/graph/GraphCanvas.js';
+import { GRAPH_NODE_TYPE_COLORS, getLinkColor, getNodeColor, truncateNodeLabel, type GraphCanvasData } from '../pages/graph/GraphCanvas.js';
 import type { GraphCommunity, GraphEdge, GraphNode } from '../lib/graphApi';
 
 type ApiGetMock = (path: string, query?: Record<string, unknown>) => Promise<unknown>;
@@ -119,6 +119,32 @@ describe('GraphCanvas color config', () => {
       expect(GRAPH_NODE_TYPE_COLORS[type]).toBeDefined();
       expect(GRAPH_NODE_TYPE_COLORS[type]).toMatch(/^#[0-9a-fA-F]{6}$/);
     }
+  });
+
+  it('returns selected node color before other node color states', () => {
+    expect(getNodeColor('node-a', 'node-a', 'community-auth', 'community-auth', 'concept', '#00b96b')).toBe('#fab387');
+  });
+
+  it('returns primary color when node belongs to the active community', () => {
+    expect(getNodeColor('node-a', null, 'community-auth', 'community-auth', 'concept', '#00b96b')).toBe('#00b96b');
+  });
+
+  it('returns type color for non-selected non-community nodes', () => {
+    expect(getNodeColor('node-a', null, 'community-auth', 'community-billing', 'person', '#00b96b')).toBe(
+      GRAPH_NODE_TYPE_COLORS.person,
+    );
+  });
+
+  it('returns default node color for unknown node types', () => {
+    expect(getNodeColor('node-a', null, null, null, 'unknown', '#00b96b')).toBe(GRAPH_NODE_TYPE_COLORS.default);
+  });
+
+  it('returns selected edge color for selected links', () => {
+    expect(getLinkColor('edge-a', 'edge-a', 'rgba(0, 0, 0, 0.38)')).toBe('#fab387');
+  });
+
+  it('returns tertiary text color for non-selected links', () => {
+    expect(getLinkColor('edge-a', 'edge-b', 'rgba(0, 0, 0, 0.38)')).toBe('rgba(0, 0, 0, 0.38)');
   });
 });
 
