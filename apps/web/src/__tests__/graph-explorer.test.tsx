@@ -278,6 +278,51 @@ describe('SpaceGraphExplorerPage', () => {
     expect(getGraphCommunityNodesMock).toHaveBeenCalledWith('community-auth', 'space-1');
   });
 
+  it('uses theme variables for graph panels and selected community cards', async () => {
+    getGraphCommunitiesMock.mockResolvedValue({
+      communities: [createCommunity({ id: 'community-auth', label: 'Auth' })],
+    });
+    getGraphCommunityNodesMock.mockResolvedValue({
+      nodes: [createNode({ id: 'node-a', label: 'OAuth', community_id: 'community-auth' })],
+      edges: [],
+      truncated: false,
+    });
+
+    renderPage();
+
+    const searchPanel = (await screen.findByRole('heading', { name: 'Search' })).closest('div');
+    const communityPanel = (await screen.findByRole('heading', { name: 'Communities' })).closest('div')?.parentElement;
+    expect(searchPanel).toHaveAttribute(
+      'style',
+      expect.stringContaining('border: 1px solid var(--color-border)'),
+    );
+    expect(searchPanel).toHaveAttribute('style', expect.stringContaining('background: var(--color-surface)'));
+    expect(communityPanel).toHaveAttribute(
+      'style',
+      expect.stringContaining('border: 1px solid var(--color-border)'),
+    );
+    expect(communityPanel).toHaveAttribute('style', expect.stringContaining('background: var(--color-surface)'));
+
+    const communityButton = (await screen.findByText('Auth')).closest('button');
+    expect(communityButton).not.toHaveClass('ant-btn-primary');
+    fireEvent.click(communityButton!);
+
+    await waitFor(() => {
+      expect(communityButton).toHaveAttribute(
+        'style',
+        expect.stringContaining('border: 2px solid var(--color-primary)'),
+      );
+      expect(communityButton).toHaveAttribute('style', expect.stringContaining('background: var(--color-primary-mute)'));
+    });
+    expect(screen.getByText('Auth')).toHaveAttribute('style', expect.stringContaining('color: var(--color-text-1)'));
+    expect(screen.getByText('2 nodes')).toHaveAttribute('style', expect.stringContaining('color: var(--color-text-2)'));
+    expect(screen.getByText('Authentication')).toHaveAttribute(
+      'style',
+      expect.stringContaining('color: var(--color-text-2)'),
+    );
+    expect(screen.getByText('concept')).toHaveStyle({ color: '#fff' });
+  });
+
   it('shows empty state when no graph data is loaded', async () => {
     renderPage();
 
