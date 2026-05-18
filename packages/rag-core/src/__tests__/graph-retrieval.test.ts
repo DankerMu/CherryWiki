@@ -423,7 +423,11 @@ function makeGraphQueryService(
     searchNodes: vi.fn<GraphQueryService['searchNodes']>().mockResolvedValue(nodes),
     findPath: vi.fn<GraphQueryService['findPath']>().mockResolvedValue(paths),
     getCommunities: vi.fn<GraphQueryService['getCommunities']>().mockResolvedValue([]),
-    getCommunityNodes: vi.fn<GraphQueryService['getCommunityNodes']>().mockResolvedValue([]),
+    getCommunityNodes: vi.fn<GraphQueryService['getCommunityNodes']>().mockResolvedValue({
+      nodes: [],
+      edges: [],
+      truncated: false,
+    }),
   };
 
   return service as unknown as GraphQueryService & MockGraphQueryService;
@@ -440,7 +444,11 @@ function makeFullGraphQueryService(input: {
     findPath: vi.fn<GraphQueryService['findPath']>().mockResolvedValue(input.paths ?? []),
     getCommunities: vi.fn<GraphQueryService['getCommunities']>().mockResolvedValue(input.communities ?? []),
     getCommunityNodes: vi.fn<GraphQueryService['getCommunityNodes']>().mockImplementation((communityId) =>
-      Promise.resolve(input.communityNodes?.get(communityId) ?? []),
+      Promise.resolve({
+        nodes: input.communityNodes?.get(communityId) ?? [],
+        edges: [],
+        truncated: false,
+      }),
     ),
   };
 

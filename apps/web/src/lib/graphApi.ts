@@ -49,6 +49,12 @@ export type GraphCommunitiesResponse = {
   communities: GraphCommunity[];
 };
 
+export type GraphCommunityNodesResponse = {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  truncated: boolean;
+};
+
 export function searchGraphNodes(input: {
   spaceId: string;
   query: string;
@@ -76,4 +82,14 @@ export function getGraphCommunities(spaceId: string): Promise<GraphCommunitiesRe
   return api.get<GraphCommunitiesResponse>('/graph/communities', {
     space_id: spaceId,
   });
+}
+
+export function getGraphCommunityNodes(
+  communityId: string,
+  spaceId: string,
+): Promise<GraphCommunityNodesResponse> {
+  return api.get<GraphCommunityNodesResponse>(
+    `/graph/communities/${encodeURIComponent(communityId)}/nodes`,
+    { space_id: spaceId },
+  );
 }

@@ -225,8 +225,8 @@ async function retrieveLocalCandidateContexts(
     );
   }
 
-  for (const communityNodes of communityNodeResults) {
-    for (const node of communityNodes) {
+  for (const communityResult of communityNodeResults) {
+    for (const node of communityResult.nodes) {
       candidateContexts.push(toNodeCandidateContext(node, searchScoreByCommunityId.get(node.community_id ?? '') ?? node.score));
     }
   }

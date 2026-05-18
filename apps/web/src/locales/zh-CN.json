@@ -757,7 +757,9 @@
       "title": "社区",
       "empty": "暂无社区",
       "clear": "清除",
-      "nodeCount": "{{count}} 个节点"
+      "nodeCount": "{{count}} 个节点",
+      "truncated": "社区节点过多，仅显示前 200 个。",
+      "loadError": "加载社区节点失败"
     },
     "canvas": {
       "resetView": "重置图谱视图"
