@@ -281,7 +281,8 @@ export class GraphifyService {
 
   async retryRun(runId: string, context: GraphifyContext = {}): Promise<GraphifyRunResponse> {
     const run = await this.getAccessibleRun(runId, context, 'graphify:run');
-    if (run.status !== 'failed') {
+    const terminalStates = new Set(['failed', 'cancelled', 'succeeded']);
+    if (!terminalStates.has(run.status)) {
       throwApiError(
         ErrorCode.GRAPHIFY_RUN_NOT_RETRYABLE,
         'Graphify run is not retryable',

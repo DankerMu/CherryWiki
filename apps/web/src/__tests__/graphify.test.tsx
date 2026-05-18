@@ -272,13 +272,16 @@ describe('GraphifyRunDetailPage', () => {
     expect(screen.queryByText('Cancel Run')).not.toBeInTheDocument();
   });
 
-  it('shows neither cancel nor retry for succeeded status', async () => {
+  it('shows retry but not cancel for succeeded status', async () => {
     await renderDetailStatus('succeeded');
-    await waitFor(() => {
-      expect(screen.queryByText('Loading graphify run details...')).not.toBeInTheDocument();
-    });
+    expect(await screen.findByText('Retry Run')).toBeInTheDocument();
     expect(screen.queryByText('Cancel Run')).not.toBeInTheDocument();
-    expect(screen.queryByText('Retry Run')).not.toBeInTheDocument();
+  });
+
+  it('shows retry but not cancel for cancelled status', async () => {
+    await renderDetailStatus('cancelled');
+    expect(await screen.findByText('Retry Run')).toBeInTheDocument();
+    expect(screen.queryByText('Cancel Run')).not.toBeInTheDocument();
   });
 });
 
