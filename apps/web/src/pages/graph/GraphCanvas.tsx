@@ -4,6 +4,7 @@ import ForceGraph2D, { type ForceGraphMethods, type LinkObject, type NodeObject 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { GraphEdge, GraphNode } from '../../lib/graphApi';
+import { useGraphTheme } from './useGraphTheme';
 
 export type GraphLink = GraphEdge & {
   source: string;
@@ -69,6 +70,7 @@ export default function GraphCanvas({
   onEdgeSelect,
 }: GraphCanvasProps) {
   const { t } = useTranslation();
+  const theme = useGraphTheme();
   const graphRef = useRef<ForceGraphMethods<NodeObject<GraphNode>, LinkObject<GraphNode, GraphLink>> | undefined>(undefined);
   const [size, setSize] = useState({ width: 720, height: 520 });
 
@@ -102,18 +104,27 @@ export default function GraphCanvas({
     }
 
     if (activeCommunityId !== null && node.community_id === activeCommunityId) {
-      return '#16a34a';
+      return theme.primary;
     }
 
     return NODE_TYPE_COLORS[node.node_type ?? 'default'] ?? DEFAULT_NODE_COLOR;
   }
 
   function getLinkColor(link: LinkObject<GraphNode, GraphLink>): string {
-    return link.id === selectedEdgeId ? '#c2410c' : 'rgba(100, 116, 139, 0.45)';
+    return link.id === selectedEdgeId ? '#fab387' : theme.textTertiary;
   }
 
   return (
-    <div style={{ position: 'relative', minHeight: size.height, border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', background: '#f8f9fa' }}>
+    <div
+      style={{
+        position: 'relative',
+        minHeight: size.height,
+        border: '1px solid var(--color-border)',
+        borderRadius: 8,
+        overflow: 'hidden',
+        background: 'var(--color-background-mute)',
+      }}
+    >
       <div style={{ position: 'absolute', right: 12, top: 12, zIndex: 2 }}>
         <Tooltip title={t('graph.canvas.resetView')}>
           <Button aria-label={t('graph.canvas.resetView')} icon={<FullscreenOutlined />} onClick={resetView} />
@@ -132,7 +143,7 @@ export default function GraphCanvas({
           linkTarget="target"
           width={size.width}
           height={size.height}
-          backgroundColor="#f8f9fa"
+          backgroundColor={theme.canvasBg}
           nodeColor={getNodeColor}
           nodeLabel={(node) => escapeHtml(node.label)}
           nodeCanvasObject={(node, ctx, globalScale) => {
@@ -151,7 +162,7 @@ export default function GraphCanvas({
               ctx.font = `${fontSize}px Sans-Serif`;
               ctx.textAlign = 'center';
               ctx.textBaseline = 'top';
-              ctx.fillStyle = 'rgba(30, 30, 46, 0.9)';
+              ctx.fillStyle = theme.textPrimary;
               ctx.fillText(displayLabel, node.x!, node.y! + size + 2);
             }
           }}
