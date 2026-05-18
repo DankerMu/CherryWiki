@@ -222,9 +222,9 @@ export default function GraphCanvas({
           nodeRelSize={6}
           linkColor={resolveLinkColor}
           linkLabel={(link) => escapeHtml(link.relationship)}
-          linkDirectionalArrowLength={4}
+          linkDirectionalArrowLength={6}
           linkDirectionalArrowRelPos={1}
-          linkWidth={(link) => (link.id === selectedEdgeId ? 2.5 : 1.2)}
+          linkWidth={(link) => (link.id === selectedEdgeId ? 3.5 : 1.8)}
           onNodeClick={(node) => {
             if (typeof node.id === 'string') {
               onNodeSelect(node.id);
