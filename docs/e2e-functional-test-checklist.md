@@ -336,7 +336,7 @@
 
 ### 8.4 Rerank Model `P1` `AM-4`
 - [x] 创建/更新/列出 rerank model config ✅ 2026-05-17 POST 创建 rerank(201)→list 确认存在→PATCH 禁用→status=disabled；连通性测试返回 "No API key configured"；无 DELETE 端点（设计限制）
-- [ ] rerank model 影响 Chat 检索排序 — 需要可达的 rerank API + 实际 Chat 检索验证
+- [x] rerank model 影响 Chat 检索排序 ✅ 2026-05-18 启用 bge-reranker-v2-m3 + secret:MODEL_API_KEY 后，relevance_score 从 0.016→0.998，fallback=false，rerank 成功介入检索排序
 
 ---
 
@@ -350,7 +350,7 @@
 
 ### 9.2 Health 监控 `P1` `AD-3`
 - [x] Admin > Health：显示各服务健康状态 ✅ 2025-05-15（Overall: Degraded）
-- [ ] 模型可达性探测（outbound probe） — 未实现：Health 端点仅含 6 个基础组件，模型可达性需单独调用 `POST /admin/models/:id/test`
+- [x] 模型可达性探测（outbound probe） ✅ 2026-05-18 #385 已集成：Health 端点包含 models 组件，探测 enabled models 连通性（chat 模型 5s 超时→unhealthy，embedding 模型 reachable=true latency=2351ms），unhealthy models 使 overall=degraded
 - [x] **AD-3**: 显示 database、Redis、MinIO、vector_store、graph_store、Docmost bridge 各组件状态 ✅ 2026-05-15 BUG-004 已修复：6 组件全部 Healthy
 
 ### 9.3 Job 管理 `P1` `AD-2`
@@ -389,8 +389,8 @@
 
 ### 9.9 Worker ���态 `P1` `CP-13`
 - [x] `POST /api/internal/workers/heartbeat` Worker 心跳正常 ✅ 2026-05-17 需 x-worker-key header + {worker_id, active_jobs?, system_info?}；返回 {ack:true, cancel_requested:[], lost_locks:[]}；active_jobs 中不存在的 job 返回 lost_locks
-- [ ] Worker 状态通过 job 元数据或内部 API 可查询 — 未实现：无专门的 worker 列表/状态查询端点，heartbeat 数据仅用于 job coordination
-- [ ] 长时间无心跳的 Worker 标记为 stale — 未实现：无 stale worker 检测/标记机制的公开端点
+- [x] Worker 状态通过内部 API 可查询 ✅ 2026-05-18 #386 已实现：`GET /api/admin/workers` 聚合 Redis heartbeat 数据，返回 workers[] + summary{total,online,degraded,stale}；验证 2 个 worker（ingestion+url-fetcher）online
+- [x] 长时间无心跳的 Worker 标记为 stale ✅ 2026-05-18 注入过期 heartbeat（4h 前）到 Redis，端点正确返回 status=stale；阈值：<30s=online, 30-120s=degraded, ≥120s=stale
 
 ---
 
