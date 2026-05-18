@@ -170,7 +170,7 @@ export default function GraphifyRunDetailPage() {
   }
 
   const showCancelButton = canRunGraphify && run !== null && isGraphifyRunActive(run);
-  const showRetryButton = canRunGraphify && run !== null && run.status === 'failed';
+  const showRetryButton = canRunGraphify && run !== null && ['failed', 'cancelled', 'succeeded'].includes(run.status);
 
   return (
     <>

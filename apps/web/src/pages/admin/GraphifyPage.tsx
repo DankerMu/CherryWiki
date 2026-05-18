@@ -210,7 +210,7 @@ function GraphifyPage() {
       key: 'actions',
       render: (_: unknown, run: GraphifyRun) => (
         <Space>
-          {run.status === 'failed' ? (
+          {['failed', 'cancelled', 'succeeded'].includes(run.status) ? (
             <Popconfirm
               title={t('admin.graphify.confirmRetry')}
               onConfirm={(e) => {

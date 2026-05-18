@@ -184,13 +184,52 @@ describe('GraphifyService', () => {
     );
   });
 
-  it('retryRun rejects non-failed runs', async () => {
+  it('retryRun accepts cancelled runs', async () => {
     const { service, db } = createServiceContext();
-    db.queueSelect([createRunRow({ status: 'succeeded' })]);
+    db.queueSelect([createRunRow({ status: 'cancelled', job_id: 'job-1' })]);
+    db.queueSelect([createSpaceRow()]);
+    db.queueSelect([]);
+    db.queueSelect([createJobRow({ payload_json: {} })]);
+    db.queueSelect([]);
+    db.queueInsert([createRunRow({ id: 'run-retry', job_id: null })]);
+    db.queueInsert([createJobRow({ id: 'job-retry' })]);
+    db.queueUpdate([createRunRow({ id: 'run-retry', job_id: 'job-retry' })]);
+
+    const result = await service.retryRun('run-1', createAdminContext());
+    expect(result.run_id).toBe('run-retry');
+  });
+
+  it('retryRun accepts succeeded runs', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createRunRow({ status: 'succeeded', job_id: 'job-1' })]);
+    db.queueSelect([createSpaceRow()]);
+    db.queueSelect([]);
+    db.queueSelect([createJobRow({ payload_json: {} })]);
+    db.queueSelect([]);
+    db.queueInsert([createRunRow({ id: 'run-retry', job_id: null })]);
+    db.queueInsert([createJobRow({ id: 'job-retry' })]);
+    db.queueUpdate([createRunRow({ id: 'run-retry', job_id: 'job-retry' })]);
+
+    const result = await service.retryRun('run-1', createAdminContext());
+    expect(result.run_id).toBe('run-retry');
+  });
+
+  it('retryRun rejects running runs', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createRunRow({ status: 'running' })]);
     db.queueSelect([createSpaceRow()]);
 
     const err = await getRejectedHttpException(service.retryRun('run-1', createAdminContext()));
+    expect(err.getStatus()).toBe(409);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.GRAPHIFY_RUN_NOT_RETRYABLE);
+  });
 
+  it('retryRun rejects pending runs', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createRunRow({ status: 'pending' })]);
+    db.queueSelect([createSpaceRow()]);
+
+    const err = await getRejectedHttpException(service.retryRun('run-1', createAdminContext()));
     expect(err.getStatus()).toBe(409);
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.GRAPHIFY_RUN_NOT_RETRYABLE);
   });

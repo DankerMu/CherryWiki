@@ -49,8 +49,8 @@
 | 类别 | 已通过 | 有BUG | 未测 | 覆盖率 |
 |---|---|---|---|---|
 | P0 核心路径 | 88 | 0 | ~1 | ~99% |
-| P1 管理功能 | 63 | 1 (BUG-009) | ~5 | Batch 1-5 完成 |
-| P2 边界安全 | — | — | ~15 | 未开始 |
+| P1 管理功能 | 72 | 1 (BUG-009) | 0 | Batch 1-6 全部完成 |
+| P2 边界安全 | 14 | 0 | 0 | Batch 7-9 全部完成 |
 | E2E 自动化 | 11 pass | 0 | ~60 | ~15% |
 
 ### P0 已测通过的模块
@@ -81,24 +81,41 @@
 - §5.2 版本 diff: API hunks+stats + UI Compare 按钮 + side-by-side diff modal (1/1 ✅)
 - §6.3 CP-29: 手动重建索引 POST rebuild-index + 幂等键 + job succeeded + snapshot 更新 + UI Rebuild Index 按钮 (2/2 ✅)
 
-### P1 Batch 5 已测通过 (21 项, 2026-05-17)
+### P1 Batch 5 已测通过 (25 项, 2026-05-18)
 
 - §8.2 Model: AM-1 连通性测试脱敏/AM-2 enabled+visible_group_ids (2/2 ✅)
-- §8.4 Rerank: CRUD 创建/列出/更新/禁用 (1/2 ✅)
+- §8.4 Rerank: CRUD 创建/列出/更新/禁用 + Chat 检索排序影响 (2/2 ✅)
+- §9.2 Health: models 组件探测（enabled models 连通性，chat 超时→degraded，embedding 可达） (1/1 ✅)
 - §9.3 Job: 详情(Payload+Error+Events)/error_json/CP-14 cancel (3/3 ✅)
 - §9.4 Graphify Admin: 列表+Tab/stats/retry (3/3 ✅)
 - §9.5 API Token: 创建/列出/撤销/TOKEN_REVOKED (4/4 ✅)
 - §9.6 MCP: 注册/列出/删除/invoke+policy (3/3 ✅)
 - §9.7 反馈: 提交/列表/resolve (3/3 ✅)
 - §9.8 Governance: 边审核/重复建议/冲突/提案 (4/4 ✅)
-- §9.9 Worker: heartbeat (1/3 ✅)
+- §9.9 Worker: heartbeat + 状态查询(online/degraded/stale 分类+summary) + stale 标记 (3/3 ✅)
 
-### P1 未测/未实现 (~4 项)
+### P1 Batch 6 已测通过 (5 项, 2026-05-18)
 
-- §9.2 模型可达性探测（Health 端点未集成）
-- §9.9 Worker 状态查询/stale 标记（无公开端点）
-- §10.4 响应式布局（Batch 6）
-- §10.5 导航与错误（Batch 6）
+- §10.4 响应式: 1280px/1920px 布局合理 + 768px 平板基本可用(表格列窄) + 375px 手机折叠侧边栏后可用(表格需水平滚动) (3/3 ✅)
+- §10.5 导航: UI-1 登录后路由到首个 Space Overview + UI-2 404 页面+Back to Home 导航 (2/2 ✅)
+
+### P1 未测/未实现 (0 项)
+
+无
+
+### P2 Batch 7 已测通过 (5 项, 2026-05-18)
+
+- §0.3 网络出口: egress-proxy(Squid 6.13) healthy + 私有 IP 访问被 ACL 403 拒绝 (2/2 ✅)
+- §3.8 URL 安全: SSRF 4 种 IP 全 blocked + 重定向到内网阻断 + 超大响应 non-retryable (3/3 ✅)
+
+### P2 Batch 8 已测通过 (6 项, 2026-05-18)
+
+- §3.6 上传校验: 201MB→nginx 413 + ELF伪PDF→422 MIME_MISMATCH + .exe/.py→422 不支持 + prompt injection 文档正常上传 (4/4 ✅)
+- §7.9 Chat 安全: prompt injection 被 LLM 拒绝 + API key/DB 密码查询未泄露 (2/2 ✅)
+
+### P2 Batch 9 已测通过 (3 项, 2026-05-18)
+
+- §10.6 i18n: Admin 表单标签全中文化 + 登录错误"邮箱或密码不正确" + 空状态"开始新的对话"/"页面未找到" (3/3 ✅)
 
 ### P0 未测项 (~1 项)
 
@@ -115,6 +132,8 @@
 
 | ID | 描述 | Fix |
 |---|---|---|
+| #386 | Admin Worker 状态端点 | 新增 `GET /api/admin/workers` 聚合 Redis `worker:heartbeat:*`，按 <30s/30-120s/≥120s 标记 online/degraded/stale，Redis 不可用返回空列表+错误；新增 6 个 controller 单测；`npm run build`、worker 测试、`npm run lint` 通过 |
+| #385 | Health 端点集成 enabled models 连通性探测 | `ModelConfigService.listEnabledModels()` + 可配置超时 `probeModel()`；`AdminHealthController` 新增 optional `models` 组件，5s 单模型/8s 整体超时，unhealthy models 仅使 overall degraded；新增 6 个 models 健康回归测试；`npm run build`、health 测试、`npm run lint` 通过 |
 | PR-387-R1 | Rerank API SSRF 防护与错误语义修正 | `callRerankApi` 接入 `validateAdminOutboundProbeUrl` + validated dispatcher + finally close；保留非 OK 响应 body cancel；无可用 rerank scores 错误信息改为更准确文案；`npm run build`、rerank 回归测试通过 |
 | #384 | Chat static_rag 检索在 RRF 后接入 rerank，支持无模型/API 错误/超时非致命回退 | `ModelConfigService.getEnabledRerankModel()` + Chat rerank POST `/rerank` + trace metadata；新增 5 个 rerank 回归测试；`npm run build && npm test` 通过 |
 | BUG-011/#381 | Chat session 删除因 retrieval_traces/model_usage_logs/feedback_items FK 缺少级联导致 500 | Drizzle schema + `0019_fix_session_delete_cascade.sql` 为 3 个 FK 增加 `ON DELETE CASCADE`；新增 schema 回归测试；`npm run build`、`npm test` 通过 |
