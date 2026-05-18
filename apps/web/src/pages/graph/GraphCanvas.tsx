@@ -109,11 +109,11 @@ export default function GraphCanvas({
   }
 
   function getLinkColor(link: LinkObject<GraphNode, GraphLink>): string {
-    return link.id === selectedEdgeId ? '#fab387' : 'rgba(180, 190, 210, 0.45)';
+    return link.id === selectedEdgeId ? '#c2410c' : 'rgba(100, 116, 139, 0.45)';
   }
 
   return (
-    <div style={{ position: 'relative', minHeight: size.height, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, overflow: 'hidden', background: '#1e1e2e' }}>
+    <div style={{ position: 'relative', minHeight: size.height, border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', background: '#f8f9fa' }}>
       <div style={{ position: 'absolute', right: 12, top: 12, zIndex: 2 }}>
         <Tooltip title={t('graph.canvas.resetView')}>
           <Button aria-label={t('graph.canvas.resetView')} icon={<FullscreenOutlined />} onClick={resetView} />
@@ -132,7 +132,7 @@ export default function GraphCanvas({
           linkTarget="target"
           width={size.width}
           height={size.height}
-          backgroundColor="#1e1e2e"
+          backgroundColor="#f8f9fa"
           nodeColor={getNodeColor}
           nodeLabel={(node) => escapeHtml(node.label)}
           nodeCanvasObject={(node, ctx, globalScale) => {
@@ -151,7 +151,7 @@ export default function GraphCanvas({
               ctx.font = `${fontSize}px Sans-Serif`;
               ctx.textAlign = 'center';
               ctx.textBaseline = 'top';
-              ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+              ctx.fillStyle = 'rgba(30, 30, 46, 0.9)';
               ctx.fillText(displayLabel, node.x!, node.y! + size + 2);
             }
           }}

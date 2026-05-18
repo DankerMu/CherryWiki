@@ -479,7 +479,7 @@ function GraphCommunityPanel({
             return (
               <List.Item>
                 <Button
-                  type={isActive ? 'primary' : 'text'}
+                  type={isActive ? 'primary' : 'default'}
                   loading={isButtonLoading}
                   style={{ width: '100%', height: 'auto', textAlign: 'left', whiteSpace: 'normal' }}
                   disabled={isLoadingCommunityNodes && !isButtonLoading}
