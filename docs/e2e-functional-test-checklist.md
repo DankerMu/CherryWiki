@@ -410,13 +410,13 @@
 - [x] **UI-3**: 折叠状态跨页面刷新保持 ✅ 2026-05-15 BUG-005 已修复，localStorage `cherrywiki.shell.collapsed` 正常生效
 
 ### 10.4 响应式 `P1` `UI-4`
-- [ ] 不同屏幕宽度下布局合理（1280px / 1920px）
-- [ ] 768px（平板）下 Chat、Uploads、Graph、Admin 表格布局合理
-- [ ] 375px（手机）下基本可用或显式标注 desktop-only
+- [x] 不同屏幕宽度下布局合理（1280px / 1920px） ✅ 2026-05-18 两个分辨率下 Overview/Chat/Documents/Admin Jobs 所有页面布局正常，侧边栏+主内容区比例合理
+- [x] 768px（平板）下 Chat、Uploads、Graph、Admin 表格布局合理 ✅ 2026-05-18 Chat session 列表收入 Menu 按钮；Documents 表格列稍窄但可用；Admin Jobs 表格 Type 列 UUID 断行但功能可用；Overview Knowledge Status 区 "Available in Graph Explorer" 链接文字纵向溢出（低优先级样式问题）
+- [x] 375px（手机）下基本可用或显式标注 desktop-only ✅ 2026-05-18 侧边栏需手动折叠后内容区单列显示可用；Chat 适配良好（Menu+输入区）；Admin 表格严重溢出（缺水平滚动），无 desktop-only 标注——基本可用但体验有限
 
 ### 10.5 导航与错误 `P1` `UI-1` `UI-2`
-- [ ] **UI-1**: 登录后空状态首页路由到首个可访问 Space 或 Admin 设置引导
-- [ ] **UI-2**: 404 页面渲染正确，"返回首页" 导航可用
+- [x] **UI-1**: 登录后空状态首页路由到首个可访问 Space 或 Admin 设置引导 ✅ 2026-05-18 登录后自动路由到 `/spaces/{id}/overview`（首个可访问 Space），面包屑 "Test Space / Overview"
+- [x] **UI-2**: 404 页面渲染正确，"返回首页" 导航可用 ✅ 2026-05-18 访问 `/this-page-does-not-exist-404` 显示插图+"Page Not Found"+"Back to Home" 按钮→点击返回 Space Overview
 
 ### 10.6 i18n 覆盖度 `P2` `UI-5`
 - [ ] 动态 Admin 表单字段标签已国际化
