@@ -479,19 +479,30 @@ function GraphCommunityPanel({
             return (
               <List.Item>
                 <Button
-                  type={isActive ? 'primary' : 'default'}
+                  type="default"
                   loading={isButtonLoading}
-                  style={{ width: '100%', height: 'auto', textAlign: 'left', whiteSpace: 'normal' }}
+                  style={{
+                    width: '100%',
+                    height: 'auto',
+                    textAlign: 'left',
+                    whiteSpace: 'normal',
+                    ...(isActive
+                      ? {
+                          border: '2px solid var(--color-primary)',
+                          background: 'var(--color-primary-mute)',
+                        }
+                      : {}),
+                  }}
                   disabled={isLoadingCommunityNodes && !isButtonLoading}
                   onClick={() => onSelectCommunity(isActive ? null : community.id)}
                 >
                   <div>
-                    <span>{label}</span>
-                    <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
+                    <span style={{ color: 'var(--color-text-1)' }}>{label}</span>
+                    <Typography.Text type="secondary" style={{ display: 'block', color: 'var(--color-text-2)', fontSize: 12 }}>
                       {t('graph.community.nodeCount', { count: community.node_count })}
                     </Typography.Text>
                     {community.summary !== null && community.summary.length > 0 ? (
-                      <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
+                      <Typography.Text type="secondary" style={{ display: 'block', color: 'var(--color-text-2)', fontSize: 12 }}>
                         {community.summary}
                       </Typography.Text>
                     ) : null}
@@ -556,7 +567,9 @@ function GraphLegend() {
     <Space wrap>
       <Typography.Text type="secondary">{t('graph.legend.title')}</Typography.Text>
       {Object.entries(GRAPH_NODE_TYPE_COLORS).map(([nodeType, color]) => (
-        <Tag key={nodeType} color={color}>{nodeType === 'default' ? t('graph.nodeType.unknown') : nodeType}</Tag>
+        <Tag key={nodeType} color={color} style={{ color: 'rgba(0, 0, 0, 0.88)' }}>
+          {nodeType === 'default' ? t('graph.nodeType.unknown') : nodeType}
+        </Tag>
       ))}
     </Space>
   );
@@ -688,8 +701,8 @@ function graphReducer(state: GraphState, action: GraphAction): GraphState {
 }
 
 const panelStyle = {
-  border: '1px solid #e5e7eb',
+  border: '1px solid var(--color-border)',
   borderRadius: 8,
   padding: 16,
-  background: '#ffffff',
+  background: 'var(--color-surface)',
 } satisfies CSSProperties;
