@@ -757,7 +757,9 @@
       "title": "Communities",
       "empty": "No communities available",
       "clear": "Clear",
-      "nodeCount": "{{count}} nodes"
+      "nodeCount": "{{count}} nodes",
+      "truncated": "Community has too many nodes. Showing first 200.",
+      "loadError": "Failed to load community nodes"
     },
     "canvas": {
       "resetView": "Reset graph view"

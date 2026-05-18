@@ -132,6 +132,7 @@
 
 | ID | 描述 | Fix |
 |---|---|---|
+| #392 | Graph Explorer 社区节点展开 | `GET /api/graph/communities/:id/nodes?space_id=` 返回社区节点、内部边和 200 节点截断标记；前端点击社区加载并 merge 到画布，支持 loading/截断提示；新增 graph-core/API/Web/RAG 回归测试；`npm run build` 通过，相关测试通过，完整 `npm test` 仅遇到一次无关 Bridge rate-limit 5s 超时，单测复跑通过 |
 | #386 | Admin Worker 状态端点 | 新增 `GET /api/admin/workers` 聚合 Redis `worker:heartbeat:*`，按 <30s/30-120s/≥120s 标记 online/degraded/stale，Redis 不可用返回空列表+错误；新增 6 个 controller 单测；`npm run build`、worker 测试、`npm run lint` 通过 |
 | #385 | Health 端点集成 enabled models 连通性探测 | `ModelConfigService.listEnabledModels()` + 可配置超时 `probeModel()`；`AdminHealthController` 新增 optional `models` 组件，5s 单模型/8s 整体超时，unhealthy models 仅使 overall degraded；新增 6 个 models 健康回归测试；`npm run build`、health 测试、`npm run lint` 通过 |
 | PR-387-R1 | Rerank API SSRF 防护与错误语义修正 | `callRerankApi` 接入 `validateAdminOutboundProbeUrl` + validated dispatcher + finally close；保留非 OK 响应 body cancel；无可用 rerank scores 错误信息改为更准确文案；`npm run build`、rerank 回归测试通过 |

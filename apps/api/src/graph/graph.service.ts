@@ -21,6 +21,8 @@ import { SPACE_VIEW_PERMISSIONS } from '../shared/permission-constants.js';
 import type {
   GraphCommunitiesQueryDto,
   GraphCommunitiesResponseDto,
+  GraphCommunityNodesQueryDto,
+  GraphCommunityNodesResponseDto,
   GraphEdgeResponseDto,
   GraphNeighborsQueryDto,
   GraphNeighborsResponseDto,
@@ -142,20 +144,25 @@ export class GraphService {
 
   async getCommunityNodes(
     communityId: string,
+    input: GraphCommunityNodesQueryDto,
     context: GraphContext = {},
-  ): Promise<GraphNodeResponseDto[]> {
-    const spaceIds = await this.resolveReadableSpaceIds(undefined, context);
+  ): Promise<GraphCommunityNodesResponseDto> {
+    const spaceIds = await this.resolveReadableSpaceIds(input.space_id, context);
     if (spaceIds.length === 0) {
-      return [];
+      return { nodes: [], edges: [], truncated: false };
     }
 
     const activeRunIds = await this.resolveActiveGraphifyRunIds(spaceIds, context);
     if (activeRunIds.size === 0) {
-      return [];
+      return { nodes: [], edges: [], truncated: false };
     }
 
-    const nodes = await this.queryService.getCommunityNodes(communityId, spaceIds, activeRunIds);
-    return nodes.map(toGraphNodeResponse);
+    const result = await this.queryService.getCommunityNodes(communityId, spaceIds, activeRunIds);
+    return {
+      nodes: result.nodes.map(toGraphNodeResponse),
+      edges: result.edges.map(toGraphEdgeResponse),
+      truncated: result.truncated,
+    };
   }
 
   async getEvidenceRefs(

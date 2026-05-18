@@ -6,6 +6,7 @@ import {
   Empty,
   Input,
   List,
+  message,
   Select,
   Space,
   Spin,
@@ -21,6 +22,7 @@ import { api } from '../../lib/api';
 import type { AdminSpaceDetail } from '../../lib/adminTypes';
 import {
   getGraphCommunities,
+  getGraphCommunityNodes,
   getGraphNeighbors,
   searchGraphNodes,
   type GraphCommunity,
@@ -77,6 +79,8 @@ export default function SpaceGraphExplorerPage() {
   const [hops, setHops] = useState(1);
   const [communities, setCommunities] = useState<GraphCommunity[]>([]);
   const [isLoadingCommunities, setIsLoadingCommunities] = useState(true);
+  const [isLoadingCommunityNodes, setIsLoadingCommunityNodes] = useState(false);
+  const [loadingCommunityId, setLoadingCommunityId] = useState<string | null>(null);
   const [activeCommunityId, setActiveCommunityId] = useState<string | null>(null);
   const [selection, setSelection] = useState<Selection>(null);
   const [error, setError] = useState<string | null>(null);
@@ -93,6 +97,8 @@ export default function SpaceGraphExplorerPage() {
     setHasSearched(false);
     setIsSearching(false);
     setIsExpanding(false);
+    setIsLoadingCommunityNodes(false);
+    setLoadingCommunityId(null);
     setActiveCommunityId(null);
     setSelection(null);
     setError(null);
@@ -248,6 +254,40 @@ export default function SpaceGraphExplorerPage() {
     }
   }
 
+  async function handleSelectCommunity(communityId: string | null): Promise<void> {
+    if (communityId === null || communityId === activeCommunityId) {
+      setActiveCommunityId(communityId === activeCommunityId ? null : communityId);
+      return;
+    }
+
+    const spaceSeq = spaceSeqRef.current;
+    setIsLoadingCommunityNodes(true);
+    setLoadingCommunityId(communityId);
+    setError(null);
+
+    try {
+      const result = await getGraphCommunityNodes(communityId, spaceId);
+      if (spaceSeq !== spaceSeqRef.current) {
+        return;
+      }
+      dispatch({ type: 'merge', spaceId, nodes: result.nodes, edges: result.edges });
+      setActiveCommunityId(communityId);
+      if (result.truncated) {
+        void message.warning(t('graph.community.truncated'));
+      }
+    } catch {
+      if (spaceSeq !== spaceSeqRef.current) {
+        return;
+      }
+      void message.error(t('graph.community.loadError'));
+    } finally {
+      if (spaceSeq === spaceSeqRef.current) {
+        setIsLoadingCommunityNodes(false);
+        setLoadingCommunityId(null);
+      }
+    }
+  }
+
   function closeSelection(): void {
     setSelection(null);
   }
@@ -300,8 +340,10 @@ export default function SpaceGraphExplorerPage() {
             <GraphCommunityPanel
               communities={communities}
               isLoading={isLoadingCommunities}
+              isLoadingCommunityNodes={isLoadingCommunityNodes}
+              loadingCommunityId={loadingCommunityId}
               activeCommunityId={activeCommunityId}
-              onSelectCommunity={setActiveCommunityId}
+              onSelectCommunity={(id) => { void handleSelectCommunity(id); }}
             />
           </Space>
 
@@ -323,7 +365,7 @@ export default function SpaceGraphExplorerPage() {
               activeCommunityId={activeCommunityId}
               selectedNodeId={selectedNode?.id ?? null}
               selectedEdgeId={selectedEdge?.id ?? null}
-              loading={isSearching || isExpanding}
+              loading={isSearching || isExpanding || isLoadingCommunityNodes}
               onNodeSelect={(nodeId) => setSelection({ type: 'node', id: nodeId })}
               onEdgeSelect={(edgeId) => setSelection({ type: 'edge', id: edgeId })}
             />
@@ -399,11 +441,15 @@ function GraphSearchPanel({
 function GraphCommunityPanel({
   communities,
   isLoading,
+  isLoadingCommunityNodes,
+  loadingCommunityId,
   activeCommunityId,
   onSelectCommunity,
 }: {
   communities: GraphCommunity[];
   isLoading: boolean;
+  isLoadingCommunityNodes: boolean;
+  loadingCommunityId: string | null;
   activeCommunityId: string | null;
   onSelectCommunity: (communityId: string | null) => void;
 }) {
@@ -429,11 +475,14 @@ function GraphCommunityPanel({
           renderItem={(community) => {
             const label = community.label ?? community.community_key;
             const isActive = community.id === activeCommunityId;
+            const isButtonLoading = loadingCommunityId === community.id;
             return (
               <List.Item>
                 <Button
                   type={isActive ? 'primary' : 'text'}
+                  loading={isButtonLoading}
                   style={{ width: '100%', height: 'auto', textAlign: 'left', whiteSpace: 'normal' }}
+                  disabled={isLoadingCommunityNodes && !isButtonLoading}
                   onClick={() => onSelectCommunity(isActive ? null : community.id)}
                 >
                   <div>

@@ -68,6 +68,11 @@ type RawNeighborsRow = {
   nodes_json?: unknown;
   edges_json?: unknown;
 };
+type RawCommunityNodesRow = {
+  nodes_json?: unknown;
+  edges_json?: unknown;
+  truncated?: boolean | null;
+};
 type RawCommunityRow = Omit<GraphCommunitySummary, 'node_count'> & {
   node_count?: number | string | null;
 };
@@ -80,7 +85,7 @@ const MAX_PATH_RESULTS = 50;
 const MAX_PATH_INTERMEDIATE_ROWS = 500;
 const MAX_NEIGHBOR_RESULTS = 200;
 const MAX_COMMUNITY_RESULTS = 100;
-const MAX_COMMUNITY_NODE_RESULTS = 100;
+const MAX_COMMUNITY_NODE_RESULTS = 200;
 
 export class GraphQueryService {
   constructor(private readonly db: NodePgDatabase) {}
@@ -377,32 +382,92 @@ export class GraphQueryService {
     communityId: string,
     spaceIds: string[],
     activeRunIds: ActiveGraphifyRunIds,
-  ): Promise<GraphQueryNode[]> {
+  ): Promise<{ nodes: GraphQueryNode[]; edges: GraphQueryEdge[]; truncated: boolean }> {
     const activeScope = activeGraphScope(spaceIds, activeRunIds);
     if (communityId.trim().length === 0 || activeScope.spaceIds.length === 0) {
-      return [];
+      return { nodes: [], edges: [], truncated: false };
     }
 
-    const result = await this.db.execute<RawNodeRow>(sql`
+    const result = await this.db.execute<RawCommunityNodesRow>(sql`
+      with matching_nodes as (
+        select
+          id,
+          node_key,
+          stable_key,
+          label,
+          type,
+          space_id,
+          community_id,
+          graphify_run_id,
+          count(*) over () as total_count
+        from graph_nodes
+        where community_id = ${communityId}
+          and space_id = any(${toPgTextArray(activeScope.spaceIds)}::text[])
+          and graphify_run_id = any(${toPgTextArray(activeScope.runIds)}::text[])
+        order by label asc
+        limit ${MAX_COMMUNITY_NODE_RESULTS}
+      ),
+      node_ids as (
+        select id from matching_nodes
+      ),
+      community_edges as (
+        select
+          e.id,
+          e.source_node_id,
+          e.target_node_id,
+          e.relation_type,
+          e.confidence_label,
+          e.effective_confidence_score,
+          e.evidence_count,
+          e.space_id
+        from graph_edges e
+        where e.space_id = any(${toPgTextArray(activeScope.spaceIds)}::text[])
+          and e.graphify_run_id = any(${toPgTextArray(activeScope.runIds)}::text[])
+          and e.source_node_id in (select id from node_ids)
+          and e.target_node_id in (select id from node_ids)
+        order by e.id asc
+      )
       select
-        id,
-        node_key,
-        stable_key,
-        label,
-        type as node_type,
-        null::text as description,
-        space_id,
-        community_id,
-        1 as score
-      from graph_nodes
-      where community_id = ${communityId}
-        and space_id = any(${toPgTextArray(activeScope.spaceIds)}::text[])
-        and graphify_run_id = any(${toPgTextArray(activeScope.runIds)}::text[])
-      order by label asc
-      limit ${MAX_COMMUNITY_NODE_RESULTS}
+        (
+          select coalesce(jsonb_agg(jsonb_build_object(
+            'id', n.id,
+            'node_key', n.node_key,
+            'stable_key', n.stable_key,
+            'label', n.label,
+            'node_type', n.type,
+            'description', null,
+            'space_id', n.space_id,
+            'community_id', n.community_id,
+            'score', 1
+          ) order by n.label asc), '[]'::jsonb)
+          from matching_nodes n
+        ) as nodes_json,
+        (
+          select coalesce(jsonb_agg(jsonb_build_object(
+            'id', e.id,
+            'source_node_id', e.source_node_id,
+            'target_node_id', e.target_node_id,
+            'relation_type', e.relation_type,
+            'confidence_label', e.confidence_label,
+            'effective_confidence_score', e.effective_confidence_score,
+            'evidence_count', e.evidence_count,
+            'space_id', e.space_id
+          ) order by e.id asc), '[]'::jsonb)
+          from community_edges e
+        ) as edges_json,
+        coalesce((select max(total_count) from matching_nodes), 0) > ${MAX_COMMUNITY_NODE_RESULTS} as truncated
     `);
 
-    return rowsFromResult<RawNodeRow>(result).map(toGraphQueryNode);
+    const [row] = rowsFromResult<RawCommunityNodesRow>(result);
+    if (row === undefined) {
+      return { nodes: [], edges: [], truncated: false };
+    }
+
+    return {
+      nodes: parseNodeArray(row.nodes_json).filter((node) => activeScope.spaceIds.includes(node.space_id)),
+      edges: parseEdgeArray(row.edges_json).filter((edge) => activeScope.spaceIds.includes(edge.space_id)),
+      truncated: row.truncated === true,
+    };
   }
 
   async getEvidenceRefs(edgeId: string, spaceIds: string[]): Promise<GraphEvidenceRef[]> {

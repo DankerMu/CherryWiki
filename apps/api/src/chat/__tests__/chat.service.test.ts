@@ -818,7 +818,13 @@ describe('ChatService streamCompletion', () => {
     db.queueExecute([createSearchRow({ id: 'chunk-bm25', score: 0.9 })]);
     db.queueExecute([createGraphNodeRow({ id: 'node-auth', label: 'Auth', community_id: 'community-1', score: 0.9 })]);
     db.queueExecute([createCommunityRow({ id: 'community-1', label: 'Auth Cluster', summary: 'Auth service relationships' })]);
-    db.queueExecute([createGraphNodeRow({ id: 'node-api', label: 'API', community_id: 'community-1', score: 1 })]);
+    db.queueExecute([
+      {
+        nodes_json: [createGraphNodeRow({ id: 'node-api', label: 'API', community_id: 'community-1', score: 1 })],
+        edges_json: [],
+        truncated: false,
+      },
+    ]);
 
     const context = await retrieveContext(
       prepared,
@@ -956,7 +962,7 @@ describe('ChatService streamCompletion', () => {
     db.queueExecute([]);
     db.queueExecute([createGraphNodeRow({ id: 'node-auth', label: 'Auth', community_id: 'community-1', score: 0.9 })]);
     db.queueExecute([createCommunityRow({ id: 'community-1' })]);
-    db.queueExecute([]);
+    db.queueExecute([{ nodes_json: [], edges_json: [], truncated: false }]);
 
     const startedAt = performance.now();
     await retrieveContext(

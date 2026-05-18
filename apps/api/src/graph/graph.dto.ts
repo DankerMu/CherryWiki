@@ -89,10 +89,21 @@ export const graphCommunitiesResponseSchema = z.object({
   communities: z.array(graphCommunityResponseSchema),
 });
 
+export const graphCommunityNodesQuerySchema = z.object({
+  space_id: z.preprocess(singleValue, idSchema),
+});
+
+export const graphCommunityNodesResponseSchema = z.object({
+  nodes: z.array(graphNodeResponseSchema),
+  edges: z.array(graphEdgeResponseSchema),
+  truncated: z.boolean(),
+});
+
 export type GraphNodeSearchQueryDto = z.infer<typeof graphNodeSearchQuerySchema>;
 export type GraphPathRequestDto = z.infer<typeof graphPathRequestSchema>;
 export type GraphNeighborsQueryDto = z.infer<typeof graphNeighborsQuerySchema>;
 export type GraphCommunitiesQueryDto = z.infer<typeof graphCommunitiesQuerySchema>;
+export type GraphCommunityNodesQueryDto = z.infer<typeof graphCommunityNodesQuerySchema>;
 export type GraphNodeResponseDto = z.infer<typeof graphNodeResponseSchema>;
 export type GraphEdgeResponseDto = z.infer<typeof graphEdgeResponseSchema>;
 export type GraphPathResponseDto = z.infer<typeof graphPathResponseSchema>;
@@ -100,6 +111,7 @@ export type GraphSearchResponseDto = z.infer<typeof graphSearchResponseSchema>;
 export type GraphPathListResponseDto = z.infer<typeof graphPathListResponseSchema>;
 export type GraphNeighborsResponseDto = z.infer<typeof graphNeighborsResponseSchema>;
 export type GraphCommunitiesResponseDto = z.infer<typeof graphCommunitiesResponseSchema>;
+export type GraphCommunityNodesResponseDto = z.infer<typeof graphCommunityNodesResponseSchema>;
 
 export function parseGraphNodeSearchQuery(input: unknown): GraphNodeSearchQueryDto {
   return parseDto(graphNodeSearchQuerySchema.safeParse(input));
@@ -115,6 +127,10 @@ export function parseGraphNeighborsQuery(input: unknown): GraphNeighborsQueryDto
 
 export function parseGraphCommunitiesQuery(input: unknown): GraphCommunitiesQueryDto {
   return parseDto(graphCommunitiesQuerySchema.safeParse(input));
+}
+
+export function parseGraphCommunityNodesQuery(input: unknown): GraphCommunityNodesQueryDto {
+  return parseDto(graphCommunityNodesQuerySchema.safeParse(input));
 }
 
 function parseDto<T>(parsed: z.SafeParseReturnType<unknown, T>): T {

@@ -49,6 +49,7 @@ vi.mock('../lib/graphApi', async (importOriginal) => {
     searchGraphNodes: vi.fn(),
     getGraphNeighbors: vi.fn(),
     getGraphCommunities: vi.fn(),
+    getGraphCommunityNodes: vi.fn(),
   };
 });
 
@@ -94,6 +95,7 @@ vi.mock('../pages/graph/GraphCanvas', async (importOriginal) => {
 const searchGraphNodesMock = vi.mocked(graphApi.searchGraphNodes);
 const getGraphNeighborsMock = vi.mocked(graphApi.getGraphNeighbors);
 const getGraphCommunitiesMock = vi.mocked(graphApi.getGraphCommunities);
+const getGraphCommunityNodesMock = vi.mocked(graphApi.getGraphCommunityNodes);
 
 const TEST_USER: AuthUser = {
   id: 'user-1',
@@ -146,6 +148,7 @@ describe('SpaceGraphExplorerPage', () => {
       return Promise.reject(new Error(`Unexpected API path: ${path}`));
     });
     getGraphCommunitiesMock.mockResolvedValue({ communities: [] });
+    getGraphCommunityNodesMock.mockResolvedValue({ nodes: [], edges: [], truncated: false });
     searchGraphNodesMock.mockResolvedValue({ nodes: [], total: 0 });
     getGraphNeighborsMock.mockResolvedValue({ center_node: null, neighbors: [] });
   });
@@ -231,14 +234,22 @@ describe('SpaceGraphExplorerPage', () => {
       ],
       total: 2,
     });
+    getGraphCommunityNodesMock.mockResolvedValue({
+      nodes: [createNode({ id: 'node-a', label: 'OAuth', community_id: 'community-auth' })],
+      edges: [],
+      truncated: false,
+    });
 
     renderPage();
     runSearch('service');
     await screen.findByText('Auth');
     fireEvent.click(screen.getByText('Auth').closest('button')!);
 
-    expect(screen.getByTestId('graph-node-node-a')).toHaveAttribute('data-highlighted', 'true');
-    expect(screen.getByTestId('graph-node-node-b')).toHaveAttribute('data-highlighted', 'false');
+    await waitFor(() => {
+      expect(screen.getByTestId('graph-node-node-a')).toHaveAttribute('data-highlighted', 'true');
+      expect(screen.getByTestId('graph-node-node-b')).toHaveAttribute('data-highlighted', 'false');
+    });
+    expect(getGraphCommunityNodesMock).toHaveBeenCalledWith('community-auth', 'space-1');
   });
 
   it('shows empty state when no graph data is loaded', async () => {
@@ -322,6 +333,7 @@ describe('SpaceGraphExplorerPage', () => {
     expect(await screen.findByText('Access Denied')).toBeInTheDocument();
     expect(apiMocks.get).not.toHaveBeenCalled();
     expect(getGraphCommunitiesMock).not.toHaveBeenCalled();
+    expect(getGraphCommunityNodesMock).not.toHaveBeenCalled();
     expect(searchGraphNodesMock).not.toHaveBeenCalled();
     expect(getGraphNeighborsMock).not.toHaveBeenCalled();
   });

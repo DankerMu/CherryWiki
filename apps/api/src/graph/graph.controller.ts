@@ -4,10 +4,12 @@ import { ErrorCode } from '@cherrygraph/shared';
 
 import {
   parseGraphCommunitiesQuery,
+  parseGraphCommunityNodesQuery,
   parseGraphNeighborsQuery,
   parseGraphNodeSearchQuery,
   parseGraphPathRequest,
   type GraphCommunitiesResponseDto,
+  type GraphCommunityNodesResponseDto,
   type GraphNeighborsResponseDto,
   type GraphPathListResponseDto,
   type GraphSearchResponseDto,
@@ -68,6 +70,21 @@ export class GraphController {
   ): Promise<GraphCommunitiesResponseDto> {
     const user = getAuthenticatedUser(request);
     return this.graphService.getCommunities(parseGraphCommunitiesQuery(query), buildGraphContext(request, user));
+  }
+
+  @Get('communities/:id/nodes')
+  @Permissions('space:read')
+  async getCommunityNodes(
+    @Param('id') communityId: string,
+    @Query() query: Record<string, unknown>,
+    @Req() request: RequestWithAuth,
+  ): Promise<GraphCommunityNodesResponseDto> {
+    const user = getAuthenticatedUser(request);
+    return this.graphService.getCommunityNodes(
+      communityId,
+      parseGraphCommunityNodesQuery(query),
+      buildGraphContext(request, user),
+    );
   }
 }
 

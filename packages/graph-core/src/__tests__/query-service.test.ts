@@ -150,16 +150,24 @@ describe('GraphQueryService', () => {
     const service = new GraphQueryService(
       createQueuedDb([
         [{ id: 'community-1', community_key: 'auth', label: 'Auth', summary: 'Authentication', node_count: '3' }],
-        [createNode({ community_id: 'community-1' })],
+        [
+          {
+            nodes_json: [createNode({ id: 'node-a', community_id: 'community-1' })],
+            edges_json: [createEdge({ id: 'edge-aa', source_node_id: 'node-a', target_node_id: 'node-a' })],
+            truncated: true,
+          },
+        ],
       ]).db,
     );
 
     await expect(service.getCommunities(['space-1'], activeRunIds())).resolves.toEqual([
       { id: 'community-1', community_key: 'auth', label: 'Auth', summary: 'Authentication', node_count: 3 },
     ]);
-    await expect(service.getCommunityNodes('community-1', ['space-1'], activeRunIds())).resolves.toEqual([
-      expect.objectContaining({ community_id: 'community-1' }),
-    ]);
+    await expect(service.getCommunityNodes('community-1', ['space-1'], activeRunIds())).resolves.toEqual({
+      nodes: [expect.objectContaining({ community_id: 'community-1' })],
+      edges: [expect.objectContaining({ id: 'edge-aa' })],
+      truncated: true,
+    });
   });
 
   it('returns evidence refs for the edge to page to source document chain', async () => {

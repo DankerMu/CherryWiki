@@ -22,6 +22,7 @@ describe('GraphController search', () => {
     expect(getMetadata('findPath')).toEqual(['space:read']);
     expect(getMetadata('getNeighbors')).toEqual(['space:read']);
     expect(getMetadata('getCommunities')).toEqual(['space:read']);
+    expect(getMetadata('getCommunityNodes')).toEqual(['space:read']);
   });
 
   it('searches nodes with trigram score and requested space ACL', async () => {
@@ -112,6 +113,91 @@ describe('GraphController search', () => {
       ],
     });
   });
+
+  it('returns community nodes and edges within a requested readable space', async () => {
+    const { controller, db } = createGraphContext();
+    db.queueSelect([createSpaceRow()]);
+    db.queueSelect([createActiveSpaceRow()]);
+    db.queueExecute([
+      {
+        nodes_json: [
+          createGraphNode({ id: 'node-a', label: 'Alpha', community_id: 'community-1' }),
+          createGraphNode({ id: 'node-b', label: 'Beta', community_id: 'community-1' }),
+        ],
+        edges_json: [
+          {
+            id: 'edge-ab',
+            source_node_id: 'node-a',
+            target_node_id: 'node-b',
+            relation_type: 'relates_to',
+            confidence_label: 'EXTRACTED',
+            effective_confidence_score: '0.81',
+            evidence_count: '2',
+            space_id: TEST_SPACE_ID,
+          },
+        ],
+        truncated: false,
+      },
+    ]);
+
+    const result = await controller.getCommunityNodes(
+      'community-1',
+      { space_id: TEST_SPACE_ID },
+      createRequest(),
+    );
+
+    expect(result).toEqual({
+      nodes: [
+        expect.objectContaining({ id: 'node-a', label: 'Alpha', community_id: 'community-1' }),
+        expect.objectContaining({ id: 'node-b', label: 'Beta', community_id: 'community-1' }),
+      ],
+      edges: [
+        {
+          id: 'edge-ab',
+          source_node_id: 'node-a',
+          target_node_id: 'node-b',
+          relationship: 'relates_to',
+          confidence_label: 'EXTRACTED',
+          effective_confidence_score: 0.81,
+          evidence_count: 2,
+          space_id: TEST_SPACE_ID,
+        },
+      ],
+      truncated: false,
+    });
+  });
+
+  it('returns an empty community node response when no active graph is available', async () => {
+    const { controller, db } = createGraphContext();
+    db.queueSelect([createSpaceRow()]);
+    db.queueSelect([]);
+
+    await expect(
+      controller.getCommunityNodes('community-1', { space_id: TEST_SPACE_ID }, createRequest()),
+    ).resolves.toEqual({ nodes: [], edges: [], truncated: false });
+    expect(db.executedQueries).toHaveLength(0);
+  });
+
+  it('passes the community truncation flag through the endpoint response', async () => {
+    const { controller, db } = createGraphContext();
+    db.queueSelect([createSpaceRow()]);
+    db.queueSelect([createActiveSpaceRow()]);
+    db.queueExecute([
+      {
+        nodes_json: [createGraphNode({ id: 'node-a', community_id: 'community-1' })],
+        edges_json: [],
+        truncated: true,
+      },
+    ]);
+
+    await expect(
+      controller.getCommunityNodes('community-1', { space_id: TEST_SPACE_ID }, createRequest()),
+    ).resolves.toEqual({
+      nodes: [expect.objectContaining({ id: 'node-a', community_id: 'community-1' })],
+      edges: [],
+      truncated: true,
+    });
+  });
 });
 
 function createGraphContext(): { controller: GraphController; db: ScriptedDb } {
@@ -139,6 +225,21 @@ function createRequest(spacePermissions: Record<string, string[]> = { [TEST_SPAC
 
 function createActiveSpaceRow() {
   return createSpaceRow({ active_graphify_run_id: 'run-1' });
+}
+
+function createGraphNode(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 'node-1',
+    node_key: 'node-key',
+    stable_key: `${TEST_SPACE_ID}:concept:node`,
+    label: 'Node',
+    node_type: 'concept',
+    description: null,
+    space_id: TEST_SPACE_ID,
+    community_id: null,
+    score: 1,
+    ...overrides,
+  };
 }
 
 type RequestShape = {
