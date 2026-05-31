@@ -14,6 +14,7 @@ import {
   createAuditMock,
   createUserRow,
   getHttpExceptionCode,
+  getHttpExceptionResponse,
   getRejectedHttpException,
 } from '../../users/__tests__/user-group-service-test-utils.js';
 import { ApiTokenGuard } from '../api-token.guard.js';
@@ -72,6 +73,25 @@ describe('ApiTokenService', () => {
 
     expect(result.expires_at).toBeNull();
     expect((db.inserts[0]?.value as Partial<typeof apiTokens.$inferInsert> | undefined)?.expires_at).toBeNull();
+  });
+
+  it('returns validation details when token creation input fails shared schema validation', async () => {
+    const { service } = createServiceContext();
+
+    const err = await getRejectedHttpException(service.createToken({ name: '   ', scopes: [] }, createContext()));
+    const response = getHttpExceptionResponse(err);
+
+    expect(err.getStatus()).toBe(422);
+    expect(response).toMatchObject({
+      code: ErrorCode.VALIDATION_ERROR,
+      message: 'Validation failed',
+    });
+    expect(response?.details).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'name' }),
+        expect.objectContaining({ path: 'scopes' }),
+      ]),
+    );
   });
 
   it('lists tokens without token_hash or raw token fields', async () => {

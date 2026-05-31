@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import {
   JobRepository,
   QueueFactory,
@@ -755,16 +755,14 @@ function hasIssueAtPath(error: ZodError, path: string): boolean {
 }
 
 function throwValidationError(error: ZodError): never {
-  throw new HttpException(
-    {
-      code: ErrorCode.VALIDATION_ERROR,
-      message: 'Validation failed',
-      details: error.issues.map((issue) => ({
-        path: issue.path.join('.'),
-        message: issue.message,
-      })),
-    },
+  throwApiError(
+    ErrorCode.VALIDATION_ERROR,
+    'Validation failed',
     HttpStatus.UNPROCESSABLE_ENTITY,
+    error.issues.map((issue) => ({
+      path: issue.path.join('.'),
+      message: issue.message,
+    })),
   );
 }
 

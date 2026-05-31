@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import {
   ErrorCode,
   mcpInvokeDto,
@@ -600,16 +600,14 @@ function isUniqueViolation(err: unknown, constraint: string): boolean {
 }
 
 function throwValidationError(error: ZodError): never {
-  throw new HttpException(
-    {
-      code: ErrorCode.VALIDATION_ERROR,
-      message: 'Validation failed',
-      details: error.issues.map((issue) => ({
-        path: issue.path.join('.'),
-        message: issue.message,
-      })),
-    },
+  throwApiError(
+    ErrorCode.VALIDATION_ERROR,
+    'Validation failed',
     HttpStatus.UNPROCESSABLE_ENTITY,
+    error.issues.map((issue) => ({
+      path: issue.path.join('.'),
+      message: issue.message,
+    })),
   );
 }
 

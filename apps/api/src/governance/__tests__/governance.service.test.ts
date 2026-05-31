@@ -16,6 +16,7 @@ import {
   TEST_USER_ID,
   createAuditMock,
   getHttpExceptionCode,
+  getHttpExceptionResponse,
   getRejectedHttpException,
 } from '../../users/__tests__/user-group-service-test-utils.js';
 import { GovernanceService } from '../governance.service.js';
@@ -161,6 +162,26 @@ describe('GovernanceService', () => {
 
     expect(err.getStatus()).toBe(400);
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.INVALID_CONFIDENCE_SCORE);
+  });
+
+  it('returns validation details for governance review schema errors', async () => {
+    const { service } = createServiceContext();
+
+    const err = await getRejectedHttpException(
+      service.reviewEdge('edge-1', { action: 'reject' }, createContext()),
+    );
+    const response = getHttpExceptionResponse(err);
+
+    expect(err.getStatus()).toBe(422);
+    expect(response).toMatchObject({
+      code: ErrorCode.VALIDATION_ERROR,
+      message: 'Validation failed',
+    });
+    expect(response?.details).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'reason' }),
+      ]),
+    );
   });
 
   it('lists duplicate page suggestions from trigram query rows', async () => {

@@ -16,6 +16,7 @@ import {
   TEST_USER_ID,
   createAuditMock,
   getHttpExceptionCode,
+  getHttpExceptionResponse,
   getRejectedHttpException,
 } from '../../users/__tests__/user-group-service-test-utils.js';
 import { FeedbackService } from '../feedback.service.js';
@@ -114,6 +115,12 @@ describe('FeedbackService', () => {
 
     expect(err.getStatus()).toBe(422);
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.VALIDATION_ERROR);
+    expect(getHttpExceptionResponse(err)).toMatchObject({
+      message: 'Validation failed',
+      details: expect.arrayContaining([
+        expect.objectContaining({ path: 'feedback_type' }),
+      ]) as unknown[],
+    });
   });
 
   it('resolves open feedback and writes the resolution note', async () => {

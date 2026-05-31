@@ -195,28 +195,28 @@ Issue #412 fixture:
   - Legacy compatibility / examples: not selected - no legacy sample/runtime behavior changes
   - Release / packaging / dependency compatibility: not selected - no package metadata or dependency changes
 - Invariant Matrix:
-  - Governing invariant: after #412, every API helper-thrown error in `apps/api/src/**` must use the common API helper and emit the same client-facing status, code, message, optional details behavior, and `meta.request_id`; only the helper source changes.
+  - Governing invariant: after #412, every representable API helper-thrown error in the migrated `apps/api/src/**` surfaces must use the common API helper and emit the same client-facing status, code, message, optional details behavior, and `meta.request_id`; only the helper source changes. Explicit compatibility exception: upload synchronous security rejection preserves the legacy top-level `error_code` alias alongside `code`, so `uploads.service.ts::throwSecurityValidationError` remains a direct `HttpException` producer until the common helper intentionally supports compatibility aliases.
   - Source-of-truth identity/contract: `packages/shared/src/errors.ts::ErrorCode`, `apps/api/src/common/errors/api-error.ts`, and `apps/api/src/common/filters/http-exception.filter.ts` response envelope.
-  - Producers: remaining local helper call sites in `groups`, `models`, `mcp`, `feedback`, `api-tokens`, `governance`, `audit`, `admin/index`, `admin/proposals`, `users`, `spaces`, `uploads`, `graph`, and `internal/jobs`.
-  - Validators/preflight: targeted API domain tests, common helper/filter tests established by #410, #411 core-domain tests, and scan commands for local helper definitions/string-code misuse.
+  - Producers: remaining local helper call sites in `groups`, `models`, `mcp`, `feedback`, `api-tokens`, `governance`, `audit`, `admin/index`, `admin/proposals`, `users`, `spaces`, representable `uploads` errors, `graph`, and `internal/jobs`; upload security rejection is a documented compatibility exception because clients may depend on both `code` and `error_code`.
+  - Validators/preflight: targeted API domain tests, common helper/filter tests established by #410, #411 core-domain tests, and scan commands for local helper definitions/string-code misuse plus the upload compatibility `error_code` evidence scan.
   - Storage/cache/query: unchanged - no DB/cache schema, Drizzle migration, query predicate, repository behavior, or persistence shape changes.
   - Public routes/entrypoints: existing Admin, Groups, Models, MCP, Feedback, API tokens, Governance, Audit, Users, Spaces, Uploads, Graph, and Internal Jobs REST/internal endpoints.
   - Frontend/downstream consumers: unchanged clients consuming `{ error: { code, message, details? }, meta: { request_id } }`; worker/internal consumers and job DTO consumers keep existing codes/messages.
   - Failure paths/rollback/stale state: representative 400/401/403/404/409/413/422/429/500/502 paths keep status/code/message; upload/security and worker partial-output behavior remain untouched; existing 5xx sanitization remains owned by `HttpExceptionFilter`.
-  - Evidence/audit/readiness: OpenSpec fixture, targeted Vitest commands for touched domains, full API test, API typecheck/lint, scans proving no non-common local helper remains, and progress update.
+  - Evidence/audit/readiness: OpenSpec fixture, targeted Vitest commands for touched domains, full API test, API typecheck/lint, scans proving no non-common local helper remains except documented compatibility exceptions, and progress update.
   - Regression rows:
     - Groups/Users/Spaces invalid sort, not-found, permission, conflict, and validation paths -> same 403/404/409/422 status, code, and message as before helper migration
     - Models invalid sort, duplicate model, secret/model not found, missing embedding limit, and validation paths -> same 404/409/422 status, code, message, and no unexpected details
-    - MCP auth, policy denied, not-found, conflict, rate-limit, timeout/server-error paths -> same 401/403/404/409/429/502 status, shared `ErrorCode`, and message
-    - Feedback/Governance/Admin proposals/Admin index/Audit invalid query, not-found, conflict, unauthenticated, and Redis/internal-error paths -> same status, code, message, and 5xx sanitization behavior
-    - Upload and Internal Jobs validation/security/not-found/conflict/payload-too-large/internal-error paths -> same status, code, message, details behavior, and no change to file IO, SSRF/security, worker partial-output, or job lifecycle side effects
+    - MCP auth, policy denied, not-found, conflict, rate-limit, timeout/server-error paths -> same 401/403/404/409/429/502 status, shared `ErrorCode`, and message; shared-schema validation paths preserve 422 `VALIDATION_ERROR`, `Validation failed`, and details through the common helper
+    - API tokens/Feedback/Governance/Admin proposals/Admin index/Audit invalid query, not-found, conflict, unauthenticated, and Redis/internal-error paths -> same status, code, message, validation details, and 5xx sanitization behavior
+    - Upload and Internal Jobs validation/security/not-found/conflict/payload-too-large/internal-error paths -> same status, code, message, details behavior, and no change to file IO, SSRF/security, worker partial-output, or job lifecycle side effects; upload synchronous security rejection explicitly preserves both `code` and legacy `error_code`
     - Graph unauthenticated and missing-space paths -> same 401/404 status, code, and message
-    - Scan of all API source -> no `function throwApiError`/`const throwApiError` definitions outside `apps/api/src/common/errors/api-error.ts` and no raw string-code `throwApiError('...')` calls
+    - Scan of all API source -> no `function throwApiError`/`const throwApiError` definitions outside `apps/api/src/common/errors/api-error.ts`, no raw string-code `throwApiError('...')` calls, and upload `error_code` occurrences are limited to documented compatibility payload/evidence surfaces
 - Boundary-surface checklist:
   - Shared helper roots: `apps/api/src/common/errors/api-error.ts` and `apps/api/src/common/filters/http-exception.filter.ts` remain the only helper/filter contract roots
   - Public entrypoints: Admin, Groups, Models, MCP, Feedback, API tokens, Governance, Audit, Users, Spaces, Uploads, Graph, and Internal Jobs routes/controllers/services
   - Read/write surfaces: validation, permission, not-found, conflict, upload/security, worker/internal completion/failure branches only; no persistence semantics change
-  - Producer/consumer evidence boundaries: #410 inventory -> #412 migration scope -> final `rg` scan proving inventory closure
+  - Producer/consumer evidence boundaries: #410 inventory -> #412 migration scope -> final `rg` scan proving inventory closure, plus upload compatibility scan proving the retained `error_code` alias is explicit
   - Stale-state/idempotency boundaries: existing conflict/idempotency/active-job branches in admin index, spaces, uploads, internal jobs, and MCP remain unchanged
   - Unchanged downstream consumers: Web/API clients, workers, tests, and job DTO consumers relying on shared `ErrorCode` response/payload fields
 - Required evidence:
@@ -226,13 +226,14 @@ Issue #412 fixture:
   - `pnpm --filter @cherrygraph/api lint`
   - `rg -n "function throwApiError|const throwApiError" apps/api/src` returns only `apps/api/src/common/errors/api-error.ts`
   - `rg -n "throwApiError\\(['\\\"]" apps/api/src` returns no matches
+  - `rg -n "function throwSecurityValidationError|error_code" apps/api/src/uploads apps/api/src/uploads/__tests__` shows only the documented upload security compatibility producer and focused assertions
   - `openspec validate entropy-governance --strict --no-interactive`
 - Non-goals: Chat/Wiki/Graphify/Jobs core-domain migration already completed in #411, structural service decomposition, route/DTO/schema/SSE changes, new error codes, changing helper/filter implementation, broad formatting churn, Docker/env/dependency changes, or any changes inside `external/*`
 
 - [x] 2.7 Issue #412: migrate all remaining API-local `throwApiError` helper definitions to the common API helper without changing client-facing error behavior.
-  - Verification: `rg -n "function throwApiError|const throwApiError" apps/api/src` returns only `apps/api/src/common/errors/api-error.ts:6`; `rg -n "throwApiError\\(['\\\"]" apps/api/src` returns no matches.
+  - Verification: `rg -n "function throwApiError|const throwApiError" apps/api/src` returns only `apps/api/src/common/errors/api-error.ts:6`; `rg -n "throwApiError\\(['\\\"]" apps/api/src` returns no matches. Round 1 closure migrated representable Zod `throwValidationError` helpers in API tokens, Feedback, Governance, and MCP to the common helper while preserving 422 `VALIDATION_ERROR` details. Upload `throwSecurityValidationError` remains a documented compatibility exception because it preserves both `code` and legacy `error_code`.
 - [x] 2.8 Issue #412: run supporting/admin/config/upload/internal targeted tests plus API typecheck/lint/OpenSpec validation and record final helper inventory closure evidence.
-  - Verification: #412 targeted Vitest suite 19 files / 224 tests passed; `pnpm --filter @cherrygraph/api test` 213 files passed / 1 skipped and 1454 tests passed / 1 skipped; API typecheck/lint and `openspec validate entropy-governance --strict --no-interactive` passed.
+  - Verification: #412 targeted Vitest suite 19 files / 224 tests passed; `pnpm --filter @cherrygraph/api test` 213 files passed / 1 skipped and 1454 tests passed / 1 skipped; API typecheck/lint and `openspec validate entropy-governance --strict --no-interactive` passed. Round 1 closure adds focused tests/evidence for API token, Feedback, Governance, MCP validation details and upload security `code`/`error_code` compatibility.
 
 ## 3. API Chat Backend Boundary
 

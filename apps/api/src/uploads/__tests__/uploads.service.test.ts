@@ -10,6 +10,7 @@ import {
   ScriptedDb,
   createUniqueViolation,
   getHttpExceptionCode,
+  getHttpExceptionResponse,
   getRejectedHttpException,
 } from '../../users/__tests__/user-group-service-test-utils.js';
 import { ArchivePathHelper, type StorageService } from '../../storage/storage.service.js';
@@ -268,7 +269,7 @@ describe('UploadsService', () => {
     expect(storage.uploadToQuarantine).not.toHaveBeenCalled();
   });
 
-  it('returns 422 and records rejection when synchronous validation rejects a disguised binary upload', async () => {
+  it('returns 422 with code and legacy error_code when synchronous validation rejects a disguised binary upload', async () => {
     const { service, db, storage, sourceDocuments } = createServiceContext({ validation: 'real' });
     db.queueSelect([{ id: TEST_SPACE_ID }]);
 
@@ -286,8 +287,11 @@ describe('UploadsService', () => {
     );
 
     expect(err.getStatus()).toBe(422);
-    expect(getHttpExceptionCode(err)).toBe(ErrorCode.MIME_MISMATCH);
-    expect(getHttpExceptionErrorCode(err)).toBe(ErrorCode.MIME_MISMATCH);
+    expect(getHttpExceptionResponse(err)).toMatchObject({
+      code: ErrorCode.MIME_MISMATCH,
+      error_code: ErrorCode.MIME_MISMATCH,
+      message: expect.any(String) as string,
+    });
     expect(sourceDocuments.rows[0]).toMatchObject({
       status: 'security_rejected',
       metadata_json: {
@@ -902,19 +906,6 @@ function createUploadedFile(
 
 function sha256Hex(buffer: Buffer): string {
   return createHash('sha256').update(buffer).digest('hex');
-}
-
-function getHttpExceptionErrorCode(err: unknown): unknown {
-  if (!(err instanceof Error) || !('getResponse' in err) || typeof (err as Record<string, unknown>).getResponse !== 'function') {
-    return undefined;
-  }
-
-  const response = ((err as Record<string, unknown>).getResponse as () => unknown)();
-  if (typeof response !== 'object' || response === null || !('error_code' in response)) {
-    return undefined;
-  }
-
-  return (response as Record<string, unknown>).error_code;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
