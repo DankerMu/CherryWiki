@@ -1272,6 +1272,35 @@ describe('ChatService streamCompletion', () => {
     expect(context.results.map((result) => result.spaceId)).toEqual(['space-a', 'space-b']);
   });
 
+  it.each([
+    ['missing model row', []],
+    [
+      'model row without a usable API key',
+      [createModelRow({ id: 'embedding-model', model_type: 'embedding', encrypted_api_key_ref: null })],
+    ],
+  ])('throws 422 when an activated snapshot references an unusable embedding model: %s', async (_label, modelRows) => {
+    const { service, db, embeddingFactory } = createServiceContext({
+      embeddingProvider: new ScriptedEmbeddingProvider([[0.1, 0.2, 0.3]]),
+    });
+    const retrieveContext = bindRetrieveContext(service);
+    db.queueSelect(modelRows);
+
+    const err = await getRejectedHttpException(
+      retrieveContext(
+        createPreparedCompletion(),
+        [{ spaceId: TEST_SPACE_ID, snapshot: createSnapshotRow({ embedding_model_id: 'embedding-model' }) }],
+      ),
+    );
+
+    expect(err.getStatus()).toBe(422);
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.NO_EMBEDDING_MODEL_CONFIGURED);
+    expect(getHttpExceptionResponse(err)).toEqual({
+      code: ErrorCode.NO_EMBEDDING_MODEL_CONFIGURED,
+      message: 'No embedding model configured for activated index snapshot',
+    });
+    expect(embeddingFactory).not.toHaveBeenCalled();
+  });
+
   it('graph_rag retrieveContext records graph candidates and uses three-source fusion for wiki ranking', async () => {
     const { service, db } = createServiceContext({
       embeddingProvider: new ScriptedEmbeddingProvider([[0.1, 0.2, 0.3]]),

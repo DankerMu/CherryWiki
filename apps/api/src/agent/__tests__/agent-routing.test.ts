@@ -8,7 +8,7 @@ vi.mock('node:child_process', () => ({
   spawn: vi.fn(),
 }));
 
-import type { AgentService } from '../agent.service.js';
+import { AgentSessionBusyError, type AgentService } from '../agent.service.js';
 import type { AuditService } from '../../audit/audit.service.js';
 import { ChatService } from '../../chat/chat.service.js';
 import {
@@ -144,6 +144,74 @@ describe('Agent routing', () => {
     expect(db.executedQueries).toHaveLength(0);
   });
 
+  it('keeps single-space database requests on static RAG when database config is not visible', async () => {
+    const agent = createAgentServiceMock([
+      { type: 'message.delta', delta: 'agent should not run' },
+      { type: 'message.completed', usage: { input_tokens: 4, output_tokens: 2 } },
+    ]);
+    const { service, db, chatFactory, embeddingFactory } = createService(agent);
+    queuePreparedAgentCompletion(db, createSpaceRow({ database_config: { enabled: false } }));
+    db.queueSelect([]);
+    db.queueInsert([createMessageRow({ id: 'assistant-no-hit', role: 'assistant' })]);
+
+    const events = await collectAsync(
+      await service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: TEST_SPACE_ID,
+        userId: TEST_USER_ID,
+        userGroupIds: [],
+        message: 'query orders',
+        enableDatabase: true,
+      }),
+    );
+
+    expect(agent.sendTurn).not.toHaveBeenCalled(); // eslint-disable-line @typescript-eslint/unbound-method
+    expect(chatFactory).not.toHaveBeenCalled();
+    expect(embeddingFactory).not.toHaveBeenCalled();
+    expect(db.executedQueries).toHaveLength(0);
+    expect(events.map((event) => event.type)).toEqual(['session', 'content', 'citations', 'usage', 'message.completed']);
+    expect(events.some((event) => 'database_mode' in event)).toBe(false);
+    expect([...db.inserts].reverse().find((insert) => insert.table === chatMessages)?.value).toMatchObject({
+      metadata_json: { source: 'no_hit' },
+    });
+  });
+
+  it('disables database dispatch for single-space Agent turns when the database config is not visible', async () => {
+    const agent = createAgentServiceMock([
+      { type: 'message.delta', delta: 'agent answer' },
+      { type: 'message.completed', usage: { input_tokens: 4, output_tokens: 2 } },
+    ]);
+    const { service, db } = createService(agent);
+    queuePreparedAgentCompletion(db, createSpaceRow({ database_config: { enabled: false } }));
+
+    const events = await collectAsync(
+      await service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: TEST_SPACE_ID,
+        userId: TEST_USER_ID,
+        userGroupIds: [],
+        message: 'run a deep analysis over orders',
+        enableDeepAnalysis: true,
+        enableDatabase: true,
+      }),
+    );
+
+    expect(agent.sendTurn).toHaveBeenCalledWith( // eslint-disable-line @typescript-eslint/unbound-method
+      'session-1',
+      TEST_SPACE_ID,
+      'run a deep analysis over orders',
+      expect.objectContaining({
+        enableDatabase: false,
+      }),
+    );
+    const options = (agent.sendTurn as ReturnType<typeof vi.fn>).mock.calls[0]?.[3] as { databaseConfig?: unknown } | undefined;
+    expect(options).not.toHaveProperty('databaseConfig');
+    expect(events.at(-1)).toEqual({ type: 'message.completed' });
+    expect([...db.inserts].reverse().find((insert) => insert.table === chatMessages)?.value).toMatchObject({
+      metadata_json: { source: 'agent', database_mode: 'disabled' },
+    });
+  });
+
   it('passes all selected Spaces and disables database mode for multi-space turns', async () => {
     const agent = createAgentServiceMock([
       { type: 'message.delta', delta: 'agent answer' },
@@ -214,6 +282,30 @@ describe('Agent routing', () => {
       { type: 'error', code: 'process_error', message: 'Claude failed' },
     ]);
   });
+
+  it('maps AgentSessionBusyError to the public chat SSE busy error', async () => {
+    const agent = createAgentServiceMock([]);
+    const busyError = new AgentSessionBusyError('session-1');
+    agent.sendTurn = vi.fn(() => toThrowingAsyncIterable<ChatAgentEvent>(busyError));
+    const { service, db } = createService(agent);
+    queuePreparedAgentCompletion(db);
+
+    const events = await collectAsync(
+      await service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: TEST_SPACE_ID,
+        userId: TEST_USER_ID,
+        userGroupIds: [],
+        message: 'run a deep analysis',
+        enableDeepAnalysis: true,
+      }),
+    );
+
+    expect(events).toEqual([
+      { type: 'session', session_id: 'session-1' },
+      { type: 'error', code: 'agent_session_busy', message: 'Agent session session-1 is busy with another turn' },
+    ]);
+  });
 });
 
 function createService(agentService: AgentService): {
@@ -268,6 +360,10 @@ async function* toAsyncIterable<T>(items: T[]): AsyncGenerator<T> {
   for (const item of items) {
     yield item;
   }
+}
+
+async function* toThrowingAsyncIterable<T>(error: Error): AsyncGenerator<T> {
+  yield await Promise.reject(error);
 }
 
 function createSessionRow(overrides: Partial<ChatSessionRow> = {}): ChatSessionRow {
