@@ -238,9 +238,73 @@ Issue #412 fixture:
 
 ## 3. API Chat Backend Boundary
 
-- [ ] 3.1 Add or strengthen characterization tests for Chat session lifecycle, multi-space scope validation, and permission rejection before extracting session/scope code.
+Issue #413 fixture:
+- Issue type: refactor / boundary extraction
+- Project profile: other
+- Blast radius: high
+- Fixture level: expanded
+- Repair intensity: high
+- Change surface: `apps/api/src/chat/**` session lifecycle, multi-space scope normalization, session-space membership queries, and service-level `chat:use` permission checks; `ChatService` remains the public service consumed by `ChatController`
+- Must preserve: existing REST/SSE routes, request/response DTO shape, `chat_sessions` and `chat_session_spaces` schema/query semantics, session membership order, session title/update timestamps, HTTP status, `ErrorCode` values, error messages, no-write-before-permission behavior, and controller metadata/guards
+- Must add/change: strengthen characterization tests for create/list/get/update/delete session behavior and boundary failures; extract session/scope/permission responsibilities into a focused backend collaborator; wire the collaborator without moving retrieval/rerank, model/provider routing, Agent dispatch, persistence/SSE shaping, route, DTO, or schema behavior
+- Selected risk packs:
+  - Public API / CLI / script entry: selected - existing Chat REST and SSE session entrypoints must keep route behavior and event compatibility
+  - Schema / columns / units / field names: selected - `chat_sessions.space_id` and `chat_session_spaces.{session_id,space_id,position}` semantics are a DB-backed API contract even though schema is unchanged
+  - Resource limits / large input / discovery: selected - `space_ids` empty, duplicate, and over-limit handling must remain bounded and stable
+  - Error handling / rollback / partial outputs: selected - scope and permission failures must preserve status/code/message and avoid partial session/message/membership writes
+  - Documentation / migration notes: selected - this fixture records the session/scope boundary for dependent Chat backend extraction issues
+- Risk packs considered:
+  - Config / project setup: not selected - no runtime env, Docker, dependency, or Nest module setup change beyond normal provider wiring
+  - File IO / path safety / overwrite: not selected - no filesystem reads/writes or artifact path behavior changes
+  - Geospatial / CRS / shapefile sidecars: not selected - no geospatial code changes
+  - Time series / forcing / temporal boundaries: not selected - no temporal data behavior changes beyond preserving existing timestamps
+  - Numerical stability / conservation / NaN: not selected - no numerical code changes
+  - Solver runtime / performance / threading: not selected - no solver/runtime/threading code changes
+  - Legacy compatibility / examples: not selected - no legacy sample/runtime behavior changes
+  - Release / packaging / dependency compatibility: not selected - no package metadata or dependency changes
+- Invariant Matrix:
+  - Governing invariant: Chat session/scope/permission refactoring must preserve the end-to-end session identity and authorized space scope before any session, membership, message, or stream side effect is written or exposed.
+  - Source-of-truth identity/contract: `chat_sessions.id`, `chat_sessions.tenant_id`, `chat_sessions.user_id`, `chat_sessions.space_id`, ordered `chat_session_spaces.position`, `spaces.tenant_id`, `space_permissions`, `group_members`, `ROLE_PERMISSIONS`, and shared `ErrorCode` values.
+  - Producers: `ChatService.createSession`, `streamCompletion`, `resolveSession`, and the new session/scope collaborator that creates or resolves sessions and membership rows.
+  - Validators/preflight: `normalizeSpaceScope`, `requireSpace(s)`, `assertChatUseOnSpaces`, controller `@Permissions('chat:use')` metadata, and Chat service tests.
+  - Storage/cache/query: existing Drizzle reads/writes for `chat_sessions`, `chat_session_spaces`, `spaces`, `group_members`, and `space_permissions`; no migration or query-result shape change.
+  - Public routes/entrypoints: `POST /api/chat/completions`, `GET /api/spaces/:spaceId/chat/sessions`, `GET/PATCH/DELETE /api/spaces/:spaceId/chat/sessions/:sessionId`.
+  - Frontend/downstream consumers: unchanged Web Chat session list/detail/update/delete flows and SSE consumers relying on the first `session` event.
+  - Failure paths/rollback/stale state: empty scope, over-limit `space_ids`, mismatched primary `space_id`, non-empty duplicate `space_ids` dedupe compatibility, missing spaces, unauthorized spaces, cross-user sessions, non-member spaces, revoked permissions, and stale stored session membership.
+  - Evidence/audit/readiness: targeted Chat service tests, API typecheck/lint, OpenSpec strict validation, and diff review showing retrieval/rerank/model/Agent/persistence/SSE concerns remain out of this slice.
+  - Regression rows:
+    - create session with one or more authorized spaces -> same `chat_sessions` row, ordered `chat_session_spaces` membership, response `space_ids`, and first SSE `session` event behavior
+    - list/get/delete session from a member space -> same included/excluded sessions, detail messages, cascade delete call, and response shape
+    - update session spaces with valid authorized scope -> same membership replacement order, returned `space_details`, and no route/DTO/schema change
+    - duplicate requested scope such as `space_ids=['space-a','space-a','space-b']` -> success with ordered deduped scope `['space-a','space-b']`, no validation error, and membership rows written once per resolved space
+    - explicit empty scope `space_ids=[]` -> 400 `VALIDATION_ERROR` with message `space_ids must not be empty when provided` and no partial membership/message writes
+    - missing implicit/normalized scope `{}` -> 400 `VALIDATION_ERROR` with message `At least one Space is required` and no partial membership/message writes
+    - over-limit scope with more than 10 entries -> 400 `VALIDATION_ERROR` with message `At most 10 Spaces can be selected` and no partial membership/message writes
+    - mismatched primary/requested scope such as `space_id='space-c'` with `space_ids=['space-a','space-b']` -> 400 `VALIDATION_ERROR` with message `space_id must be included in space_ids` and no partial membership/message writes
+    - missing requested space -> 404 `SPACE_NOT_FOUND` with message `Space not found` and no session/message/membership writes before permission success
+    - unauthorized or revoked requested/member space -> 403 `PERMISSION_DENIED` with message `Permission denied` and no session/message/membership writes before permission success
+    - cross-user session access -> 403 `PERMISSION_DENIED` with message `Cannot access another user chat session`
+    - non-member session space access -> 404 `SESSION_NOT_FOUND` with message `Chat session was not found`
+    - nonexistent `session_id` in get/update/delete or stream continuation -> 404 `SESSION_NOT_FOUND` with message `Chat session was not found` and no membership/message writes
+    - deleting an existing session -> deletes the DB session, calls `AgentService.close(session.id)`, returns `{ deleted: true }`, and `AgentService.close` failure remains non-fatal
+    - stream continuation with stored multi-space membership -> requested mismatched scope does not replace stored membership; downstream retrieval/model/Agent behavior remains unchanged in this issue
+- Boundary-surface checklist:
+  - Public entrypoints: Chat REST session endpoints and `POST /api/chat/completions`
+  - Read surfaces: session lookup, session-space membership lookup, list pagination, space lookup, role/group permission lookup
+  - Write/delete surfaces: session creation, session-space membership insertion/replacement, session deletion, and stream message insertion only after session/scope permission succeeds
+  - Stale-state/idempotency boundaries: existing session continuation, stored membership reuse, revoked permission rejection, and cross-user/non-member session rejection
+  - Unchanged downstream consumers: `ChatController`, Web Chat API callers, retrieval/rerank/model/Agent/persistence/SSE code paths not extracted in #413
+- Required evidence:
+  - `pnpm exec vitest run apps/api/src/chat/__tests__/chat.service.test.ts --config vitest.config.ts --passWithNoTests=false`
+  - `pnpm --filter @cherrygraph/api typecheck`
+  - `pnpm --filter @cherrygraph/api lint`
+  - `pnpm --filter @cherrygraph/api test`
+  - `openspec validate entropy-governance --strict --no-interactive`
+- Non-goals: retrieval/rerank extraction (#414), model/provider and Agent routing extraction (#415), persistence/SSE shaping extraction (#416), Web changes, route/DTO/schema changes, new error codes, broad formatting churn, Docker/env/dependency changes, or any changes inside `external/*`
+
+- [x] 3.1 Add or strengthen characterization tests for Chat session lifecycle, multi-space scope validation, and permission rejection before extracting session/scope code.
   - Verification: targeted `apps/api/src/chat/__tests__/chat.service.test.ts` scenarios pass and assert unchanged error code/status behavior.
-- [ ] 3.2 Extract Chat session/scope/permission responsibilities from `apps/api/src/chat/chat.service.ts` into a focused backend collaborator while preserving controller behavior.
+- [x] 3.2 Extract Chat session/scope/permission responsibilities from `apps/api/src/chat/chat.service.ts` into a focused backend collaborator while preserving controller behavior.
   - Verification: Chat session list/get/update/delete and stream request session creation tests pass.
 - [ ] 3.3 Add or strengthen characterization tests for static retrieval, graph context, RRF fusion, rerank fallback, strict/no-hit behavior, and retrieval trace metadata.
   - Verification: targeted Chat retrieval/rerank tests pass, including non-fatal rerank fallback.
