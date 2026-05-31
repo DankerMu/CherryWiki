@@ -114,7 +114,7 @@ export class AdminIndexService {
       .limit(1);
 
     if (trace === undefined) {
-      throwApiError('RETRIEVAL_TRACE_NOT_FOUND', 'Retrieval trace not found', HttpStatus.NOT_FOUND);
+      throwApiError(ErrorCode.RETRIEVAL_TRACE_NOT_FOUND, 'Retrieval trace not found', HttpStatus.NOT_FOUND);
     }
 
     return trace;
@@ -177,7 +177,7 @@ export class AdminIndexService {
       .limit(1);
 
     if (existing !== undefined) {
-      throwApiError('REBUILD_ALREADY_RUNNING', 'An index rebuild is already running for this space', HttpStatus.CONFLICT);
+      throwApiError(ErrorCode.REBUILD_ALREADY_RUNNING, 'An index rebuild is already running for this space', HttpStatus.CONFLICT);
     }
   }
 
@@ -270,12 +270,12 @@ function normalizeScope(scope: string | undefined): string {
   }
 
   if (!VALID_REBUILD_SCOPES.has(normalized)) {
-    throwApiError('INVALID_SCOPE', `Invalid rebuild scope: ${normalized}. Must be 'full' or 'incremental'.`, HttpStatus.BAD_REQUEST);
+    throwApiError(ErrorCode.INVALID_SCOPE, `Invalid rebuild scope: ${normalized}. Must be 'full' or 'incremental'.`, HttpStatus.BAD_REQUEST);
   }
 
   return normalized;
 }
 
-function throwApiError(code: ErrorCode | string, message: string, status: HttpStatus): never {
+function throwApiError(code: ErrorCode, message: string, status: HttpStatus): never {
   throw new HttpException({ code, message }, status);
 }

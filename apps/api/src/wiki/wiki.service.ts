@@ -517,7 +517,12 @@ export class WikiService {
     }
 
     await this.requirePage(tenantId, spaceId, pageId);
-    await this.assertNoBuildingSnapshot(tenantId, spaceId, 'REINDEX_ALREADY_RUNNING', 'A reindex job is already running for this space');
+    await this.assertNoBuildingSnapshot(
+      tenantId,
+      spaceId,
+      ErrorCode.REINDEX_ALREADY_RUNNING,
+      'A reindex job is already running for this space',
+    );
 
     const job = await JobRepository.create(this.db, {
       tenant_id: tenantId,
@@ -677,7 +682,7 @@ export class WikiService {
   private async assertNoBuildingSnapshot(
     tenantId: string,
     spaceId: string,
-    code: string,
+    code: ErrorCode,
     message: string,
   ): Promise<void> {
     const [existing] = await this.db
@@ -1124,6 +1129,6 @@ function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, '\\$&');
 }
 
-function throwApiError(code: ErrorCode | string, message: string, status: HttpStatus): never {
+function throwApiError(code: ErrorCode, message: string, status: HttpStatus): never {
   throw new HttpException({ code, message }, status);
 }

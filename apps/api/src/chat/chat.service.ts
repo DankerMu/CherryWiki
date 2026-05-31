@@ -1247,7 +1247,7 @@ export class ChatService {
     }
   }
 
-  private async resolveEnabledModel(tenantId: string, modelType: 'chat' | 'embedding', missingCode: string): Promise<ModelConfigRow> {
+  private async resolveEnabledModel(tenantId: string, modelType: 'chat' | 'embedding', missingCode: ErrorCode): Promise<ModelConfigRow> {
     const [model] = await this.db
       .select()
       .from(model_configs)
@@ -1287,7 +1287,7 @@ export class ChatService {
       .limit(1);
 
     if (model === undefined || model.encrypted_api_key_ref === null) {
-      throwApiError('NO_EMBEDDING_MODEL_CONFIGURED', 'No embedding model configured for activated index snapshot', HttpStatus.UNPROCESSABLE_ENTITY);
+      throwApiError(ErrorCode.NO_EMBEDDING_MODEL_CONFIGURED, 'No embedding model configured for activated index snapshot', HttpStatus.UNPROCESSABLE_ENTITY);
     }
 
     return model;
@@ -2061,7 +2061,7 @@ function toChatProviderConfig(model: ModelConfigRow): ChatProviderConfig {
 
 function toEmbeddingProviderConfig(model: ModelConfigRow): EmbeddingProviderConfig {
   if (model.encrypted_api_key_ref === null) {
-    throwApiError('NO_EMBEDDING_MODEL_CONFIGURED', 'No enabled embedding model configured', HttpStatus.UNPROCESSABLE_ENTITY);
+    throwApiError(ErrorCode.NO_EMBEDDING_MODEL_CONFIGURED, 'No enabled embedding model configured', HttpStatus.UNPROCESSABLE_ENTITY);
   }
 
   return {
@@ -2353,6 +2353,6 @@ function emptyUsage(): ChatUsage {
   };
 }
 
-function throwApiError(code: ErrorCode | string, message: string, status: HttpStatus): never {
+function throwApiError(code: ErrorCode, message: string, status: HttpStatus): never {
   throw new HttpException({ code, message }, status);
 }

@@ -2,7 +2,7 @@ import { HttpException } from '@nestjs/common';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { describe, expect, it } from 'vitest';
 
-import { wikiPages, wikiUpdateProposals } from '@cherrygraph/shared';
+import { ErrorCode, wikiPages, wikiUpdateProposals } from '@cherrygraph/shared';
 
 import { ProposalController } from '../proposals/proposal.controller.js';
 import { ProposalService } from '../proposals/proposal.service.js';
@@ -85,7 +85,7 @@ describe('ProposalController', () => {
     const err = await getRejectedHttpException(controller.resolveProposal('proposal-1', { action: 'reject' }));
 
     expect(err.getStatus()).toBe(409);
-    expect(err.getResponse()).toMatchObject({ code: 'PROPOSAL_ALREADY_RESOLVED' });
+    expect(err.getResponse()).toMatchObject({ code: ErrorCode.PROPOSAL_ALREADY_RESOLVED });
     expect(db.proposalUpdates).toHaveLength(0);
   });
 
