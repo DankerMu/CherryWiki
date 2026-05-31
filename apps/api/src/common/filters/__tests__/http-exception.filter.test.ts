@@ -58,31 +58,31 @@ class ErrorTestController {
   helperError(@Param('status') status: string): never {
     switch (status) {
       case '400':
-        throwApiError(ErrorCode.VALIDATION_ERROR, 'Common helper bad request', HttpStatus.BAD_REQUEST, [
+        return throwApiError(ErrorCode.VALIDATION_ERROR, 'Common helper bad request', HttpStatus.BAD_REQUEST, [
           { field: 'name', reason: 'required' },
         ]);
       case '401':
-        throwApiError(ErrorCode.UNAUTHENTICATED, 'Common helper unauthenticated', HttpStatus.UNAUTHORIZED, [
+        return throwApiError(ErrorCode.UNAUTHENTICATED, 'Common helper unauthenticated', HttpStatus.UNAUTHORIZED, [
           { auth: 'missing' },
         ]);
       case '403':
-        throwApiError(ErrorCode.PERMISSION_DENIED, 'Common helper forbidden', HttpStatus.FORBIDDEN, [
+        return throwApiError(ErrorCode.PERMISSION_DENIED, 'Common helper forbidden', HttpStatus.FORBIDDEN, [
           { permission: 'admin' },
         ]);
       case '404':
-        throwApiError(ErrorCode.NOT_FOUND, 'Common helper not found', HttpStatus.NOT_FOUND, [
+        return throwApiError(ErrorCode.NOT_FOUND, 'Common helper not found', HttpStatus.NOT_FOUND, [
           { resource: 'space' },
         ]);
       case '409':
-        throwApiError(ErrorCode.CONFLICT, 'Common helper conflict', HttpStatus.CONFLICT, [
+        return throwApiError(ErrorCode.CONFLICT, 'Common helper conflict', HttpStatus.CONFLICT, [
           { state: 'building' },
         ]);
       case '422':
-        throwApiError(ErrorCode.VALIDATION_ERROR, 'Common helper unprocessable', HttpStatus.UNPROCESSABLE_ENTITY, [
+        return throwApiError(ErrorCode.VALIDATION_ERROR, 'Common helper unprocessable', HttpStatus.UNPROCESSABLE_ENTITY, [
           { field: 'scope', reason: 'invalid' },
         ]);
       case '500':
-        throwApiError(ErrorCode.INTERNAL_ERROR, 'secret helper failure', HttpStatus.INTERNAL_SERVER_ERROR, [
+        return throwApiError(ErrorCode.INTERNAL_ERROR, 'secret helper failure', HttpStatus.INTERNAL_SERVER_ERROR, [
           { secret: 'do-not-leak' },
         ]);
       default:
