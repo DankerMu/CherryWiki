@@ -107,6 +107,58 @@ describe('ChatService static RAG rerank', () => {
     expect(validateAdminOutboundProbeUrlMock).not.toHaveBeenCalled();
   });
 
+  it('skips rerank without calling fetch or outbound validation when rerank base URL is missing', async () => {
+    const fetchMock = mockFetchResponse({
+      ok: true,
+      status: 200,
+      body: { results: [] },
+    });
+    const { service, modelConfigService } = createServiceContext({
+      rerankConfig: createRerankModelConfig({ base_url: null }),
+    });
+    const retrieveContext = bindRetrieveContext(service);
+
+    const context = await retrieveContext(createPreparedCompletion(), [createSnapshotRow()]);
+
+    expect(context.results.map((result) => result.chunkId)).toEqual(['chunk-a', 'chunk-b']);
+    expect(context.trace.finalContext.rerank_status).toBe('skipped');
+    expect(context.trace.finalContext.rerank_skip_reason).toBe('missing_base_url');
+    expect(context.trace.finalContext.rerank_model_id).toBe('rerank-config');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(validateAdminOutboundProbeUrlMock).not.toHaveBeenCalled();
+    expect(modelConfigService.resolveApiKey).not.toHaveBeenCalled();
+  });
+
+  it('keeps RRF order and records error when outbound URL validation fails', async () => {
+    process.env.TEST_RERANK_API_KEY = 'rerank-secret';
+    validateAdminOutboundProbeUrlMock.mockResolvedValueOnce({
+      ok: false,
+      error: 'Outbound probe target rejected: host resolves to a blocked private or local address',
+    });
+    const fetchMock = mockFetchResponse({
+      ok: true,
+      status: 200,
+      body: {
+        results: [
+          { index: 1, relevance_score: 0.9 },
+          { index: 0, relevance_score: 0.5 },
+        ],
+      },
+    });
+    const { service } = createServiceContext({ rerankConfig: createRerankModelConfig() });
+    const retrieveContext = bindRetrieveContext(service);
+
+    const context = await retrieveContext(createPreparedCompletion(), [createSnapshotRow()]);
+
+    expect(context.results.map((result) => result.chunkId)).toEqual(['chunk-a', 'chunk-b']);
+    expect(context.trace.finalContext.rerank_status).toBe('error');
+    expect(context.trace.finalContext.rerank_model_id).toBe('rerank-config');
+    expect(context.trace.finalContext.rerank_latency_ms).toBeGreaterThanOrEqual(1);
+    expect(validateAdminOutboundProbeUrlMock).toHaveBeenCalledWith('https://rerank.example/v1', { dnsTimeoutMs: 2000 });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(validatedDispatcher.close).not.toHaveBeenCalled();
+  });
+
   it('keeps RRF order and records timeout when rerank request aborts', async () => {
     process.env.TEST_RERANK_API_KEY = 'rerank-secret';
     const abortError = new Error('aborted');
@@ -144,6 +196,51 @@ describe('ChatService static RAG rerank', () => {
     expect(context.results.map((result) => result.chunkId)).toEqual(['chunk-a', 'chunk-b']);
     expect(context.trace.finalContext.rerank_status).toBe('error');
     expect(context.trace.finalContext.rerank_model_id).toBe('rerank-config');
+    expect(validatedDispatcher.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps RRF order and records error when rerank API returns empty scores', async () => {
+    process.env.TEST_RERANK_API_KEY = 'rerank-secret';
+    const fetchMock = mockFetchResponse({
+      ok: true,
+      status: 200,
+      body: { results: [] },
+    });
+    const { service } = createServiceContext({ rerankConfig: createRerankModelConfig() });
+    const retrieveContext = bindRetrieveContext(service);
+
+    const context = await retrieveContext(createPreparedCompletion(), [createSnapshotRow()]);
+
+    expect(context.results.map((result) => result.chunkId)).toEqual(['chunk-a', 'chunk-b']);
+    expect(context.trace.finalContext.rerank_status).toBe('error');
+    expect(context.trace.finalContext.rerank_model_id).toBe('rerank-config');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(validatedDispatcher.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps RRF order and records error when rerank API returns only unusable scores', async () => {
+    process.env.TEST_RERANK_API_KEY = 'rerank-secret';
+    const fetchMock = mockFetchResponse({
+      ok: true,
+      status: 200,
+      body: {
+        results: [
+          { index: 20, relevance_score: 0.9 },
+          { index: -1, relevance_score: 0.8 },
+          { index: 0.5, relevance_score: 0.7 },
+          { index: 1, relevance_score: 'not-a-number' },
+        ],
+      },
+    });
+    const { service } = createServiceContext({ rerankConfig: createRerankModelConfig() });
+    const retrieveContext = bindRetrieveContext(service);
+
+    const context = await retrieveContext(createPreparedCompletion(), [createSnapshotRow()]);
+
+    expect(context.results.map((result) => result.chunkId)).toEqual(['chunk-a', 'chunk-b']);
+    expect(context.trace.finalContext.rerank_status).toBe('error');
+    expect(context.trace.finalContext.rerank_model_id).toBe('rerank-config');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(validatedDispatcher.close).toHaveBeenCalledTimes(1);
   });
 

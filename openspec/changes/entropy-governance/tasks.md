@@ -299,6 +299,7 @@ Issue #413 fixture:
   - `pnpm --filter @cherrygraph/api typecheck`
   - `pnpm --filter @cherrygraph/api lint`
   - `pnpm --filter @cherrygraph/api test`
+  - `git diff --check` and PR diff scope review confirm no DTO/schema/route/env/dependency/Web changes and no movement of #415/#416 boundaries
   - `openspec validate entropy-governance --strict --no-interactive`
 - Non-goals: retrieval/rerank extraction (#414), model/provider and Agent routing extraction (#415), persistence/SSE shaping extraction (#416), Web changes, route/DTO/schema changes, new error codes, broad formatting churn, Docker/env/dependency changes, or any changes inside `external/*`
 
@@ -369,9 +370,9 @@ Issue #414 fixture:
 - Non-goals: session/scope/permission extraction already completed in #413, model/provider and Agent routing extraction (#415), message/citation/model-usage persistence or SSE shaping extraction (#416), Web changes, route/DTO/schema changes, new retrieval modes, new error codes, rerank provider redesign, broad formatting churn, Docker/env/dependency changes, or any changes inside `external/*`
 
 - [x] 3.3 Add or strengthen characterization tests for static retrieval, graph context, RRF fusion, rerank fallback, strict/no-hit behavior, and retrieval trace metadata.
-  - Verification: targeted Chat/rerank/source-chain/query/model-usage Vitest suite passed (5 files / 82 tests), including non-fatal rerank fallback and retrieval trace finalContext metadata; targeted Chat integration suite passed (5 files / 8 tests), including prompt-injection evidence.
+  - Verification: targeted Chat/rerank/source-chain/query/model-usage Vitest suite passed (5 files / 86 tests), including non-fatal rerank fallback, missing rerank base URL, outbound URL validation failure, empty/invalid rerank scores, and retrieval trace finalContext metadata; targeted Chat integration suite passed (5 files / 8 tests), including prompt-injection evidence.
 - [x] 3.4 Extract static retrieval, graph context, RRF fusion, rerank call/fallback, and trace metadata responsibilities into focused backend collaborator(s).
-  - Verification: `ChatRetrievalService` now owns retrieval/rerank/trace construction while `ChatService` retains `persistRetrievalTrace` DB insertion/catch timing; API typecheck/lint and full `pnpm --filter @cherrygraph/api test` passed (213 files passed / 1 skipped; 1473 tests passed / 1 skipped).
+  - Verification: `ChatRetrievalService` now owns retrieval/rerank/trace construction while `ChatService` retains `persistRetrievalTrace` DB insertion/catch timing; API typecheck/lint and full `pnpm --filter @cherrygraph/api test` passed (213 files passed / 1 skipped; 1473 tests passed / 1 skipped). `git diff --check` passed; changed files are limited to Chat retrieval service/token/module/orchestrator tests, OpenSpec tasks, and progress, with no DTO/schema/route/env/dependency/Web changes.
 - [ ] 3.5 Add or strengthen characterization tests for model/provider resolution, Agent/static route selection, database toggle routing, and Agent SSE event behavior.
   - Verification: `apps/api/src/chat/__tests__/query-routing.test.ts` and relevant `apps/api/src/agent/__tests__/*` routing/SSE tests pass.
 - [ ] 3.6 Extract model/provider resolution and Agent dispatch decision code into focused collaborator(s), keeping `ChatService` as public orchestration boundary.
