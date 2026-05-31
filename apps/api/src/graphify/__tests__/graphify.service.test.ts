@@ -11,6 +11,7 @@ import {
   createAuditMock,
   createSpaceRow,
   getHttpExceptionCode,
+  getHttpExceptionResponse,
   getRejectedHttpException,
   requireRecord,
 } from '../../users/__tests__/user-group-service-test-utils.js';
@@ -247,6 +248,21 @@ describe('GraphifyService', () => {
       report_format: 'markdown',
       content: '# Graph report',
       generated_at: new Date('2026-05-01T00:05:00.000Z'),
+    });
+  });
+
+  it('getReport returns NOT_FOUND when the report is missing', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createRunRow({ status: 'succeeded' })]);
+    db.queueSelect([createSpaceRow()]);
+    db.queueSelect([]);
+
+    const err = await getRejectedHttpException(service.getReport('run-1', createAdminContext()));
+
+    expect(err.getStatus()).toBe(404);
+    expect(getHttpExceptionResponse(err)).toEqual({
+      code: ErrorCode.NOT_FOUND,
+      message: 'Graphify report was not found',
     });
   });
 

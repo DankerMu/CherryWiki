@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import { diffLines, type Change } from 'diff';
 import {
   batchCreateSourceLinks as normalizeSourceLinks,
@@ -37,6 +37,7 @@ import { DRIZZLE } from '../database/drizzle.constants.js';
 import { AuditService } from '../audit/audit.service.js';
 import { getApiLogger } from '../common/logger/logger.module.js';
 import { REDIS_CLIENT, type OptionalRedisClient } from '../common/redis/redis.module.js';
+import { throwApiError } from '../common/errors/api-error.js';
 
 type WikiDatabase = NodePgDatabase;
 type WikiPageRow = typeof wikiPages.$inferSelect;
@@ -1127,8 +1128,4 @@ function splitDiffLines(change: Change): string[] {
 
 function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, '\\$&');
-}
-
-function throwApiError(code: ErrorCode, message: string, status: HttpStatus): never {
-  throw new HttpException({ code, message }, status);
 }

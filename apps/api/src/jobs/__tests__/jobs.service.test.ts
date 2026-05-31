@@ -8,6 +8,7 @@ import {
   TEST_USER_ID,
   ScriptedDb,
   getHttpExceptionCode,
+  getHttpExceptionResponse,
   getRejectedHttpException,
   requireRecord,
 } from '../../users/__tests__/user-group-service-test-utils.js';
@@ -325,6 +326,59 @@ describe('JobsService', () => {
       total: 1,
       has_next: false,
     });
+  });
+
+  it('returns 422 VALIDATION_ERROR when admin job sort is invalid', async () => {
+    const { service, db } = createServiceContext();
+
+    const query = Object.assign(new AdminJobListQueryDto(), {
+      sort: 'display_name',
+    });
+    const err = await getRejectedHttpException(service.listAdminJobs(query, createAdminContext()));
+
+    expect(err.getStatus()).toBe(422);
+    expect(getHttpExceptionResponse(err)).toEqual({
+      code: ErrorCode.VALIDATION_ERROR,
+      message: 'Invalid sort field',
+    });
+    expect(db.selectFields).toHaveLength(0);
+  });
+
+  it('returns 401 UNAUTHENTICATED when tenant context is missing', async () => {
+    const { service, db } = createServiceContext();
+
+    const err = await getRejectedHttpException(
+      service.listAdminJobs(new AdminJobListQueryDto(), {
+        actorUserId: 'admin-1',
+        userId: 'admin-1',
+        actorRole: 'admin',
+      }),
+    );
+
+    expect(err.getStatus()).toBe(401);
+    expect(getHttpExceptionResponse(err)).toEqual({
+      code: ErrorCode.UNAUTHENTICATED,
+      message: 'Unauthenticated',
+    });
+    expect(db.selectFields).toHaveLength(0);
+  });
+
+  it('returns 401 UNAUTHENTICATED when user context is missing', async () => {
+    const { service, db } = createServiceContext();
+
+    const err = await getRejectedHttpException(
+      service.getJob('job-1', {
+        tenantId: TEST_TENANT_ID,
+        actorRole: 'viewer',
+      }),
+    );
+
+    expect(err.getStatus()).toBe(401);
+    expect(getHttpExceptionResponse(err)).toEqual({
+      code: ErrorCode.UNAUTHENTICATED,
+      message: 'Unauthenticated',
+    });
+    expect(db.selectFields).toHaveLength(0);
   });
 });
 

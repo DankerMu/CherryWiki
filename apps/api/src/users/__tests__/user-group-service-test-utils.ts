@@ -302,12 +302,16 @@ export function requireRecord(value: unknown): Record<string, unknown> {
 }
 
 export function getHttpExceptionCode(err: unknown): unknown {
+  return getHttpExceptionResponse(err)?.code;
+}
+
+export function getHttpExceptionResponse(err: unknown): Record<string, unknown> | undefined {
   if (!(err instanceof HttpException)) {
     return undefined;
   }
 
   const response = err.getResponse();
-  return isRecord(response) ? response.code : undefined;
+  return isRecord(response) ? response : undefined;
 }
 
 export async function getRejectedHttpException(promise: Promise<unknown>): Promise<HttpException> {

@@ -9,6 +9,7 @@ import {
   TEST_TENANT_ID,
   TEST_USER_ID,
   getHttpExceptionCode,
+  getHttpExceptionResponse,
   getRejectedHttpException,
 } from '../../users/__tests__/user-group-service-test-utils.js';
 import { WikiService, type CreateSourceLinkInput } from '../wiki.service.js';
@@ -161,6 +162,42 @@ describe('WikiService', () => {
 
     expect(err.getStatus()).toBe(409);
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.VERSION_ALREADY_PUBLISHED);
+    expect(db.updates).toHaveLength(0);
+    expect(audit.push).not.toHaveBeenCalled();
+  });
+
+  it('publish returns ILLEGAL_STATUS_TRANSITION for non-draft unpublished versions', async () => {
+    const { service, db, audit } = createServiceContext();
+    db.queueSelect([{ page: createPageRow(), currentVersion: { source: 'graphify', frontmatter_json: {} } }]);
+    db.queueSelect([createVersionRow({ status: 'archived' })]);
+
+    const err = await getRejectedHttpException(
+      service.publish(TEST_TENANT_ID, TEST_SPACE_ID, 'page-1', 'version-1', undefined, TEST_USER_ID),
+    );
+
+    expect(err.getStatus()).toBe(409);
+    expect(getHttpExceptionResponse(err)).toEqual({
+      code: ErrorCode.ILLEGAL_STATUS_TRANSITION,
+      message: 'Wiki page version cannot be published',
+    });
+    expect(db.updates).toHaveLength(0);
+    expect(audit.push).not.toHaveBeenCalled();
+  });
+
+  it('unpublish returns ILLEGAL_STATUS_TRANSITION for non-published versions', async () => {
+    const { service, db, audit } = createServiceContext();
+    db.queueSelect([{ page: createPageRow(), currentVersion: { source: 'graphify', frontmatter_json: {} } }]);
+    db.queueSelect([createVersionRow({ status: 'archived' })]);
+
+    const err = await getRejectedHttpException(
+      service.unpublish(TEST_TENANT_ID, TEST_SPACE_ID, 'page-1', 'version-1', undefined, TEST_USER_ID),
+    );
+
+    expect(err.getStatus()).toBe(409);
+    expect(getHttpExceptionResponse(err)).toEqual({
+      code: ErrorCode.ILLEGAL_STATUS_TRANSITION,
+      message: 'Wiki page version cannot be unpublished',
+    });
     expect(db.updates).toHaveLength(0);
     expect(audit.push).not.toHaveBeenCalled();
   });
