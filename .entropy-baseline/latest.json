@@ -1,0 +1,753 @@
+{
+  "version": 1,
+  "timestamp": "2026-05-31T09:54:51Z",
+  "repo": "DankerMu/CherryWiki",
+  "branch": "main",
+  "commit": "9e54863",
+  "scope": {
+    "included": [
+      "apps/*",
+      "packages/*",
+      "tools/cherrydb",
+      "tools/cherrywiki"
+    ],
+    "excluded": [
+      "external/*",
+      "node_modules",
+      "dist",
+      ".venv",
+      ".pytest_cache",
+      ".ruff_cache",
+      "__pycache__",
+      "tests/fixtures",
+      "tests/screenshots",
+      "openspec/*"
+    ],
+    "notes": "external/cherry-studio, external/graphify, and external/docmost were treated as reference or forked third-party code, not actual project implementation code."
+  },
+  "summary": {
+    "total_source_files": 336,
+    "total_test_files": 209,
+    "total_instruction_files": 2,
+    "total_modules": 16,
+    "modules_with_high_entropy": 2,
+    "modules_with_attention_priority": 11,
+    "overall_trend": "baseline"
+  },
+  "modules": {
+    "apps/api": {
+      "file_count": 136,
+      "test_file_count": 99,
+      "structure": {
+        "score": "high",
+        "scc_count": 0,
+        "max_file_lines": 2358,
+        "large_files_over_500": 19,
+        "high_import_diversity_files": 29,
+        "layer_violations": 0
+      },
+      "semantics": {
+        "score": "medium",
+        "state_definition_count": 18,
+        "state_scatter_files": 18,
+        "notable_variants": [
+          "local status types alongside shared schema status enums",
+          "string error codes outside shared ErrorCode"
+        ]
+      },
+      "behavior": {
+        "score": "high",
+        "error_envelope_variants": 3,
+        "local_throw_helpers": 14,
+        "any_unknown_occurrences": 361,
+        "catch_occurrences": 113,
+        "nullish_returns": 116
+      },
+      "context": {
+        "score": "medium",
+        "has_instruction_file": false,
+        "stale_docs": 0
+      },
+      "protocol": {
+        "score": "medium",
+        "template_compliance": false,
+        "ci_gate_alignment": true
+      },
+      "control": {
+        "score": "medium",
+        "documented_rules": 7,
+        "enforced_rules": 5,
+        "cleanup_markers": 0
+      }
+    },
+    "apps/web": {
+      "file_count": 59,
+      "test_file_count": 16,
+      "structure": {
+        "score": "high",
+        "scc_count": 0,
+        "max_file_lines": 1528,
+        "large_files_over_500": 4,
+        "high_import_diversity_files": 16,
+        "layer_violations": 0
+      },
+      "semantics": {
+        "score": "medium",
+        "state_definition_count": 20,
+        "state_scatter_files": 20,
+        "notable_variants": [
+          "frontend copies selected backend status literals for display and local state"
+        ]
+      },
+      "behavior": {
+        "score": "medium",
+        "error_envelope_variants": 2,
+        "any_unknown_occurrences": 126,
+        "catch_occurrences": 68,
+        "nullish_returns": 35
+      },
+      "context": {
+        "score": "medium",
+        "has_instruction_file": false,
+        "stale_docs": 0
+      },
+      "protocol": {
+        "score": "medium",
+        "template_compliance": false,
+        "ci_gate_alignment": true
+      },
+      "control": {
+        "score": "medium",
+        "documented_rules": 6,
+        "enforced_rules": 5,
+        "cleanup_markers": 0
+      }
+    },
+    "apps/graphify-worker": {
+      "file_count": 10,
+      "test_file_count": 10,
+      "structure": {
+        "score": "medium",
+        "scc_count": 0,
+        "max_file_lines": 951,
+        "large_files_over_500": 2,
+        "layer_violations": 0
+      },
+      "semantics": {
+        "score": "low",
+        "state_definition_count": 1,
+        "state_scatter_files": 1
+      },
+      "behavior": {
+        "score": "medium",
+        "error_envelope_variants": 2,
+        "catch_occurrences": 39,
+        "nullish_returns": 12
+      },
+      "context": {
+        "score": "medium",
+        "has_instruction_file": false,
+        "stale_docs": 0
+      },
+      "protocol": {
+        "score": "low",
+        "template_compliance": true,
+        "ci_gate_alignment": true
+      },
+      "control": {
+        "score": "low",
+        "documented_rules": 4,
+        "enforced_rules": 4,
+        "cleanup_markers": 0
+      }
+    },
+    "apps/ingestion-worker": {
+      "file_count": 19,
+      "test_file_count": 5,
+      "structure": {
+        "score": "medium",
+        "scc_count": 0,
+        "max_file_lines": 356,
+        "large_files_over_500": 0,
+        "layer_violations": 0
+      },
+      "semantics": {
+        "score": "low",
+        "state_definition_count": 0,
+        "state_scatter_files": 0
+      },
+      "behavior": {
+        "score": "medium",
+        "error_envelope_variants": 2,
+        "catch_occurrences": 20,
+        "nullish_returns": 1
+      },
+      "context": {
+        "score": "medium",
+        "has_instruction_file": false,
+        "stale_docs": 0
+      },
+      "protocol": {
+        "score": "low",
+        "template_compliance": true,
+        "ci_gate_alignment": true
+      },
+      "control": {
+        "score": "low",
+        "documented_rules": 4,
+        "enforced_rules": 4,
+        "cleanup_markers": 0
+      }
+    },
+    "apps/url-fetcher-worker": {
+      "file_count": 13,
+      "test_file_count": 5,
+      "structure": {
+        "score": "medium",
+        "scc_count": 0,
+        "max_file_lines": 375,
+        "large_files_over_500": 0,
+        "layer_violations": 0
+      },
+      "semantics": {
+        "score": "low",
+        "state_definition_count": 0,
+        "state_scatter_files": 0
+      },
+      "behavior": {
+        "score": "medium",
+        "error_envelope_variants": 2,
+        "catch_occurrences": 19,
+        "nullish_returns": 4
+      },
+      "context": {
+        "score": "medium",
+        "has_instruction_file": false,
+        "stale_docs": 0
+      },
+      "protocol": {
+        "score": "low",
+        "template_compliance": true,
+        "ci_gate_alignment": true
+      },
+      "control": {
+        "score": "low",
+        "documented_rules": 4,
+        "enforced_rules": 4,
+        "cleanup_markers": 0
+      }
+    },
+    "apps/indexer-worker": {
+      "file_count": 5,
+      "test_file_count": 2,
+      "structure": {
+        "score": "medium",
+        "scc_count": 0,
+        "max_file_lines": 567,
+        "large_files_over_500": 1,
+        "high_import_diversity_files": 2,
+        "layer_violations": 0
+      },
+      "semantics": {
+        "score": "low",
+        "state_definition_count": 0,
+        "state_scatter_files": 0
+      },
+      "behavior": {
+        "score": "medium",
+        "error_envelope_variants": 2,
+        "any_unknown_occurrences": 3,
+        "catch_occurrences": 3,
+        "nullish_returns": 3
+      },
+      "context": {
+        "score": "medium",
+        "has_instruction_file": false,
+        "stale_docs": 0
+      },
+      "protocol": {
+        "score": "low",
+        "template_compliance": true,
+        "ci_gate_alignment": true
+      },
+      "control": {
+        "score": "low",
+        "documented_rules": 4,
+        "enforced_rules": 4,
+        "cleanup_markers": 0
+      }
+    },
+    "apps/wiki-sync-worker": {
+      "file_count": 12,
+      "test_file_count": 7,
+      "structure": {
+        "score": "medium",
+        "scc_count": 0,
+        "max_file_lines": 796,
+        "large_files_over_500": 1,
+        "high_import_diversity_files": 2,
+        "layer_violations": 0
+      },
+      "semantics": {
+        "score": "medium",
+        "state_definition_count": 4,
+        "state_scatter_files": 4
+      },
+      "behavior": {
+        "score": "medium",
+        "error_envelope_variants": 2,
+        "any_unknown_occurrences": 57,
+        "catch_occurrences": 13,
+        "nullish_returns": 2
+      },
+      "context": {
+        "score": "medium",
+        "has_instruction_file": false,
+        "stale_docs": 0
+      },
+      "protocol": {
+        "score": "low",
+        "template_compliance": true,
+        "ci_gate_alignment": true
+      },
+      "control": {
+        "score": "low",
+        "documented_rules": 4,
+        "enforced_rules": 4,
+        "cleanup_markers": 0
+      }
+    },
+    "packages/ai-core": {
+      "file_count": 6,
+      "test_file_count": 2,
+      "structure": {
+        "score": "low",
+        "scc_count": 0,
+        "max_file_lines": 224,
+        "large_files_over_500": 0,
+        "layer_violations": 0
+      },
+      "semantics": {
+        "score": "low",
+        "state_definition_count": 0,
+        "state_scatter_files": 0
+      },
+      "behavior": {
+        "score": "low",
+        "error_envelope_variants": 1,
+        "any_unknown_occurrences": 13
+      },
+      "context": {
+        "score": "medium",
+        "has_instruction_file": false,
+        "stale_docs": 0
+      },
+      "protocol": {
+        "score": "low",
+        "template_compliance": true,
+        "ci_gate_alignment": true
+      },
+      "control": {
+        "score": "low",
+        "documented_rules": 3,
+        "enforced_rules": 3,
+        "cleanup_markers": 0
+      }
+    },
+    "packages/auth-core": {
+      "file_count": 10,
+      "test_file_count": 5,
+      "structure": {
+        "score": "low",
+        "scc_count": 0,
+        "max_file_lines": 354,
+        "large_files_over_500": 0,
+        "layer_violations": 0
+      },
+      "semantics": {
+        "score": "medium",
+        "state_definition_count": 0,
+        "state_scatter_files": 0,
+        "notable_variants": [
+          "permission constants overlap with apps/api/src/shared/permission-constants.ts"
+        ]
+      },
+      "behavior": {
+        "score": "low",
+        "error_envelope_variants": 1,
+        "any_unknown_occurrences": 10
+      },
+      "context": {
+        "score": "medium",
+        "has_instruction_file": false,
+        "stale_docs": 0
+      },
+      "protocol": {
+        "score": "low",
+        "template_compliance": true,
+        "ci_gate_alignment": true
+      },
+      "control": {
+        "score": "low",
+        "documented_rules": 3,
+        "enforced_rules": 3,
+        "cleanup_markers": 0
+      }
+    },
+    "packages/graph-core": {
+      "file_count": 10,
+      "test_file_count": 9,
+      "structure": {
+        "score": "low",
+        "scc_count": 0,
+        "max_file_lines": 673,
+        "large_files_over_500": 1,
+        "layer_violations": 0
+      },
+      "semantics": {
+        "score": "low",
+        "state_definition_count": 0,
+        "state_scatter_files": 0
+      },
+      "behavior": {
+        "score": "low",
+        "error_envelope_variants": 1,
+        "any_unknown_occurrences": 22
+      },
+      "context": {
+        "score": "medium",
+        "has_instruction_file": false,
+        "stale_docs": 0
+      },
+      "protocol": {
+        "score": "low",
+        "template_compliance": true,
+        "ci_gate_alignment": true
+      },
+      "control": {
+        "score": "low",
+        "documented_rules": 3,
+        "enforced_rules": 3,
+        "cleanup_markers": 0
+      }
+    },
+    "packages/job-core": {
+      "file_count": 12,
+      "test_file_count": 7,
+      "structure": {
+        "score": "low",
+        "scc_count": 0,
+        "max_file_lines": 234,
+        "large_files_over_500": 0,
+        "layer_violations": 0
+      },
+      "semantics": {
+        "score": "low",
+        "state_definition_count": 1,
+        "state_scatter_files": 1
+      },
+      "behavior": {
+        "score": "low",
+        "error_envelope_variants": 1,
+        "any_unknown_occurrences": 12
+      },
+      "context": {
+        "score": "medium",
+        "has_instruction_file": false,
+        "stale_docs": 0
+      },
+      "protocol": {
+        "score": "low",
+        "template_compliance": true,
+        "ci_gate_alignment": true
+      },
+      "control": {
+        "score": "low",
+        "documented_rules": 3,
+        "enforced_rules": 3,
+        "cleanup_markers": 0
+      }
+    },
+    "packages/rag-core": {
+      "file_count": 12,
+      "test_file_count": 7,
+      "structure": {
+        "score": "low",
+        "scc_count": 0,
+        "max_file_lines": 287,
+        "large_files_over_500": 0,
+        "layer_violations": 0
+      },
+      "semantics": {
+        "score": "low",
+        "state_definition_count": 0,
+        "state_scatter_files": 0
+      },
+      "behavior": {
+        "score": "low",
+        "error_envelope_variants": 1,
+        "any_unknown_occurrences": 0
+      },
+      "context": {
+        "score": "medium",
+        "has_instruction_file": false,
+        "stale_docs": 0
+      },
+      "protocol": {
+        "score": "low",
+        "template_compliance": true,
+        "ci_gate_alignment": true
+      },
+      "control": {
+        "score": "low",
+        "documented_rules": 3,
+        "enforced_rules": 3,
+        "cleanup_markers": 0
+      }
+    },
+    "packages/shared": {
+      "file_count": 8,
+      "test_file_count": 10,
+      "structure": {
+        "score": "medium",
+        "scc_count": 0,
+        "max_file_lines": 1112,
+        "large_files_over_500": 2,
+        "layer_violations": 0
+      },
+      "semantics": {
+        "score": "low",
+        "state_definition_count": 10,
+        "state_scatter_files": 1
+      },
+      "behavior": {
+        "score": "low",
+        "error_envelope_variants": 1,
+        "any_unknown_occurrences": 1
+      },
+      "context": {
+        "score": "medium",
+        "has_instruction_file": false,
+        "stale_docs": 0
+      },
+      "protocol": {
+        "score": "low",
+        "template_compliance": true,
+        "ci_gate_alignment": true
+      },
+      "control": {
+        "score": "low",
+        "documented_rules": 3,
+        "enforced_rules": 3,
+        "cleanup_markers": 0
+      }
+    },
+    "packages/wiki-core": {
+      "file_count": 16,
+      "test_file_count": 15,
+      "structure": {
+        "score": "low",
+        "scc_count": 0,
+        "max_file_lines": 313,
+        "large_files_over_500": 1,
+        "layer_violations": 0
+      },
+      "semantics": {
+        "score": "medium",
+        "state_definition_count": 1,
+        "state_scatter_files": 1,
+        "notable_variants": [
+          "WikiPageStatus has a local type narrower than shared wikiPageStatusSchema"
+        ]
+      },
+      "behavior": {
+        "score": "medium",
+        "error_envelope_variants": 2,
+        "any_unknown_occurrences": 6
+      },
+      "context": {
+        "score": "medium",
+        "has_instruction_file": false,
+        "stale_docs": 0
+      },
+      "protocol": {
+        "score": "low",
+        "template_compliance": true,
+        "ci_gate_alignment": true
+      },
+      "control": {
+        "score": "low",
+        "documented_rules": 3,
+        "enforced_rules": 3,
+        "cleanup_markers": 0
+      }
+    },
+    "tools/cherrydb": {
+      "file_count": 5,
+      "test_file_count": 7,
+      "structure": {
+        "score": "low",
+        "scc_count": 0,
+        "max_file_lines": 363,
+        "large_files_over_500": 0,
+        "layer_violations": 0
+      },
+      "semantics": {
+        "score": "low",
+        "state_definition_count": 0,
+        "state_scatter_files": 0
+      },
+      "behavior": {
+        "score": "medium",
+        "error_envelope_variants": 2,
+        "catch_occurrences": 9,
+        "nullish_returns": 4
+      },
+      "context": {
+        "score": "medium",
+        "has_instruction_file": false,
+        "stale_docs": 0
+      },
+      "protocol": {
+        "score": "low",
+        "template_compliance": true,
+        "ci_gate_alignment": true
+      },
+      "control": {
+        "score": "low",
+        "documented_rules": 2,
+        "enforced_rules": 2,
+        "cleanup_markers": 0
+      }
+    },
+    "tools/cherrywiki": {
+      "file_count": 3,
+      "test_file_count": 3,
+      "structure": {
+        "score": "low",
+        "scc_count": 0,
+        "max_file_lines": 175,
+        "large_files_over_500": 0,
+        "layer_violations": 0
+      },
+      "semantics": {
+        "score": "low",
+        "state_definition_count": 0,
+        "state_scatter_files": 0
+      },
+      "behavior": {
+        "score": "low",
+        "error_envelope_variants": 1,
+        "catch_occurrences": 2,
+        "nullish_returns": 1
+      },
+      "context": {
+        "score": "medium",
+        "has_instruction_file": false,
+        "stale_docs": 0
+      },
+      "protocol": {
+        "score": "low",
+        "template_compliance": true,
+        "ci_gate_alignment": true
+      },
+      "control": {
+        "score": "low",
+        "documented_rules": 2,
+        "enforced_rules": 2,
+        "cleanup_markers": 0
+      }
+    }
+  },
+  "high_spread_patterns": [
+    {
+      "description": "Chat backend responsibilities are concentrated in one service: session lifecycle, ACL, model resolution, static RAG, GraphRAG, rerank, agent routing, persistence, traces, and SSE shaping.",
+      "occurrences": 1,
+      "files": [
+        "apps/api/src/chat/chat.service.ts"
+      ],
+      "axis": "structure",
+      "spread_risk": "high"
+    },
+    {
+      "description": "API modules replicate local throwApiError helpers and sometimes use string error codes outside packages/shared ErrorCode.",
+      "occurrences": 14,
+      "files": [
+        "apps/api/src/chat/chat.service.ts",
+        "apps/api/src/wiki/wiki.service.ts",
+        "apps/api/src/graphify/graphify.service.ts",
+        "apps/api/src/jobs/jobs.service.ts",
+        "apps/api/src/groups/group.service.ts",
+        "apps/api/src/models/model-config.service.ts"
+      ],
+      "axis": "behavior",
+      "spread_risk": "high"
+    },
+    {
+      "description": "Chat frontend responsibilities are concentrated in one page component: session state, space scope, model availability, database toggle, message rendering, citations, source chain, and layout controls.",
+      "occurrences": 1,
+      "files": [
+        "apps/web/src/pages/Chat.tsx"
+      ],
+      "axis": "structure",
+      "spread_risk": "high"
+    },
+    {
+      "description": "Python worker job protocol is duplicated between ingestion-worker and url-fetcher-worker with near-identical claim, heartbeat, progress, fail, and complete flow.",
+      "occurrences": 2,
+      "files": [
+        "apps/ingestion-worker/src/job_client.py",
+        "apps/url-fetcher-worker/src/job_client.py"
+      ],
+      "axis": "structure",
+      "spread_risk": "medium"
+    },
+    {
+      "description": "Scoped module instructions are absent for critical implementation modules despite root AGENTS.md recommending scoped AGENTS files.",
+      "occurrences": 7,
+      "files": [
+        "apps/api",
+        "apps/web",
+        "apps/graphify-worker",
+        "apps/ingestion-worker",
+        "apps/url-fetcher-worker",
+        "packages",
+        "tools"
+      ],
+      "axis": "context",
+      "spread_risk": "medium"
+    }
+  ],
+  "cleanup_priorities": [
+    {
+      "target": "Split apps/api/src/chat/chat.service.ts into bounded services for session/scope, model resolution, retrieval/rerank, agent routing, and persistence.",
+      "impact": "high",
+      "effort": "high",
+      "axis": "structure"
+    },
+    {
+      "target": "Unify API error helper and promote local string codes into packages/shared ErrorCode.",
+      "impact": "high",
+      "effort": "medium",
+      "axis": "behavior"
+    },
+    {
+      "target": "Split apps/web/src/pages/Chat.tsx into hooks and presentational components with unchanged UX behavior.",
+      "impact": "high",
+      "effort": "medium",
+      "axis": "structure"
+    },
+    {
+      "target": "Extract or template the Python worker job protocol shared by ingestion-worker and url-fetcher-worker.",
+      "impact": "medium",
+      "effort": "medium",
+      "axis": "structure"
+    },
+    {
+      "target": "Add scoped AGENTS.md files for critical implementation boundaries.",
+      "impact": "medium",
+      "effort": "low",
+      "axis": "context"
+    }
+  ]
+}

@@ -23,11 +23,13 @@ coverage/
 __pycache__/
 *.pyc
 .pytest_cache/
+.ruff_cache/
 .venv/
 venv/
 
 # Build
 *.log
+*.bak
 tmp/
 .pnpm-store/
 
@@ -39,6 +41,13 @@ tmp/
 cherrywiki-admin.json
 /playwright/.auth/*.json
 /test-checklist.csv
+/tests/e2e/logs/
+/tests/screenshots/
 
 # Local agent/review artifacts
 /.codex/
+/.agents/
+/.claude/
+
+# Local OpenSpec drafts. Force-add intentional changes that should be versioned.
+/openspec/changes/*
