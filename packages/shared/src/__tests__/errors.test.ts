@@ -89,6 +89,8 @@ describe('ErrorCode', () => {
   it('contains admin and proposal governance error codes', () => {
     expect(ErrorCode.RETRIEVAL_TRACE_NOT_FOUND).toBe('RETRIEVAL_TRACE_NOT_FOUND');
     expect(ErrorCode.REBUILD_ALREADY_RUNNING).toBe('REBUILD_ALREADY_RUNNING');
+    expect(ErrorCode.WORKER_TIMEOUT).toBe('WORKER_TIMEOUT');
+    expect(ErrorCode.TIMEOUT).toBe('TIMEOUT');
     expect(ErrorCode.INVALID_SCOPE).toBe('INVALID_SCOPE');
     expect(ErrorCode.PROPOSAL_ALREADY_RESOLVED).toBe('PROPOSAL_ALREADY_RESOLVED');
     expect(ErrorCode.INVALID_PROPOSAL_STATUS).toBe('INVALID_PROPOSAL_STATUS');

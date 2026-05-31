@@ -84,7 +84,7 @@ Issue #410 fixture:
     - common helper + valid shared `ErrorCode` + 400/401/403/404/409/422 -> matching HTTP status, code, message, details when provided, and request_id in response meta
     - common helper + 500 -> sanitized `INTERNAL_ERROR` response from the existing filter, without leaking helper message/details
     - inventory local string code classified client-facing -> added to `ErrorCode` and covered by shared tests
-    - non-client worker/database payload string -> documented as out of scope in inventory and not promoted
+    - non-canonical third-party/worker-specific failure payload string -> documented as out of scope in inventory, while project-owned timeout payloads visible through `JobDto.error_json` are promoted
 - Boundary-surface checklist:
   - Shared helper roots: `apps/api/src/common/**` error helper and `HttpExceptionFilter`
   - Public entrypoints: test-only controller routes exercising the helper/filter contract
@@ -103,7 +103,7 @@ Issue #410 fixture:
 - [x] 2.2 Add a common API error helper under `apps/api/src/common/**` and tests proving compatibility with `HttpExceptionFilter`, including representative 400/401/403/404/409/422/500 statuses.
   - Verification: common helper tests and existing HTTP exception filter tests pass.
 - [x] 2.3 Promote existing API-returned local string error codes into `packages/shared/src/errors.ts` and update shared error tests.
-  - Verification: local strings such as proposal status/action codes and missing embedding model codes are either canonical `ErrorCode` values or explicitly documented as non-client database/worker payloads.
+  - Verification: local strings such as proposal status/action codes, missing embedding model codes, and project-owned job timeout payload codes are canonical `ErrorCode` values; non-canonical third-party/worker-specific failure payloads remain documented out of scope.
 - [ ] 2.4 Dependent issues #411/#412: migrate local `throwApiError` helper definitions in API services/controllers to the common helper by API domain, preserving HTTP status, code, message, details, and `meta.request_id`.
   - Verification: `rg -n "function throwApiError" apps/api/src` returns only the common helper location; targeted API service/controller tests pass for migrated domains.
 

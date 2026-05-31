@@ -423,7 +423,7 @@ export class InternalJobsService {
         await JobStateMachine.transition(txDb, job.id, JobStatus.RUNNING, JobStatus.FAILED, {
           attempt_count: nextAttemptCount,
           error_json: {
-            code: 'WORKER_TIMEOUT',
+            code: ErrorCode.WORKER_TIMEOUT,
             message: 'Worker heartbeat timed out',
           },
           locked_by: null,

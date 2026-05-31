@@ -1,3 +1,4 @@
+import { ErrorCode } from '@cherrygraph/shared';
 import { and, eq, isNotNull, sql } from 'drizzle-orm';
 
 import { JobEventRepository } from './event-repository.js';
@@ -31,7 +32,7 @@ export class TimeoutScanner {
         await JobStateMachine.transition(db, job.id, JobStatus.RUNNING, JobStatus.FAILED, {
           attempt_count: job.attempt_count + 1,
           error_json: {
-            code: 'TIMEOUT',
+            code: ErrorCode.TIMEOUT,
             message: 'Job exceeded timeout',
           },
           locked_by: null,

@@ -156,7 +156,7 @@
 
 | Change | 状态 | 说明 |
 |---|---|---|
-| entropy-governance | #410 API error foundation complete, issues #408-#424 | `.entropy-baseline/latest.json` 已记录实际项目代码熵基线并排除 `external/*`；#410 已新增 common API error helper、API error inventory、共享 ErrorCode 提升和 helper/filter 回归测试；OpenSpec strict validate 通过；后续 #411/#412 迁移剩余本地 helper |
+| entropy-governance | #410 API error foundation complete, issues #408-#424 | `.entropy-baseline/latest.json` 已记录实际项目代码熵基线并排除 `external/*`；#410 已新增 common API error helper、API error inventory、共享 ErrorCode 提升和 helper/filter 回归测试；PR #426 修正 JobDto 可见 `WORKER_TIMEOUT`/`TIMEOUT` timeout payload 的 shared ErrorCode 覆盖；OpenSpec strict validate 通过；后续 #411/#412 迁移剩余本地 helper |
 | graph-explorer-visual-overhaul | panel-theme-alignment complete, issues #400/#401/#403 | 新增 `useGraphTheme` 读取 theme CSS vars 并监听 `data-theme`；GraphCanvas 背景/边框/标签主题化；节点渲染增加默认/选中 glow、选中双环、大图默认 glow 降级；Graph Explorer 面板、Community 选中态和 Legend 对齐 theme token；`getNodeColor`/`getLinkColor` 已提取为纯函数并补充测试 |
 | wiki-version-diff | API+UI complete, pending browser verification | `GET /wiki/pages/:pageId/diff` + version history compare modal；`npm run build`、Wiki API tests 通过 |
 | fix-session-delete-cascade | complete, issue #381 | Chat session 关联 retrieval traces/model usage logs/feedback items 删除级联修复 |
