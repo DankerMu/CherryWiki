@@ -56,6 +56,7 @@ import { ModelConfigService, type RerankModelConfig } from '../models/model-conf
 import { decryptSpaceDatabaseConfig } from '../spaces/database-config.js';
 import {
   ChatSessionBoundaryService,
+  type ChatSessionPermissionContext,
   type ChatSessionRow,
   type SpaceRow,
   sameStringArray,
@@ -319,8 +320,9 @@ export class ChatService {
     userId: string,
     pageInput?: number,
     limitInput?: number,
+    permissionContext?: ChatSessionPermissionContext,
   ): Promise<PaginatedResponse<ChatSessionResponse>> {
-    return this.sessionBoundary.listSessions(tenantId, spaceId, userId, pageInput, limitInput);
+    return this.sessionBoundary.listSessions(tenantId, spaceId, userId, pageInput, limitInput, permissionContext);
   }
 
   async getSession(
@@ -328,12 +330,14 @@ export class ChatService {
     sessionId: string,
     userId: string,
     spaceId?: string,
+    permissionContext?: ChatSessionPermissionContext,
   ): Promise<ChatSessionDetailResponse> {
-    const { session, spaceIds, spaceDetails } = await this.sessionBoundary.requireSession(
+    const { session, spaceIds, spaceDetails } = await this.sessionBoundary.requireAuthorizedSession(
       tenantId,
       sessionId,
       userId,
       spaceId,
+      permissionContext,
     );
     const messages = await this.db
       .select()
@@ -352,8 +356,15 @@ export class ChatService {
     sessionId: string,
     userId: string,
     spaceId?: string,
+    permissionContext?: ChatSessionPermissionContext,
   ): Promise<{ deleted: true }> {
-    const { session } = await this.sessionBoundary.requireSession(tenantId, sessionId, userId, spaceId);
+    const { session } = await this.sessionBoundary.requireAuthorizedSession(
+      tenantId,
+      sessionId,
+      userId,
+      spaceId,
+      permissionContext,
+    );
     await this.sessionBoundary.deleteSessionRecord(session.id);
     await this.agentService?.close(session.id).catch(() => undefined);
 
@@ -474,12 +485,22 @@ export class ChatService {
     const creatingSession = input.sessionId === undefined || input.sessionId.trim().length === 0;
     const preauthorizedSpaceIds = creatingSession ? requestedSpaceIds : undefined;
     let preauthorizedSpaces: SpaceRow[] | undefined;
+    let resolvedExistingSession: { session: ChatSessionRow; spaceIds: string[] } | undefined;
     if (preauthorizedSpaceIds !== undefined) {
       preauthorizedSpaces = await this.sessionBoundary.requireSpaces(input.tenantId, preauthorizedSpaceIds);
       await this.sessionBoundary.assertChatUseOnSpaces(input, preauthorizedSpaceIds);
+    } else {
+      resolvedExistingSession = await this.sessionBoundary.resolveSession({
+        tenantId: input.tenantId,
+        spaceId: primarySpaceId,
+        userId: input.userId,
+        sessionId: input.sessionId,
+        requestedSpaceIds,
+        explicitScope: input.spaceIds !== undefined,
+      });
     }
     const chatModel = await this.resolveEnabledModel(input.tenantId, 'chat', ErrorCode.NO_CHAT_MODEL_CONFIGURED);
-    const { session, spaceIds } = await this.sessionBoundary.resolveSession({
+    const { session, spaceIds } = resolvedExistingSession ?? await this.sessionBoundary.resolveSession({
       tenantId: input.tenantId,
       spaceId: primarySpaceId,
       userId: input.userId,

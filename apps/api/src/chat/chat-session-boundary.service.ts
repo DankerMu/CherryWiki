@@ -8,7 +8,7 @@ import {
   space_permissions,
   spaces,
 } from '@cherrygraph/shared';
-import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { randomUUID } from 'node:crypto';
 
@@ -49,6 +49,8 @@ export type SpacePermissionCheckInput = {
   actorPermissions?: string[];
   spacePermissions?: Record<string, string[]>;
 };
+
+export type ChatSessionPermissionContext = Omit<SpacePermissionCheckInput, 'tenantId' | 'userId'>;
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
@@ -115,7 +117,17 @@ export class ChatSessionBoundaryService {
       space_id: primarySpaceId,
       space_ids: requestedSpaceIds,
     });
-    const { session } = await this.requireSession(tenantId, sessionId, userId, primarySpaceId);
+    const { session, spaceIds: storedSpaceIds } = await this.requireSession(tenantId, sessionId, userId, primarySpaceId);
+    await this.assertAuthorizedSessionScope(
+      tenantId,
+      userId,
+      storedSpaceIds,
+      {
+        userGroupIds,
+        ...(actorRole !== undefined ? { actorRole } : {}),
+        ...(spacePermissions !== undefined ? { spacePermissions } : {}),
+      },
+    );
     const spacesForScope = await this.requireSpaces(tenantId, normalizedSpaceIds);
     await this.assertChatUseOnSpaces(
       {
@@ -167,6 +179,7 @@ export class ChatSessionBoundaryService {
     userId: string,
     pageInput?: number,
     limitInput?: number,
+    permissionContext?: ChatSessionPermissionContext,
   ): Promise<PaginatedResponse<ChatSessionResponse>> {
     await this.requireSpace(tenantId, spaceId);
     const page = normalizePositiveInt(pageInput, DEFAULT_PAGE);
@@ -174,8 +187,10 @@ export class ChatSessionBoundaryService {
     const where = and(
       eq(chatSessions.tenant_id, tenantId),
       eq(chatSessions.user_id, userId),
-      eq(chatSessionSpaces.tenant_id, tenantId),
-      eq(chatSessionSpaces.space_id, spaceId),
+      or(
+        and(eq(chatSessionSpaces.tenant_id, tenantId), eq(chatSessionSpaces.space_id, spaceId)),
+        and(isNull(chatSessionSpaces.session_id), eq(chatSessions.space_id, spaceId)),
+      ),
     );
 
     const rows = await this.db
@@ -189,7 +204,10 @@ export class ChatSessionBoundaryService {
         updated_at: chatSessions.updated_at,
       })
       .from(chatSessions)
-      .innerJoin(chatSessionSpaces, eq(chatSessionSpaces.session_id, chatSessions.id))
+      .leftJoin(
+        chatSessionSpaces,
+        and(eq(chatSessionSpaces.tenant_id, tenantId), eq(chatSessionSpaces.session_id, chatSessions.id)),
+      )
       .where(where)
       .orderBy(desc(chatSessions.updated_at))
       .limit(limit)
@@ -197,9 +215,13 @@ export class ChatSessionBoundaryService {
     const [countRow] = await this.db
       .select({ total: count() })
       .from(chatSessions)
-      .innerJoin(chatSessionSpaces, eq(chatSessionSpaces.session_id, chatSessions.id))
+      .leftJoin(
+        chatSessionSpaces,
+        and(eq(chatSessionSpaces.tenant_id, tenantId), eq(chatSessionSpaces.session_id, chatSessions.id)),
+      )
       .where(where);
     const spaceInfoBySession = await this.loadSpaceInfoForSessions(rows);
+    await this.assertAuthorizedSessionScopes(tenantId, userId, rows, spaceInfoBySession, permissionContext);
 
     return paginatedResponse(
       rows.map((row) => {
@@ -262,6 +284,19 @@ export class ChatSessionBoundaryService {
     }
 
     return { session, spaceIds, spaceDetails };
+  }
+
+  async requireAuthorizedSession(
+    tenantId: string,
+    sessionId: string,
+    userId: string,
+    spaceId: string | undefined,
+    permissionContext?: ChatSessionPermissionContext,
+  ): Promise<{ session: ChatSessionRow; spaceIds: string[]; spaceDetails: SpaceDisplayInfo[] }> {
+    const result = await this.requireSession(tenantId, sessionId, userId, spaceId);
+    await this.assertAuthorizedSessionScope(tenantId, userId, result.spaceIds, permissionContext);
+
+    return result;
   }
 
   async findSessionById(tenantId: string, sessionId: string): Promise<ChatSessionRow | undefined> {
@@ -482,6 +517,43 @@ export class ChatSessionBoundaryService {
 
   async deleteSessionRecord(sessionId: string): Promise<void> {
     await this.db.delete(chatSessions).where(eq(chatSessions.id, sessionId));
+  }
+
+  private async assertAuthorizedSessionScopes(
+    tenantId: string,
+    userId: string,
+    sessions: ChatSessionRow[],
+    spaceInfoBySession: Map<string, { spaceIds: string[]; spaceDetails: SpaceDisplayInfo[] }>,
+    permissionContext?: ChatSessionPermissionContext,
+  ): Promise<void> {
+    if (permissionContext === undefined) {
+      return;
+    }
+
+    for (const session of sessions) {
+      const spaceIds = spaceInfoBySession.get(session.id)?.spaceIds ?? [session.space_id];
+      await this.assertAuthorizedSessionScope(tenantId, userId, spaceIds, permissionContext);
+    }
+  }
+
+  private async assertAuthorizedSessionScope(
+    tenantId: string,
+    userId: string,
+    spaceIds: string[],
+    permissionContext?: ChatSessionPermissionContext,
+  ): Promise<void> {
+    if (permissionContext === undefined) {
+      return;
+    }
+
+    await this.assertChatUseOnSpaces(
+      {
+        tenantId,
+        userId,
+        ...permissionContext,
+      },
+      spaceIds,
+    );
   }
 }
 

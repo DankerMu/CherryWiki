@@ -138,7 +138,14 @@ export class ChatController {
     @Req() request: RequestWithAuth,
   ): ReturnType<ChatService['listSessions']> {
     const user = getAuthenticatedUser(request);
-    return this.chatService.listSessions(user.tenant_id, spaceId, user.sub, query.page, query.limit);
+    return this.chatService.listSessions(
+      user.tenant_id,
+      spaceId,
+      user.sub,
+      query.page,
+      query.limit,
+      buildSessionPermissionContext(request, user),
+    );
   }
 
   @Get('spaces/:spaceId/chat/sessions/:sessionId')
@@ -149,7 +156,13 @@ export class ChatController {
     @Req() request: RequestWithAuth,
   ): ReturnType<ChatService['getSession']> {
     const user = getAuthenticatedUser(request);
-    return this.chatService.getSession(user.tenant_id, sessionId, user.sub, spaceId);
+    return this.chatService.getSession(
+      user.tenant_id,
+      sessionId,
+      user.sub,
+      spaceId,
+      buildSessionPermissionContext(request, user),
+    );
   }
 
   @Patch('spaces/:spaceId/chat/sessions/:sessionId')
@@ -183,7 +196,13 @@ export class ChatController {
     @Req() request: RequestWithAuth,
   ): ReturnType<ChatService['deleteSession']> {
     const user = getAuthenticatedUser(request);
-    return this.chatService.deleteSession(user.tenant_id, sessionId, user.sub, spaceId);
+    return this.chatService.deleteSession(
+      user.tenant_id,
+      sessionId,
+      user.sub,
+      spaceId,
+      buildSessionPermissionContext(request, user),
+    );
   }
 }
 
@@ -254,6 +273,27 @@ function buildAuditContext(request: RequestWithAuth): ChatAuditContext {
     ...(typeof userAgent === 'string' ? { userAgent } : {}),
     ...(typeof requestId === 'string' ? { requestId } : {}),
     ...(request.id !== undefined ? { requestId: request.id } : {}),
+  };
+}
+
+function buildSessionPermissionContext(
+  request: RequestWithAuth,
+  user: AuthenticatedRequestUser & { permissions?: string[] },
+): {
+  userGroupIds: string[];
+  actorRole?: string;
+  actorPermissions?: string[];
+  spacePermissions?: Record<string, string[]>;
+} {
+  const actorPermissions = request.permissions ?? user.permissions;
+  const candidateSpacePermissions = request.space_permissions ?? user.space_permissions;
+  const spacePermissions = isSpacePermissionMap(candidateSpacePermissions) ? candidateSpacePermissions : undefined;
+
+  return {
+    userGroupIds: user.group_ids,
+    ...(user.role !== undefined ? { actorRole: user.role } : {}),
+    ...(actorPermissions !== undefined ? { actorPermissions } : {}),
+    ...(spacePermissions !== undefined ? { spacePermissions } : {}),
   };
 }
 

@@ -132,6 +132,7 @@
 
 | ID | 描述 | Fix |
 |---|---|---|
+| PR-429-R1/#413 | Chat session/scope/permission stale authorization exposure | REST list/get/update/delete 统一校验完整 stored `space_ids` 后再暴露或写入；list 保留 legacy no-membership fallback；stream continuation 缺失 session 先返回 404；新增 70 个 Chat service 回归测试；Chat vitest、API typecheck/lint 通过 |
 | #403 | Graph Explorer 面板主题对齐 | `SpaceGraphExplorerPage.tsx` 面板背景/边框改用 CSS 变量；Community 选中态改为默认按钮 + primary 边框/弱背景，文字层级使用 text token；Legend Tag 固定白字；新增 Web 回归测试；`npx vitest run`、`npx tsc -b apps/web` 通过 |
 | #392 | Graph Explorer 社区节点展开 | `GET /api/graph/communities/:id/nodes?space_id=` 返回社区节点、内部边和 200 节点截断标记；前端点击社区加载并 merge 到画布，支持 loading/截断提示；新增 graph-core/API/Web/RAG 回归测试；`npm run build` 通过，相关测试通过，完整 `npm test` 仅遇到一次无关 Bridge rate-limit 5s 超时，单测复跑通过 |
 | #386 | Admin Worker 状态端点 | 新增 `GET /api/admin/workers` 聚合 Redis `worker:heartbeat:*`，按 <30s/30-120s/≥120s 标记 online/degraded/stale，Redis 不可用返回空列表+错误；新增 6 个 controller 单测；`npm run build`、worker 测试、`npm run lint` 通过 |
