@@ -298,7 +298,7 @@ describe('WikiService', () => {
     );
 
     expect(err.getStatus()).toBe(409);
-    expect(getHttpExceptionCode(err)).toBe('REINDEX_ALREADY_RUNNING');
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.REINDEX_ALREADY_RUNNING);
   });
 
   it('returns the idempotent reindex job without creating or enqueueing another job', async () => {

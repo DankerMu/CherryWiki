@@ -46,13 +46,65 @@ Issue #409 fixture:
 
 ## 2. API Error Contract
 
-- [ ] 2.1 Add an API error inventory listing current local `throwApiError` definitions, local string codes, HTTP statuses, and representative tests per API domain.
+Issue #410 fixture:
+- Issue type: refactor / contract foundation
+- Project profile: other
+- Blast radius: high
+- Fixture level: expanded
+- Repair intensity: high
+- Change surface: `apps/api/src/common/**`, `packages/shared/src/errors.ts`, `packages/shared/src/__tests__/errors.test.ts`, `docs/audit/api-error-inventory.md`, and focused API/common/shared tests
+- Must preserve: public HTTP routes, DTOs, database schema, current error envelope `{ error: { code, message, details? }, meta: { request_id } }`, HTTP status mapping, `details` propagation, 5xx sanitization, and request-id behavior
+- Must add/change: one common API error helper under `apps/api/src/common/**`; an inventory of local `throwApiError` helpers/local string codes by required domain; shared `ErrorCode` entries for client-facing local string codes found in the inventory; tests proving representative 400/401/403/404/409/422/500 compatibility through the helper and filter
+- Selected risk packs:
+  - Public API / CLI / script entry: selected - API client-facing error envelope and status behavior must remain compatible
+  - Schema / columns / units / field names: selected - shared `ErrorCode` is a cross-package API contract, though DB schema is unchanged
+  - Error handling / rollback / partial outputs: selected - the change centralizes error throwing and must preserve filter/failure semantics
+  - Documentation / migration notes: selected - inventory evidence is required for dependent migration issues
+- Risk packs considered:
+  - Config / project setup: not selected - no runtime config or deployment behavior changes intended
+  - File IO / path safety / overwrite: not selected - no runtime file access behavior changes
+  - Geospatial / CRS / shapefile sidecars: not selected - no geospatial code changes
+  - Time series / forcing / temporal boundaries: not selected - no temporal data behavior changes
+  - Numerical stability / conservation / NaN: not selected - no numerical code changes
+  - Solver runtime / performance / threading: not selected - no solver/runtime code changes
+  - Resource limits / large input / discovery: not selected - no large input or discovery behavior changes
+  - Legacy compatibility / examples: not selected - no legacy example/runtime behavior changes
+  - Release / packaging / dependency compatibility: not selected - no dependency or package metadata changes
+- Invariant Matrix:
+  - Governing invariant: every API client-facing error code introduced or inventoried by this foundation must be a shared `ErrorCode`, and the global filter must emit the same HTTP status, message, optional details, and `meta.request_id` for helper-thrown errors.
+  - Source-of-truth identity/contract: `packages/shared/src/errors.ts::ErrorCode` plus `apps/api/src/common/filters/http-exception.filter.ts` response envelope.
+  - Producers: common API error helper, existing local helper inventory, and promoted string-code call sites selected for this foundation.
+  - Validators/preflight: helper tests, `HttpExceptionFilter` tests, shared `ErrorCode` tests, and inventory scan commands.
+  - Storage/cache/query: none - no DB/cache schema or query behavior changes.
+  - Public routes/entrypoints: representative helper/filter test controller paths only; existing business routes are not migrated wholesale in #410.
+  - Frontend/downstream consumers: API clients consuming `{ error, meta }`; compatibility asserted by filter tests rather than UI changes.
+  - Failure paths/rollback/stale state: 400/401/403/404/409/422 helper-thrown errors keep details/status; 500 helper-thrown errors remain sanitized by existing filter behavior.
+  - Evidence/audit/readiness: `docs/audit/api-error-inventory.md`, `rg -n "function throwApiError|throwApiError\\(" apps/api/src`, targeted Vitest commands, and OpenSpec validation.
+  - Regression rows:
+    - common helper + valid shared `ErrorCode` + 400/401/403/404/409/422 -> matching HTTP status, code, message, details when provided, and request_id in response meta
+    - common helper + 500 -> sanitized `INTERNAL_ERROR` response from the existing filter, without leaking helper message/details
+    - inventory local string code classified client-facing -> added to `ErrorCode` and covered by shared tests
+    - non-canonical third-party/worker-specific failure payload string -> documented as out of scope in inventory, while project-owned timeout payloads visible through `JobDto.error_json` are promoted
+- Boundary-surface checklist:
+  - Shared helper roots: `apps/api/src/common/**` error helper and `HttpExceptionFilter`
+  - Public entrypoints: test-only controller routes exercising the helper/filter contract
+  - Producer/consumer evidence boundaries: inventory scan source -> `docs/audit/api-error-inventory.md` -> dependent issue scope
+  - Unchanged downstream consumers: current REST/SSE clients relying on `error.code`, `error.message`, `error.details`, and `meta.request_id`
+- Required evidence:
+  - `pnpm exec vitest run apps/api/src/common/filters/__tests__/http-exception.filter.test.ts --config vitest.config.ts --passWithNoTests=false`
+  - `pnpm --filter @cherrygraph/shared test`
+  - `pnpm --filter @cherrygraph/api test`
+  - `rg -n "function throwApiError|const throwApiError" apps/api/src` still shows existing domain-local helpers until dependent migration issues, but the inventory must classify them and no new domain-local helper may be added by #410
+  - `openspec validate entropy-governance --strict --no-interactive`
+- Non-goals: migrating every API domain helper, changing public route/DTO/schema behavior, changing `HttpExceptionFilter` envelope shape, or touching `external/*`
+
+- [x] 2.1 Add an API error inventory listing current local `throwApiError` definitions, local string codes, HTTP statuses, and representative tests per API domain.
   - Verification: inventory includes at least `chat`, `wiki`, `graphify`, `jobs`, `groups`, `models`, `mcp`, `feedback`, `api-tokens`, `governance`, `audit`, and `admin/proposals` findings or an explicit N/A.
-- [ ] 2.2 Add a common API error helper under `apps/api/src/common/**` and tests proving compatibility with `HttpExceptionFilter`, including representative 400/401/403/404/409/422/500 statuses.
+- [x] 2.2 Add a common API error helper under `apps/api/src/common/**` and tests proving compatibility with `HttpExceptionFilter`, including representative 400/401/403/404/409/422/500 statuses.
   - Verification: common helper tests and existing HTTP exception filter tests pass.
-- [ ] 2.3 Promote existing API-returned local string error codes into `packages/shared/src/errors.ts` and update shared error tests.
-  - Verification: local strings such as proposal status/action codes and missing embedding model codes are either canonical `ErrorCode` values or explicitly documented as non-client database/worker payloads.
-- [ ] 2.4 Migrate local `throwApiError` helper definitions in API services/controllers to the common helper by API domain, preserving HTTP status, code, message, details, and `meta.request_id`.
+- [x] 2.3 Promote existing API-returned local string error codes into `packages/shared/src/errors.ts` and update shared error tests.
+  - Verification: local strings such as proposal status/action codes, missing embedding model codes, and project-owned job timeout payload codes are canonical `ErrorCode` values; non-canonical third-party/worker-specific failure payloads remain documented out of scope.
+- [ ] 2.4 Dependent issues #411/#412: migrate local `throwApiError` helper definitions in API services/controllers to the common helper by API domain, preserving HTTP status, code, message, details, and `meta.request_id`.
   - Verification: `rg -n "function throwApiError" apps/api/src` returns only the common helper location; targeted API service/controller tests pass for migrated domains.
 
 ## 3. API Chat Backend Boundary

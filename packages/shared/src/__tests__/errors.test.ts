@@ -40,6 +40,7 @@ describe('ErrorCode', () => {
     expect(ErrorCode.MODEL_AUTH_FAILED).toBe('MODEL_AUTH_FAILED');
     expect(ErrorCode.EMBEDDING_LIMIT_EXCEEDED).toBe('EMBEDDING_LIMIT_EXCEEDED');
     expect(ErrorCode.NO_CHAT_MODEL_CONFIGURED).toBe('NO_CHAT_MODEL_CONFIGURED');
+    expect(ErrorCode.NO_EMBEDDING_MODEL_CONFIGURED).toBe('NO_EMBEDDING_MODEL_CONFIGURED');
   });
 
   it('contains upload module error codes', () => {
@@ -62,6 +63,7 @@ describe('ErrorCode', () => {
     expect(ErrorCode.WIKI_PAGE_NOT_FOUND).toBe('WIKI_PAGE_NOT_FOUND');
     expect(ErrorCode.VERSION_NOT_FOUND).toBe('VERSION_NOT_FOUND');
     expect(ErrorCode.VERSION_ALREADY_PUBLISHED).toBe('VERSION_ALREADY_PUBLISHED');
+    expect(ErrorCode.REINDEX_ALREADY_RUNNING).toBe('REINDEX_ALREADY_RUNNING');
   });
 
   it('contains graphify module error codes', () => {
@@ -82,6 +84,17 @@ describe('ErrorCode', () => {
     expect(ErrorCode.TOOL_NOT_FOUND).toBe('TOOL_NOT_FOUND');
     expect(ErrorCode.MCP_SERVER_ERROR).toBe('MCP_SERVER_ERROR');
     expect(ErrorCode.MCP_SERVER_TIMEOUT).toBe('MCP_SERVER_TIMEOUT');
+  });
+
+  it('contains admin and proposal governance error codes', () => {
+    expect(ErrorCode.RETRIEVAL_TRACE_NOT_FOUND).toBe('RETRIEVAL_TRACE_NOT_FOUND');
+    expect(ErrorCode.REBUILD_ALREADY_RUNNING).toBe('REBUILD_ALREADY_RUNNING');
+    expect(ErrorCode.WORKER_TIMEOUT).toBe('WORKER_TIMEOUT');
+    expect(ErrorCode.TIMEOUT).toBe('TIMEOUT');
+    expect(ErrorCode.INVALID_SCOPE).toBe('INVALID_SCOPE');
+    expect(ErrorCode.PROPOSAL_ALREADY_RESOLVED).toBe('PROPOSAL_ALREADY_RESOLVED');
+    expect(ErrorCode.INVALID_PROPOSAL_STATUS).toBe('INVALID_PROPOSAL_STATUS');
+    expect(ErrorCode.INVALID_PROPOSAL_ACTION).toBe('INVALID_PROPOSAL_ACTION');
   });
 
   it('uses uppercase snake case for every value', () => {

@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 
-import { retrievalTraces } from '@cherrygraph/shared';
+import { ErrorCode, retrievalTraces } from '@cherrygraph/shared';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -38,7 +38,7 @@ describe('admin retrieval traces', () => {
     );
 
     expect(err.getStatus()).toBe(404);
-    expect(getHttpExceptionCode(err)).toBe('RETRIEVAL_TRACE_NOT_FOUND');
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.RETRIEVAL_TRACE_NOT_FOUND);
   });
 });
 

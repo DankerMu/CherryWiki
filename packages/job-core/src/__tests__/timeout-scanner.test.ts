@@ -1,3 +1,4 @@
+import { ErrorCode } from '@cherrygraph/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { JobEventRepository } from '../event-repository.js';
@@ -50,7 +51,7 @@ describe('TimeoutScanner', () => {
       JobStatus.FAILED,
       expect.objectContaining({
         attempt_count: expiredJob.attempt_count + 1,
-        error_json: { code: 'TIMEOUT', message: 'Job exceeded timeout' },
+        error_json: { code: ErrorCode.TIMEOUT, message: 'Job exceeded timeout' },
       }),
     );
     expect(eventSpy).toHaveBeenCalledTimes(2);
@@ -122,7 +123,7 @@ describe('TimeoutScanner', () => {
       JobStatus.FAILED,
       expect.objectContaining({
         attempt_count: 1,
-        error_json: { code: 'TIMEOUT', message: 'Job exceeded timeout' },
+        error_json: { code: ErrorCode.TIMEOUT, message: 'Job exceeded timeout' },
       }),
     );
     expect(transitionSpy).toHaveBeenNthCalledWith(

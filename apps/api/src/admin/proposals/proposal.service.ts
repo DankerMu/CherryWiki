@@ -84,7 +84,7 @@ export class ProposalService {
     const normalizedAction = normalizeResolveAction(action);
     const proposal = await this.requireProposal(id);
     if (proposal.status !== 'pending') {
-      throwApiError('PROPOSAL_ALREADY_RESOLVED', 'Proposal is already resolved', HttpStatus.CONFLICT);
+      throwApiError(ErrorCode.PROPOSAL_ALREADY_RESOLVED, 'Proposal is already resolved', HttpStatus.CONFLICT);
     }
 
     const status = normalizedAction === 'accept' ? 'accepted' : 'rejected';
@@ -188,7 +188,7 @@ function normalizeOptionalStatus(status: string | undefined): ProposalStatus | u
     return status;
   }
 
-  throwApiError('INVALID_PROPOSAL_STATUS', `Invalid proposal status: ${status}`, HttpStatus.BAD_REQUEST);
+  throwApiError(ErrorCode.INVALID_PROPOSAL_STATUS, `Invalid proposal status: ${status}`, HttpStatus.BAD_REQUEST);
 }
 
 function normalizeResolveAction(action: ResolveProposalAction | undefined): ResolveProposalAction {
@@ -196,9 +196,9 @@ function normalizeResolveAction(action: ResolveProposalAction | undefined): Reso
     return action;
   }
 
-  throwApiError('INVALID_PROPOSAL_ACTION', 'Action must be accept or reject', HttpStatus.BAD_REQUEST);
+  throwApiError(ErrorCode.INVALID_PROPOSAL_ACTION, 'Action must be accept or reject', HttpStatus.BAD_REQUEST);
 }
 
-function throwApiError(code: ErrorCode | string, message: string, status: HttpStatus): never {
+function throwApiError(code: ErrorCode, message: string, status: HttpStatus): never {
   throw new HttpException({ code, message }, status);
 }

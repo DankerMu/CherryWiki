@@ -1177,7 +1177,7 @@ describe('InternalJobsService', () => {
       attempt_count: 1,
       locked_by: null,
       locked_at: null,
-      error_json: { code: 'WORKER_TIMEOUT', message: 'Worker heartbeat timed out' },
+      error_json: { code: ErrorCode.WORKER_TIMEOUT, message: 'Worker heartbeat timed out' },
       completed_at: new Date('2026-04-30T12:00:00.000Z'),
       started_at: new Date('2026-04-30T11:55:00.000Z'),
     });
@@ -1187,7 +1187,7 @@ describe('InternalJobsService', () => {
       locked_by: null,
       locked_at: null,
       next_run_at: new Date('2026-04-30T12:00:00.000Z'),
-      error_json: { code: 'WORKER_TIMEOUT', message: 'Worker heartbeat timed out' },
+      error_json: { code: ErrorCode.WORKER_TIMEOUT, message: 'Worker heartbeat timed out' },
       completed_at: null,
       started_at: null,
     });

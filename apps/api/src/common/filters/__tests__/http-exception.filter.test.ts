@@ -6,6 +6,7 @@ import {
   HttpException,
   HttpStatus,
   Module,
+  Param,
   NotFoundException,
   Post,
   RequestMethod,
@@ -20,6 +21,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { configureApp } from '../../../main.js';
 import { validationErrorsToDetails } from '../http-exception.filter.js';
+import { throwApiError } from '../../errors/api-error.js';
 import { RequestContextMiddleware } from '../../middleware/request-context.middleware.js';
 
 const REQUEST_ID = 'filter-test-request-id';
@@ -50,6 +52,42 @@ class ErrorTestController {
       },
       HttpStatus.UNAUTHORIZED,
     );
+  }
+
+  @Get('helper/:status')
+  helperError(@Param('status') status: string): never {
+    switch (status) {
+      case '400':
+        return throwApiError(ErrorCode.VALIDATION_ERROR, 'Common helper bad request', HttpStatus.BAD_REQUEST, [
+          { field: 'name', reason: 'required' },
+        ]);
+      case '401':
+        return throwApiError(ErrorCode.UNAUTHENTICATED, 'Common helper unauthenticated', HttpStatus.UNAUTHORIZED, [
+          { auth: 'missing' },
+        ]);
+      case '403':
+        return throwApiError(ErrorCode.PERMISSION_DENIED, 'Common helper forbidden', HttpStatus.FORBIDDEN, [
+          { permission: 'admin' },
+        ]);
+      case '404':
+        return throwApiError(ErrorCode.NOT_FOUND, 'Common helper not found', HttpStatus.NOT_FOUND, [
+          { resource: 'space' },
+        ]);
+      case '409':
+        return throwApiError(ErrorCode.CONFLICT, 'Common helper conflict', HttpStatus.CONFLICT, [
+          { state: 'building' },
+        ]);
+      case '422':
+        return throwApiError(ErrorCode.VALIDATION_ERROR, 'Common helper unprocessable', HttpStatus.UNPROCESSABLE_ENTITY, [
+          { field: 'scope', reason: 'invalid' },
+        ]);
+      case '500':
+        return throwApiError(ErrorCode.INTERNAL_ERROR, 'secret helper failure', HttpStatus.INTERNAL_SERVER_ERROR, [
+          { secret: 'do-not-leak' },
+        ]);
+      default:
+        throw new NotFoundException('Missing helper status');
+    }
   }
 
   @Get('unknown')
@@ -117,6 +155,82 @@ describe('HttpExceptionFilter', () => {
     expect(error.code).toBe(ErrorCode.INVALID_CREDENTIALS);
     expect(error.message).toBe('Invalid credentials');
     expect(getMetaPayload(response.text).request_id).toBe(REQUEST_ID);
+  });
+
+  it.each([
+    {
+      path: '400',
+      status: 400,
+      code: ErrorCode.VALIDATION_ERROR,
+      message: 'Common helper bad request',
+      details: [{ field: 'name', reason: 'required' }],
+    },
+    {
+      path: '401',
+      status: 401,
+      code: ErrorCode.UNAUTHENTICATED,
+      message: 'Common helper unauthenticated',
+      details: [{ auth: 'missing' }],
+    },
+    {
+      path: '403',
+      status: 403,
+      code: ErrorCode.PERMISSION_DENIED,
+      message: 'Common helper forbidden',
+      details: [{ permission: 'admin' }],
+    },
+    {
+      path: '404',
+      status: 404,
+      code: ErrorCode.NOT_FOUND,
+      message: 'Common helper not found',
+      details: [{ resource: 'space' }],
+    },
+    {
+      path: '409',
+      status: 409,
+      code: ErrorCode.CONFLICT,
+      message: 'Common helper conflict',
+      details: [{ state: 'building' }],
+    },
+    {
+      path: '422',
+      status: 422,
+      code: ErrorCode.VALIDATION_ERROR,
+      message: 'Common helper unprocessable',
+      details: [{ field: 'scope', reason: 'invalid' }],
+    },
+  ])(
+    'preserves common helper $status errors through the HTTP exception filter',
+    async ({ path, status, code, message, details }) => {
+      app = await createTestApp();
+      const response = await request(app.getHttpAdapter().getInstance().server)
+        .get(`/api/error-test/helper/${path}`)
+        .set('X-Request-Id', REQUEST_ID)
+        .expect(status);
+
+      const error = getErrorPayload(response.text);
+      expect(error.code).toBe(code);
+      expect(error.message).toBe(message);
+      expect(error.details).toEqual(details);
+      expect(getMetaPayload(response.text).request_id).toBe(REQUEST_ID);
+    },
+  );
+
+  it('keeps common helper 500 errors sanitized through the HTTP exception filter', async () => {
+    app = await createTestApp();
+    const response = await request(app.getHttpAdapter().getInstance().server)
+      .get('/api/error-test/helper/500')
+      .set('X-Request-Id', REQUEST_ID)
+      .expect(500);
+
+    const error = getErrorPayload(response.text);
+    expect(error.code).toBe(ErrorCode.INTERNAL_ERROR);
+    expect(error.message).toBe('Internal server error');
+    expect(error.details).toBeUndefined();
+    expect(getMetaPayload(response.text).request_id).toBe(REQUEST_ID);
+    expect(response.text).not.toContain('secret helper failure');
+    expect(response.text).not.toContain('do-not-leak');
   });
 
   it('maps unknown exceptions to INTERNAL_ERROR without leaking stack details', async () => {

@@ -151,7 +151,7 @@ describe('AdminIndexController', () => {
     );
 
     expect(err.getStatus()).toBe(409);
-    expect(getHttpExceptionCode(err)).toBe('REBUILD_ALREADY_RUNNING');
+    expect(getHttpExceptionCode(err)).toBe(ErrorCode.REBUILD_ALREADY_RUNNING);
   });
 
   it('returns the same idempotent job without creating a duplicate or enqueueing twice', async () => {
