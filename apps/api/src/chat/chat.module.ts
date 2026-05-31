@@ -7,6 +7,7 @@ import { DrizzleModule } from '../database/drizzle.module.js';
 import { GraphModule } from '../graph/graph.module.js';
 import { ModelConfigModule } from '../models/model-config.module.js';
 import { CHAT_PROVIDER_FACTORY, EMBEDDING_PROVIDER_FACTORY, ChatService } from './chat.service.js';
+import { ChatRetrievalService } from './chat-retrieval.service.js';
 import { ChatSessionBoundaryService } from './chat-session-boundary.service.js';
 import { ChatController } from './chat.controller.js';
 
@@ -15,6 +16,7 @@ import { ChatController } from './chat.controller.js';
   controllers: [ChatController],
   providers: [
     ChatSessionBoundaryService,
+    ChatRetrievalService,
     ChatService,
     {
       provide: CHAT_PROVIDER_FACTORY,

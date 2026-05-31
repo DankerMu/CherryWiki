@@ -306,10 +306,72 @@ Issue #413 fixture:
   - Verification: targeted `apps/api/src/chat/__tests__/chat.service.test.ts` scenarios pass and assert unchanged error code/status behavior.
 - [x] 3.2 Extract Chat session/scope/permission responsibilities from `apps/api/src/chat/chat.service.ts` into a focused backend collaborator while preserving controller behavior.
   - Verification: Chat session list/get/update/delete and stream request session creation tests pass.
-- [ ] 3.3 Add or strengthen characterization tests for static retrieval, graph context, RRF fusion, rerank fallback, strict/no-hit behavior, and retrieval trace metadata.
-  - Verification: targeted Chat retrieval/rerank tests pass, including non-fatal rerank fallback.
-- [ ] 3.4 Extract static retrieval, graph context, RRF fusion, rerank call/fallback, and trace metadata responsibilities into focused backend collaborator(s).
-  - Verification: `apps/api/src/chat/__tests__/rerank.test.ts`, source-chain/citation tests, and relevant integration tests pass.
+
+Issue #414 fixture:
+- Issue type: refactor / boundary extraction
+- Project profile: other
+- Blast radius: high
+- Fixture level: expanded
+- Repair intensity: high
+- Change surface: `apps/api/src/chat/**` static wiki retrieval, graph context retrieval, two/three-source RRF fusion, rerank call/fallback, graph hint fallback, retrieval trace construction metadata, and SQL search helpers; `ChatService` remains the public controller-facing orchestration boundary
+- Must preserve: existing `POST /api/chat/completions` REST/SSE contract, `retrieval_mode` behavior, `wiki_only` backward compatibility, `graph_rag`/`path_first`/`community_first` routing semantics, strict/no-hit behavior, rerank non-fatal fallback, outbound rerank URL validation, source-chain/citation compatibility, retrieval trace JSON shape, no route/DTO/schema change, and session/scope boundary introduced by #413
+- Must add/change: strengthen or reuse characterization tests for static retrieval, graph context, RRF ordering, rerank success/skip/timeout/error/empty-results behavior, strict/no-hit, graph hint fallback, prompt-injection risk ranking/annotation, source-chain metadata, and retrieval trace construction metadata; extract retrieval/rerank/trace-building responsibilities into focused backend collaborator(s) without moving `persistRetrievalTrace` DB insertion, trace insert timing/catch handling, model/provider resolution, Agent dispatch decision, message/citation persistence, model usage logs, or SSE shaping out of `ChatService`
+- Selected risk packs:
+  - Public API / CLI / script entry: selected - Chat completion is a public SSE/REST entrypoint and retrieval mode changes are client-observable through answer, citation, and trace behavior
+  - Schema / columns / units / field names: selected - `wiki_chunks`, `index_snapshots`, `retrieval_traces`, source-chain JSON, and trace JSON field names are persisted contracts even though schema is unchanged
+  - Resource limits / large input / discovery: selected - retrieval top-k, graph context budget, RRF candidate limits, rerank timeout, and graph retrieval failure isolation must remain bounded
+  - Error handling / rollback / partial outputs: selected - empty retrieval, strict no-hit, graph retrieval errors, rerank validation/API/timeout errors, and trace construction failures must keep stable fallback behavior; trace DB insert failures remain owned by `ChatService`/#416
+  - Documentation / migration notes: selected - this fixture records the retrieval/rerank boundary for dependent model/Agent and persistence/SSE extraction issues
+- Risk packs considered:
+  - Config / project setup: not selected - no env, Docker, dependency, provider registration, or deployment behavior change beyond normal Nest provider wiring
+  - File IO / path safety / overwrite: not selected - no filesystem reads/writes or artifact paths are touched
+  - Geospatial / CRS / shapefile sidecars: not selected - no geospatial code changes
+  - Time series / forcing / temporal boundaries: not selected - no temporal data behavior changes
+  - Numerical stability / conservation / NaN: not selected - no numerical/scientific computation changes beyond preserving existing score ordering
+  - Solver runtime / performance / threading: not selected - no solver/runtime/threading code changes
+  - Legacy compatibility / examples: not selected - no legacy sample/runtime behavior changes, but `wiki_only` backward compatibility is covered under Public API
+  - Release / packaging / dependency compatibility: not selected - no package metadata or dependency changes
+- Invariant Matrix:
+  - Governing invariant: Chat retrieval/rerank refactoring must preserve the exact authorized retrieval context, ranking/fallback semantics, and trace identity before the model prompt, citation extraction, persistence, or SSE output observes the result.
+  - Source-of-truth identity/contract: prepared completion `{tenantId, spaceIds, userGroupIds, message}`, active `index_snapshots`, `wiki_chunks.source_chain_json`, `retrieval_mode`, `RetrievalResult.chunkId`, `GraphCandidate.id`, `RerankMeta`, and `retrieval_traces.{candidates_json,acl_filtered_json,final_context_json,retrieval_mode}`.
+  - Producers: `ChatService.streamCompletion` call site, extracted retrieval/rerank collaborator(s), vector/BM25 SQL search callbacks, `retrieveFullGraphContext`, `retrieveGraphHints`, `retrieve`, `rrfFuseThreeSource`, and `rerankRetrievedResults`.
+  - Validators/preflight: #413 prepared session/scope boundary, index snapshot filtering, wiki chunk publication/injection-risk filters, rerank URL validation via `validateAdminOutboundProbeUrl`, graph service ACL inputs, retrieval mode normalization, and Chat/RAG tests.
+  - Storage/cache/query: existing Drizzle SQL reads from `index_snapshots`, `wiki_chunks`, wiki pages/sections, graph query service reads, and existing retrieval trace JSON construction shape; `retrieval_traces` DB insertion stays in `ChatService` for #416 and no migration or query-result schema change is allowed.
+  - Public routes/entrypoints: `POST /api/chat/completions` and existing tests that bind `retrieveContext` for characterization; REST session endpoints remain unchanged.
+  - Frontend/downstream consumers: unchanged Web Chat consumers of `citations`, source-chain display, `message.completed`, and fallback/no-hit messages; compatibility asserted through API tests rather than Web changes.
+  - Failure paths/rollback/stale state: no active snapshot, empty vector/BM25 results, graph retrieval exception, graph context budget exhaustion, prompt-injection-risk context handling, rerank model missing, rerank base URL missing, outbound URL validation failure, API timeout/error/empty scores, strict no-hit, relaxed no-hit, and unchanged Agent-routed modes. Trace DB insert failure remains a `ChatService` persistence boundary in #416 and must not move in #414.
+  - Evidence/audit/readiness: targeted Chat service/rerank/source-chain/query-routing/model-usage tests, relevant integration tests, API typecheck/lint, OpenSpec strict validation, and diff review showing model/provider, Agent dispatch, persistence/SSE concerns remain out of this slice.
+  - Regression rows:
+    - `wiki_only` with vector/BM25 hits -> same RRF-ordered retrieval results, prompt context blocks, source-chain citation fields, and `candidates.graph=[]`
+    - missing `retrieval_mode` -> same backward-compatible `wiki_only` retrieval and trace mode normalization
+    - `graph_rag` with graph candidates -> same graph context inclusion, three-source fusion influence, graph token budget, and trace `candidates/aclFiltered/finalContext` shape
+    - `graph_rag` graph query failure -> wiki retrieval remains usable, graph candidates are empty, and no user-visible failure is introduced
+    - strict knowledge space with no wiki/graph context -> same no-hit assistant message, no LLM invocation, same metadata/source and trace persistence attempt
+    - relaxed space with no context -> same static route fallback eligibility for model knowledge / Agent fallback decisions owned by #415, without changing #414 retrieval output
+    - enabled rerank success -> same outbound `/rerank` request shape, URL validation, reordered results, and `rerank_status=success` metadata
+    - no rerank model, empty results, missing base URL, validation failure, timeout, API error, or empty scores -> same RRF order and trace metadata status/skip reason; user request does not fail
+    - prompt-injection-risk chunk retrieved -> same context annotation/demotion behavior and no instruction execution surface is weakened
+    - trace construction metadata -> same `candidates/aclFiltered/finalContext` JSON fields; `persistRetrievalTrace` DB insert and catch/non-fatal handling remain in `ChatService`
+    - source-chain JSON from retrieved chunks -> same normalized `source_chain_json` and citation fallback behavior for downstream persistence/rendering
+- Boundary-surface checklist:
+  - Public entrypoints: `POST /api/chat/completions` and test-bound `retrieveContext` behavior used as characterization surface
+  - Read surfaces: active snapshot lookup, vector/BM25 wiki chunk SQL, graph context reads, user group/space scope inputs already prepared by #413
+  - Producer/consumer evidence boundaries: retrieved candidates -> fused/reranked results -> prompt/context/citations -> retrieval trace construction JSON
+  - Failure/stale/idempotency boundaries: empty/no active snapshot, stale index, graph retrieval failure, rerank failure, timeout, prompt-injection-risk annotation, and strict no-hit
+  - Unchanged downstream consumers: `persistRetrievalTrace` DB insert/catch timing, model/provider resolution, Agent route/dispatch, message/citation persistence, model usage logs, SSE event shaping, Web Chat rendering, and #413 session/scope collaborator
+- Required evidence:
+  - `pnpm exec vitest run apps/api/src/chat/__tests__/chat.service.test.ts apps/api/src/chat/__tests__/rerank.test.ts apps/api/src/chat/__tests__/source-chain-citation.test.ts apps/api/src/chat/__tests__/query-routing.test.ts apps/api/src/chat/__tests__/model-usage.test.ts --config vitest.config.ts --passWithNoTests=false`
+  - `pnpm exec vitest run tests/integration/chat-rag-flow.test.ts tests/integration/chat-degradation.test.ts tests/integration/chat-published-only.test.ts tests/integration/chat-permissions.test.ts tests/integration/chat-injection.test.ts --config vitest.config.ts --passWithNoTests=false`
+  - `pnpm --filter @cherrygraph/api typecheck`
+  - `pnpm --filter @cherrygraph/api lint`
+  - `pnpm --filter @cherrygraph/api test`
+  - `openspec validate entropy-governance --strict --no-interactive`
+- Non-goals: session/scope/permission extraction already completed in #413, model/provider and Agent routing extraction (#415), message/citation/model-usage persistence or SSE shaping extraction (#416), Web changes, route/DTO/schema changes, new retrieval modes, new error codes, rerank provider redesign, broad formatting churn, Docker/env/dependency changes, or any changes inside `external/*`
+
+- [x] 3.3 Add or strengthen characterization tests for static retrieval, graph context, RRF fusion, rerank fallback, strict/no-hit behavior, and retrieval trace metadata.
+  - Verification: targeted Chat/rerank/source-chain/query/model-usage Vitest suite passed (5 files / 82 tests), including non-fatal rerank fallback and retrieval trace finalContext metadata; targeted Chat integration suite passed (5 files / 8 tests), including prompt-injection evidence.
+- [x] 3.4 Extract static retrieval, graph context, RRF fusion, rerank call/fallback, and trace metadata responsibilities into focused backend collaborator(s).
+  - Verification: `ChatRetrievalService` now owns retrieval/rerank/trace construction while `ChatService` retains `persistRetrievalTrace` DB insertion/catch timing; API typecheck/lint and full `pnpm --filter @cherrygraph/api test` passed (213 files passed / 1 skipped; 1473 tests passed / 1 skipped).
 - [ ] 3.5 Add or strengthen characterization tests for model/provider resolution, Agent/static route selection, database toggle routing, and Agent SSE event behavior.
   - Verification: `apps/api/src/chat/__tests__/query-routing.test.ts` and relevant `apps/api/src/agent/__tests__/*` routing/SSE tests pass.
 - [ ] 3.6 Extract model/provider resolution and Agent dispatch decision code into focused collaborator(s), keeping `ChatService` as public orchestration boundary.
