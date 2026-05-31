@@ -269,7 +269,7 @@ describe('UploadsService', () => {
     expect(storage.uploadToQuarantine).not.toHaveBeenCalled();
   });
 
-  it('returns 422 with code and legacy error_code when synchronous validation rejects a disguised binary upload', async () => {
+  it('keeps code and error_code on the raw service exception payload for synchronous security rejection', async () => {
     const { service, db, storage, sourceDocuments } = createServiceContext({ validation: 'real' });
     db.queueSelect([{ id: TEST_SPACE_ID }]);
 
