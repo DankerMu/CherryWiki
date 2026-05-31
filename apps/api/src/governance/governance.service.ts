@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import {
   JobRepository,
   QueueFactory,
@@ -22,6 +22,7 @@ import { randomUUID } from 'node:crypto';
 import type { ZodError } from 'zod';
 
 import { AuditService } from '../audit/audit.service.js';
+import { throwApiError } from '../common/errors/api-error.js';
 import { REDIS_CLIENT, type OptionalRedisClient } from '../common/redis/redis.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { FeedbackService, type ConflictFeedbackInput } from '../feedback/feedback.service.js';
@@ -754,16 +755,14 @@ function hasIssueAtPath(error: ZodError, path: string): boolean {
 }
 
 function throwValidationError(error: ZodError): never {
-  throw new HttpException(
-    {
-      code: ErrorCode.VALIDATION_ERROR,
-      message: 'Validation failed',
-      details: error.issues.map((issue) => ({
-        path: issue.path.join('.'),
-        message: issue.message,
-      })),
-    },
+  throwApiError(
+    ErrorCode.VALIDATION_ERROR,
+    'Validation failed',
     HttpStatus.UNPROCESSABLE_ENTITY,
+    error.issues.map((issue) => ({
+      path: issue.path.join('.'),
+      message: issue.message,
+    })),
   );
 }
 
@@ -927,10 +926,6 @@ function toAuditFields(audit: GovernanceAuditContext | undefined): Pick<
     ...(audit?.userAgent !== undefined ? { user_agent: audit.userAgent } : {}),
     ...(audit?.requestId !== undefined ? { request_id: audit.requestId } : {}),
   };
-}
-
-function throwApiError(code: ErrorCode, message: string, status: HttpStatus): never {
-  throw new HttpException({ code, message }, status);
 }
 
 function isRecord(value: unknown): value is JsonRecord {

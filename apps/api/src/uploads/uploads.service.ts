@@ -17,6 +17,7 @@ import { basename } from 'node:path';
 import type { Readable } from 'node:stream';
 
 import { buildPaginationMeta, paginatedResponse, type PaginatedResponse } from '../common/dto/pagination.dto.js';
+import { throwApiError } from '../common/errors/api-error.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { UPLOAD_CREATE_PERMISSIONS, UPLOAD_READ_PERMISSIONS } from '../shared/permission-constants.js';
 import { getBucketName, STORAGE_BUCKET_NAMES } from '../storage/storage.constants.js';
@@ -1246,10 +1247,6 @@ function isUniqueViolation(err: unknown, constraint: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
-}
-
-function throwApiError(code: ErrorCode, message: string, status: HttpStatus): never {
-  throw new HttpException({ code, message }, status);
 }
 
 function throwSecurityValidationError(result: RecordedValidationPipelineResult): never {

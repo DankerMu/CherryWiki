@@ -54,6 +54,18 @@ class ErrorTestController {
     );
   }
 
+  @Get('raw-error-code-alias')
+  rawErrorCodeAlias(): never {
+    throw new HttpException(
+      {
+        code: ErrorCode.MIME_MISMATCH,
+        error_code: ErrorCode.MIME_MISMATCH,
+        message: 'Detected MIME type does not match file extension',
+      },
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+
   @Get('helper/:status')
   helperError(@Param('status') status: string): never {
     switch (status) {
@@ -154,6 +166,22 @@ describe('HttpExceptionFilter', () => {
     const error = getErrorPayload(response.text);
     expect(error.code).toBe(ErrorCode.INVALID_CREDENTIALS);
     expect(error.message).toBe('Invalid credentials');
+    expect(getMetaPayload(response.text).request_id).toBe(REQUEST_ID);
+  });
+
+  it('keeps raw HttpException aliases out of the public HTTP error envelope', async () => {
+    app = await createTestApp();
+    const response = await request(app.getHttpAdapter().getInstance().server)
+      .get('/api/error-test/raw-error-code-alias')
+      .set('X-Request-Id', REQUEST_ID)
+      .expect(422);
+
+    const body = parseJsonObject(response.text);
+    const error = getErrorPayload(response.text);
+    expect(error.code).toBe(ErrorCode.MIME_MISMATCH);
+    expect(error.message).toBe('Detected MIME type does not match file extension');
+    expect(error).not.toHaveProperty('error_code');
+    expect(body).not.toHaveProperty('error_code');
     expect(getMetaPayload(response.text).request_id).toBe(REQUEST_ID);
   });
 

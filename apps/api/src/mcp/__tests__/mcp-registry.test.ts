@@ -5,6 +5,7 @@ import type { AuditEntry } from '../../audit/audit.service.js';
 import {
   createUniqueViolation,
   getHttpExceptionCode,
+  getHttpExceptionResponse,
   getRejectedHttpException,
 } from '../../users/__tests__/user-group-service-test-utils.js';
 import {
@@ -96,6 +97,32 @@ describe('McpService registry', () => {
 
     expect(err.getStatus()).toBe(409);
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.TOOL_NAME_EXISTS);
+  });
+
+  it('returns validation details when tool registration input fails shared schema validation', async () => {
+    const { service } = createMcpServiceContext();
+
+    const err = await getRejectedHttpException(
+      service.createTool(
+        {
+          tool_name: 'jira-lookup',
+          server_url: 'not-a-url',
+        },
+        createMcpContext(),
+      ),
+    );
+    const response = getHttpExceptionResponse(err);
+
+    expect(err.getStatus()).toBe(422);
+    expect(response).toMatchObject({
+      code: ErrorCode.VALIDATION_ERROR,
+      message: 'Validation failed',
+    });
+    expect(response?.details).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'server_url' }),
+      ]),
+    );
   });
 
   it('lists active tools by default and can include inactive tools', async () => {

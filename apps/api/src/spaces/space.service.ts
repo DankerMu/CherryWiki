@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import { ROLES, normalizeRole } from '@cherrygraph/auth-core';
 import {
   ErrorCode,
@@ -24,6 +24,7 @@ import {
   parseSortField,
   type PaginatedResponse,
 } from '../common/dto/pagination.dto.js';
+import { throwApiError } from '../common/errors/api-error.js';
 import { getApiLogger } from '../common/logger/logger.module.js';
 import { REDIS_CLIENT } from '../common/redis/redis.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
@@ -809,10 +810,6 @@ function normalizeCount(value: unknown): number {
 
 function throwSpaceNotFound(): never {
   throwApiError(ErrorCode.SPACE_NOT_FOUND, 'Space not found', HttpStatus.NOT_FOUND);
-}
-
-function throwApiError(code: ErrorCode, message: string, status: HttpStatus): never {
-  throw new HttpException({ code, message }, status);
 }
 
 function isUniqueViolation(err: unknown, constraint: string): boolean {

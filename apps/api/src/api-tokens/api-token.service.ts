@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import {
   ErrorCode,
   apiTokenCreateDto,
@@ -12,6 +12,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { ZodError } from 'zod';
 
 import { AuditService } from '../audit/audit.service.js';
+import { throwApiError } from '../common/errors/api-error.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 
 type ApiTokenDatabase = NodePgDatabase;
@@ -283,16 +284,14 @@ function parseCreateInput(input: unknown): ApiTokenCreateDto {
 }
 
 function throwValidationError(error: ZodError): never {
-  throw new HttpException(
-    {
-      code: ErrorCode.VALIDATION_ERROR,
-      message: 'Validation failed',
-      details: error.issues.map((issue) => ({
-        path: issue.path.join('.'),
-        message: issue.message,
-      })),
-    },
+  throwApiError(
+    ErrorCode.VALIDATION_ERROR,
+    'Validation failed',
     HttpStatus.UNPROCESSABLE_ENTITY,
+    error.issues.map((issue) => ({
+      path: issue.path.join('.'),
+      message: issue.message,
+    })),
   );
 }
 
@@ -342,8 +341,4 @@ function toAuditFields(audit: ApiTokenAuditContext | undefined): Pick<
     ...(audit?.userAgent !== undefined ? { user_agent: audit.userAgent } : {}),
     ...(audit?.requestId !== undefined ? { request_id: audit.requestId } : {}),
   };
-}
-
-function throwApiError(code: ErrorCode, message: string, status: HttpStatus): never {
-  throw new HttpException({ code, message }, status);
 }

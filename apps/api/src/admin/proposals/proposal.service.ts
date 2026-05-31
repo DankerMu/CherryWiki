@@ -1,8 +1,9 @@
-import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { ErrorCode, wikiPages, wikiUpdateProposals } from '@cherrygraph/shared';
 import { and, count, desc, eq } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
+import { throwApiError } from '../../common/errors/api-error.js';
 import { getApiLogger } from '../../common/logger/logger.module.js';
 import { DRIZZLE } from '../../database/drizzle.constants.js';
 
@@ -197,8 +198,4 @@ function normalizeResolveAction(action: ResolveProposalAction | undefined): Reso
   }
 
   throwApiError(ErrorCode.INVALID_PROPOSAL_ACTION, 'Action must be accept or reject', HttpStatus.BAD_REQUEST);
-}
-
-function throwApiError(code: ErrorCode, message: string, status: HttpStatus): never {
-  throw new HttpException({ code, message }, status);
 }
