@@ -1073,6 +1073,49 @@ describe('ChatService streamCompletion', () => {
     });
   });
 
+  it('passes resolved chat model provider config to the static provider factory', async () => {
+    const chatProvider = new ScriptedChatProvider([
+      { type: 'content', delta: 'Configured answer.' },
+      { type: 'done', finish_reason: 'stop', usage: { prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 } },
+    ]);
+    const { service, db, chatFactory } = createServiceContext({ chatProvider });
+    db.queueSelect([createSpaceRow({ strict_knowledge_only: false })]);
+    db.queueSelect([
+      createModelRow({
+        provider: 'openai-compatible',
+        model_id: 'custom-chat',
+        base_url: 'https://models.example/v1',
+        max_tokens: 1234,
+        model_type: 'chat',
+      }),
+    ]);
+    db.queueInsert([createSessionRow()]);
+    db.queueSelect([createSessionRow()]);
+    db.queueSelect([]);
+    db.queueInsert([createMessageRow({ id: 'user-message', role: 'user' })]);
+    db.queueSelect([]);
+    db.queueInsert([createMessageRow({ id: 'assistant-message', role: 'assistant' })]);
+
+    await collectEvents(
+      await service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: TEST_SPACE_ID,
+        userId: TEST_USER_ID,
+        userGroupIds: [],
+        message: 'What is configured?',
+      }),
+    );
+
+    expect(chatFactory).toHaveBeenCalledWith({
+      provider: 'openai-compatible',
+      modelId: 'custom-chat',
+      encryptedApiKeyRef: 'secret:TEST_API_KEY',
+      baseUrl: 'https://models.example/v1',
+      maxTokens: 1234,
+    });
+    expect(chatProvider.lastParams?.model).toBe('custom-chat');
+  });
+
   it('streams retrieval-backed answers, persists fallback citations, and writes audit', async () => {
     const chatProvider = new ScriptedChatProvider([
       { type: 'content', delta: 'According to the wiki, SSO is enabled.' },

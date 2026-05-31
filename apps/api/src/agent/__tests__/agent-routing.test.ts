@@ -57,6 +57,93 @@ describe('Agent routing', () => {
     expect(events.map((event) => event.type)).toEqual(['session', 'content', 'usage', 'message.completed']);
   });
 
+  it('bound Agent conversations continue on the Agent path without static retrieval', async () => {
+    const agent = createAgentServiceMock([
+      { type: 'message.delta', delta: 'resumed answer' },
+      { type: 'message.completed', usage: { input_tokens: 5, output_tokens: 3 } },
+    ]);
+    const hasSession = vi.fn(() => Promise.resolve(true));
+    agent.hasSession = hasSession as unknown as AgentService['hasSession'];
+    const { service, db, chatFactory, embeddingFactory } = createService(agent);
+    db.queueSelect([createSessionRow()]);
+    db.queueSelect([]);
+    db.queueSelect([createModelRow()]);
+    db.queueSelect([createSpaceRow()]);
+    db.queueSelect([]);
+    db.queueInsert([createMessageRow({ id: 'user-message', role: 'user' })]);
+    db.queueInsert([createMessageRow({ id: 'assistant-message', role: 'assistant' })]);
+
+    const events = await collectAsync(
+      await service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: TEST_SPACE_ID,
+        sessionId: 'session-1',
+        userId: TEST_USER_ID,
+        userGroupIds: [],
+        message: 'continue the previous analysis',
+      }),
+    );
+
+    expect(hasSession).toHaveBeenCalledWith('session-1', { includePersisted: true });
+    expect(agent.sendTurn).toHaveBeenCalledWith( // eslint-disable-line @typescript-eslint/unbound-method
+      'session-1',
+      TEST_SPACE_ID,
+      'continue the previous analysis',
+      expect.objectContaining({ enableDatabase: false }),
+    );
+    expect(chatFactory).not.toHaveBeenCalled();
+    expect(embeddingFactory).not.toHaveBeenCalled();
+    expect(db.executedQueries).toHaveLength(0);
+    expect(events.map((event) => event.type)).toEqual(['session', 'content', 'usage', 'message.completed']);
+  });
+
+  it('database toggle routes to Agent when database config is visible', async () => {
+    const agent = createAgentServiceMock([
+      { type: 'message.delta', delta: 'database answer' },
+      { type: 'message.completed', usage: { input_tokens: 4, output_tokens: 2 } },
+    ]);
+    const { service, db, chatFactory, embeddingFactory } = createService(agent);
+    queuePreparedAgentCompletion(
+      db,
+      createSpaceRow({
+        database_config: {
+          enabled: true,
+          dsn: 'postgresql://readonly:secret@db.internal:5432/analytics',
+          allowed_tables: ['orders'],
+        },
+      }),
+    );
+
+    await collectAsync(
+      await service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: TEST_SPACE_ID,
+        userId: TEST_USER_ID,
+        userGroupIds: [],
+        message: 'query orders',
+        enableDatabase: true,
+      }),
+    );
+
+    const { sendTurn } = agent as unknown as { sendTurn: ReturnType<typeof vi.fn> };
+    expect(sendTurn).toHaveBeenCalledWith(
+      'session-1',
+      TEST_SPACE_ID,
+      'query orders',
+      expect.objectContaining({ enableDatabase: true }),
+    );
+    const options = sendTurn.mock.calls[0]?.[3] as { databaseConfig?: unknown } | undefined;
+    expect(options?.databaseConfig).toEqual(
+      expect.objectContaining({
+        dsn: 'postgresql://readonly:secret@db.internal:5432/analytics',
+        allowed_tables: ['orders'],
+      }),
+    );
+    expect(chatFactory).not.toHaveBeenCalled();
+    expect(embeddingFactory).not.toHaveBeenCalled();
+    expect(db.executedQueries).toHaveLength(0);
+  });
+
   it('passes all selected Spaces and disables database mode for multi-space turns', async () => {
     const agent = createAgentServiceMock([
       { type: 'message.delta', delta: 'agent answer' },
@@ -133,6 +220,7 @@ function createService(agentService: AgentService): {
   service: ChatService;
   db: ScriptedDb;
   chatFactory: ReturnType<typeof vi.fn>;
+  embeddingFactory: ReturnType<typeof vi.fn>;
 } {
   const db = new ScriptedDb();
   const audit = { push: vi.fn() } as unknown as AuditService;
@@ -150,7 +238,7 @@ function createService(agentService: AgentService): {
     agentService,
   );
 
-  return { service, db, chatFactory };
+  return { service, db, chatFactory, embeddingFactory };
 }
 
 function queuePreparedAgentCompletion(db: ScriptedDb, space: SpaceRow = createSpaceRow()): void {
@@ -165,6 +253,7 @@ function queuePreparedAgentCompletion(db: ScriptedDb, space: SpaceRow = createSp
 
 function createAgentServiceMock(events: ChatAgentEvent[]): AgentService {
   return {
+    close: vi.fn(() => Promise.resolve()),
     hasSession: vi.fn(() => false),
     sendTurn: vi.fn(() => toAsyncIterable(events)),
     spawnNew: vi.fn(() => toAsyncIterable(events)),
