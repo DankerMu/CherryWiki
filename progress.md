@@ -1,7 +1,7 @@
 # CherryWiki 项目进度
 
 > 本文件是 session 间的状态接力棒。每次重大变更后更新。上限 200 行。
-> 最后更新: 2026-05-17
+> 最后更新: 2026-05-31
 
 ## 1. 系统架构一句话
 
@@ -132,6 +132,7 @@
 
 | ID | 描述 | Fix |
 |---|---|---|
+| #403 | Graph Explorer 面板主题对齐 | `SpaceGraphExplorerPage.tsx` 面板背景/边框改用 CSS 变量；Community 选中态改为默认按钮 + primary 边框/弱背景，文字层级使用 text token；Legend Tag 固定白字；新增 Web 回归测试；`npx vitest run`、`npx tsc -b apps/web` 通过 |
 | #392 | Graph Explorer 社区节点展开 | `GET /api/graph/communities/:id/nodes?space_id=` 返回社区节点、内部边和 200 节点截断标记；前端点击社区加载并 merge 到画布，支持 loading/截断提示；新增 graph-core/API/Web/RAG 回归测试；`npm run build` 通过，相关测试通过，完整 `npm test` 仅遇到一次无关 Bridge rate-limit 5s 超时，单测复跑通过 |
 | #386 | Admin Worker 状态端点 | 新增 `GET /api/admin/workers` 聚合 Redis `worker:heartbeat:*`，按 <30s/30-120s/≥120s 标记 online/degraded/stale，Redis 不可用返回空列表+错误；新增 6 个 controller 单测；`npm run build`、worker 测试、`npm run lint` 通过 |
 | #385 | Health 端点集成 enabled models 连通性探测 | `ModelConfigService.listEnabledModels()` + 可配置超时 `probeModel()`；`AdminHealthController` 新增 optional `models` 组件，5s 单模型/8s 整体超时，unhealthy models 仅使 overall degraded；新增 6 个 models 健康回归测试；`npm run build`、health 测试、`npm run lint` 通过 |
@@ -155,6 +156,8 @@
 
 | Change | 状态 | 说明 |
 |---|---|---|
+| entropy-governance | baseline/change ready, issues #408-#424 | `.entropy-baseline/latest.json` 已记录实际项目代码熵基线并排除 `external/*`；OpenSpec 4/4 complete 且 strict validate 通过；三路 Codex 审核无 P0，P1 已回填 specs/tasks；GitHub Epic #408 + 16 个子 issue 已创建 |
+| graph-explorer-visual-overhaul | panel-theme-alignment complete, issues #400/#401/#403 | 新增 `useGraphTheme` 读取 theme CSS vars 并监听 `data-theme`；GraphCanvas 背景/边框/标签主题化；节点渲染增加默认/选中 glow、选中双环、大图默认 glow 降级；Graph Explorer 面板、Community 选中态和 Legend 对齐 theme token；`getNodeColor`/`getLinkColor` 已提取为纯函数并补充测试 |
 | wiki-version-diff | API+UI complete, pending browser verification | `GET /wiki/pages/:pageId/diff` + version history compare modal；`npm run build`、Wiki API tests 通过 |
 | fix-session-delete-cascade | complete, issue #381 | Chat session 关联 retrieval traces/model usage logs/feedback items 删除级联修复 |
 | agent-chart-event-injection | issues #364/#365/#366/#367 complete | TurnEventQueue/PersistentStreamParser/AgentService 注入机制 + env 注入 + internal endpoint + cherrydb CLI callback + endpoint→SSE 集成验证 |
@@ -164,9 +167,10 @@
 
 ## 9. 下一步
 
-1. **继续 P0 测试** — 可立即测的 ~20 项（权限、多格式上传、SSE 事件、Model 管理）
-2. **运行 Graphify** — 容器内 Claude Code 可用，运行后解锁 Graph/Wiki/Index/Citation 相关 P0 测试
-3. **E2E 自动化** — `tests/e2e/` 已有 11 用例框架，待扩展
+0. **Codex 工作流与 AGENTS 规则可用** — 已安装 `agentic-issue-delivery` pack、`repo-entropy-audit`、`control-plane-auditor`，并补强仓库级协作规则
+1. **熵治理实现批次** — 从 #409 scoped AGENTS 和 #410 API error inventory 开始，按 #408 依赖图推进
+2. **继续 P0 测试** — 可立即测的 ~20 项（权限、多格式上传、SSE 事件、Model 管理）
+3. **运行 Graphify** — 容器内 Claude Code 可用，运行后解锁 Graph/Wiki/Index/Citation 相关 P0 测试
 
 ## 10. 关键文件索引
 
