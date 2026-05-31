@@ -107,6 +107,68 @@ Issue #410 fixture:
 - [ ] 2.4 Dependent issues #411/#412: migrate local `throwApiError` helper definitions in API services/controllers to the common helper by API domain, preserving HTTP status, code, message, details, and `meta.request_id`.
   - Verification: `rg -n "function throwApiError" apps/api/src` returns only the common helper location; targeted API service/controller tests pass for migrated domains.
 
+Issue #411 fixture:
+- Issue type: refactor / migration
+- Project profile: other
+- Blast radius: high
+- Fixture level: expanded
+- Repair intensity: high
+- Change surface: `apps/api/src/{chat,wiki,graphify,jobs}/**` local error helper usage and directly affected API domain tests only
+- Must preserve: existing public routes, DTOs, SSE event names, request/response schemas, HTTP status, `ErrorCode` values, message text, absence/presence of `details`, 5xx sanitization through `HttpExceptionFilter`, and `meta.request_id` behavior
+- Must add/change: replace the domain-local `throwApiError` definitions in `chat`, `wiki`, `graphify`, and `jobs` services with the common helper from `apps/api/src/common/errors/api-error.ts`; remove `HttpException` imports that were only needed by local helpers; add or update focused regression coverage only where existing tests do not cover representative migrated paths
+- Selected risk packs:
+  - Public API / CLI / script entry: selected - migrated helpers feed existing REST/SSE API boundaries and must keep the response contract byte/shape compatible
+  - Schema / columns / units / field names: selected - `ErrorCode` is a shared API field contract even though no DB schema changes
+  - Error handling / rollback / partial outputs: selected - migration must preserve helper-thrown failure semantics, filter sanitization, and no partial behavior changes in core domains
+  - Documentation / migration notes: selected - this fixture and implementation evidence update the entropy-governance migration record for dependent issue #412
+- Risk packs considered:
+  - Config / project setup: not selected - no runtime config, env, Docker, or deployment behavior changes
+  - File IO / path safety / overwrite: not selected - no runtime file access, upload, or artifact path behavior changes
+  - Geospatial / CRS / shapefile sidecars: not selected - no geospatial code changes
+  - Time series / forcing / temporal boundaries: not selected - no temporal data behavior changes
+  - Numerical stability / conservation / NaN: not selected - no numerical code changes
+  - Solver runtime / performance / threading: not selected - no solver/runtime/threading code changes
+  - Resource limits / large input / discovery: not selected - no discovery algorithm or resource-bound behavior changes
+  - Legacy compatibility / examples: not selected - no legacy sample/runtime behavior changes
+  - Release / packaging / dependency compatibility: not selected - no package metadata or dependency changes
+- Invariant Matrix:
+  - Governing invariant: migrated core-domain API errors must emit the same client-facing status, code, message, optional details behavior, and `meta.request_id` as before; only the helper source changes from domain-local functions to the common API helper.
+  - Source-of-truth identity/contract: `packages/shared/src/errors.ts::ErrorCode`, `apps/api/src/common/errors/api-error.ts`, and `apps/api/src/common/filters/http-exception.filter.ts` response envelope.
+  - Producers: `apps/api/src/chat/chat.service.ts`, `apps/api/src/wiki/wiki.service.ts`, `apps/api/src/graphify/graphify.service.ts`, and `apps/api/src/jobs/jobs.service.ts` call sites.
+  - Validators/preflight: targeted domain service/controller tests, common filter/helper tests already established by #410, and scan commands for local helper definitions/string-code misuse.
+  - Storage/cache/query: unchanged - no DB/cache schema, Drizzle migration, query, or persistence behavior changes.
+  - Public routes/entrypoints: existing Chat, Wiki, Graphify, and Jobs REST/SSE routes whose service methods throw the migrated errors.
+  - Frontend/downstream consumers: unchanged clients consuming `{ error: { code, message, details? }, meta: { request_id } }`; compatibility is verified through API tests/scans rather than Web changes.
+  - Failure paths/rollback/stale state: representative 400/401/403/404/409/422 helper-thrown paths keep the same status/code/message; existing 500 sanitization remains owned by `HttpExceptionFilter`.
+  - Evidence/audit/readiness: OpenSpec fixture, targeted Vitest commands, `pnpm --filter @cherrygraph/api typecheck`, `pnpm --filter @cherrygraph/api lint`, and `rg` scans proving no local helper remains in migrated domains.
+  - Regression rows:
+    - Chat invalid/missing space or missing model path -> same 400/403/404/422 status and `ErrorCode` as before helper migration
+    - Wiki missing page/version or illegal publish/unpublish transition -> same 404/409 status, code, and message as before helper migration
+    - Graphify missing run/report or permission failure -> same 401/403/404 status, code, and message as before helper migration
+    - Jobs invalid sort, unauthenticated user, missing job, or cancel conflict -> same 401/404/409/422 status, code, and message as before helper migration
+    - Any migrated helper path using a 500 `INTERNAL_ERROR` -> still sanitized by existing filter behavior, with no leaked helper message/details
+    - Scan of migrated domains -> no domain-local `function throwApiError`/`const throwApiError` definitions and no raw string-code `throwApiError('...')` calls
+- Boundary-surface checklist:
+  - Shared helper roots: `apps/api/src/common/errors/api-error.ts` and `apps/api/src/common/filters/http-exception.filter.ts` remain the only helper/filter contract roots
+  - Public entrypoints: Chat, Wiki, Graphify, and Jobs REST/SSE handlers reachable through existing controllers
+  - Read/write surfaces: service-level validation/permission/conflict paths only; no persistence semantics change
+  - Failure/stale/idempotency boundaries: existing not-found, permission, validation, conflict, unauthenticated, and internal-error branches
+  - Unchanged downstream consumers: Web/API clients and existing tests relying on shared `ErrorCode` response fields
+- Required evidence:
+  - `pnpm exec vitest run apps/api/src/chat/__tests__/chat.service.test.ts apps/api/src/wiki/__tests__/wiki.service.test.ts apps/api/src/graphify/__tests__/graphify.service.test.ts apps/api/src/jobs/__tests__/jobs.service.test.ts --config vitest.config.ts --passWithNoTests=false`
+  - `pnpm --filter @cherrygraph/api test`
+  - `pnpm --filter @cherrygraph/api typecheck`
+  - `pnpm --filter @cherrygraph/api lint`
+  - `rg -n "function throwApiError|const throwApiError" apps/api/src/{chat,wiki,graphify,jobs}` returns no matches
+  - `rg -n "throwApiError\\(['\\\"]" apps/api/src/{chat,wiki,graphify,jobs}` returns no matches
+  - `openspec validate entropy-governance --strict --no-interactive`
+- Non-goals: admin/config/supporting domain helper migration covered by #412, Chat structural decomposition, route/DTO/schema/SSE changes, new error codes, broad formatting churn, or any changes inside `external/*`
+
+- [x] 2.5 Issue #411: migrate `chat`, `wiki`, `graphify`, and `jobs` services from domain-local `throwApiError` helpers to the common API helper without changing client-facing error behavior.
+  - Verification: targeted domain tests and scans in the #411 fixture pass.
+- [x] 2.6 Issue #411: run API typecheck/lint/OpenSpec validation and record implementation evidence for the migrated core domains.
+  - Verification: `pnpm --filter @cherrygraph/api typecheck`, `pnpm --filter @cherrygraph/api lint`, and `openspec validate entropy-governance --strict --no-interactive` pass.
+
 ## 3. API Chat Backend Boundary
 
 - [ ] 3.1 Add or strengthen characterization tests for Chat session lifecycle, multi-space scope validation, and permission rejection before extracting session/scope code.

@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { JobRepository, JobStatus, jobs, type JobRow } from '@cherrygraph/job-core';
 import {
   ErrorCode,
@@ -30,6 +30,7 @@ import {
 import { getApiLogger } from '../common/logger/logger.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { AuditService } from '../audit/audit.service.js';
+import { throwApiError } from '../common/errors/api-error.js';
 
 export type GraphifyDatabase = NodePgDatabase;
 export type GraphifyRunRow = typeof graphifyRuns.$inferSelect;
@@ -1146,8 +1147,4 @@ function parseGraphifyTimeoutSeconds(): number {
 
 function throwGraphifyRunNotFound(): never {
   throwApiError(ErrorCode.GRAPHIFY_RUN_NOT_FOUND, 'Graphify run was not found', HttpStatus.NOT_FOUND);
-}
-
-function throwApiError(code: ErrorCode, message: string, status: HttpStatus): never {
-  throw new HttpException({ code, message }, status);
 }

@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import {
   JobConflictError,
   JobEventRepository,
@@ -28,6 +28,7 @@ import {
   parseSortField,
   type PaginatedResponse,
 } from '../common/dto/pagination.dto.js';
+import { throwApiError } from '../common/errors/api-error.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import {
   JOB_SORT_FIELDS,
@@ -537,8 +538,4 @@ function throwJobNotFound(): never {
 
 function throwJobConflict(message: string): never {
   throwApiError(ErrorCode.CONFLICT, message, HttpStatus.CONFLICT);
-}
-
-function throwApiError(code: ErrorCode, message: string, status: HttpStatus): never {
-  throw new HttpException({ code, message }, status);
 }

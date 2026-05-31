@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import {
   OpenAIChatProvider,
   OpenAIEmbeddingProvider,
@@ -59,6 +59,7 @@ import {
 } from '../common/dto/pagination.dto.js';
 import { getApiLogger } from '../common/logger/logger.module.js';
 import { validateAdminOutboundProbeUrl } from '../common/outbound-probe-safety.js';
+import { throwApiError } from '../common/errors/api-error.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { GraphService } from '../graph/graph.service.js';
 import { ModelConfigService, type RerankModelConfig } from '../models/model-config.service.js';
@@ -2351,8 +2352,4 @@ function emptyUsage(): ChatUsage {
     completion_tokens: 0,
     total_tokens: 0,
   };
-}
-
-function throwApiError(code: ErrorCode, message: string, status: HttpStatus): never {
-  throw new HttpException({ code, message }, status);
 }
