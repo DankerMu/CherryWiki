@@ -20,6 +20,7 @@ import { validateSync } from 'class-validator';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { AuditEntry, AuditService } from '../../audit/audit.service.js';
+import type { AgentService } from '../../agent/agent.service.js';
 import type { GraphService } from '../../graph/graph.service.js';
 import {
   TEST_GROUP_ID,
@@ -32,6 +33,7 @@ import {
 } from '../../users/__tests__/user-group-service-test-utils.js';
 import { ChatController } from '../chat.controller.js';
 import { ChatService, type ChatStreamEvent } from '../chat.service.js';
+import { ChatSessionBoundaryService } from '../chat-session-boundary.service.js';
 import { UpdateSessionSpacesDto } from '../dto/chat.dto.js';
 
 type ChatSessionRow = typeof chatSessions.$inferSelect;
@@ -111,6 +113,10 @@ describe('ChatService session CRUD', () => {
 
     expect(err.getStatus()).toBe(403);
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.PERMISSION_DENIED);
+    expect(getHttpExceptionResponse(err)).toEqual({
+      code: ErrorCode.PERMISSION_DENIED,
+      message: 'Cannot access another user chat session',
+    });
   });
 
   it('deletes a session and relies on database cascades for messages and citations', async () => {
@@ -147,6 +153,19 @@ describe('ChatService multi-space session', () => {
     db.queueInsert([createSessionRow({ id: 'session-created', space_id: 'space-a' })]);
 
     await service.createSession(TEST_TENANT_ID, 'space-a', TEST_USER_ID, ['space-a', 'space-b']);
+
+    expect(db.inserts[1]?.table).toBe(chatSessionSpaces);
+    expect(db.inserts[1]?.value).toEqual([
+      expect.objectContaining({ session_id: 'session-created', space_id: 'space-a', position: 0 }),
+      expect.objectContaining({ session_id: 'session-created', space_id: 'space-b', position: 1 }),
+    ]);
+  });
+
+  it('createSession deduplicates duplicate spaceIds while preserving order', async () => {
+    const { service, db } = createServiceContext();
+    db.queueInsert([createSessionRow({ id: 'session-created', space_id: 'space-a' })]);
+
+    await service.createSession(TEST_TENANT_ID, 'space-a', TEST_USER_ID, ['space-a', 'space-a', 'space-b']);
 
     expect(db.inserts[1]?.table).toBe(chatSessionSpaces);
     expect(db.inserts[1]?.value).toEqual([
@@ -217,6 +236,37 @@ describe('ChatService multi-space session', () => {
     expect(db.updates).toHaveLength(0);
   });
 
+  it('updateSessionSpaces rejects before mutation when any stored member space is unauthorized', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createSessionRow({ id: 'session-1', space_id: 'space-a' })]);
+    db.queueSelect([
+      createSessionSpaceInfoRow({ space_id: 'space-a', space_name: 'Space A', position: 0 }),
+      createSessionSpaceInfoRow({ space_id: 'space-b', space_name: 'Space B', position: 1 }),
+    ]);
+
+    const err = await getRejectedHttpException(
+      service.updateSessionSpaces(
+        TEST_TENANT_ID,
+        'session-1',
+        TEST_USER_ID,
+        'space-a',
+        ['space-a'],
+        { 'space-a': ['chat:use'] },
+        [],
+        'viewer',
+      ),
+    );
+
+    expect(err.getStatus()).toBe(403);
+    expect(getHttpExceptionResponse(err)).toEqual({
+      code: ErrorCode.PERMISSION_DENIED,
+      message: 'Permission denied',
+    });
+    expect(db.deletes).toHaveLength(0);
+    expect(db.inserts).toHaveLength(0);
+    expect(db.updates).toHaveLength(0);
+  });
+
   it('updateSessionSpaces rejects requests missing the primary space', async () => {
     const { service, db } = createServiceContext();
 
@@ -226,6 +276,10 @@ describe('ChatService multi-space session', () => {
 
     expect(err.getStatus()).toBe(400);
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.VALIDATION_ERROR);
+    expect(getHttpExceptionResponse(err)).toEqual({
+      code: ErrorCode.VALIDATION_ERROR,
+      message: 'space_id must be included in space_ids',
+    });
     expect(db.deletes).toHaveLength(0);
   });
 
@@ -238,6 +292,10 @@ describe('ChatService multi-space session', () => {
 
     expect(err.getStatus()).toBe(400);
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.VALIDATION_ERROR);
+    expect(getHttpExceptionResponse(err)).toEqual({
+      code: ErrorCode.VALIDATION_ERROR,
+      message: 'space_ids must not be empty when provided',
+    });
     expect(db.deletes).toHaveLength(0);
   });
 
@@ -280,6 +338,10 @@ describe('Space scope normalization', () => {
     } catch (err) {
       expect((err as HttpException).getStatus()).toBe(400);
       expect(getHttpExceptionCode(err)).toBe(ErrorCode.VALIDATION_ERROR);
+      expect(getHttpExceptionResponse(err)).toEqual({
+        code: ErrorCode.VALIDATION_ERROR,
+        message: 'At least one Space is required',
+      });
     }
   });
 
@@ -291,6 +353,10 @@ describe('Space scope normalization', () => {
     } catch (err) {
       expect((err as HttpException).getStatus()).toBe(400);
       expect(getHttpExceptionCode(err)).toBe(ErrorCode.VALIDATION_ERROR);
+      expect(getHttpExceptionResponse(err)).toEqual({
+        code: ErrorCode.VALIDATION_ERROR,
+        message: 'space_ids must not be empty when provided',
+      });
       return;
     }
 
@@ -305,6 +371,10 @@ describe('Space scope normalization', () => {
     } catch (err) {
       expect((err as HttpException).getStatus()).toBe(400);
       expect(getHttpExceptionCode(err)).toBe(ErrorCode.VALIDATION_ERROR);
+      expect(getHttpExceptionResponse(err)).toEqual({
+        code: ErrorCode.VALIDATION_ERROR,
+        message: 'space_id must be included in space_ids',
+      });
       return;
     }
 
@@ -313,6 +383,111 @@ describe('Space scope normalization', () => {
 });
 
 describe('ChatService multi-space sessions', () => {
+  it('streamCompletion creates duplicate requested scope once after permission succeeds', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createSpaceRow({ id: 'space-a', name: 'Space A' })]);
+    db.queueSelect([createSpaceRow({ id: 'space-b', name: 'Space B' })]);
+    db.queueSelect([createModelRow({ model_type: 'chat' })]);
+    db.queueInsert([createSessionRow({ id: 'session-created', space_id: 'space-a' })]);
+    db.queueSelect([createSessionRow({ id: 'session-created', space_id: 'space-a' })]);
+    db.queueSelect([]);
+    db.queueInsert([createMessageRow({ id: 'user-message', role: 'user' })]);
+    db.queueSelect([]);
+    db.queueSelect([]);
+    db.queueInsert([createMessageRow({ id: 'assistant-no-hit', role: 'assistant', content: NO_HIT_MESSAGE })]);
+
+    const events = await collectEvents(
+      await service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: 'space-a',
+        spaceIds: ['space-a', 'space-a', 'space-b'],
+        userId: TEST_USER_ID,
+        userGroupIds: [],
+        actorRole: 'viewer',
+        spacePermissions: { 'space-a': ['chat:use'], 'space-b': ['chat:use'] },
+        message: 'hello',
+      }),
+    );
+
+    expect(events[0]).toEqual({ type: 'session', session_id: 'session-created' });
+    expect(db.inserts.find((insert) => insert.table === chatSessionSpaces)?.value).toEqual([
+      expect.objectContaining({ session_id: 'session-created', space_id: 'space-a', position: 0 }),
+      expect.objectContaining({ session_id: 'session-created', space_id: 'space-b', position: 1 }),
+    ]);
+  });
+
+  it.each([
+    {
+      name: 'explicit empty scope',
+      input: { spaceId: 'space-a', spaceIds: [] },
+      message: 'space_ids must not be empty when provided',
+    },
+    {
+      name: 'missing implicit scope',
+      input: {},
+      message: 'At least one Space is required',
+    },
+    {
+      name: 'over-limit scope',
+      input: { spaceIds: Array.from({ length: 11 }, (_, index) => `space-${index + 1}`) },
+      message: 'At most 10 Spaces can be selected',
+    },
+    {
+      name: 'mismatched primary scope',
+      input: { spaceId: 'space-c', spaceIds: ['space-a', 'space-b'] },
+      message: 'space_id must be included in space_ids',
+    },
+  ])('rejects $name before any session, membership, or message write', async ({ input, message }) => {
+    const { service, db } = createServiceContext();
+
+    const err = await getRejectedHttpException(
+      service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        userId: TEST_USER_ID,
+        userGroupIds: [],
+        message: 'hello',
+        ...input,
+      }),
+    );
+
+    expect(err.getStatus()).toBe(400);
+    expect(getHttpExceptionResponse(err)).toEqual({
+      code: ErrorCode.VALIDATION_ERROR,
+      message,
+    });
+    expect(db.inserts).toHaveLength(0);
+    expect(db.deletes).toHaveLength(0);
+    expect(db.updates).toHaveLength(0);
+  });
+
+  it('rejects unauthorized requested spaces before creating a session or messages', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createSpaceRow({ id: 'space-a' })]);
+    db.queueSelect([createSpaceRow({ id: 'space-b' })]);
+
+    const err = await getRejectedHttpException(
+      service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: 'space-a',
+        spaceIds: ['space-a', 'space-b'],
+        userId: TEST_USER_ID,
+        userGroupIds: [],
+        actorRole: 'viewer',
+        spacePermissions: { 'space-a': ['chat:use'], 'space-b': ['space:view'] },
+        message: 'hello',
+      }),
+    );
+
+    expect(err.getStatus()).toBe(403);
+    expect(getHttpExceptionResponse(err)).toEqual({
+      code: ErrorCode.PERMISSION_DENIED,
+      message: 'Permission denied',
+    });
+    expect(db.inserts).toHaveLength(0);
+    expect(db.deletes).toHaveLength(0);
+    expect(db.updates).toHaveLength(0);
+  });
+
   it('session continuation with same scope succeeds', async () => {
     const { service, db } = createServiceContext();
     queueExistingCompletion(db, ['space-a', 'space-b']);
@@ -354,6 +529,8 @@ describe('ChatService multi-space sessions', () => {
         (insert) => insert.table === chatMessages && isRecordForTest(insert.value) && insert.value.role === 'user',
       ),
     ).toBe(true);
+    expect(db.inserts.some((insert) => insert.table === chatSessionSpaces)).toBe(false);
+    expect(db.deletes.some((deletion) => deletion.table === chatSessionSpaces)).toBe(false);
   });
 
   it('session continuation with only space_id uses stored membership', async () => {
@@ -405,6 +582,21 @@ describe('ChatService multi-space sessions', () => {
     ]);
   });
 
+  it('listSessions returns legacy no-membership sessions for the route primary space', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createSpaceRow({ id: 'space-a' })]);
+    db.queueSelect([createSessionRow({ id: 'legacy-session', space_id: 'space-a' })]);
+    db.queueSelect([{ total: 1 }]);
+    db.queueSelect([]);
+
+    const result = await service.listSessions(TEST_TENANT_ID, 'space-a', TEST_USER_ID, 1, 10);
+
+    expect(result.data.map((session) => session.id)).toEqual(['legacy-session']);
+    expect(result.data[0]?.space_ids).toEqual(['space-a']);
+    expect(result.data[0]?.space_details).toEqual([{ id: 'space-a', name: 'space-a' }]);
+    expect(result.pagination.total).toBe(1);
+  });
+
   it('listSessions excludes sessions where queried space is not a member', async () => {
     const { service, db } = createServiceContext();
     db.queueSelect([createSpaceRow({ id: 'space-b' })]);
@@ -415,6 +607,41 @@ describe('ChatService multi-space sessions', () => {
 
     expect(result.data).toEqual([]);
     expect(result.pagination.total).toBe(0);
+  });
+
+  it('listSessions rejects when any stored member space is unauthorized', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createSpaceRow({ id: 'space-a' })]);
+    db.queueSelect([createSessionRow({ id: 'session-1', space_id: 'space-a' })]);
+    db.queueSelect([{ total: 1 }]);
+    db.queueSelect([
+      createSessionSpaceInfoRow({
+        session_id: 'session-1',
+        space_id: 'space-a',
+        space_name: 'Space A',
+        position: 0,
+      }),
+      createSessionSpaceInfoRow({
+        session_id: 'session-1',
+        space_id: 'space-b',
+        space_name: 'Space B',
+        position: 1,
+      }),
+    ]);
+
+    const err = await getRejectedHttpException(
+      service.listSessions(TEST_TENANT_ID, 'space-a', TEST_USER_ID, 1, 10, {
+        userGroupIds: [],
+        actorRole: 'viewer',
+        spacePermissions: { 'space-a': ['chat:use'] },
+      }),
+    );
+
+    expect(err.getStatus()).toBe(403);
+    expect(getHttpExceptionResponse(err)).toEqual({
+      code: ErrorCode.PERMISSION_DENIED,
+      message: 'Permission denied',
+    });
   });
 
   it('getSession from member space succeeds', async () => {
@@ -436,6 +663,32 @@ describe('ChatService multi-space sessions', () => {
     expect(result.messages).toHaveLength(1);
   });
 
+  it('getSession rejects before returning messages when any stored member space is unauthorized', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([createSessionRow({ space_id: 'space-a' })]);
+    db.queueSelect([
+      createSessionSpaceInfoRow({ space_id: 'space-a', space_name: 'Space A', position: 0 }),
+      createSessionSpaceInfoRow({ space_id: 'space-b', space_name: 'Space B', position: 1 }),
+    ]);
+
+    const err = await getRejectedHttpException(
+      service.getSession(TEST_TENANT_ID, 'session-1', TEST_USER_ID, 'space-a', {
+        userGroupIds: [],
+        actorRole: 'viewer',
+        spacePermissions: { 'space-a': ['chat:use'] },
+      }),
+    );
+
+    expect(err.getStatus()).toBe(403);
+    expect(getHttpExceptionResponse(err)).toEqual({
+      code: ErrorCode.PERMISSION_DENIED,
+      message: 'Permission denied',
+    });
+    expect(db.inserts).toHaveLength(0);
+    expect(db.deletes).toHaveLength(0);
+    expect(db.updates).toHaveLength(0);
+  });
+
   it('getSession from non-member space returns 404', async () => {
     const { service, db } = createServiceContext();
     db.queueSelect([createSessionRow({ space_id: 'space-a' })]);
@@ -447,6 +700,10 @@ describe('ChatService multi-space sessions', () => {
 
     expect(err.getStatus()).toBe(404);
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.SESSION_NOT_FOUND);
+    expect(getHttpExceptionResponse(err)).toEqual({
+      code: ErrorCode.SESSION_NOT_FOUND,
+      message: 'Chat session was not found',
+    });
   });
 
   it('deleteSession from member space succeeds with cascade', async () => {
@@ -463,14 +720,62 @@ describe('ChatService multi-space sessions', () => {
     expect(db.deletes[0]?.table).toBe(chatSessions);
   });
 
+  it('deleteSession rejects before delete or Agent close when any stored member space is unauthorized', async () => {
+    const close = vi.fn(() => Promise.resolve());
+    const agentService = {
+      close,
+    } as unknown as AgentService;
+    const { service, db } = createServiceContext({ agentService });
+    db.queueSelect([createSessionRow({ space_id: 'space-a' })]);
+    db.queueSelect([
+      createSessionSpaceInfoRow({ space_id: 'space-a', space_name: 'Space A', position: 0 }),
+      createSessionSpaceInfoRow({ space_id: 'space-b', space_name: 'Space B', position: 1 }),
+    ]);
+
+    const err = await getRejectedHttpException(
+      service.deleteSession(TEST_TENANT_ID, 'session-1', TEST_USER_ID, 'space-a', {
+        userGroupIds: [],
+        actorRole: 'viewer',
+        spacePermissions: { 'space-a': ['chat:use'] },
+      }),
+    );
+
+    expect(err.getStatus()).toBe(403);
+    expect(getHttpExceptionResponse(err)).toEqual({
+      code: ErrorCode.PERMISSION_DENIED,
+      message: 'Permission denied',
+    });
+    expect(db.deletes).toHaveLength(0);
+    expect(db.inserts).toHaveLength(0);
+    expect(db.updates).toHaveLength(0);
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it('deleteSession returns deleted even when Agent close fails', async () => {
+    const close = vi.fn(() => Promise.reject(new Error('close failed')));
+    const agentService = {
+      close,
+    } as unknown as AgentService;
+    const { service, db } = createServiceContext({ agentService });
+    db.queueSelect([createSessionRow({ space_id: 'space-a' })]);
+    db.queueSelect([createSessionSpaceRow({ space_id: 'space-a', position: 0 })]);
+
+    await expect(service.deleteSession(TEST_TENANT_ID, 'session-1', TEST_USER_ID, 'space-a')).resolves.toEqual({
+      deleted: true,
+    });
+
+    expect(close).toHaveBeenCalledWith('session-1');
+    expect(db.deletes[0]?.table).toBe(chatSessions);
+  });
+
   it('returns 403 if access to one member space is revoked', async () => {
     const { service, db } = createServiceContext();
-    db.queueSelect([createModelRow({ model_type: 'chat' })]);
     db.queueSelect([createSessionRow({ space_id: 'space-a' })]);
     db.queueSelect([
       createSessionSpaceRow({ space_id: 'space-a', position: 0 }),
       createSessionSpaceRow({ space_id: 'space-b', position: 1 }),
     ]);
+    db.queueSelect([createModelRow({ model_type: 'chat' })]);
     db.queueSelect([createSpaceRow({ id: 'space-a' })]);
     db.queueSelect([createSpaceRow({ id: 'space-b' })]);
     db.queueSelect([]);
@@ -490,6 +795,10 @@ describe('ChatService multi-space sessions', () => {
 
     expect(err.getStatus()).toBe(403);
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.PERMISSION_DENIED);
+    expect(getHttpExceptionResponse(err)).toEqual({
+      code: ErrorCode.PERMISSION_DENIED,
+      message: 'Permission denied',
+    });
     expect(db.inserts).toHaveLength(0);
   });
 
@@ -513,6 +822,99 @@ describe('ChatService multi-space sessions', () => {
       message: 'Space not found',
     });
     expect(db.inserts).toHaveLength(0);
+  });
+
+  it('returns SESSION_NOT_FOUND for nonexistent session entrypoints without writes', async () => {
+    const getContext = createServiceContext();
+    getContext.db.queueSelect([]);
+    const getErr = await getRejectedHttpException(
+      getContext.service.getSession(TEST_TENANT_ID, 'missing-session', TEST_USER_ID, 'space-a'),
+    );
+    expect(getErr.getStatus()).toBe(404);
+    expect(getHttpExceptionResponse(getErr)).toEqual({
+      code: ErrorCode.SESSION_NOT_FOUND,
+      message: 'Chat session was not found',
+    });
+    expect(getContext.db.inserts).toHaveLength(0);
+
+    const updateContext = createServiceContext();
+    updateContext.db.queueSelect([]);
+    const updateErr = await getRejectedHttpException(
+      updateContext.service.updateSessionSpaces(
+        TEST_TENANT_ID,
+        'missing-session',
+        TEST_USER_ID,
+        'space-a',
+        ['space-a'],
+      ),
+    );
+    expect(updateErr.getStatus()).toBe(404);
+    expect(getHttpExceptionResponse(updateErr)).toEqual({
+      code: ErrorCode.SESSION_NOT_FOUND,
+      message: 'Chat session was not found',
+    });
+    expect(updateContext.db.inserts).toHaveLength(0);
+    expect(updateContext.db.deletes).toHaveLength(0);
+    expect(updateContext.db.updates).toHaveLength(0);
+
+    const deleteContext = createServiceContext();
+    deleteContext.db.queueSelect([]);
+    const deleteErr = await getRejectedHttpException(
+      deleteContext.service.deleteSession(TEST_TENANT_ID, 'missing-session', TEST_USER_ID, 'space-a'),
+    );
+    expect(deleteErr.getStatus()).toBe(404);
+    expect(getHttpExceptionResponse(deleteErr)).toEqual({
+      code: ErrorCode.SESSION_NOT_FOUND,
+      message: 'Chat session was not found',
+    });
+    expect(deleteContext.db.inserts).toHaveLength(0);
+    expect(deleteContext.db.deletes).toHaveLength(0);
+
+    const streamContext = createServiceContext();
+    streamContext.db.queueSelect([]);
+    const streamErr = await getRejectedHttpException(
+      streamContext.service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: 'space-a',
+        sessionId: 'missing-session',
+        userId: TEST_USER_ID,
+        userGroupIds: [],
+        message: 'hello',
+      }),
+    );
+    expect(streamErr.getStatus()).toBe(404);
+    expect(getHttpExceptionResponse(streamErr)).toEqual({
+      code: ErrorCode.SESSION_NOT_FOUND,
+      message: 'Chat session was not found',
+    });
+    expect(streamContext.db.inserts).toHaveLength(0);
+    expect(streamContext.db.deletes).toHaveLength(0);
+    expect(streamContext.db.updates).toHaveLength(0);
+  });
+
+  it('returns SESSION_NOT_FOUND for stream continuation before model config lookup', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([]);
+
+    const err = await getRejectedHttpException(
+      service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: 'space-a',
+        sessionId: 'missing-session',
+        userId: TEST_USER_ID,
+        userGroupIds: [],
+        message: 'hello',
+      }),
+    );
+
+    expect(err.getStatus()).toBe(404);
+    expect(getHttpExceptionResponse(err)).toEqual({
+      code: ErrorCode.SESSION_NOT_FOUND,
+      message: 'Chat session was not found',
+    });
+    expect(db.inserts).toHaveLength(0);
+    expect(db.deletes).toHaveLength(0);
+    expect(db.updates).toHaveLength(0);
   });
 });
 
@@ -1399,6 +1801,7 @@ type ServiceContextOptions = {
   chatProvider?: ScriptedChatProvider;
   embeddingProvider?: ScriptedEmbeddingProvider;
   graphService?: GraphService;
+  agentService?: AgentService;
 };
 
 function createServiceContext(options: ServiceContextOptions = {}): {
@@ -1407,6 +1810,7 @@ function createServiceContext(options: ServiceContextOptions = {}): {
   audit: { push: ReturnType<typeof vi.fn<(entry: AuditEntry) => void>> };
   chatFactory: ReturnType<typeof vi.fn>;
   embeddingFactory: ReturnType<typeof vi.fn>;
+  sessionBoundary: ChatSessionBoundaryService;
 } {
   const db = new ScriptedChatDb();
   const audit = {
@@ -1416,16 +1820,19 @@ function createServiceContext(options: ServiceContextOptions = {}): {
   const embeddingProvider = options.embeddingProvider ?? new ScriptedEmbeddingProvider();
   const chatFactory = vi.fn(() => chatProvider);
   const embeddingFactory = vi.fn(() => embeddingProvider);
+  const sessionBoundary = new ChatSessionBoundaryService(db.asDrizzle());
   const service = new ChatService(
     db.asDrizzle(),
     audit as unknown as AuditService,
     chatFactory,
     embeddingFactory,
-    undefined,
+    options.agentService,
     options.graphService,
+    undefined,
+    sessionBoundary,
   );
 
-  return { service, db, audit, chatFactory, embeddingFactory };
+  return { service, db, audit, chatFactory, embeddingFactory, sessionBoundary };
 }
 
 function queuePreparedCompletion(db: ScriptedChatDb, options: { space?: SpaceRow } = {}): void {
@@ -1438,9 +1845,9 @@ function queuePreparedCompletion(db: ScriptedChatDb, options: { space?: SpaceRow
 }
 
 function queueExistingCompletion(db: ScriptedChatDb, spaceIds: string[]): void {
-  db.queueSelect([createModelRow({ model_type: 'chat' })]);
   db.queueSelect([createSessionRow({ space_id: spaceIds[0] ?? TEST_SPACE_ID })]);
   db.queueSelect(spaceIds.map((spaceId, position) => createSessionSpaceRow({ space_id: spaceId, position })));
+  db.queueSelect([createModelRow({ model_type: 'chat' })]);
   for (const spaceId of spaceIds) {
     db.queueSelect([createSpaceRow({ id: spaceId })]);
   }
@@ -1864,7 +2271,7 @@ function normalizeSpaceScopeForTest(
   service: ChatService,
   input: { space_id?: string; space_ids?: string[] },
 ): string[] {
-  return (service as unknown as { normalizeSpaceScope: (dto: typeof input) => string[] }).normalizeSpaceScope(input);
+  return (service as unknown as { sessionBoundary: ChatSessionBoundaryService }).sessionBoundary.normalizeSpaceScope(input);
 }
 
 function isRecordForTest(value: unknown): value is Record<string, unknown> {

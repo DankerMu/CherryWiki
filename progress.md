@@ -132,6 +132,7 @@
 
 | ID | 描述 | Fix |
 |---|---|---|
+| PR-429-R1/#413 | Chat session/scope/permission stale authorization exposure | REST list/get/update/delete 统一校验完整 stored `space_ids` 后再暴露或写入；list 保留 legacy no-membership fallback；stream continuation 缺失 session 先返回 404；新增 70 个 Chat service 回归测试；Chat vitest、API typecheck/lint 通过 |
 | #403 | Graph Explorer 面板主题对齐 | `SpaceGraphExplorerPage.tsx` 面板背景/边框改用 CSS 变量；Community 选中态改为默认按钮 + primary 边框/弱背景，文字层级使用 text token；Legend Tag 固定白字；新增 Web 回归测试；`npx vitest run`、`npx tsc -b apps/web` 通过 |
 | #392 | Graph Explorer 社区节点展开 | `GET /api/graph/communities/:id/nodes?space_id=` 返回社区节点、内部边和 200 节点截断标记；前端点击社区加载并 merge 到画布，支持 loading/截断提示；新增 graph-core/API/Web/RAG 回归测试；`npm run build` 通过，相关测试通过，完整 `npm test` 仅遇到一次无关 Bridge rate-limit 5s 超时，单测复跑通过 |
 | #386 | Admin Worker 状态端点 | 新增 `GET /api/admin/workers` 聚合 Redis `worker:heartbeat:*`，按 <30s/30-120s/≥120s 标记 online/degraded/stale，Redis 不可用返回空列表+错误；新增 6 个 controller 单测；`npm run build`、worker 测试、`npm run lint` 通过 |
@@ -156,7 +157,7 @@
 
 | Change | 状态 | 说明 |
 |---|---|---|
-| entropy-governance | #412 API helper migration Round 1 closed, issues #408-#424 | `.entropy-baseline/latest.json` 已记录实际项目代码熵基线并排除 `external/*`；#410 已新增 common API error helper、API error inventory、共享 ErrorCode 提升和 helper/filter 回归测试；#411 已迁移 chat/wiki/graphify/jobs services；#412 已迁移 groups/models/mcp/feedback/api-tokens/governance/audit/admin/users/spaces/uploads/graph/internal 剩余本地 helper 到 common `throwApiError`；Round 1 追加 API token/Feedback/Governance/MCP Zod validation helper 迁移与 details 回归；Round 2 明确 Upload raw service/status `error_code` 证据单独记录，公共 HTTP 错误仍保持 `{ error, meta }` envelope 并有 filter 边界回归；本轮 targeted 71 pass、API typecheck/lint/OpenSpec strict validate 通过；后续进入 Chat/Web/worker boundary 分解 |
+| entropy-governance | #413 Chat session boundary complete, issues #408-#424 | `.entropy-baseline/latest.json` 已记录实际项目代码熵基线并排除 `external/*`；#410/#411/#412 API error helper 迁移完成；#413 新增 `ChatSessionBoundaryService` 承接 session lifecycle、多 Space scope normalization、membership 查询/写入和 service-level `chat:use` ACL，`ChatService` 保持 controller public boundary 且 retrieval/rerank/model/Agent/persistence/SSE 未抽取；Chat service 64 tests、API test 1467 pass、API typecheck/lint、OpenSpec strict validate 通过；后续继续 Chat retrieval/model/persistence、Web、worker boundary 分解 |
 | graph-explorer-visual-overhaul | panel-theme-alignment complete, issues #400/#401/#403 | 新增 `useGraphTheme` 读取 theme CSS vars 并监听 `data-theme`；GraphCanvas 背景/边框/标签主题化；节点渲染增加默认/选中 glow、选中双环、大图默认 glow 降级；Graph Explorer 面板、Community 选中态和 Legend 对齐 theme token；`getNodeColor`/`getLinkColor` 已提取为纯函数并补充测试 |
 | wiki-version-diff | API+UI complete, pending browser verification | `GET /wiki/pages/:pageId/diff` + version history compare modal；`npm run build`、Wiki API tests 通过 |
 | fix-session-delete-cascade | complete, issue #381 | Chat session 关联 retrieval traces/model usage logs/feedback items 删除级联修复 |
