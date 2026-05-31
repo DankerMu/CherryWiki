@@ -1,0 +1,35 @@
+Job Queue System - CherryWiki
+
+CherryWiki uses Redis-backed job queues for asynchronous task processing. Each job type is routed to a specific queue and claimed by the corresponding worker.
+
+Queue Types:
+- ingestion: Document parsing jobs (PDF to Markdown conversion)
+- graphify: Knowledge graph extraction jobs
+- indexer: Embedding and BM25 indexing jobs
+- wiki-sync: Docmost synchronization jobs
+- url-fetch: URL content retrieval jobs
+
+Job Lifecycle:
+1. Created: Job record inserted into PostgreSQL `jobs` table with status='pending'
+2. Queued: Job ID pushed to Redis list for the target queue
+3. Claimed: Worker pops job ID from Redis, sets status='processing'
+4. Progress: Worker writes job_events for progress tracking
+5. Completed: Worker sets status='completed' with result JSON
+6. Failed: On error, status='failed' with error message; retried up to 3 times
+
+Job Events Table:
+Each significant step in job processing creates a job_event record:
+- event_type: 'started', 'progress', 'completed', 'failed', 'retried'
+- payload: JSON object with step-specific data
+- created_at: Timestamp for progress tracking
+
+Retry Policy:
+- Max retries: 3 (configurable per job type)
+- Backoff: exponential (1s, 4s, 16s)
+- Dead letter: After max retries, job moved to 'dead' status
+
+Concurrency:
+- Each worker type runs a configurable number of concurrent handlers
+- Ingestion: 2 concurrent (CPU-bound PDF parsing)
+- Graphify: 1 concurrent (API rate limiting)
+- Indexer: 3 concurrent (I/O-bound embedding API calls)
