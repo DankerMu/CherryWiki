@@ -1262,6 +1262,25 @@ describe('ChatService streamCompletion', () => {
     );
     expect(context.trace.aclFiltered.graph).toHaveLength(context.trace.candidates.graph.length);
     expect(context.trace.finalContext.graph_tokens).toBeGreaterThan(0);
+    expect(context.trace.finalContext.wiki).toEqual([
+      expect.objectContaining({
+        chunkId: 'chunk-vector',
+        spaceId: TEST_SPACE_ID,
+        pageTitle: 'Auth',
+        sectionTitle: 'SSO',
+      }),
+      expect.objectContaining({
+        chunkId: 'chunk-bm25',
+        spaceId: TEST_SPACE_ID,
+        pageTitle: 'Auth',
+        sectionTitle: 'SSO',
+      }),
+    ]);
+    expect(context.trace.finalContext).toMatchObject({
+      rerank_status: 'skipped',
+      rerank_skip_reason: 'model_config_service_unavailable',
+    });
+    expect(context.trace.finalContext.wiki_tokens).toEqual(expect.any(Number));
     expect(context.graphContext.map((candidate) => candidate.id)).toEqual(
       expect.arrayContaining(['node-auth', 'node-api', 'community-1']),
     );
@@ -1898,7 +1917,14 @@ function bindRetrieveContext(service: ChatService): (
   trace: {
     candidates: { graph: Array<{ id: string; content: string }> };
     aclFiltered: { graph: unknown[] };
-    finalContext: { graph_hints: unknown[]; graph_tokens: number };
+    finalContext: {
+      wiki: Array<Pick<RetrievalResult, 'chunkId' | 'spaceId' | 'score' | 'pageTitle' | 'sectionTitle'>>;
+      graph_hints: unknown[];
+      wiki_tokens: number;
+      graph_tokens: number;
+      rerank_status?: string;
+      rerank_skip_reason?: string;
+    };
   };
 }> {
   return (service as unknown as {
@@ -1912,7 +1938,14 @@ function bindRetrieveContext(service: ChatService): (
       trace: {
         candidates: { graph: Array<{ id: string; content: string }> };
         aclFiltered: { graph: unknown[] };
-        finalContext: { graph_hints: unknown[]; graph_tokens: number };
+        finalContext: {
+          wiki: Array<Pick<RetrievalResult, 'chunkId' | 'spaceId' | 'score' | 'pageTitle' | 'sectionTitle'>>;
+          graph_hints: unknown[];
+          wiki_tokens: number;
+          graph_tokens: number;
+          rerank_status?: string;
+          rerank_skip_reason?: string;
+        };
       };
     }>;
   }).retrieveContext.bind(service);

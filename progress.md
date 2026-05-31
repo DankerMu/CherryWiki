@@ -157,7 +157,7 @@
 
 | Change | 状态 | 说明 |
 |---|---|---|
-| entropy-governance | #413 Chat session boundary complete, issues #408-#424 | `.entropy-baseline/latest.json` 已记录实际项目代码熵基线并排除 `external/*`；#410/#411/#412 API error helper 迁移完成；#413 新增 `ChatSessionBoundaryService` 承接 session lifecycle、多 Space scope normalization、membership 查询/写入和 service-level `chat:use` ACL，`ChatService` 保持 controller public boundary 且 retrieval/rerank/model/Agent/persistence/SSE 未抽取；Chat service 64 tests、API test 1467 pass、API typecheck/lint、OpenSpec strict validate 通过；后续继续 Chat retrieval/model/persistence、Web、worker boundary 分解 |
+| entropy-governance | #414 Chat retrieval boundary complete, issues #408-#424 | `.entropy-baseline/latest.json` 已记录实际项目代码熵基线并排除 `external/*`；#410/#411/#412 API error helper 迁移完成；#413 新增 `ChatSessionBoundaryService` 承接 session lifecycle/scope/ACL；#414 新增 `ChatRetrievalService` 承接 static wiki retrieval、graph context、RRF/rerank fallback、graph hints 和 retrieval trace construction，`ChatService` 仍保留 model/Agent routing、trace DB insert、persistence/SSE；Chat targeted 86 tests + integration 8 tests、API test 1473 pass、API typecheck/lint、OpenSpec strict validate 和 diff check 通过 |
 | graph-explorer-visual-overhaul | panel-theme-alignment complete, issues #400/#401/#403 | 新增 `useGraphTheme` 读取 theme CSS vars 并监听 `data-theme`；GraphCanvas 背景/边框/标签主题化；节点渲染增加默认/选中 glow、选中双环、大图默认 glow 降级；Graph Explorer 面板、Community 选中态和 Legend 对齐 theme token；`getNodeColor`/`getLinkColor` 已提取为纯函数并补充测试 |
 | wiki-version-diff | API+UI complete, pending browser verification | `GET /wiki/pages/:pageId/diff` + version history compare modal；`npm run build`、Wiki API tests 通过 |
 | fix-session-delete-cascade | complete, issue #381 | Chat session 关联 retrieval traces/model usage logs/feedback items 删除级联修复 |
