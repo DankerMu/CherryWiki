@@ -27,6 +27,7 @@ import {
   TEST_TENANT_ID,
   TEST_USER_ID,
   getHttpExceptionCode,
+  getHttpExceptionResponse,
   getRejectedHttpException,
 } from '../../users/__tests__/user-group-service-test-utils.js';
 import { ChatController } from '../chat.controller.js';
@@ -489,6 +490,28 @@ describe('ChatService multi-space sessions', () => {
 
     expect(err.getStatus()).toBe(403);
     expect(getHttpExceptionCode(err)).toBe(ErrorCode.PERMISSION_DENIED);
+    expect(db.inserts).toHaveLength(0);
+  });
+
+  it('returns SPACE_NOT_FOUND when creating a session for a missing space', async () => {
+    const { service, db } = createServiceContext();
+    db.queueSelect([]);
+
+    const err = await getRejectedHttpException(
+      service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: 'missing-space',
+        userId: TEST_USER_ID,
+        userGroupIds: [TEST_GROUP_ID],
+        message: 'hello',
+      }),
+    );
+
+    expect(err.getStatus()).toBe(404);
+    expect(getHttpExceptionResponse(err)).toEqual({
+      code: ErrorCode.SPACE_NOT_FOUND,
+      message: 'Space not found',
+    });
     expect(db.inserts).toHaveLength(0);
   });
 });
