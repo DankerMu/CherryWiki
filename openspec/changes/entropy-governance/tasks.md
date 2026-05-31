@@ -373,10 +373,76 @@ Issue #414 fixture:
   - Verification: targeted Chat/rerank/source-chain/query/model-usage Vitest suite passed (5 files / 86 tests), including non-fatal rerank fallback, missing rerank base URL, outbound URL validation failure, empty/invalid rerank scores, and retrieval trace finalContext metadata; targeted Chat integration suite passed (5 files / 8 tests), including prompt-injection evidence.
 - [x] 3.4 Extract static retrieval, graph context, RRF fusion, rerank call/fallback, and trace metadata responsibilities into focused backend collaborator(s).
   - Verification: `ChatRetrievalService` now owns retrieval/rerank/trace construction while `ChatService` retains `persistRetrievalTrace` DB insertion/catch timing; API typecheck/lint and full `pnpm --filter @cherrygraph/api test` passed (213 files passed / 1 skipped; 1473 tests passed / 1 skipped). `git diff --check` passed; changed files are limited to Chat retrieval service/token/module/orchestrator tests, OpenSpec tasks, and progress, with no DTO/schema/route/env/dependency/Web changes.
-- [ ] 3.5 Add or strengthen characterization tests for model/provider resolution, Agent/static route selection, database toggle routing, and Agent SSE event behavior.
-  - Verification: `apps/api/src/chat/__tests__/query-routing.test.ts` and relevant `apps/api/src/agent/__tests__/*` routing/SSE tests pass.
-- [ ] 3.6 Extract model/provider resolution and Agent dispatch decision code into focused collaborator(s), keeping `ChatService` as public orchestration boundary.
-  - Verification: Chat stream still emits the same `session`, `content`, `citations`, `usage`, `agent.tool_use`, `chart.data`, `message.completed`, and `error` event names where applicable.
+
+Issue #415 fixture:
+- Issue type: refactor / boundary extraction
+- Project profile: other
+- Blast radius: high
+- Fixture level: expanded
+- Repair intensity: high
+- Change surface: `apps/api/src/chat/**` model/provider resolution, missing-model failure paths, static-vs-Agent route selection, database toggle routing, bound Agent conversation continuation, and existing Agent routing/SSE integration points; `ChatService` remains the public controller-facing orchestration boundary
+- Must preserve: existing `POST /api/chat/completions` REST/SSE contract, `enable_deep_analysis`, `enable_database`, bound Agent sessions, graph-routed modes, static no-hit fallback eligibility, missing chat/embedding/rerank model status/code/message behavior, Agent SSE event names/order compatibility, `database_mode` metadata, model usage fields, and #413/#414 session/retrieval boundaries
+- Must add/change: strengthen or reuse characterization tests for model/provider resolution, static/Agent route decisions, database toggle routing, bound Agent continuation, missing-model errors, Agent failure/error SSE behavior, and no accidental retrieval/model work on Agent-routed paths; extract model/provider resolution and Agent/static dispatch decision into focused collaborator(s) without moving retrieval/rerank collaborator internals, trace DB insert/catch timing, message/citation/model-usage persistence, or SSE shaping out of `ChatService`
+- Selected risk packs:
+  - Public API / CLI / script entry: selected - Chat completion is a public REST/SSE entrypoint and route choice is observable through events, answers, errors, and metadata
+  - Schema / columns / units / field names: selected - `chat_messages.metadata_json`, `model_usage_logs`, `agent_sessions`, request options such as `enable_database`, and `database_mode` fields are persisted/consumer-visible contracts even though schema is unchanged
+  - Resource limits / large input / discovery: selected - Agent dispatch must not perform unnecessary static retrieval/model work, and static routing must preserve existing bounded retrieval/model resolution behavior
+  - Error handling / rollback / partial outputs: selected - missing model, database config unavailable, Agent busy/failure, Agent SSE error, and static no-hit paths must keep stable status/events and no partial incompatible output
+  - Documentation / migration notes: selected - this fixture records the model/Agent boundary for dependent persistence/SSE extraction in #416
+- Risk packs considered:
+  - Config / project setup: not selected - no env, Docker, dependency, or deployment behavior change beyond normal Nest provider wiring
+  - File IO / path safety / overwrite: not selected - no filesystem reads/writes or artifact paths are touched
+  - Geospatial / CRS / shapefile sidecars: not selected - no geospatial code changes
+  - Time series / forcing / temporal boundaries: not selected - no temporal data behavior changes beyond preserving existing timestamps/usage timing
+  - Numerical stability / conservation / NaN: not selected - no numerical/scientific computation changes
+  - Solver runtime / performance / threading: not selected - no solver/runtime/threading code changes
+  - Legacy compatibility / examples: not selected - no legacy sample/runtime behavior changes; current `enable_*` request compatibility is covered under Public API
+  - Release / packaging / dependency compatibility: not selected - no package metadata or dependency changes
+- Invariant Matrix:
+  - Governing invariant: model/provider resolution and Agent/static dispatch refactoring must choose the same execution path and emit the same SSE, `database_mode`, persistence, usage, and error behavior before downstream persistence/SSE consumers observe the result.
+  - Source-of-truth identity/contract: prepared completion `{tenantId,userId,spaceIds,sessionId,message,modelId,enableDeepAnalysis,enableDatabase}`, enabled chat/embedding/rerank model configs, `agent_sessions.provider_session_id`, space `database_config`, `RetrievalMode`, `QueryRoute`, `database_mode`, Agent event envelopes, and shared `ErrorCode` values.
+  - Producers: `ChatService.streamCompletion`, `prepareCompletion`, extracted model/routing collaborator(s), `resolveEnabledModel`, `decideQueryRoute`, `classifyIntent`, `shouldFallbackToAgentAfterNoHit`, and `runAgentCompletion` call sites.
+  - Validators/preflight: #413 session/scope collaborator, #414 retrieval collaborator output, model config service enabled-model lookups, database toggle/config checks, Agent service/session manager contracts, and existing query-routing/Agent tests.
+  - Storage/cache/query: existing reads of model config, space database config, and Agent session state; existing writes to `chat_messages`, `answer_citations`, `retrieval_traces`, `model_usage_logs`, and `agent_sessions` remain in their current owners and no migration or query-result schema change is allowed.
+  - Public routes/entrypoints: `POST /api/chat/completions`; REST session endpoints remain unchanged and only participate through prepared session context.
+  - Frontend/downstream consumers: unchanged Web Chat SSE consumers of `session`, `content`, `citations`, `usage`, `agent.tool_use`, `chart.data`, `message.completed`, and `error`; compatibility is asserted through API/Agent tests rather than Web changes.
+  - Failure paths/rollback/stale state: missing chat model, missing embedding/rerank model, missing database config with database toggle, Agent busy/failure/error event, bound Agent continuation, static no-hit relaxed fallback, strict no-hit, and Agent-routed graph/deep-analysis modes.
+  - Evidence/audit/readiness: targeted query-routing/Agent SSE/dispatch tests, relevant Chat-Agent integration tests, full API typecheck/lint/test, OpenSpec strict validation, and diff review showing #414 retrieval internals and #416 persistence/SSE shaping remain out of this slice.
+  - Regression rows:
+    - default static request with enabled chat/embedding models -> same static route, retrieval use, model invocation, `database_mode` metadata, usage logging, citations, and `message.completed`
+    - `enable_deep_analysis=true` -> same Agent route, Agent session behavior, `agent.tool_use`/`chart.data`/`content`/`message.completed` compatibility, and no unnecessary static model/retrieval side effects beyond existing behavior
+    - `enable_database=true` with usable database config -> same Agent/database route and `database_mode` value as before extraction
+    - `enable_database=true` without usable database config -> same stable error/event behavior and no incompatible partial persistence
+    - bound Agent conversation with existing `provider_session_id` -> same Agent continuation path and session reuse behavior
+    - current Agent-routed graph modes -> same Agent/static decision as before extraction
+    - static strict no-hit -> same no-hit assistant message, metadata/source behavior, and no unintended Agent fallback
+    - static relaxed no-hit with Agent fallback eligibility -> same fallback decision boundary and downstream behavior as before extraction
+    - missing chat, embedding, or rerank model -> same HTTP/SSE status, `ErrorCode`, message, and non-fatal rerank skip behavior where applicable
+    - Agent busy/failure or Agent SSE error -> same `error` event compatibility and persistence/cleanup behavior as before extraction
+- Boundary-surface checklist:
+  - Public entrypoints: `POST /api/chat/completions` and test-bound routing helpers used as characterization surfaces
+  - Read surfaces: enabled model lookup, space database config lookup, Agent session lookup, prepared session/scope context, and #414 retrieval output
+  - Producer/consumer evidence boundaries: route decision -> static model invocation or Agent dispatch -> SSE events/metadata -> existing persistence/usage consumers
+  - Failure/stale/idempotency boundaries: missing/disabled models, absent database config, stale Agent session, Agent busy/failure, strict/relaxed no-hit, and bound conversation continuation
+  - Unchanged downstream consumers: `ChatController`, Web Chat SSE rendering, `ChatRetrievalService` internals, retrieval trace DB insert timing, message/citation/model-usage persistence, SSE shaping helpers pending #416, and worker/CLI Agent runtime implementations
+- Required evidence:
+  - `pnpm exec vitest run apps/api/src/chat/__tests__/chat.service.test.ts apps/api/src/chat/__tests__/rerank.test.ts apps/api/src/chat/__tests__/model-usage.test.ts --config vitest.config.ts --passWithNoTests=false`
+    - Covers missing chat model status/code/message, missing embedding model retrieval-preflight 422 `NO_EMBEDDING_MODEL_CONFIGURED` for both missing model rows and unusable `encrypted_api_key_ref=null`, non-fatal missing/disabled rerank behavior, `model_usage_logs` chat model config persistence, and static-route `chat_messages.metadata_json` compatibility.
+  - `pnpm exec vitest run apps/api/src/chat/__tests__/query-routing.test.ts apps/api/src/agent/__tests__/agent-routing.test.ts apps/api/src/agent/__tests__/agent-sse-events.test.ts apps/api/src/agent/__tests__/agent-turn-dispatch.test.ts --config vitest.config.ts --passWithNoTests=false`
+    - Covers static/Agent route selection, single-space `enable_database=true` with unavailable database config staying on static no-hit when no other Agent trigger is present, Agent dispatch with `databaseMode: disabled` and no `databaseConfig` when another Agent trigger is present, Agent/database `chat_messages.metadata_json.database_mode`, Agent busy mapping to public chat SSE `{ type: "error", code: "agent_session_busy" }`, Agent SSE event compatibility, and no unnecessary embedding/static retrieval work on Agent-routed paths.
+  - `pnpm exec vitest run tests/integration/chat-agent-routing.test.ts tests/integration/agent-persistent-runtime.test.ts tests/integration/cherrydb-e2e.test.ts --config vitest.config.ts --passWithNoTests=false`
+    - Covers bound Agent conversation continuation, Agent persistence/runtime behavior, and cherrydb/database-mode metadata at integration level.
+  - `pnpm --filter @cherrygraph/api typecheck`
+  - `pnpm --filter @cherrygraph/api lint`
+  - `pnpm --filter @cherrygraph/api test`
+  - `git diff --check` and PR diff scope review confirm no DTO/schema/route/env/dependency/Web changes and no movement of #414/#416 boundaries
+  - `openspec validate entropy-governance --strict --no-interactive`
+- Non-goals: Agent runtime redesign, cherrydb CLI changes, retrieval collaborator changes beyond call-site adaptation, session/scope extraction already completed in #413, retrieval/rerank extraction already completed in #414, message/citation/model-usage persistence or SSE shaping extraction (#416), Web changes, route/DTO/schema changes, new routing modes, new error codes, broad formatting churn, Docker/env/dependency changes, or any changes inside `external/*`
+
+- [x] 3.5 Add or strengthen characterization tests for model/provider resolution, Agent/static route selection, database toggle routing, and Agent SSE event behavior.
+  - Verification: targeted Chat model/rerank/usage suite passed (3 files / 83 tests), query-routing + Agent routing/SSE/dispatch suite passed (4 files / 23 tests), and Chat-Agent integration suite passed (3 files / 7 tests). Added coverage for provider config conversion, missing embedding model row / unusable embedding key 422 `NO_EMBEDDING_MODEL_CONFIGURED`, bound Agent continuation without static retrieval/provider work, unavailable single-space database config static-route and Agent dispatch behavior, and ChatService `AgentSessionBusyError` SSE mapping.
+- [x] 3.6 Extract model/provider resolution and Agent dispatch decision code into focused collaborator(s), keeping `ChatService` as public orchestration boundary.
+  - Verification: `ChatModelResolutionService` owns enabled chat model lookup and chat provider construction; `ChatRoutingService` owns Agent/static route decision, no-hit Agent fallback eligibility, and Agent database dispatch context. Chat stream still emits the same `session`, `content`, `citations`, `usage`, `agent.tool_use`, `chart.data`, `message.completed`, and `error` event names where applicable; API typecheck/lint, `git diff --check`, and `openspec validate entropy-governance --strict --no-interactive` passed.
 - [ ] 3.7 Add or strengthen characterization tests for message/citation persistence, model usage logs, retrieval traces, and completion metadata.
   - Verification: `apps/api/src/chat/__tests__/model-usage.test.ts` and persistence/citation tests pass.
 - [ ] 3.8 Extract trace/usage/message/citation persistence and SSE shaping helpers while preserving `ChatService` as public orchestration boundary.

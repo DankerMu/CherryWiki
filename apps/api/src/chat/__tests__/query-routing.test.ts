@@ -2,7 +2,7 @@ import 'reflect-metadata';
 
 import { describe, expect, it } from 'vitest';
 
-import { classifyIntent, decideQueryRoute, shouldFallbackToAgentAfterNoHit } from '../chat.service.js';
+import { classifyIntent, decideQueryRoute, shouldFallbackToAgentAfterNoHit } from '../chat-routing.service.js';
 
 describe('query routing', () => {
   it('classifies supported lightweight intents', () => {
