@@ -10,7 +10,9 @@ import {
   chatSessionSpaces,
   chatSessions,
   indexSnapshots,
+  modelUsageLogs,
   model_configs,
+  retrievalTraces,
   spaces,
 } from '@cherrygraph/shared';
 import type { ChatChunk, ChatCompletionParams, ChatProvider, EmbeddingProvider, EmbeddingProviderConfig } from '@cherrygraph/ai-core';
@@ -34,6 +36,7 @@ import {
 import { ChatController } from '../chat.controller.js';
 import { ChatService, type ChatStreamEvent } from '../chat.service.js';
 import { ChatSessionBoundaryService } from '../chat-session-boundary.service.js';
+import { ChatStreamEventService } from '../chat-stream-event.service.js';
 import { UpdateSessionSpacesDto } from '../dto/chat.dto.js';
 
 type ChatSessionRow = typeof chatSessions.$inferSelect;
@@ -1045,6 +1048,49 @@ describe('ChatService streamCompletion', () => {
     );
   });
 
+  it('preserves strict no-hit metadata and trace behavior', async () => {
+    const { service, db, chatFactory } = createServiceContext();
+    queuePreparedCompletion(db, { space: createSpaceRow({ strict_knowledge_only: true }) });
+    db.queueSelect([]);
+    db.queueInsert([createMessageRow({ id: 'assistant-no-hit', role: 'assistant', content: NO_HIT_MESSAGE })]);
+
+    const events = await collectEvents(
+      await service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: TEST_SPACE_ID,
+        userId: TEST_USER_ID,
+        userGroupIds: [TEST_GROUP_ID],
+        message: 'missing topic',
+        retrievalMode: '  wiki_only  ',
+      }),
+    );
+
+    expect(events).toEqual([
+      { type: 'session', session_id: 'session-1' },
+      { type: 'content', delta: NO_HIT_MESSAGE },
+      { type: 'citations', citations: [] },
+      { type: 'usage', usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } },
+      { type: 'message.completed' },
+    ]);
+    expect(chatFactory).not.toHaveBeenCalled();
+    expect([...db.inserts].reverse().find((insert) => insert.table === chatMessages)?.value).toMatchObject({
+      role: 'assistant',
+      content: NO_HIT_MESSAGE,
+      token_count: 0,
+      citations_json: [],
+      metadata_json: { source: 'no_hit' },
+    });
+    expect(db.inserts.find((insert) => insert.table === retrievalTraces)?.value).toMatchObject({
+      conversation_id: 'session-1',
+      space_ids: [TEST_SPACE_ID],
+      query: 'missing topic',
+      retrieval_mode: 'wiki_only',
+      candidates_json: { graph: [] },
+      acl_filtered_json: { wiki: [], graph: [] },
+      final_context_json: { wiki: [], graph_hints: [], wiki_tokens: 0, graph_tokens: 0 },
+    });
+  });
+
   it('uses relaxed model knowledge metadata when retrieval has no hits', async () => {
     const chatProvider = new ScriptedChatProvider([
       { type: 'content', delta: 'This is general knowledge.' },
@@ -1161,6 +1207,209 @@ describe('ChatService streamCompletion', () => {
         }) as Record<string, unknown>,
       }) as AuditEntry,
     );
+  });
+
+  it('preserves static completion persistence rows, audit metadata, retrieval trace, and event sequence', async () => {
+    const chatProvider = new ScriptedChatProvider([
+      { type: 'content', delta: 'SSO is configured from Auth [^1].' },
+      { type: 'done', finish_reason: 'stop', usage: { prompt_tokens: 21, completion_tokens: 8, total_tokens: 29 } },
+    ]);
+    const sourceChain = {
+      page_id: 'auth-public',
+      source_document_ids: ['doc-1'],
+      graph_node_ids: ['node-auth'],
+      graph_edge_ids: [],
+      edge_confidences: [],
+      chain_confidence: 0.93,
+    };
+    const { service, db, audit } = createServiceContext({
+      chatProvider,
+      embeddingProvider: new ScriptedEmbeddingProvider([[0.1, 0.2, 0.3]]),
+    });
+    queuePreparedCompletion(db, { space: createSpaceRow({ strict_knowledge_only: true }) });
+    db.queueSelect([createSnapshotRow()]);
+    db.queueSelect([createModelRow({ id: 'embedding-model', model_type: 'embedding' })]);
+    db.queueExecute([
+      createSearchRow({
+        id: 'chunk-sso',
+        wiki_page_pk: 'wiki-auth',
+        page_title: 'Auth',
+        section_title: 'SSO',
+        source_chain_json: sourceChain,
+        score: 0.91,
+      }),
+    ]);
+    db.queueExecute([]);
+    db.queueInsert([createMessageRow({ id: 'assistant-answer', role: 'assistant' })]);
+
+    const events = await collectEvents(
+      await service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: TEST_SPACE_ID,
+        userId: TEST_USER_ID,
+        userGroupIds: [TEST_GROUP_ID],
+        message: 'How is SSO configured?',
+        auditContext: {
+          ip: '203.0.113.7',
+          userAgent: 'vitest',
+          requestId: 'req-416',
+        },
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      'session',
+      'content',
+      'citations',
+      'usage',
+      'message.completed',
+    ]);
+    expect(events).toEqual([
+      { type: 'session', session_id: 'session-1' },
+      { type: 'content', delta: 'SSO is configured from Auth [^1].' },
+      {
+        type: 'citations',
+        citations: [
+          expect.objectContaining({
+            index: 1,
+            chunk_id: 'chunk-sso',
+            wiki_page_pk: 'wiki-auth',
+            page_id: 'wiki-auth',
+            source_chain_json: expect.objectContaining({
+              ...sourceChain,
+              page_id: 'wiki-auth',
+            }) as Record<string, unknown>,
+            fallback: false,
+          }),
+        ],
+      },
+      { type: 'usage', usage: { prompt_tokens: 21, completion_tokens: 8, total_tokens: 29 } },
+      { type: 'message.completed' },
+    ]);
+    expect(db.inserts.filter((insert) => insert.table === chatMessages).map((insert) => insert.value)).toEqual([
+      expect.objectContaining({
+        session_id: 'session-1',
+        role: 'user',
+        content: 'How is SSO configured?',
+        metadata_json: {},
+      }),
+      expect.objectContaining({
+        id: expect.any(String) as string,
+        session_id: 'session-1',
+        role: 'assistant',
+        content: 'SSO is configured from Auth [^1].',
+        token_count: 8,
+        citations_json: [
+          expect.objectContaining({
+            chunk_id: 'chunk-sso',
+            source_chain_json: expect.objectContaining({
+              ...sourceChain,
+              page_id: 'wiki-auth',
+            }) as Record<string, unknown>,
+          }),
+        ],
+        metadata_json: {},
+      }),
+    ]);
+    const assistantMessageInsert = db.inserts
+      .filter((insert) => insert.table === chatMessages)
+      .map((insert) => insert.value)
+      .find((value): value is Record<string, unknown> => isRecordForTest(value) && value.role === 'assistant');
+    expect(db.inserts.find((insert) => insert.table === answerCitations)?.value).toEqual([
+      expect.objectContaining({
+        message_id: assistantMessageInsert?.id,
+        wiki_page_pk: 'wiki-auth',
+        chunk_id: 'chunk-sso',
+        relevance_score: expect.any(Number) as number,
+        source_chain_json: expect.objectContaining({
+          ...sourceChain,
+          page_id: 'wiki-auth',
+        }) as Record<string, unknown>,
+        display_text: 'Auth / SSO',
+      }),
+    ]);
+    expect(db.inserts.find((insert) => insert.table === retrievalTraces)?.value).toMatchObject({
+      tenant_id: TEST_TENANT_ID,
+      user_id: TEST_USER_ID,
+      conversation_id: 'session-1',
+      space_ids: [TEST_SPACE_ID],
+      query: 'How is SSO configured?',
+      retrieval_mode: 'wiki_only',
+      final_context_json: {
+        wiki: [expect.objectContaining({ chunkId: 'chunk-sso', pageTitle: 'Auth', sectionTitle: 'SSO' })],
+        graph_hints: [],
+        wiki_tokens: expect.any(Number) as number,
+        graph_tokens: expect.any(Number) as number,
+      },
+    });
+    expect(db.inserts.find((insert) => insert.table === modelUsageLogs)?.value).toMatchObject({
+      tenant_id: TEST_TENANT_ID,
+      user_id: TEST_USER_ID,
+      model_config_id: 'chat-model',
+      request_type: 'static_rag',
+      input_tokens: 21,
+      output_tokens: 8,
+      space_id: TEST_SPACE_ID,
+      conversation_id: 'session-1',
+    });
+    expect(audit.push).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'chat.completion',
+        ip: '203.0.113.7',
+        user_agent: 'vitest',
+        request_id: 'req-416',
+        metadata_json: expect.objectContaining({
+          user_id: TEST_USER_ID,
+          space_id: TEST_SPACE_ID,
+          space_ids: [TEST_SPACE_ID],
+          session_id: 'session-1',
+          prompt_tokens: 21,
+          completion_tokens: 8,
+          retrieval_count: 1,
+          has_citations: true,
+          assistant_message_id: assistantMessageInsert?.id,
+        }) as Record<string, unknown>,
+      }) as AuditEntry,
+    );
+  });
+
+  it('keeps stream output compatible when retrieval trace insert fails', async () => {
+    const chatProvider = new ScriptedChatProvider([
+      { type: 'content', delta: 'SSO is configured from Auth [^1].' },
+      { type: 'done', finish_reason: 'stop', usage: { prompt_tokens: 20, completion_tokens: 7, total_tokens: 27 } },
+    ]);
+    const { service, db } = createServiceContext({
+      chatProvider,
+      embeddingProvider: new ScriptedEmbeddingProvider([[0.1, 0.2, 0.3]]),
+    });
+    queuePreparedCompletion(db, { space: createSpaceRow({ strict_knowledge_only: true }) });
+    db.queueSelect([createSnapshotRow()]);
+    db.queueSelect([createModelRow({ id: 'embedding-model', model_type: 'embedding' })]);
+    db.queueExecute([createSearchRow({ id: 'chunk-sso', wiki_page_pk: 'wiki-auth', page_title: 'Auth' })]);
+    db.queueExecute([]);
+    db.queueInsert([createMessageRow({ id: 'assistant-answer', role: 'assistant' })]);
+    db.failNextInsertForTable(retrievalTraces, new Error('trace insert failed'));
+
+    const events = await collectEvents(
+      await service.streamCompletion({
+        tenantId: TEST_TENANT_ID,
+        spaceId: TEST_SPACE_ID,
+        userId: TEST_USER_ID,
+        userGroupIds: [TEST_GROUP_ID],
+        message: 'How is SSO configured?',
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      'session',
+      'content',
+      'citations',
+      'usage',
+      'message.completed',
+    ]);
+    expect(events.at(-1)).toEqual({ type: 'message.completed' });
+    expect(db.inserts.some((insert) => insert.table === retrievalTraces)).toBe(true);
+    expect(db.inserts.some((insert) => insert.table === modelUsageLogs)).toBe(true);
   });
 
   it('retrieves static RAG context across selected Spaces and preserves citation source Space', async () => {
@@ -1846,6 +2095,45 @@ describe('ChatController', () => {
   });
 });
 
+describe('ChatStreamEventService', () => {
+  it('centralizes public Chat stream event shaping', () => {
+    const events = new ChatStreamEventService();
+
+    expect(events.session('session-1')).toEqual({ type: 'session', session_id: 'session-1' });
+    expect(events.content('hello')).toEqual({ type: 'content', delta: 'hello' });
+    expect(events.citations([])).toEqual({ type: 'citations', citations: [] });
+    expect(events.usage({ prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 })).toEqual({
+      type: 'usage',
+      usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
+    });
+    expect(events.agentToolUse({ id: 'tool-1', name: 'Bash', input: { command: 'graphify query SSO' } })).toEqual({
+      type: 'agent.tool_use',
+      id: 'tool-1',
+      name: 'Bash',
+      input: { command: 'graphify query SSO' },
+    });
+    expect(events.agentToolUse({ name: 'Bash', input: {} })).toEqual({
+      type: 'agent.tool_use',
+      name: 'Bash',
+      input: {},
+    });
+    expect(events.chartData({ type: 'cherrywiki.chart' })).toEqual({
+      type: 'chart.data',
+      data: { type: 'cherrywiki.chart' },
+    });
+    expect(events.messageCompleted()).toEqual({ type: 'message.completed' });
+    expect(events.messageCompleted('unavailable_multi_space')).toEqual({
+      type: 'message.completed',
+      database_mode: 'unavailable_multi_space',
+    });
+    expect(events.error('agent_session_busy', 'Session is busy')).toEqual({
+      type: 'error',
+      code: 'agent_session_busy',
+      message: 'Session is busy',
+    });
+  });
+});
+
 const NO_HIT_MESSAGE = '未找到相关知识，请尝试不同的提问方式';
 
 class ScriptedChatProvider implements ChatProvider {
@@ -2032,6 +2320,7 @@ class ScriptedChatDb {
   private readonly selectResults: unknown[][] = [];
   private readonly insertResults: unknown[][] = [];
   private readonly executeResults: unknown[][] = [];
+  private readonly insertErrorsByTable = new Map<unknown, Error>();
 
   asDrizzle(): NodePgDatabase {
     return this as unknown as NodePgDatabase;
@@ -2049,6 +2338,10 @@ class ScriptedChatDb {
     this.executeResults.push(result);
   }
 
+  failNextInsertForTable(table: unknown, error: Error): void {
+    this.insertErrorsByTable.set(table, error);
+  }
+
   transaction<T>(callback: (tx: NodePgDatabase) => Promise<T>): Promise<T> {
     return callback(this.asDrizzle());
   }
@@ -2061,6 +2354,12 @@ class ScriptedChatDb {
     return {
       values: (value: unknown) => {
         this.inserts.push({ table, value });
+        const error = this.insertErrorsByTable.get(table);
+        if (error !== undefined) {
+          this.insertErrorsByTable.delete(table);
+          return new ScriptedMutationBuilder([], error);
+        }
+
         return new ScriptedMutationBuilder(this.insertResults.shift() ?? normalizeInsertedRows(value));
       },
     };
@@ -2130,13 +2429,20 @@ class ScriptedQueryBuilder implements PromiseLike<unknown[]> {
 }
 
 class ScriptedMutationBuilder implements PromiseLike<unknown[]> {
-  constructor(private readonly result: unknown[]) {}
+  constructor(
+    private readonly result: unknown[],
+    private readonly error?: Error,
+  ) {}
 
   where(): this {
     return this;
   }
 
   returning(): Promise<unknown[]> {
+    if (this.error !== undefined) {
+      return Promise.reject(this.error);
+    }
+
     return Promise.resolve(this.result);
   }
 
@@ -2144,7 +2450,8 @@ class ScriptedMutationBuilder implements PromiseLike<unknown[]> {
     onfulfilled?: ((value: unknown[]) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
   ): Promise<TResult1 | TResult2> {
-    return Promise.resolve(this.result).then(onfulfilled ?? undefined, onrejected ?? undefined);
+    const promise = this.error === undefined ? Promise.resolve(this.result) : Promise.reject<unknown[]>(this.error);
+    return promise.then(onfulfilled ?? undefined, onrejected ?? undefined);
   }
 }
 

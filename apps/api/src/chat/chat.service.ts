@@ -6,28 +6,35 @@ import {
 } from '@cherrygraph/ai-core';
 import {
   ErrorCode,
-  answerCitations,
   chatMessages,
   chatSessions,
   indexSnapshots,
-  modelUsageLogs,
-  retrievalTraces,
 } from '@cherrygraph/shared';
 import type { GraphCandidate, RetrievalResult } from '@cherrygraph/rag-core';
 import { asc, desc, eq, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { randomUUID } from 'node:crypto';
 
 import {
   AgentService,
   AgentSessionBusyError,
 } from '../agent/agent.service.js';
-import { AUDIT_EVENTS } from '../audit/audit-events.js';
 import { AuditService } from '../audit/audit.service.js';
 import { throwApiError } from '../common/errors/api-error.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { GraphService } from '../graph/graph.service.js';
 import { ModelConfigService } from '../models/model-config.service.js';
+import {
+  ChatPersistenceService,
+  type ChatMessageRole,
+  type ChatMessageRow,
+} from './chat-persistence.service.js';
+import { ChatStreamEventService } from './chat-stream-event.service.js';
+import {
+  emptyUsage,
+  type ChatStreamEvent,
+  type ChatUsage,
+  type CitationResponse,
+} from './chat-events.js';
 import {
   ChatModelResolutionService,
   type ChatModelConfigRow,
@@ -39,7 +46,6 @@ import {
 } from './chat-retrieval.service.js';
 import {
   ChatRoutingService,
-  type DatabaseMode,
   type QueryRoute,
 } from './chat-routing.service.js';
 import {
@@ -64,15 +70,8 @@ export type { ChatProviderFactory, EmbeddingProviderFactory } from './chat.token
 export type { ChatSessionResponse, SpaceDisplayInfo } from './chat-session-boundary.service.js';
 
 type ChatDatabase = NodePgDatabase;
-type ChatMessageRow = typeof chatMessages.$inferSelect;
 type ModelConfigRow = ChatModelConfigRow;
 type IndexSnapshotRow = typeof indexSnapshots.$inferSelect;
-type ChatMessageRole = 'user' | 'assistant' | 'system';
-type ChatUsage = {
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-};
 export type ChatAuditContext = {
   ip?: string;
   userAgent?: string;
@@ -96,15 +95,7 @@ export type StreamCompletionInput = {
   auditContext?: ChatAuditContext;
 };
 
-export type ChatStreamEvent =
-  | { type: 'session'; session_id: string }
-  | { type: 'content'; delta: string }
-  | { type: 'citations'; citations: CitationResponse[] }
-  | { type: 'usage'; usage: ChatUsage }
-  | { type: 'agent.tool_use'; id?: string; name: string; input: Record<string, unknown> }
-  | { type: 'chart.data'; data: Record<string, unknown> }
-  | { type: 'message.completed'; database_mode?: DatabaseMode }
-  | { type: 'error'; code: string; message: string };
+export type { ChatStreamEvent, ChatUsage, CitationResponse } from './chat-events.js';
 
 export type ChatMessageResponse = {
   id: string;
@@ -119,21 +110,6 @@ export type ChatMessageResponse = {
 
 export type ChatSessionDetailResponse = ChatSessionResponse & {
   messages: ChatMessageResponse[];
-};
-
-export type CitationResponse = {
-  index: number;
-  chunk_id: string;
-  space_id?: string;
-  wiki_page_pk: string;
-  page_id: string;
-  section_id: string | null;
-  relevance_score: number;
-  source_chain_json: Record<string, unknown>;
-  display_text: string;
-  page_title: string;
-  section_title: string | null;
-  fallback: boolean;
 };
 
 export type RagPrompt = {
@@ -177,6 +153,8 @@ export class ChatService {
   private readonly retrievalService: ChatRetrievalService;
   private readonly modelResolutionService: ChatModelResolutionService;
   private readonly routingService: ChatRoutingService;
+  private readonly persistenceService: ChatPersistenceService;
+  private readonly streamEvents: ChatStreamEventService;
 
   constructor(
     @Inject(DRIZZLE) private readonly db: ChatDatabase,
@@ -190,6 +168,8 @@ export class ChatService {
     @Optional() retrievalService?: ChatRetrievalService,
     @Optional() modelResolutionService?: ChatModelResolutionService,
     @Optional() routingService?: ChatRoutingService,
+    @Optional() persistenceService?: ChatPersistenceService,
+    @Optional() streamEvents?: ChatStreamEventService,
   ) {
     this.embeddingProviderFactory = embeddingProviderFactory ?? ((config) => new OpenAIEmbeddingProvider(config));
     this.sessionBoundary = sessionBoundary ?? new ChatSessionBoundaryService(db);
@@ -199,6 +179,8 @@ export class ChatService {
     this.modelResolutionService =
       modelResolutionService ?? new ChatModelResolutionService(db, chatProviderFactory);
     this.routingService = routingService ?? new ChatRoutingService(db, agentService);
+    this.persistenceService = persistenceService ?? new ChatPersistenceService(db, auditService);
+    this.streamEvents = streamEvents ?? new ChatStreamEventService();
   }
 
   async createSession(
@@ -297,28 +279,14 @@ export class ChatService {
     citationsJson: unknown[] = [],
     metadataJson: Record<string, unknown> = {},
   ): Promise<ChatMessageRow> {
-    const now = new Date();
-    const [created] = await this.db
-      .insert(chatMessages)
-      .values({
-        id: randomUUID(),
-        session_id: sessionId,
-        role,
-        content,
-        token_count: tokenCount ?? null,
-        citations_json: citationsJson,
-        metadata_json: metadataJson,
-        created_at: now,
-      })
-      .returning();
-
-    if (created === undefined) {
-      throw new Error('Failed to persist chat message');
-    }
-
-    await this.db.update(chatSessions).set({ updated_at: now }).where(eq(chatSessions.id, sessionId));
-
-    return created;
+    return this.persistenceService.persistMessage(
+      sessionId,
+      role,
+      content,
+      tokenCount,
+      citationsJson,
+      metadataJson,
+    );
   }
 
   private async generateSessionTitle(
@@ -540,11 +508,11 @@ export class ChatService {
     options: { yieldSession?: boolean } = {},
   ): AsyncIterable<ChatStreamEvent> {
     if (options.yieldSession !== false) {
-      yield { type: 'session', session_id: prepared.session.id };
+      yield this.streamEvents.session(prepared.session.id);
     }
 
     if (this.agentService === undefined) {
-      yield { type: 'error', code: ErrorCode.INTERNAL_ERROR, message: 'Agent runtime is not available' };
+      yield this.streamEvents.error(ErrorCode.INTERNAL_ERROR, 'Agent runtime is not available');
       return;
     }
 
@@ -570,27 +538,17 @@ export class ChatService {
       for await (const event of agentStream) {
         if (event.type === 'message.delta') {
           assistantText += event.delta;
-          yield { type: 'content', delta: event.delta };
+          yield this.streamEvents.content(event.delta);
           continue;
         }
 
         if (event.type === 'agent.tool_use') {
-          const toolUseEvent: ChatStreamEvent = {
-            type: 'agent.tool_use',
-            name: event.name,
-            input: event.input,
-          };
-
-          if (event.id !== undefined) {
-            toolUseEvent.id = event.id;
-          }
-
-          yield toolUseEvent;
+          yield this.streamEvents.agentToolUse(event);
           continue;
         }
 
         if (event.type === 'chart.data') {
-          yield { type: 'chart.data', data: event.data };
+          yield this.streamEvents.chartData(event.data);
           continue;
         }
 
@@ -610,23 +568,23 @@ export class ChatService {
             database_mode: databaseMode,
           });
           void this.maybeGenerateTitle(prepared, input.message, assistantText);
-          yield { type: 'usage', usage };
-          yield databaseMode === 'unavailable_multi_space'
-            ? { type: 'message.completed', database_mode: databaseMode }
-            : { type: 'message.completed' };
+          yield this.streamEvents.usage(usage);
+          yield this.streamEvents.messageCompleted(
+            databaseMode === 'unavailable_multi_space' ? databaseMode : undefined,
+          );
           this.auditCompletion(prepared, usage, 0, false, assistant.id, { database_mode: databaseMode });
           return;
         }
 
-        yield { type: 'error', code: event.code ?? ErrorCode.INTERNAL_ERROR, message: event.message };
+        yield this.streamEvents.error(event.code ?? ErrorCode.INTERNAL_ERROR, event.message);
         this.auditCompletion(prepared, usage, 0, false);
         return;
       }
     } catch (err) {
       if (err instanceof AgentSessionBusyError) {
-        yield { type: 'error', code: 'agent_session_busy', message: err.message };
+        yield this.streamEvents.error('agent_session_busy', err.message);
       } else {
-        yield { type: 'error', code: ErrorCode.INTERNAL_ERROR, message: 'Agent completion failed' };
+        yield this.streamEvents.error(ErrorCode.INTERNAL_ERROR, 'Agent completion failed');
       }
       this.auditCompletion(prepared, usage, 0, false);
     }
@@ -636,7 +594,7 @@ export class ChatService {
     prepared: PreparedCompletion,
     input: StreamCompletionInput,
   ): AsyncIterable<ChatStreamEvent> {
-    yield { type: 'session', session_id: prepared.session.id };
+    yield this.streamEvents.session(prepared.session.id);
 
     let retrievalResults: RetrievalResult[] = [];
     let graphContext: Array<GraphHint | GraphCandidate> = [];
@@ -669,10 +627,10 @@ export class ChatService {
         await this.persistRetrievalTrace(prepared, input.retrievalMode ?? 'wiki_only', retrievedContext).catch(
           () => undefined,
         );
-        yield { type: 'content', delta: NO_HIT_MESSAGE };
-        yield { type: 'citations', citations: [] };
-        yield { type: 'usage', usage };
-        yield { type: 'message.completed' };
+        yield this.streamEvents.content(NO_HIT_MESSAGE);
+        yield this.streamEvents.citations([]);
+        yield this.streamEvents.usage(usage);
+        yield this.streamEvents.messageCompleted();
         this.auditCompletion(prepared, usage, retrievalResults.length, false, assistant.id);
         return;
       }
@@ -712,7 +670,7 @@ export class ChatService {
       })) {
         if (chunk.type === 'content') {
           assistantText += chunk.delta;
-          yield { type: 'content', delta: chunk.delta };
+          yield this.streamEvents.content(chunk.delta);
           continue;
         }
 
@@ -721,7 +679,7 @@ export class ChatService {
           break;
         }
 
-        yield { type: 'error', code: ErrorCode.INTERNAL_ERROR, message: 'Chat completion failed' };
+        yield this.streamEvents.error(ErrorCode.INTERNAL_ERROR, 'Chat completion failed');
         this.auditCompletion(prepared, usage, retrievalResults.length, false);
         return;
       }
@@ -743,16 +701,12 @@ export class ChatService {
       );
       await this.recordStaticModelUsage(prepared, usage, Date.now() - startedAt).catch(() => undefined);
 
-      yield { type: 'citations', citations };
-      yield { type: 'usage', usage };
-      yield { type: 'message.completed' };
+      yield this.streamEvents.citations(citations);
+      yield this.streamEvents.usage(usage);
+      yield this.streamEvents.messageCompleted();
       this.auditCompletion(prepared, usage, retrievalResults.length, citations.length > 0, assistant.id);
     } catch {
-      yield {
-        type: 'error',
-        code: ErrorCode.INTERNAL_ERROR,
-        message: 'Chat completion failed',
-      };
+      yield this.streamEvents.error(ErrorCode.INTERNAL_ERROR, 'Chat completion failed');
       this.auditCompletion(prepared, usage, retrievalResults.length, false);
     }
   }
@@ -781,18 +735,7 @@ export class ChatService {
     retrievalMode: string,
     context: RetrievedContext,
   ): Promise<void> {
-    await this.db.insert(retrievalTraces).values({
-      id: randomUUID(),
-      tenant_id: prepared.tenantId,
-      user_id: prepared.userId,
-      conversation_id: prepared.session.id,
-      space_ids: prepared.spaceIds,
-      query: prepared.message,
-      retrieval_mode: normalizeRetrievalMode(retrievalMode),
-      candidates_json: context.trace.candidates,
-      acl_filtered_json: context.trace.aclFiltered,
-      final_context_json: context.trace.finalContext,
-    });
+    await this.persistenceService.persistRetrievalTrace(prepared, retrievalMode, context);
   }
 
   private async recordStaticModelUsage(
@@ -800,38 +743,11 @@ export class ChatService {
     usage: ChatUsage,
     latencyMs: number,
   ): Promise<void> {
-    await this.db.insert(modelUsageLogs).values({
-      id: randomUUID(),
-      tenant_id: prepared.tenantId,
-      user_id: prepared.userId,
-      model_config_id: prepared.chatModel.id,
-      request_type: 'static_rag',
-      input_tokens: usage.prompt_tokens,
-      output_tokens: usage.completion_tokens,
-      latency_ms: Math.max(0, Math.trunc(latencyMs)),
-      space_id: prepared.space.id,
-      conversation_id: prepared.session.id,
-    });
+    await this.persistenceService.recordStaticModelUsage(prepared, usage, latencyMs);
   }
 
   private async persistCitations(messageId: string, citations: CitationResponse[]): Promise<void> {
-    if (citations.length === 0) {
-      return;
-    }
-
-    await this.db.insert(answerCitations).values(
-      citations.map((citation) => ({
-        id: randomUUID(),
-        message_id: messageId,
-        wiki_page_pk: citation.wiki_page_pk,
-        ...(citation.space_id !== undefined ? { space_id: citation.space_id } : {}),
-        section_id: citation.section_id,
-        chunk_id: citation.chunk_id,
-        relevance_score: citation.relevance_score,
-        source_chain_json: citation.source_chain_json,
-        display_text: citation.display_text,
-      })),
-    );
+    await this.persistenceService.persistCitations(messageId, citations);
   }
 
   private auditCompletion(
@@ -842,29 +758,14 @@ export class ChatService {
     assistantMessageId?: string,
     metadata: Record<string, unknown> = {},
   ): void {
-    this.auditService.push({
-      tenant_id: prepared.tenantId,
-      actor_user_id: prepared.userId,
-      action: AUDIT_EVENTS.CHAT_COMPLETION,
-      resource_type: 'chat_session',
-      resource_id: prepared.session.id,
-      space_id: prepared.space.id,
-      ...(prepared.auditContext.ip !== undefined ? { ip: prepared.auditContext.ip } : {}),
-      ...(prepared.auditContext.userAgent !== undefined ? { user_agent: prepared.auditContext.userAgent } : {}),
-      ...(prepared.auditContext.requestId !== undefined ? { request_id: prepared.auditContext.requestId } : {}),
-      metadata_json: {
-        user_id: prepared.userId,
-        space_id: prepared.space.id,
-        space_ids: prepared.spaceIds,
-        session_id: prepared.session.id,
-        prompt_tokens: usage.prompt_tokens,
-        completion_tokens: usage.completion_tokens,
-        retrieval_count: retrievalCount,
-        has_citations: hasCitations,
-        ...(assistantMessageId !== undefined ? { assistant_message_id: assistantMessageId } : {}),
-        ...metadata,
-      },
-    });
+    this.persistenceService.pushCompletionAudit(
+      prepared,
+      usage,
+      retrievalCount,
+      hasCitations,
+      assistantMessageId,
+      metadata,
+    );
   }
 }
 
@@ -1007,11 +908,6 @@ function normalizeJsonRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function normalizeRetrievalMode(value: string | undefined): string {
-  const normalized = value?.trim().toLowerCase();
-  return normalized === undefined || normalized.length === 0 ? 'wiki_only' : normalized;
-}
-
 function normalizeModelMaxTokens(value: number | null | undefined): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < RESPONSE_BUFFER_TOKENS + 1) {
     return DEFAULT_MODEL_MAX_TOKENS;
@@ -1022,12 +918,4 @@ function normalizeModelMaxTokens(value: number | null | undefined): number {
 
 function isProviderRole(role: string): role is ProviderChatMessage['role'] {
   return role === 'user' || role === 'assistant' || role === 'system';
-}
-
-function emptyUsage(): ChatUsage {
-  return {
-    prompt_tokens: 0,
-    completion_tokens: 0,
-    total_tokens: 0,
-  };
 }
