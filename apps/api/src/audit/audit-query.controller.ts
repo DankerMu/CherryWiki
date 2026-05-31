@@ -1,4 +1,4 @@
-import { Controller, Get, HttpException, HttpStatus, Inject, Query, Req } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Inject, Query, Req } from '@nestjs/common';
 import { Permissions, type AuthenticatedRequestUser } from '@cherrygraph/auth-core';
 import { ErrorCode, audit_logs } from '@cherrygraph/shared';
 import { and, asc, count, desc, eq, gte, lte, type SQL } from 'drizzle-orm';
@@ -12,6 +12,7 @@ import {
   parseSortField,
   type PaginatedResponse,
 } from '../common/dto/pagination.dto.js';
+import { throwApiError } from '../common/errors/api-error.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 
 export class AuditLogQueryDto extends PaginationQueryDto {
@@ -244,8 +245,4 @@ function getAuthenticatedUser(request: RequestWithAuth): AuthenticatedRequestUse
   }
 
   return request.user;
-}
-
-function throwApiError(code: ErrorCode, message: string, status: HttpStatus): never {
-  throw new HttpException({ code, message }, status);
 }

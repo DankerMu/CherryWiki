@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { ErrorCode, model_configs, tenants } from '@cherrygraph/shared';
 import { and, asc, count, desc, eq, isNotNull, ne, type SQL } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
@@ -16,6 +16,7 @@ import {
   sanitizeOutboundProbeError,
   validateAdminOutboundProbeUrl,
 } from '../common/outbound-probe-safety.js';
+import { throwApiError } from '../common/errors/api-error.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 
 type ModelConfigDatabase = NodePgDatabase;
@@ -943,8 +944,4 @@ function isUniqueViolation(err: unknown, constraint: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
-}
-
-function throwApiError(code: ErrorCode, message: string, status: HttpStatus): never {
-  throw new HttpException({ code, message }, status);
 }

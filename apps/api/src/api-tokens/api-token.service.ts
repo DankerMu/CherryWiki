@@ -12,6 +12,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { ZodError } from 'zod';
 
 import { AuditService } from '../audit/audit.service.js';
+import { throwApiError } from '../common/errors/api-error.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 
 type ApiTokenDatabase = NodePgDatabase;
@@ -342,8 +343,4 @@ function toAuditFields(audit: ApiTokenAuditContext | undefined): Pick<
     ...(audit?.userAgent !== undefined ? { user_agent: audit.userAgent } : {}),
     ...(audit?.requestId !== undefined ? { request_id: audit.requestId } : {}),
   };
-}
-
-function throwApiError(code: ErrorCode, message: string, status: HttpStatus): never {
-  throw new HttpException({ code, message }, status);
 }

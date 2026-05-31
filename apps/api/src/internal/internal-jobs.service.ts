@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import {
   QueueFactory,
@@ -21,6 +21,7 @@ import { randomUUID } from 'node:crypto';
 
 import { AuditService } from '../audit/audit.service.js';
 import { BridgeQueueService } from '../bridge/bridge-queue.service.js';
+import { throwApiError } from '../common/errors/api-error.js';
 import { getApiLogger } from '../common/logger/logger.module.js';
 import { REDIS_CLIENT, type OptionalRedisClient } from '../common/redis/redis.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
@@ -989,10 +990,6 @@ function handleJobConflict(error: unknown): void {
   if (error instanceof JobConflictError) {
     throwApiError(ErrorCode.CONFLICT, error.message, HttpStatus.CONFLICT);
   }
-}
-
-function throwApiError(code: ErrorCode, message: string, status: HttpStatus): never {
-  throw new HttpException({ code, message }, status);
 }
 
 function getRetryDelaySeconds(): number {

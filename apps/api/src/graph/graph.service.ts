@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { ROLES, normalizeRole } from '@cherrygraph/auth-core';
 import {
   ErrorCode,
@@ -16,6 +16,7 @@ import {
 import { and, eq, inArray } from 'drizzle-orm';
 
 import { DRIZZLE } from '../database/drizzle.constants.js';
+import { throwApiError } from '../common/errors/api-error.js';
 import type { DrizzleDatabase } from '../database/drizzle.module.js';
 import { SPACE_VIEW_PERMISSIONS } from '../shared/permission-constants.js';
 import type {
@@ -520,8 +521,4 @@ function resolveContextUserId(context: GraphContext): string {
   }
 
   throwApiError(ErrorCode.UNAUTHENTICATED, 'Unauthenticated', HttpStatus.UNAUTHORIZED);
-}
-
-function throwApiError(code: ErrorCode, message: string, status: HttpStatus): never {
-  throw new HttpException({ code, message }, status);
 }

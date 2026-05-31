@@ -22,6 +22,7 @@ import { randomUUID } from 'node:crypto';
 import type { ZodError } from 'zod';
 
 import { AuditService } from '../audit/audit.service.js';
+import { throwApiError } from '../common/errors/api-error.js';
 import { REDIS_CLIENT, type OptionalRedisClient } from '../common/redis/redis.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { FeedbackService, type ConflictFeedbackInput } from '../feedback/feedback.service.js';
@@ -927,10 +928,6 @@ function toAuditFields(audit: GovernanceAuditContext | undefined): Pick<
     ...(audit?.userAgent !== undefined ? { user_agent: audit.userAgent } : {}),
     ...(audit?.requestId !== undefined ? { request_id: audit.requestId } : {}),
   };
-}
-
-function throwApiError(code: ErrorCode, message: string, status: HttpStatus): never {
-  throw new HttpException({ code, message }, status);
 }
 
 function isRecord(value: unknown): value is JsonRecord {

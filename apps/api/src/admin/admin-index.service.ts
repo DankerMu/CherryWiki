@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import {
   JobRepository,
   QueueFactory,
@@ -12,6 +12,7 @@ import { and, desc, eq, gte, lte, sql, type SQL } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 import { AuditService } from '../audit/audit.service.js';
+import { throwApiError } from '../common/errors/api-error.js';
 import { REDIS_CLIENT, type OptionalRedisClient } from '../common/redis/redis.module.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 
@@ -274,8 +275,4 @@ function normalizeScope(scope: string | undefined): string {
   }
 
   return normalized;
-}
-
-function throwApiError(code: ErrorCode, message: string, status: HttpStatus): never {
-  throw new HttpException({ code, message }, status);
 }

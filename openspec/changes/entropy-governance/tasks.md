@@ -104,8 +104,8 @@ Issue #410 fixture:
   - Verification: common helper tests and existing HTTP exception filter tests pass.
 - [x] 2.3 Promote existing API-returned local string error codes into `packages/shared/src/errors.ts` and update shared error tests.
   - Verification: local strings such as proposal status/action codes, missing embedding model codes, and project-owned job timeout payload codes are canonical `ErrorCode` values; non-canonical third-party/worker-specific failure payloads remain documented out of scope.
-- [ ] 2.4 Dependent issues #411/#412: migrate local `throwApiError` helper definitions in API services/controllers to the common helper by API domain, preserving HTTP status, code, message, details, and `meta.request_id`.
-  - Verification: `rg -n "function throwApiError" apps/api/src` returns only the common helper location; targeted API service/controller tests pass for migrated domains.
+- [x] 2.4 Dependent issues #411/#412: migrate local `throwApiError` helper definitions in API services/controllers to the common helper by API domain, preserving HTTP status, code, message, details, and `meta.request_id`.
+  - Verification: #411/#412 targeted API service/controller tests pass; `rg -n "function throwApiError|const throwApiError" apps/api/src` returns only `apps/api/src/common/errors/api-error.ts`.
 
 Issue #411 fixture:
 - Issue type: refactor / migration
@@ -168,6 +168,71 @@ Issue #411 fixture:
   - Verification: targeted domain tests and scans in the #411 fixture pass.
 - [x] 2.6 Issue #411: run API typecheck/lint/OpenSpec validation and record implementation evidence for the migrated core domains.
   - Verification: `pnpm --filter @cherrygraph/api typecheck`, `pnpm --filter @cherrygraph/api lint`, and `openspec validate entropy-governance --strict --no-interactive` pass.
+
+Issue #412 fixture:
+- Issue type: refactor / migration
+- Project profile: other
+- Blast radius: high
+- Fixture level: expanded
+- Repair intensity: broad-expanded
+- Change surface: all remaining API-local `throwApiError` helper definitions outside `apps/api/src/common/errors/api-error.ts`, including `apps/api/src/{groups,models,mcp,feedback,api-tokens,governance,audit,admin,users,spaces,uploads,graph,internal}/**` and directly affected API tests only
+- Scope clarification: issue #412 names admin/config/governance/supporting domains, while #410 inventory also lists `users`, `spaces`, `uploads`, `graph`, and `internal/jobs`; #412 must include those additional helpers because task 2.4 and #412 acceptance require `rg -n "function throwApiError" apps/api/src` to leave only the common helper.
+- Must preserve: existing public routes, controller/service method signatures, DTOs, database schema, worker/internal job endpoint semantics, upload/security validation semantics, auth/permission behavior, HTTP status, `ErrorCode` values, message text, optional `details` behavior for Zod validation helpers, 5xx sanitization through `HttpExceptionFilter`, and `meta.request_id` behavior
+- Must add/change: replace every remaining domain-local `throwApiError` definition with the common helper from `apps/api/src/common/errors/api-error.ts`; remove `HttpException` imports used only by deleted local helpers; add or update focused regression coverage only where existing tests do not cover representative migrated paths or `details` behavior
+- Selected risk packs:
+  - Public API / CLI / script entry: selected - supporting/admin/config/upload/internal API boundaries expose these error envelopes to clients or workers
+  - Schema / columns / units / field names: selected - `ErrorCode` remains a shared response field contract even though DB schema is unchanged
+  - Error handling / rollback / partial outputs: selected - migration must preserve validation, auth, conflict, upload/security, worker/internal, and 5xx filter semantics
+  - Documentation / migration notes: selected - this fixture closes the #410 inventory migration and updates the entropy-governance progress record
+- Risk packs considered:
+  - Config / project setup: not selected - no runtime env, Docker, deployment, or dependency behavior changes
+  - File IO / path safety / overwrite: selected - uploads paths include upload/security validation errors and must not change file/security behavior, even though the helper migration itself must not alter IO logic
+  - Geospatial / CRS / shapefile sidecars: not selected - no geospatial code changes
+  - Time series / forcing / temporal boundaries: not selected - no temporal data behavior changes
+  - Numerical stability / conservation / NaN: not selected - no numerical code changes
+  - Solver runtime / performance / threading: not selected - no solver/runtime/threading code changes
+  - Resource limits / large input / discovery: selected - uploads and MCP/worker paths include large-input/rate/timeout failure contracts that must remain unchanged
+  - Legacy compatibility / examples: not selected - no legacy sample/runtime behavior changes
+  - Release / packaging / dependency compatibility: not selected - no package metadata or dependency changes
+- Invariant Matrix:
+  - Governing invariant: after #412, every API helper-thrown error in `apps/api/src/**` must use the common API helper and emit the same client-facing status, code, message, optional details behavior, and `meta.request_id`; only the helper source changes.
+  - Source-of-truth identity/contract: `packages/shared/src/errors.ts::ErrorCode`, `apps/api/src/common/errors/api-error.ts`, and `apps/api/src/common/filters/http-exception.filter.ts` response envelope.
+  - Producers: remaining local helper call sites in `groups`, `models`, `mcp`, `feedback`, `api-tokens`, `governance`, `audit`, `admin/index`, `admin/proposals`, `users`, `spaces`, `uploads`, `graph`, and `internal/jobs`.
+  - Validators/preflight: targeted API domain tests, common helper/filter tests established by #410, #411 core-domain tests, and scan commands for local helper definitions/string-code misuse.
+  - Storage/cache/query: unchanged - no DB/cache schema, Drizzle migration, query predicate, repository behavior, or persistence shape changes.
+  - Public routes/entrypoints: existing Admin, Groups, Models, MCP, Feedback, API tokens, Governance, Audit, Users, Spaces, Uploads, Graph, and Internal Jobs REST/internal endpoints.
+  - Frontend/downstream consumers: unchanged clients consuming `{ error: { code, message, details? }, meta: { request_id } }`; worker/internal consumers and job DTO consumers keep existing codes/messages.
+  - Failure paths/rollback/stale state: representative 400/401/403/404/409/413/422/429/500/502 paths keep status/code/message; upload/security and worker partial-output behavior remain untouched; existing 5xx sanitization remains owned by `HttpExceptionFilter`.
+  - Evidence/audit/readiness: OpenSpec fixture, targeted Vitest commands for touched domains, full API test, API typecheck/lint, scans proving no non-common local helper remains, and progress update.
+  - Regression rows:
+    - Groups/Users/Spaces invalid sort, not-found, permission, conflict, and validation paths -> same 403/404/409/422 status, code, and message as before helper migration
+    - Models invalid sort, duplicate model, secret/model not found, missing embedding limit, and validation paths -> same 404/409/422 status, code, message, and no unexpected details
+    - MCP auth, policy denied, not-found, conflict, rate-limit, timeout/server-error paths -> same 401/403/404/409/429/502 status, shared `ErrorCode`, and message
+    - Feedback/Governance/Admin proposals/Admin index/Audit invalid query, not-found, conflict, unauthenticated, and Redis/internal-error paths -> same status, code, message, and 5xx sanitization behavior
+    - Upload and Internal Jobs validation/security/not-found/conflict/payload-too-large/internal-error paths -> same status, code, message, details behavior, and no change to file IO, SSRF/security, worker partial-output, or job lifecycle side effects
+    - Graph unauthenticated and missing-space paths -> same 401/404 status, code, and message
+    - Scan of all API source -> no `function throwApiError`/`const throwApiError` definitions outside `apps/api/src/common/errors/api-error.ts` and no raw string-code `throwApiError('...')` calls
+- Boundary-surface checklist:
+  - Shared helper roots: `apps/api/src/common/errors/api-error.ts` and `apps/api/src/common/filters/http-exception.filter.ts` remain the only helper/filter contract roots
+  - Public entrypoints: Admin, Groups, Models, MCP, Feedback, API tokens, Governance, Audit, Users, Spaces, Uploads, Graph, and Internal Jobs routes/controllers/services
+  - Read/write surfaces: validation, permission, not-found, conflict, upload/security, worker/internal completion/failure branches only; no persistence semantics change
+  - Producer/consumer evidence boundaries: #410 inventory -> #412 migration scope -> final `rg` scan proving inventory closure
+  - Stale-state/idempotency boundaries: existing conflict/idempotency/active-job branches in admin index, spaces, uploads, internal jobs, and MCP remain unchanged
+  - Unchanged downstream consumers: Web/API clients, workers, tests, and job DTO consumers relying on shared `ErrorCode` response/payload fields
+- Required evidence:
+  - `pnpm exec vitest run apps/api/src/groups/__tests__/group.service.test.ts apps/api/src/models/__tests__/model-config.service.test.ts apps/api/src/mcp/__tests__/mcp-registry.test.ts apps/api/src/mcp/__tests__/mcp-policy.test.ts apps/api/src/mcp/__tests__/mcp-rate-limit.test.ts apps/api/src/feedback/__tests__/feedback.service.test.ts apps/api/src/api-tokens/__tests__/api-token.service.test.ts apps/api/src/governance/__tests__/governance.service.test.ts apps/api/src/governance/__tests__/governance-reindex.test.ts apps/api/src/audit/__tests__/audit-query.test.ts apps/api/src/admin/__tests__/admin-index.test.ts apps/api/src/admin/__tests__/retrieval-trace.test.ts apps/api/src/admin/__tests__/proposal.controller.test.ts apps/api/src/users/__tests__/user.service.test.ts apps/api/src/spaces/__tests__/space.service.test.ts apps/api/src/uploads/__tests__/uploads.service.test.ts apps/api/src/graph/__tests__/graph-search.test.ts apps/api/src/graph/__tests__/graph-path.test.ts apps/api/src/internal/__tests__/internal-jobs.service.test.ts --config vitest.config.ts --passWithNoTests=false`
+  - `pnpm --filter @cherrygraph/api test`
+  - `pnpm --filter @cherrygraph/api typecheck`
+  - `pnpm --filter @cherrygraph/api lint`
+  - `rg -n "function throwApiError|const throwApiError" apps/api/src` returns only `apps/api/src/common/errors/api-error.ts`
+  - `rg -n "throwApiError\\(['\\\"]" apps/api/src` returns no matches
+  - `openspec validate entropy-governance --strict --no-interactive`
+- Non-goals: Chat/Wiki/Graphify/Jobs core-domain migration already completed in #411, structural service decomposition, route/DTO/schema/SSE changes, new error codes, changing helper/filter implementation, broad formatting churn, Docker/env/dependency changes, or any changes inside `external/*`
+
+- [x] 2.7 Issue #412: migrate all remaining API-local `throwApiError` helper definitions to the common API helper without changing client-facing error behavior.
+  - Verification: `rg -n "function throwApiError|const throwApiError" apps/api/src` returns only `apps/api/src/common/errors/api-error.ts:6`; `rg -n "throwApiError\\(['\\\"]" apps/api/src` returns no matches.
+- [x] 2.8 Issue #412: run supporting/admin/config/upload/internal targeted tests plus API typecheck/lint/OpenSpec validation and record final helper inventory closure evidence.
+  - Verification: #412 targeted Vitest suite 19 files / 224 tests passed; `pnpm --filter @cherrygraph/api test` 213 files passed / 1 skipped and 1454 tests passed / 1 skipped; API typecheck/lint and `openspec validate entropy-governance --strict --no-interactive` passed.
 
 ## 3. API Chat Backend Boundary
 
