@@ -7,13 +7,41 @@
 
 ## 1. Scoped Agent Context
 
-- [ ] 1.1 Add `apps/api/AGENTS.md` with API-specific boundaries, shared package reuse rules, error-contract guidance, permission-check guidance, and targeted verification commands.
+Issue #409 fixture:
+- Issue type: docs/config governance
+- Project profile: other
+- Blast radius: low
+- Fixture level: none
+- Repair intensity: low
+- Change surface: scoped `AGENTS.md` files under `apps/`, `packages/`, and `tools/`
+- Must preserve: root `AGENTS.md` authority, completeness discipline, Python venv rules, Docker safety, testing/progress requirements, and exclusion of `external/*` reference/fork code from implementation refactors
+- Selected risk packs:
+  - Documentation / migration notes: selected - scoped instructions are documentation/config for future implementation agents
+- Risk packs considered:
+  - Public API / CLI / script entry: not selected - no route, command behavior, or CLI contract changes
+  - Config / project setup: not selected - no runtime config or build/deploy behavior changes
+  - File IO / path safety / overwrite: not selected - no runtime file access behavior changes
+  - Schema / columns / units / field names: not selected - no database or data schema changes
+  - Geospatial / CRS / shapefile sidecars: not selected - no geospatial code changes
+  - Time series / forcing / temporal boundaries: not selected - no temporal data behavior changes
+  - Numerical stability / conservation / NaN: not selected - no numerical code changes
+  - Solver runtime / performance / threading: not selected - no solver/runtime code changes
+  - Resource limits / large input / discovery: not selected - no discovery or resource-bound code changes
+  - Legacy compatibility / examples: not selected - no behavior compatibility surface changes
+  - Error handling / rollback / partial outputs: not selected - no runtime error path changes
+  - Release / packaging / dependency compatibility: not selected - no package metadata, dependency, or release artifact changes
+- Required evidence:
+  - `rg -n "external/\\*|reference|参考" apps/*/AGENTS.md packages/AGENTS.md tools/AGENTS.md` shows reference-project scope is explicit where relevant
+  - Manual scoped-file review confirms no scoped file relaxes root completeness, Docker, Python venv, testing, or progress rules
+- Non-goals: source-code refactors, root policy relaxation, and changes inside `external/*`
+
+- [x] 1.1 Add `apps/api/AGENTS.md` with API-specific boundaries, shared package reuse rules, error-contract guidance, permission-check guidance, and targeted verification commands.
   - Verification: scoped file exists, does not relax root rules, and mentions `pnpm --filter @cherrygraph/api test`.
-- [ ] 1.2 Add `apps/web/AGENTS.md` with React/Ant Design/i18n/theme-token boundaries and targeted Web verification commands.
+- [x] 1.2 Add `apps/web/AGENTS.md` with React/Ant Design/i18n/theme-token boundaries and targeted Web verification commands.
   - Verification: scoped file exists, does not relax root rules, and mentions `pnpm --filter @cherrygraph/web test` plus Web typecheck.
-- [ ] 1.3 Add worker scoped instructions for `apps/graphify-worker/`, `apps/ingestion-worker/`, `apps/url-fetcher-worker/`, `apps/indexer-worker/`, and `apps/wiki-sync-worker/`.
+- [x] 1.3 Add worker scoped instructions for `apps/graphify-worker/`, `apps/ingestion-worker/`, `apps/url-fetcher-worker/`, `apps/indexer-worker/`, and `apps/wiki-sync-worker/`.
   - Verification: Python worker instructions include full venv pytest commands; Node worker instructions include workspace commands; no scoped file includes `external/*` as implementation scope.
-- [ ] 1.4 Add `packages/AGENTS.md` and `tools/AGENTS.md` covering framework-neutral package constraints and CLI verification commands.
+- [x] 1.4 Add `packages/AGENTS.md` and `tools/AGENTS.md` covering framework-neutral package constraints and CLI verification commands.
   - Verification: scoped files distinguish shared packages from app-framework code and keep CLI/tool tests local.
 
 ## 2. API Error Contract
