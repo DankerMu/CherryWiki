@@ -500,8 +500,9 @@ describe('Phase 3 chat controls and stream events', () => {
     });
 
     renderChatRoute();
+    await waitForChatControlsReady(fetchState);
 
-    fireEvent.mouseDown(await screen.findByRole('combobox', { name: '聊天空间' }));
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: '聊天空间' }));
     fireEvent.click(await screen.findByText('Space Two'));
     await sendChatMessage('compare both spaces');
 
@@ -767,7 +768,8 @@ describe('Phase 3 chat controls and stream events', () => {
 
     renderChatRoute();
 
-    fireEvent.click(await screen.findByRole('button', { name: '深度分析' }));
+    await waitForChatControlsReady(fetchState);
+    fireEvent.click(screen.getByRole('button', { name: '深度分析' }));
     await sendChatMessage('explain the architecture');
 
     await waitFor(() => expect(getLastChatCompletionBody(fetchState.calls)).toMatchObject({ enable_deep_analysis: true }));
@@ -778,19 +780,20 @@ describe('Phase 3 chat controls and stream events', () => {
   });
 
   it('shows the database toggle only when the space database config is enabled', async () => {
-    stubChatFetch({ databaseEnabled: false });
+    const databaseDisabledFetchState = stubChatFetch({ databaseEnabled: false });
     renderChatRoute();
 
-    await screen.findByLabelText('消息');
+    await waitForChatControlsReady(databaseDisabledFetchState);
     expect(screen.queryByRole('button', { name: '数据库' })).not.toBeInTheDocument();
 
     cleanup();
     vi.unstubAllGlobals();
 
-    stubChatFetch({ databaseEnabled: true });
+    const databaseEnabledFetchState = stubChatFetch({ databaseEnabled: true });
     renderChatRoute();
 
-    expect(await screen.findByRole('button', { name: '数据库' })).toBeInTheDocument();
+    await waitForChatControlsReady(databaseEnabledFetchState, { databaseAvailable: true });
+    expect(screen.getByRole('button', { name: '数据库' })).toBeInTheDocument();
   });
 
   it(
@@ -802,9 +805,10 @@ describe('Phase 3 chat controls and stream events', () => {
       });
 
       renderChatRoute();
+      await waitForChatControlsReady(fetchState, { databaseAvailable: true });
 
-      fireEvent.click(await screen.findByRole('button', { name: '数据库' }));
-      fireEvent.mouseDown(await screen.findByRole('combobox', { name: '聊天空间' }));
+      fireEvent.click(screen.getByRole('button', { name: '数据库' }));
+      fireEvent.mouseDown(screen.getByRole('combobox', { name: '聊天空间' }));
       fireEvent.click(await screen.findByText('Space Two'));
 
       expect(await screen.findByText(/已选择 2 个空间/)).toBeInTheDocument();
@@ -832,7 +836,8 @@ describe('Phase 3 chat controls and stream events', () => {
 
     renderChatRoute();
 
-    fireEvent.click(await screen.findByRole('button', { name: '深度分析' }));
+    await waitForChatControlsReady();
+    fireEvent.click(screen.getByRole('button', { name: '深度分析' }));
     await sendChatMessage('run a database check');
 
     expect(await screen.findByText('Bash')).toBeInTheDocument();
@@ -976,6 +981,30 @@ function getSpaceSelectorCombobox(): HTMLInputElement {
   const combobox = document.querySelector<HTMLInputElement>('.chat-space-selector input[role="combobox"]');
   expect(combobox).not.toBeNull();
   return combobox!;
+}
+
+async function waitForChatControlsReady(
+  fetchState?: { calls: FetchCall[] },
+  { databaseAvailable = false }: { databaseAvailable?: boolean } = {},
+): Promise<void> {
+  await waitFor(() => {
+    expect(screen.getByLabelText<HTMLTextAreaElement>('消息')).not.toBeDisabled();
+    expect(screen.getByRole('combobox', { name: '聊天空间' })).toBeInTheDocument();
+    expect(screen.queryByText('加载会话中...')).not.toBeInTheDocument();
+    if (databaseAvailable) {
+      expect(screen.getByRole('button', { name: '数据库' })).toBeInTheDocument();
+    }
+    if (fetchState !== undefined) {
+      expect(fetchState.calls).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ path: '/api/models/chat-available' }),
+          expect.objectContaining({ path: '/api/spaces' }),
+          expect.objectContaining({ path: '/api/spaces/space-1' }),
+          expect.objectContaining({ path: '/api/spaces/space-1/chat/sessions' }),
+        ]),
+      );
+    }
+  });
 }
 
 function fireTextareaKeyDown(textarea: HTMLTextAreaElement, init: KeyboardEventInit): void {
