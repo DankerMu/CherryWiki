@@ -783,6 +783,43 @@ Issue #423 fixture:
 - Dependency/context: #421 owns first-time shared-package Docker/compose/CI/venv visibility wiring; #422 has migrated ingestion. #423 migrates URL fetcher and proves the full two-worker deployment surface is coherent.
 - Must preserve: URL fetcher SSRF/fetch/archive behavior, URL fetch result payloads, error serialization, health port/env behavior, job type `url_fetch`, heartbeat `worker_type`, worker-id prefix, retryability, active-job cleanup, API/DTO/schema behavior, and no changes inside `external/*`.
 - Must add/change: replace URL fetcher-local lifecycle duplication with imports/configuration from `cherry_worker_protocol`; run final deployability checks across both per-worker Dockerfiles, both root worker targets, both compose files, and both worker venv tests. Any Docker/compose/CI fix in #423 must be limited to correcting regressions in wiring already introduced by #421, not first-time shared-package visibility wiring.
+- Selected risk packs:
+  - Public API / CLI / script entry: selected - URL fetch worker consumes the internal job lifecycle API and must preserve pending/progress/complete/fail/heartbeat payload semantics.
+  - Config / project setup: selected - final deployability evidence must prove the existing #421 Docker/compose/CI/venv wiring still works for both migrated workers.
+  - File IO / path safety / overwrite: selected - URL fetch archive/storage output and fetch response handling must remain unchanged while lifecycle code moves.
+  - Resource limits / large input / discovery: selected - SSRF, DNS pinning, redirect handling, and response-size protections must not regress.
+  - Error handling / rollback / partial outputs: selected - retryability, terminal-state reporting, active-job cleanup, and serialized fetch errors must stay compatible.
+  - Release / packaging / dependency compatibility: selected - both worker venvs, app Dockerfiles, root worker targets, and shared package imports must remain deployable.
+  - Documentation / migration notes: selected - #423 closes the Python worker protocol migration and records final two-worker evidence.
+- Risk packs considered:
+  - Schema / columns / units / field names: not selected - no database schema, DTO, or API response field changes are intended.
+  - Geospatial / CRS / shapefile sidecars: not selected - no geospatial code changes.
+  - Time series / forcing / temporal boundaries: not selected - no temporal data behavior changes.
+  - Numerical stability / conservation / NaN: not selected - no numerical code changes.
+  - Solver runtime / performance / threading: not selected - no solver/runtime/threading code changes.
+  - Legacy compatibility / examples: not selected - no legacy examples or reference projects are touched.
+- Invariant Matrix:
+  - Governing invariant: after #423, URL fetch worker lifecycle behavior must be implemented through `cherry_worker_protocol` while preserving the existing `url_fetch` job contract, worker identity, failure semantics, SSRF/fetch/archive behavior, and deployability across both migrated Python workers.
+  - Source-of-truth identity/contract: `packages/python-worker-protocol/src/cherry_worker_protocol/job_lifecycle.py`, URL fetch worker config in `apps/url-fetcher-worker/src/job_client.py`, and existing internal job API payloads for pending/progress/complete/fail/heartbeat.
+  - Producers: URL fetch worker lifecycle wrapper, `UrlFetchJobHandler`, fetcher/archive/storage code, and shared protocol lifecycle helpers.
+  - Validators/preflight: URL fetch worker tests, ingestion regression tests, shared protocol tests, worker import checks, Docker buildx syntax checks, compose config checks, and OpenSpec validation.
+  - Storage/cache/query: unchanged - no jobs schema, job_events schema, storage bucket/path convention, archive payload, or API query behavior changes.
+  - Public routes/entrypoints: unchanged - no public API routes; only the worker's internal job API client behavior is migrated.
+  - Frontend/downstream consumers: unchanged - API/job DTO consumers continue to observe the same URL fetch result/error payloads and terminal states.
+  - Failure paths/rollback/stale state: progress failures, fetch errors, retryable vs non-retryable terminal states, heartbeat failures, and active-job cleanup keep existing behavior.
+  - Evidence/audit/readiness: #423 required evidence commands, `git diff --check`, progress update, and final PR evidence comments.
+  - Regression rows:
+    - pending `url_fetch` job + normal fetch result -> same progress and complete payload shape, archive output, and terminal status through shared protocol
+    - SSRF/private-network, DNS pinning, redirect, or response-size rejection -> same error serialization, retryability, fail payload, and no archive behavior change
+    - heartbeat thread -> `system_info.worker_type=url_fetch` and URL fetch worker-id prefix preserved
+    - handler failure after active job assignment -> active-job cleanup and terminal-state reporting remain stable
+    - ingestion worker after URL fetch migration -> ingestion protocol adapter still passes tests and import checks unchanged
+- Boundary-surface checklist:
+  - Allowed write surfaces: `apps/url-fetcher-worker/src/job_client.py`, directly affected `apps/url-fetcher-worker/tests/**`, and documentation/progress/evidence files.
+  - Shared helper roots: `packages/python-worker-protocol/**` may be read and tested; edits are allowed only for regressions discovered in the already-owned #421 contract, not for first-time feature expansion.
+  - Prohibited surfaces: `external/*`, public API/server contracts, database schema/migrations, SSRF policy redesign, fetch/archive/storage redesign, unrelated dependency lockfiles, and first-time Docker/compose/CI shared-package visibility wiring.
+  - Regression-only sibling surface: `apps/ingestion-worker/**` may be read and tested; code edits require a concrete regression caused by the shared protocol contract.
+  - Evidence boundaries: final PR evidence must distinguish URL fetch migration evidence from two-worker deployability evidence.
 - Required evidence:
   - `apps/url-fetcher-worker/.venv/bin/python -m pytest apps/url-fetcher-worker/tests -v`
   - `apps/ingestion-worker/.venv/bin/python -m pytest apps/ingestion-worker/tests -v`
@@ -795,15 +832,17 @@ Issue #423 fixture:
   - `docker buildx build --check -f Dockerfile --target url-fetcher-worker .`
   - `docker compose config --quiet`
   - `docker compose -f docker-compose.prod.yml config --quiet`
+  - `pnpm exec vitest run tests/smoke/egress-smoke.test.ts --config vitest.config.ts --passWithNoTests=false`
   - `openspec validate entropy-governance --strict --no-interactive`
+  - `git diff --check`
 - Regression rows:
   - URL fetcher migration uses #421 wiring and preserves SSRF/private-network protections, fetch/archive output, and terminal-state reporting.
   - Final deployability evidence covers both workers, both app Dockerfiles from root context, both root Dockerfile targets, both compose files, and shared-package tests.
   - #423 does not become the first issue to add shared-package copy/install steps, compose root-context changes, CI syntax-check context changes, or worker venv package install commands.
 - Non-goals: first-time shared-package Docker/compose/CI/venv wiring, ingestion behavior changes beyond regression fixes, API/server changes, SSRF/fetcher redesign, dependency lockfile churn unrelated to the shared package, or changes inside `external/*`.
 
-- [ ] 5.4 Issue #423: migrate only `apps/url-fetcher-worker` to the shared protocol and complete final two-worker deployability verification.
-  - Verification: #423 required evidence commands pass, including URL fetcher tests, ingestion regression tests, shared-package tests, both worker import checks, all Docker syntax checks, both compose config checks, and OpenSpec strict validation.
+- [x] 5.4 Issue #423: migrate only `apps/url-fetcher-worker` to the shared protocol and complete final two-worker deployability verification.
+  - Verification: #423 required evidence commands passed: URL fetcher venv pytest (41 tests), ingestion venv pytest (18 tests), shared protocol pytest (24 tests), both worker import checks, URL fetcher `ruff check` / `ruff format --check`, both app Dockerfile syntax checks, both root worker target syntax checks, both compose config checks, URL fetcher smoke integration (1 test), `openspec validate entropy-governance --strict --no-interactive`, and `git diff --check`.
 
 ## 6. Governance Verification
 
