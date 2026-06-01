@@ -203,7 +203,18 @@ storage, SSRF, archive, or output modules.
 
 ### Future Docker Wiring
 
+Ownership rule: #421 owns every first-time shared-package visibility/build
+wiring surface before either worker migration starts. That includes compose
+root-context changes needed by both workers, per-worker Dockerfile copy/install
+steps, root `Dockerfile` worker target installs, CI Dockerfile syntax-check
+context changes, and the shared-package venv/CI test command. #422 and #423
+must consume wiring that already exists; they must not be the first issue to
+make Docker, compose, CI, or local venv able to see
+`packages/python-worker-protocol/`.
+
 The shared package requires root build context anywhere a worker image is built.
+These Docker and compose changes are #421 scope, even though worker runtime
+imports are introduced later by #422/#423.
 
 Future `apps/ingestion-worker/Dockerfile`:
 
@@ -256,6 +267,8 @@ Future compose impact:
   `Dockerfile` target because that target will install the shared package.
 
 ### Future CI And Venv Impact
+
+#421 owns this CI and local venv wiring before worker migrations:
 
 CI `python-ci` must install the shared package before lint and tests for
 `ingestion-worker` and `url-fetcher-worker`:
@@ -316,13 +329,22 @@ because the package boundary is limited to worker-side protocol code.
 ### Downstream Issue Boundaries
 
 - #421: create `packages/python-worker-protocol/`, implement the shared
-  lifecycle contract and package tests, and add package install/build wiring
-  needed for tests and Docker syntax checks. No worker parser/fetcher migration.
+  lifecycle contract and package tests, and add all shared-package
+  visibility/build wiring before worker migrations: root-context compose changes
+  for both Python workers, per-worker Dockerfile copy/install steps, root
+  `Dockerfile` target package installs, CI Dockerfile syntax-check context
+  changes, and the shared-package venv/CI test command. No worker parser/fetcher
+  migration.
 - #422: migrate only `apps/ingestion-worker` to import and configure the shared
-  protocol. Preserve ingestion parser/storage behavior and run ingestion tests.
+  protocol after #421 wiring exists. Preserve ingestion parser/storage behavior,
+  do not introduce first-time Docker/compose/CI/venv wiring, and run ingestion
+  tests.
 - #423: migrate only `apps/url-fetcher-worker` to import and configure the
-  shared protocol, complete root/per-worker Docker and CI deployability checks,
-  and preserve SSRF/fetcher behavior.
+  shared protocol after #421 wiring exists, preserve SSRF/fetcher behavior, and
+  perform final deployability verification across root/per-worker Docker,
+  compose, CI syntax-check expectations, and both worker venv tests. #423 may
+  fix regressions in already-owned wiring but must not be the first issue to
+  wire shared-package visibility.
 
 ### Verification Matrix
 
