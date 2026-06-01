@@ -561,6 +561,53 @@ Issue #417 fixture:
 - [x] 4.5 Keep `Chat.tsx` as a thin page composition boundary and run targeted Web tests/typecheck.
   - Verification: `pnpm --filter @cherrygraph/web test` passed (15 files / 194 tests), `pnpm --filter @cherrygraph/web typecheck` passed, `git diff --check` passed, and `openspec validate entropy-governance --strict --no-interactive` passed.
 
+Issue #418 fixture:
+- Issue type: refactor / frontend boundary refinement
+- Project profile: other
+- Blast radius: medium
+- Fixture level: compact
+- Repair intensity: medium
+- Change surface: `apps/web/src/pages/chat/useChatScopeSettings.ts`, new or existing `apps/web/src/pages/chat/**` hooks for model/database gating, `apps/web/src/pages/Chat.tsx` wiring only if needed, and `apps/web/src/__tests__/chat.test.tsx`.
+- Dependency/context: #417 already extracted Web Chat sessions, scope/settings, model precheck, and database gating out of `Chat.tsx`; #418 must refine that boundary by splitting model availability and database gating out of the broad scope/settings hook rather than repeating #417.
+- Must preserve: existing routes, API endpoints, `/api/models/chat-available` fail-open semantics, `/api/spaces/:spaceId` database_config lookup semantics, selected-space settings persistence, model-unavailable banner/input/send disablement, database toggle visibility and `enable_database` payload gating, completion metadata rendering, Chinese/i18n text, message/citation/source-chain rendering, and visual layout.
+- Must add/change: extract model availability state and database availability/toggle coercion into focused hook(s) or hook utilities under `apps/web/src/pages/chat/**`; keep selected-space loading/settings persistence in `useChatScopeSettings`; keep `Chat.tsx` as a composition boundary; strengthen targeted tests only where current coverage does not explicitly prove gating state and request payload compatibility.
+- Selected risk packs:
+  - Public API / CLI / script entry: selected - Web Chat must keep existing model availability, space detail, and chat completion requests/payloads stable.
+  - Error handling / rollback / partial outputs: selected - model availability API failure remains fail-open, database detail failure hides/disables database, and disabling/multi-space selection clears `enableDatabase` without stale payload leakage.
+  - Documentation / migration notes: selected - this fixture records the post-#417 boundary refinement and prevents overlap with future rendering extraction.
+- Risk packs considered:
+  - Resource limits / large input / discovery: not selected - selected-space max/normalization was handled by #417 and must remain unchanged.
+  - Config / project setup: not selected - no env, build config, dependency, Docker, or routing config changes.
+  - File IO / path safety / overwrite: not selected - no filesystem access and no new browser storage semantics beyond existing chat settings persistence.
+  - Schema / columns / units / field names: not selected - no API DTO, database schema, or persisted field names change.
+  - Geospatial / CRS / shapefile sidecars: not selected - no geospatial code changes.
+  - Time series / forcing / temporal boundaries: not selected - no temporal behavior changes.
+  - Numerical stability / conservation / NaN: not selected - no numerical code changes.
+  - Solver runtime / performance / threading: not selected - no solver/runtime code changes.
+  - Legacy compatibility / examples: not selected - no legacy sample or migration surface changes.
+  - Release / packaging / dependency compatibility: not selected - no package metadata or dependency changes.
+- Required evidence:
+  - `pnpm exec vitest run apps/web/src/__tests__/chat.test.tsx --config vitest.config.ts --passWithNoTests=false`
+  - `pnpm --filter @cherrygraph/web test`
+  - `pnpm --filter @cherrygraph/web typecheck`
+  - `pnpm --filter @cherrygraph/web lint`
+  - `git diff --check`
+  - `openspec validate entropy-governance --strict --no-interactive`
+- Regression rows:
+  - chat model unavailable -> no-model banner remains visible, message input and send button stay disabled, and no chat payload is sent.
+  - model availability API failure -> no no-model banner is shown and input remains enabled (fail-open compatibility).
+  - database_config disabled -> database toggle remains hidden and `enable_database` is not sent.
+  - space detail API failure -> database toggle remains hidden, `enableDatabase` is coerced false, and later chat payload omits `enable_database`.
+  - database_config enabled with one selected space -> database toggle is visible, toggling it sends `enable_database: true`, and completion metadata behavior remains unchanged.
+  - database_config enabled then multiple spaces selected -> database toggle is hidden/cleared and the later request omits `enable_database` while preserving selected `space_ids`.
+  - unchanged sibling behavior -> session/scope/settings persistence, message markdown/tool/chart/citation/source-chain rendering, and sidebar controls continue passing existing tests.
+- Non-goals: backend changes, API endpoint/DTO/schema changes, session/scope behavior redesign, selected-space normalization changes, message/citation/source-chain component extraction (#419), visual redesign, dependency changes, broad formatting churn, or changes inside `external/*`.
+
+- [x] 4.6 Issue #418: split model availability and database gating from the broad scope/settings hook into focused Web Chat hook(s) while preserving request and UI behavior.
+  - Verification: `apps/web/src/pages/chat/useChatModelGate.ts` owns `/api/models/chat-available` fail-open model precheck; `apps/web/src/pages/chat/useChatDatabaseGate.ts` owns `/api/spaces/:spaceId` database_config lookup, database toggle availability, and stale `enableDatabase` coercion. `useChatScopeSettings.ts` now keeps selected-space loading/settings persistence only. Targeted Chat tests passed (44 tests), covering no-model fail-closed/no payload, availability fail-open, database disabled/detail failure payload omission, database enabled `enable_database: true`, multi-space clearing with preserved `space_ids`, and completion metadata rendering.
+- [x] 4.7 Issue #418: run targeted Web Chat tests, full Web tests/typecheck/lint, diff check, and OpenSpec validation.
+  - Verification: `pnpm exec vitest run apps/web/src/__tests__/chat.test.tsx --config vitest.config.ts --passWithNoTests=false` passed (44 tests); `pnpm --filter @cherrygraph/web test` passed (15 files / 197 tests); `pnpm --filter @cherrygraph/web typecheck` passed; `pnpm --filter @cherrygraph/web lint` passed; `git diff --check` passed; `openspec validate entropy-governance --strict --no-interactive` passed. `Chat.tsx` remains a composition boundary and only wires the focused gating hooks.
+
 ## 5. Python Worker Protocol
 
 - [ ] 5.1 Inspect Docker/CI/venv constraints and decide the worker protocol strategy: shared Python package, shared local module wired into both build contexts, or protocol-template enforcement.

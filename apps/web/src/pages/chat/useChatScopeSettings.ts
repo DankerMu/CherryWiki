@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { useChatModelAvailable } from '../../hooks/useChatModelAvailable.js';
 import { api } from '../../lib/api.js';
 import type { AuthUser } from '../../lib/auth.js';
 import {
@@ -8,12 +7,11 @@ import {
   getChatSettingsKey,
   getKnownSpaceName,
   getUserChatSpaces,
-  isSpaceDatabaseEnabled,
   loadChatSettings,
   normalizeSelectedSpaceIds,
   saveChatSettings,
 } from './chatScopeUtils.js';
-import type { AvailableChatSpace, ChatSettings, ChatSpaceDetail } from './types.js';
+import type { AvailableChatSpace, ChatSettings } from './types.js';
 
 type UseChatScopeSettingsParams = {
   spaceId: string;
@@ -33,7 +31,6 @@ export function useChatScopeSettings({
   const [availableSpaces, setAvailableSpaces] = useState<AvailableChatSpace[]>([]);
   const [spaceRefreshVersion, setSpaceRefreshVersion] = useState(0);
   const [selectedSpaceIds, setSelectedSpaceIds] = useState<string[]>(() => normalizeSelectedSpaceIds(spaceId, [spaceId]));
-  const [spaceDatabaseEnabled, setSpaceDatabaseEnabled] = useState(false);
   const selectedSpaceSettingsKey = useMemo(() => getChatSettingsKey(selectedSpaceIds), [selectedSpaceIds]);
   const [chatSettingsState, setChatSettingsState] = useState<{ storageKey: string; settings: ChatSettings }>(() => {
     const initialSpaceIds = normalizeSelectedSpaceIds(spaceId, [spaceId]);
@@ -47,7 +44,6 @@ export function useChatScopeSettings({
     chatSettingsState.storageKey === selectedSpaceSettingsKey
       ? chatSettingsState.settings
       : loadChatSettings(selectedSpaceIds);
-  const chatModelAvailable = useChatModelAvailable(isAuthenticated && isAllowed);
 
   const updateChatSettings = useCallback(
     (settings: ChatSettings): void => {
@@ -124,40 +120,6 @@ export function useChatScopeSettings({
     });
   }, [availableSpaces, spaceId]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!isAuthenticated || spaceId.length === 0 || !isAllowed) {
-      setSpaceDatabaseEnabled(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    api
-      .get<ChatSpaceDetail>(`/spaces/${encodeURIComponent(spaceId)}`)
-      .then((space) => {
-        if (!cancelled) {
-          setSpaceDatabaseEnabled(isSpaceDatabaseEnabled(space.database_config));
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setSpaceDatabaseEnabled(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isAllowed, isAuthenticated, spaceId]);
-
-  useEffect(() => {
-    if ((!spaceDatabaseEnabled || selectedSpaceIds.length > 1) && chatSettings.enableDatabase) {
-      updateChatSettings({ ...chatSettings, enableDatabase: false });
-    }
-  }, [chatSettings, selectedSpaceIds.length, spaceDatabaseEnabled, updateChatSettings]);
-
   const resetSelectedSpacesToRoute = useCallback(() => {
     setSelectedSpaceIds(normalizeSelectedSpaceIds(spaceId, [spaceId]));
   }, [spaceId]);
@@ -166,13 +128,9 @@ export function useChatScopeSettings({
     setSpaceRefreshVersion((version) => version + 1);
   }, []);
 
-  const databaseAvailable = selectedSpaceIds.length === 1 && spaceDatabaseEnabled;
-
   return {
     availableSpaces,
-    chatModelAvailable,
     chatSettings,
-    databaseAvailable,
     selectedSpaceIds,
     setAvailableSpaces,
     setSelectedSpaceIds,
