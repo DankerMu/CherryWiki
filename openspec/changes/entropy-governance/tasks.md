@@ -556,8 +556,8 @@ Issue #417 fixture:
   - Verification: `apps/web/src/pages/chat/useChatSessions.ts` owns session list loading, open, delete, new chat, and scope PATCH rollback/list refresh; targeted Chat Vitest passed and visible i18n keys/text remain unchanged.
 - [x] 4.3 Extract selected-space scope/settings, model availability gating, and database toggle gating into focused hook(s).
   - Verification: `apps/web/src/pages/chat/useChatScopeSettings.ts` owns available-space loading/fallback, selected-scope persistence, model availability precheck, database config gating, and permission-refresh trigger; Chat request payload tests passed with unchanged endpoints and payload fields.
-- [ ] 4.4 Future Web Chat issue: move message markdown rendering, message parts, citation panel, and source-chain rendering into focused components without changing UX or i18n keys. This is explicitly out of scope for #417.
-  - Verification: message/citation/source-chain tests pass; unsafe markdown image/link behavior remains unchanged.
+- [x] 4.4 Issue #419: move message markdown rendering, message parts, citation panel, and source-chain rendering into focused components without changing UX, i18n keys, navigation targets, or unsafe markdown behavior.
+  - Verification: `ChatMessageBubble`, `AssistantMarkdown`, `ChatMessageParts`, `CitationPanel`, and source-chain utilities now live under `apps/web/src/pages/chat/**`; `Chat.tsx` only wires the extracted rendering component. Targeted Chat Vitest passed (48 tests), including unsafe markdown image suppression/unsupported URL filtering/external link safe attributes, secondary-space citation navigation, direct and nested `source_chain_json` graph path normalization, tool/chart parts, thinking/typing/completion/error states. Full Web test passed (15 files / 201 tests), Web typecheck/lint passed, `git diff --check` passed, and OpenSpec strict validation passed.
 - [x] 4.5 Keep `Chat.tsx` as a thin page composition boundary and run targeted Web tests/typecheck.
   - Verification: `pnpm --filter @cherrygraph/web test` passed (15 files / 194 tests), `pnpm --filter @cherrygraph/web typecheck` passed, `git diff --check` passed, and `openspec validate entropy-governance --strict --no-interactive` passed.
 
@@ -607,6 +607,63 @@ Issue #418 fixture:
   - Verification: `apps/web/src/pages/chat/useChatModelGate.ts` owns `/api/models/chat-available` fail-open model precheck; `apps/web/src/pages/chat/useChatDatabaseGate.ts` owns `/api/spaces/:spaceId` database_config lookup, database toggle availability, and stale `enableDatabase` coercion. `useChatScopeSettings.ts` now keeps selected-space loading/settings persistence only. Targeted Chat tests passed (44 tests), covering no-model fail-closed/no payload, availability fail-open, database disabled/detail failure payload omission, database enabled `enable_database: true`, multi-space clearing with preserved `space_ids`, and completion metadata rendering.
 - [x] 4.7 Issue #418: run targeted Web Chat tests, full Web tests/typecheck/lint, diff check, and OpenSpec validation.
   - Verification: `pnpm exec vitest run apps/web/src/__tests__/chat.test.tsx --config vitest.config.ts --passWithNoTests=false` passed (44 tests); `pnpm --filter @cherrygraph/web test` passed (15 files / 197 tests); `pnpm --filter @cherrygraph/web typecheck` passed; `pnpm --filter @cherrygraph/web lint` passed; `git diff --check` passed; `openspec validate entropy-governance --strict --no-interactive` passed. `Chat.tsx` remains a composition boundary and only wires the focused gating hooks.
+
+Issue #419 fixture:
+- Issue type: refactor / frontend rendering boundary extraction
+- Project profile: other
+- Blast radius: medium
+- Fixture level: expanded
+- Repair intensity: high
+- Change surface: `apps/web/src/pages/Chat.tsx`, new or existing `apps/web/src/pages/chat/**` rendering component files, rendering utilities needed by those components, and `apps/web/src/__tests__/chat.test.tsx`.
+- Dependency/context: #417 extracted session/scope workflows and #418 extracted model/database gating; #419 must not reopen those hook boundaries and must only move Web Chat message, citation, and source-chain rendering out of `Chat.tsx`.
+- Must preserve: existing routes, API endpoints, request payloads, session/scope/model/database behavior, sidebar/mobile controls, Chinese/i18n text, visual layout/CSS class names, assistant markdown rendering, unsafe markdown image suppression, external link attributes, citation ref click navigation, secondary-space citation navigation, citation/source-chain labels and badges, graph path rendering, tool-use/chart message parts, typing/thinking indicators, completion metadata, and SSE rendering compatibility.
+- Must add/change: strengthen characterization tests for unsafe markdown image/link behavior and citation/source-chain rendering where coverage is implicit; extract assistant markdown/message parts/message bubble/citation panel/source-chain rendering into focused component(s) or component+utility files under `apps/web/src/pages/chat/**`; keep `Chat.tsx` as a thin page composition boundary.
+- Selected risk packs:
+  - Public UI / consumer-visible contract: selected - Chat message, citation, source-chain, tool/chart, completion, and empty/streaming indicators are primary user-visible rendering contracts.
+  - Security / unsafe content rendering: selected - assistant markdown is model/content-derived; image suppression, URL filtering, and external link attributes must remain unchanged.
+  - Navigation / identity boundaries: selected - citation refs and citation cards must continue routing to the correct route space or source space and page id fallback.
+  - Schema / field names / compatibility: selected - `ChatMessage`, `ChatCitation`, `source_chain_json`, graph path, tool-use, chart, completion metadata, and SSE-derived fields are unchanged data contracts consumed by the extracted components.
+  - Error handling / rollback / partial outputs: selected - malformed/partial rendering payloads, missing citation targets, unsupported markdown URLs, empty streaming assistant output, non-stringifiable tool input, and tool/chart fallback rendering must keep current non-crashing behavior and visible fallbacks.
+  - Documentation / migration notes: selected - this fixture records #419 as the final Web Chat rendering extraction after #417/#418 and prevents scope bleed into hooks/API/backend changes.
+- Risk packs considered:
+  - Public API / CLI / script entry: not selected - #419 does not change HTTP endpoints, request payloads, routing, CLI scripts, or backend contracts; UI-visible rendering is covered by the selected Public UI pack.
+  - Config / project setup: not selected - no env, build config, dependency, Docker, or routing config changes.
+  - File IO / path safety / overwrite: not selected - no filesystem, upload, or browser storage changes.
+  - Resource limits / large input / discovery: not selected - no new buffering, list virtualization, or payload-size behavior; component extraction must not duplicate large message/citation payloads.
+  - Geospatial / CRS / shapefile sidecars: not selected - no geospatial code changes.
+  - Time series / forcing / temporal boundaries: not selected - no temporal behavior beyond preserving completion latency formatting.
+  - Numerical stability / conservation / NaN: not selected - no numerical algorithms beyond preserving citation score/latency formatting.
+  - Solver runtime / performance / threading: not selected - no solver/runtime code changes.
+  - Legacy compatibility / examples: not selected - no legacy sample or migration surface changes.
+  - Release / packaging / dependency compatibility: not selected - no package metadata or dependency changes.
+- Invariant Matrix:
+  - Source-of-truth identity/contract: `ChatMessage`, `ChatCitation`, `ChatMessagePart`, `source_chain_json`, graph path payloads, existing `chat.*` i18n keys, current CSS class names, and `buildCitationPath`/page-id fallback behavior.
+  - Producers/validators/storage: unchanged API/SSE producers and Web stream/session hooks continue to produce the same message/citation/part objects; #419 only changes rendering consumers.
+  - Public entrypoints: `Chat.tsx` renders `ChatMessageBubble` for each message; extracted components remain internal to `apps/web/src/pages/chat/**` except exported test targets already used by tests.
+  - Read surfaces: assistant markdown content, citation arrays, source-chain JSON, graph path nodes/edges, tool-use input, chart options, completion metadata, and message status/role.
+  - Write/delete/overwrite surfaces: none.
+  - Staging/publish/rollback surfaces: none.
+  - Frontend/downstream consumers: existing Vitest tests, users clicking citation refs/cards, users expanding source-chain panels, and browser handling of external links.
+  - Failure paths: missing citation index, malformed source-chain JSON, missing graph path nodes/edges, non-finite score/latency, streaming assistant with no content, and tool input that cannot stringify.
+  - Security/safety invariants: markdown images still render nothing; non-http/mailto/citation URLs are filtered to an empty href; external links still open with safe attributes; citation pseudo-links never become external navigation.
+- Required evidence:
+  - `pnpm exec vitest run apps/web/src/__tests__/chat.test.tsx --config vitest.config.ts --passWithNoTests=false`
+  - `pnpm --filter @cherrygraph/web test`
+  - `pnpm --filter @cherrygraph/web typecheck`
+  - `pnpm --filter @cherrygraph/web lint`
+  - `git diff --check`
+  - `openspec validate entropy-governance --strict --no-interactive`
+- Regression rows:
+  - assistant markdown input `Use this [^1].` with citation `{ index: 1, source_chain_json: { page_id: "target-page" } }` -> ref renders as the same citation button plus confidence badge and clicking it navigates to `/spaces/<spaceId>/wiki/target-page`.
+  - assistant markdown input `[external](https://example.com)` -> rendered anchor keeps `target="_blank"` and `rel="noreferrer"` behavior.
+  - assistant markdown input `![x](https://example.com/a.png) [bad](javascript:alert(1))` -> image renders nothing and unsupported URL is blocked by the existing `transformMarkdownUrl` empty-href behavior.
+  - citation card input with secondary `space_id: "space-2"` and `spaceNameById.space-2` -> source-space badge text remains visible and card navigation targets `/spaces/space-2/wiki/<pageId>`.
+  - citation/source-chain input with `source_document_ids`, `graph_node_ids`, `graph_edge_ids`, `chain_confidence`, and `graph_path` nodes/edges -> expansion label `chat.viewGraphPath`, source doc/node/edge ids, confidence badge/score, and `GraphPathViewer` remain visible.
+  - citation/source-chain input with alternate nesting `{ source_chain: { graph_path_nodes, graph_path_edges } }` and missing direct `page_id` -> page-id fallback, string-array parsing, score formatting, and graph path normalization remain compatible.
+  - message parts input `{ type: "tool_use", name, input: { command } }` and `{ type: "chart", option, chart_type }` -> tool-use panel keeps existing label/class and command formatting, while chart part still renders `ChatChart` with the same option/type props.
+  - assistant status inputs `agentThinking=true`, `streaming` with empty content/parts, `complete` with `latencyMs=123`, and `error` without explicit error -> thinking indicator, typing indicator, completion latency, and `chat.responseInterrupted` fallback copy remain unchanged.
+  - page composition -> `Chat.tsx` wires extracted rendering components without owning markdown/source-chain parser logic.
+- Non-goals: backend changes, API endpoint/DTO/schema changes, SSE parser or stream hook changes, session/scope/model/database hook changes, selected-space normalization changes, visual redesign, CSS class renames, new i18n copy, dependency changes, broad formatting churn, or changes inside `external/*`.
 
 ## 5. Python Worker Protocol
 

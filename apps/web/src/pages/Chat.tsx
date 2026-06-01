@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import ReactMarkdown from 'react-markdown';
-import { Link, Navigate, useNavigate, useParams } from 'react-router';
-import rehypeHighlight from 'rehype-highlight';
-import remarkGfm from 'remark-gfm';
-import { Alert, Button, Collapse, Empty, Input, List, message, Popconfirm, Select, Spin, Tag } from 'antd';
+import { Link, Navigate, useParams } from 'react-router';
+import { Alert, Button, Empty, Input, List, message, Popconfirm, Select, Spin, Tag } from 'antd';
 import {
   CloseOutlined,
   DeleteOutlined,
@@ -15,9 +12,6 @@ import {
   PlusOutlined,
   SendOutlined,
 } from '@ant-design/icons';
-import ChatChart from '../components/ChatChart.js';
-import { ConfidenceBadge } from '../components/ConfidenceBadge.js';
-import GraphPathViewer, { type GraphPathData, type GraphPathEdge, type GraphPathNode } from '../components/GraphPathViewer.js';
 import { formatDate } from '../components/adminUi.js';
 import { SpaceForbiddenState, useSpacePermissionGate } from '../components/SpacePermissionGate.js';
 import {
@@ -25,10 +19,6 @@ import {
   getChatErrorMessage,
   isAgentRetrievalMode,
   useChatStream,
-  type ChatCitation,
-  type ChatMessage,
-  type ChatMessagePart,
-  type ChatToolUsePart,
   type RetrievalMode,
   type SendMessageOptions,
 } from '../hooks/useChatStream.js';
@@ -40,11 +30,14 @@ import {
   normalizeRetrievalMode,
   normalizeSelectedSpaceIds,
 } from './chat/chatScopeUtils.js';
+import { ChatMessageBubble } from './chat/ChatMessageBubble.js';
 import type { AvailableChatSpace, ChatSession, ChatSettings } from './chat/types.js';
 import { useChatDatabaseGate } from './chat/useChatDatabaseGate.js';
 import { useChatModelGate } from './chat/useChatModelGate.js';
 import { useChatScopeSettings } from './chat/useChatScopeSettings.js';
 import { useChatSessions } from './chat/useChatSessions.js';
+
+export { ChatMessageBubble } from './chat/ChatMessageBubble.js';
 
 type MessageInputProps = {
   disabled: boolean;
@@ -71,12 +64,6 @@ type SessionSidebarProps = {
   onNewChat: () => void;
   onSelectSession: (sessionId: string) => void;
   onDeleteSession: (session: ChatSession) => void;
-};
-
-type ChatMessageBubbleProps = {
-  message: ChatMessage;
-  spaceId: string;
-  spaceNameById?: Record<string, string>;
 };
 
 const CHAT_SIDEBAR_COLLAPSED_KEY = 'cherry-chat-sidebar-collapsed';
@@ -676,287 +663,6 @@ export function SessionSidebar({
   );
 }
 
-export function ChatMessageBubble({ message, spaceId, spaceNameById = {} }: ChatMessageBubbleProps) {
-  const { t } = useTranslation();
-
-  return (
-    <article className={`chat-message-row ${message.role}`} aria-label={`${message.role} message`}>
-      <div className={`chat-message-bubble ${message.role}`}>
-        {message.role === 'assistant' ? (
-          <>
-            {message.agentThinking ? (
-              <AgentThinkingIndicator />
-            ) : message.status === 'streaming' && message.content.length === 0 && message.parts.length === 0 ? (
-              <TypingIndicator />
-            ) : (
-              message.content.length > 0 ? (
-                <AssistantMarkdown content={message.content} citations={message.citations} spaceId={spaceId} />
-              ) : null
-            )}
-            <ChatMessageParts parts={message.parts} />
-            <CitationPanel citations={message.citations} spaceId={spaceId} spaceNameById={spaceNameById} />
-            <CompletionIndicator message={message} />
-          </>
-        ) : (
-          <p className="chat-user-content">{message.content}</p>
-        )}
-        {message.status === 'error' ? <p className="chat-message-error">{message.error ?? t('chat.responseInterrupted')}</p> : null}
-      </div>
-    </article>
-  );
-}
-
-function AssistantMarkdown({ content, citations, spaceId }: { content: string; citations: ChatCitation[]; spaceId: string }) {
-  const navigate = useNavigate();
-  const markdown = useMemo(() => content.replace(/\[\^(\d+)]/g, '[$1](citation:$1)'), [content]);
-
-  function openCitation(index: number): void {
-    const citation = citations.find((item) => item.index === index);
-    if (citation === undefined) {
-      return;
-    }
-
-    void navigate(buildCitationPath(spaceId, citation));
-  }
-
-  return (
-    <div className="chat-markdown">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
-        urlTransform={transformMarkdownUrl}
-        components={{
-          a: ({ href, children }) => {
-            if (href?.startsWith('citation:') === true) {
-              const index = Number(href.slice('citation:'.length));
-              const citation = Number.isFinite(index) ? citations.find((item) => item.index === index) : undefined;
-              return (
-                <>
-                  <button className="chat-citation-ref" type="button" onClick={() => openCitation(index)}>
-                    [{Number.isFinite(index) ? index : children}]
-                  </button>
-                  <ConfidenceBadge label={citation !== undefined ? getCitationConfidenceLabel(citation) : null} />
-                </>
-              );
-            }
-
-            return (
-              <a href={href} target="_blank" rel="noreferrer">
-                {children}
-              </a>
-            );
-          },
-          img: () => null,
-        }}
-      >
-        {markdown}
-      </ReactMarkdown>
-    </div>
-  );
-}
-
-function CitationPanel({
-  citations,
-  spaceId,
-  spaceNameById,
-}: {
-  citations: ChatCitation[];
-  spaceId: string;
-  spaceNameById: Record<string, string>;
-}) {
-  const { t } = useTranslation();
-  const navigate = useNavigate();
-
-  if (citations.length === 0) {
-    return null;
-  }
-
-  const collapseItems = [
-    {
-      key: 'citations',
-      label: t('chat.citations', { count: citations.length }),
-      children: (
-        <ol className="chat-citation-ol">
-          {citations.map((citation) => {
-            const graphEdgeIds = getCitationStringArray(citation, 'graph_edge_ids');
-            const graphPath = getCitationGraphPath(citation);
-            const citationSpaceId = citation.space_id ?? spaceId;
-            const citationSpaceName = spaceNameById[citationSpaceId] ?? citationSpaceId;
-            return (
-              <li key={`${citation.index}-${citation.chunk_id || citation.wiki_page_pk}`}>
-                <div className="chat-citation-entry">
-                  <button
-                    className="chat-citation-card"
-                    type="button"
-                    onClick={() => {
-                      void navigate(buildCitationPath(spaceId, citation));
-                    }}
-                  >
-                    <span className="chat-citation-index">[{citation.index}]</span>
-                    <span>
-                      <strong>{citation.page_title}</strong>
-                      <small>{citation.section_title ?? t('chat.noSection')}</small>
-                    </span>
-                    {citationSpaceId !== spaceId ? <Tag color="geekblue">{t('chat.sourceSpace', { name: citationSpaceName })}</Tag> : null}
-                    <ConfidenceBadge label={getCitationConfidenceLabel(citation)} />
-                    <Tag>{formatCitationScore(citation.relevance_score)}</Tag>
-                  </button>
-                  {graphEdgeIds.length > 0 || graphPath !== null ? (
-                    <Collapse
-                      size="small"
-                      className="chat-source-chain"
-                      items={[
-                        {
-                          key: 'graphPath',
-                          label: t('chat.viewGraphPath'),
-                          children: <SourceChainDetails citation={citation} graphPath={graphPath} />,
-                        },
-                      ]}
-                    />
-                  ) : null}
-                </div>
-              </li>
-            );
-          })}
-        </ol>
-      ),
-    },
-  ];
-
-  return (
-    <Collapse
-      className="chat-citations"
-      defaultActiveKey={['citations']}
-      size="small"
-      items={collapseItems}
-    />
-  );
-}
-
-function ChatMessageParts({ parts }: { parts: ChatMessagePart[] }) {
-  if (parts.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="chat-message-parts">
-      {parts.map((part, index) => {
-        if (part.type === 'tool_use') {
-          return <ToolUsePanel key={`${part.id ?? part.name}-${index}`} part={part} />;
-        }
-
-        return <ChatChart key={part.id} option={part.option} chartType={part.chart_type} />;
-      })}
-    </div>
-  );
-}
-
-function ToolUsePanel({ part }: { part: ChatToolUsePart }) {
-  const { t } = useTranslation();
-  const command = formatToolInput(part.input);
-
-  return (
-    <Collapse
-      className="chat-tool-use"
-      size="small"
-      items={[
-        {
-          key: 'toolUse',
-          label: (
-            <span>
-              <span>{part.name}</span>{' '}
-              <code>{command}</code>
-            </span>
-          ),
-          children: <pre>{command}</pre>,
-        },
-      ]}
-      aria-label={t('chat.toolUseLabel')}
-    />
-  );
-}
-
-function CompletionIndicator({ message }: { message: ChatMessage }) {
-  const { t } = useTranslation();
-
-  if (message.role !== 'assistant' || message.status !== 'complete' || message.completedAt === null) {
-    return null;
-  }
-
-  return (
-    <div className="chat-completion-indicator" aria-label="Message complete">
-      <span>{t('chat.completed')}</span>
-      {message.latencyMs !== null ? <span>{formatLatency(message.latencyMs)}</span> : null}
-    </div>
-  );
-}
-
-function SourceChainDetails({ citation, graphPath }: { citation: ChatCitation; graphPath: GraphPathData | null }) {
-  const { t } = useTranslation();
-  const sourceDocumentIds = getCitationStringArray(citation, 'source_document_ids');
-  const graphNodeIds = getCitationStringArray(citation, 'graph_node_ids');
-  const graphEdgeIds = getCitationStringArray(citation, 'graph_edge_ids');
-  const chainConfidence = getCitationNumber(citation, 'chain_confidence');
-
-  return (
-    <div className="chat-source-chain-body">
-      <div className="chat-source-chain-grid">
-        {sourceDocumentIds.length > 0 ? (
-          <>
-            <span>{t('chat.sourceDocIds')}</span>
-            <code>{sourceDocumentIds.join(', ')}</code>
-          </>
-        ) : null}
-        {graphNodeIds.length > 0 ? (
-          <>
-            <span>{t('chat.graphNodeIds')}</span>
-            <code>{graphNodeIds.join(' -> ')}</code>
-          </>
-        ) : null}
-        {graphEdgeIds.length > 0 ? (
-          <>
-            <span>{t('chat.graphEdgeIds')}</span>
-            <code>{graphEdgeIds.join(' -> ')}</code>
-          </>
-        ) : null}
-        {chainConfidence !== null ? (
-          <>
-            <span>{t('chat.chainConfidence')}</span>
-            <code>{formatCitationScore(chainConfidence)}</code>
-          </>
-        ) : null}
-      </div>
-      <ConfidenceBadge label={getCitationConfidenceLabel(citation)} />
-      {graphPath !== null ? <GraphPathViewer path={graphPath} /> : null}
-    </div>
-  );
-}
-
-function AgentThinkingIndicator() {
-  const { t } = useTranslation();
-
-  return (
-    <div className="chat-agent-thinking" aria-label={t('chat.agentThinking')}>
-      <span>{t('chat.agentThinking')}</span>
-      <span className="chat-thinking-dots" aria-hidden="true">
-        <i />
-        <i />
-        <i />
-      </span>
-    </div>
-  );
-}
-
-function TypingIndicator() {
-  return (
-    <div className="chat-typing-indicator" aria-label="Assistant is typing">
-      <span />
-      <span />
-      <span />
-    </div>
-  );
-}
-
 function loadSidebarCollapsed(): boolean {
   if (typeof window === 'undefined') {
     return false;
@@ -981,202 +687,6 @@ function saveSidebarCollapsed(isCollapsed: boolean): void {
   }
 }
 
-function formatToolInput(input: unknown): string {
-  if (typeof input === 'string') {
-    return input;
-  }
-
-  if (isRecord(input)) {
-    const command = readStringValue(input, 'command') ?? readStringValue(input, 'query') ?? readStringValue(input, 'input');
-    if (command !== null) {
-      return command;
-    }
-  }
-
-  try {
-    return JSON.stringify(input, null, 2);
-  } catch {
-    return String(input);
-  }
-}
-
-function formatLatency(milliseconds: number): string {
-  if (!Number.isFinite(milliseconds)) {
-    return '';
-  }
-
-  if (milliseconds >= 1000) {
-    return `${(milliseconds / 1000).toFixed(1)}s`;
-  }
-
-  return `${Math.max(0, Math.round(milliseconds))}ms`;
-}
-
-function getCitationConfidenceLabel(citation: ChatCitation): string | null {
-  const chain = getCitationSourceChain(citation);
-  const directLabel = readStringValue(chain, 'edge_confidence') ?? readStringValue(chain, 'confidence_label');
-  if (directLabel !== null) {
-    return directLabel;
-  }
-
-  const graphPath = getCitationGraphPath(citation);
-  return graphPath?.edges.find((edge) => edge.confidence_label !== null && edge.confidence_label !== undefined)?.confidence_label ?? null;
-}
-
-function getCitationStringArray(citation: ChatCitation, key: string): string[] {
-  const chain = getCitationSourceChain(citation);
-  const directValue = chain[key] ?? citation.source_chain_json[key];
-  return readStringArray(directValue);
-}
-
-function getCitationNumber(citation: ChatCitation, key: string): number | null {
-  const chain = getCitationSourceChain(citation);
-  return readNumberValue(chain, key) ?? readNumberValue(citation.source_chain_json, key);
-}
-
-function getCitationSourceChain(citation: ChatCitation): Record<string, unknown> {
-  return readRecordValue(citation.source_chain_json, 'source_chain') ?? citation.source_chain_json;
-}
-
-function getCitationGraphPath(citation: ChatCitation): GraphPathData | null {
-  const sourceChain = getCitationSourceChain(citation);
-  const pathRecord = readRecordValue(sourceChain, 'graph_path') ?? readRecordValue(citation.source_chain_json, 'graph_path');
-  const nodesValue =
-    readArrayValue(pathRecord, 'nodes') ??
-    readArrayValue(sourceChain, 'graph_path_nodes') ??
-    readArrayValue(citation.source_chain_json, 'graph_path_nodes');
-
-  if (nodesValue === null || nodesValue.length === 0) {
-    return null;
-  }
-
-  const nodes = nodesValue.map(normalizeGraphPathNode);
-  const edgesValue =
-    readArrayValue(pathRecord, 'edges') ??
-    readArrayValue(sourceChain, 'graph_path_edges') ??
-    readArrayValue(citation.source_chain_json, 'graph_path_edges') ??
-    [];
-  const edges = edgesValue.map((edge, index) => normalizeGraphPathEdge(edge, index, nodes));
-  const confidence =
-    readNumberValue(pathRecord, 'total_confidence') ??
-    readNumberValue(pathRecord, 'confidence') ??
-    readNumberValue(sourceChain, 'chain_confidence');
-  const graphPath: GraphPathData = { nodes, edges };
-
-  if (confidence !== null) {
-    graphPath.total_confidence = confidence;
-  }
-
-  return graphPath;
-}
-
-function normalizeGraphPathNode(value: unknown, index: number): GraphPathNode {
-  if (!isRecord(value)) {
-    return { id: `node-${index}`, label: String(value) };
-  }
-
-  const id =
-    readStringValue(value, 'id') ??
-    readStringValue(value, 'node_id') ??
-    readStringValue(value, 'node_key') ??
-    readStringValue(value, 'stable_key') ??
-    `node-${index}`;
-  const node: GraphPathNode = { id };
-  const label = readStringValue(value, 'label') ?? readStringValue(value, 'name');
-  const nodeKey = readStringValue(value, 'node_key');
-  const stableKey = readStringValue(value, 'stable_key');
-  const nodeType = readStringValue(value, 'node_type') ?? readStringValue(value, 'type');
-
-  if (label !== null) node.label = label;
-  if (nodeKey !== null) node.node_key = nodeKey;
-  if (stableKey !== null) node.stable_key = stableKey;
-  if (nodeType !== null) node.node_type = nodeType;
-
-  return node;
-}
-
-function normalizeGraphPathEdge(value: unknown, index: number, nodes: GraphPathNode[]): GraphPathEdge {
-  const sourceFallback = nodes[index]?.id ?? `source-${index}`;
-  const targetFallback = nodes[index + 1]?.id ?? `target-${index}`;
-
-  if (!isRecord(value)) {
-    return {
-      id: `edge-${index}`,
-      source_node_id: sourceFallback,
-      target_node_id: targetFallback,
-      relationship: String(value),
-    };
-  }
-
-  const edge: GraphPathEdge = {
-    id: readStringValue(value, 'id') ?? readStringValue(value, 'edge_id') ?? `edge-${index}`,
-    source_node_id: readStringValue(value, 'source_node_id') ?? readStringValue(value, 'source') ?? sourceFallback,
-    target_node_id: readStringValue(value, 'target_node_id') ?? readStringValue(value, 'target') ?? targetFallback,
-  };
-  const relationship = readStringValue(value, 'relationship') ?? readStringValue(value, 'relationship_type') ?? readStringValue(value, 'type');
-  const confidenceLabel = readStringValue(value, 'confidence_label') ?? readStringValue(value, 'edge_confidence');
-  const confidenceScore = readNumberValue(value, 'effective_confidence_score') ?? readNumberValue(value, 'confidence');
-
-  if (relationship !== null) edge.relationship = relationship;
-  if (confidenceLabel !== null) edge.confidence_label = confidenceLabel;
-  if (confidenceScore !== null) edge.effective_confidence_score = confidenceScore;
-
-  return edge;
-}
-
-function readRecordValue(record: Record<string, unknown> | null, key: string): Record<string, unknown> | null {
-  if (record === null) {
-    return null;
-  }
-
-  const value = record[key];
-  return isRecord(value) ? value : null;
-}
-
-function readArrayValue(record: Record<string, unknown> | null, key: string): unknown[] | null {
-  if (record === null) {
-    return null;
-  }
-
-  const value = record[key];
-  return Array.isArray(value) ? value : null;
-}
-
-function readStringValue(record: Record<string, unknown>, key: string): string | null {
-  const value = record[key];
-  return typeof value === 'string' && value.length > 0 ? value : null;
-}
-
-function readNumberValue(record: Record<string, unknown> | null, key: string): number | null {
-  if (record === null) {
-    return null;
-  }
-
-  const value = record[key];
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === 'string') {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-
-  return null;
-}
-
-function readStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function formatSessionDescription(session: ChatSession): string {
   const updatedAt = formatDate(session.updated_at);
   const names = session.space_details?.map((space) => space.name).filter((name) => name.length > 0) ?? [];
@@ -1189,39 +699,4 @@ function getSessionTitle(session: ChatSession): string {
   }
 
   return `Chat ${session.id.slice(0, 8)}`;
-}
-
-function buildCitationPath(spaceId: string, citation: ChatCitation): string {
-  const citationSpaceId = citation.space_id ?? spaceId;
-  return `/spaces/${encodeURIComponent(citationSpaceId)}/wiki/${encodeURIComponent(getCitationPageId(citation))}`;
-}
-
-export function getCitationPageId(citation: ChatCitation): string {
-  if (typeof citation.page_id === 'string' && citation.page_id.length > 0) return citation.page_id;
-  const sourcePageId = citation.source_chain_json.page_id;
-  return typeof sourcePageId === 'string' && sourcePageId.length > 0 ? sourcePageId : citation.wiki_page_pk;
-}
-
-function formatCitationScore(score: number): string {
-  if (!Number.isFinite(score)) {
-    return '0.00';
-  }
-
-  if (score >= 0 && score <= 1) {
-    return `${Math.round(score * 100)}%`;
-  }
-
-  return score.toFixed(2);
-}
-
-function transformMarkdownUrl(url: string): string {
-  if (url.startsWith('citation:')) {
-    return url;
-  }
-
-  if (url.startsWith('https://') || url.startsWith('http://') || url.startsWith('mailto:')) {
-    return url;
-  }
-
-  return '';
 }

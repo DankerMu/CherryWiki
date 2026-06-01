@@ -72,6 +72,173 @@ describe('Chat message rendering', () => {
     expect(screen.getByText('back')).toHaveProperty('tagName', 'STRONG');
   });
 
+  it('blocks assistant markdown images and unsafe links while keeping safe external link attributes', () => {
+    renderWithRouter(
+      <ChatMessageBubble
+        message={buildMessage({
+          role: 'assistant',
+          content: '![hidden](https://example.com/a.png) [bad](javascript:alert(1)) [external](https://example.com)',
+        })}
+        spaceId="space-1"
+      />,
+    );
+
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    const badLink = screen.getByText('bad').closest('a');
+    expect(badLink).toBeInTheDocument();
+    expect(badLink).toHaveAttribute('href', '');
+    const externalLink = screen.getByRole('link', { name: 'external' });
+    expect(externalLink).toHaveAttribute('href', 'https://example.com');
+    expect(externalLink).toHaveAttribute('target', '_blank');
+    expect(externalLink).toHaveAttribute('rel', 'noreferrer');
+  });
+
+  it('renders source-chain details and graph path from direct source_chain_json fields', () => {
+    const citation = buildCitation({
+      source_chain_json: {
+        source_document_ids: ['doc-1', 'doc-2'],
+        graph_node_ids: ['node-a', 'node-b'],
+        graph_edge_ids: ['edge-1'],
+        chain_confidence: 0.73,
+        confidence_label: 'INFERRED',
+        graph_path: {
+          total_confidence: 0.73,
+          nodes: [
+            { id: 'node-a', label: 'Alpha', node_type: 'Concept' },
+            { id: 'node-b', label: 'Beta', node_type: 'Topic' },
+          ],
+          edges: [{ id: 'edge-1', source_node_id: 'node-a', target_node_id: 'node-b', relationship: 'depends_on' }],
+        },
+      },
+    });
+
+    renderWithRouter(
+      <ChatMessageBubble
+        message={buildMessage({ role: 'assistant', content: 'Use [^1].', citations: [citation] })}
+        spaceId="space-1"
+      />,
+    );
+
+    const sourceChainHeader = screen.getAllByText('查看图谱路径').at(-1);
+    expect(sourceChainHeader).toBeDefined();
+    fireEvent.click(sourceChainHeader!);
+
+    expect(screen.getAllByText('查看图谱路径').length).toBeGreaterThan(0);
+    expect(screen.getByText('源文档 ID')).toBeInTheDocument();
+    expect(screen.getByText('doc-1, doc-2')).toBeInTheDocument();
+    expect(screen.getByText('图谱节点')).toBeInTheDocument();
+    expect(screen.getByText('node-a -> node-b')).toBeInTheDocument();
+    expect(screen.getByText('图谱边')).toBeInTheDocument();
+    expect(screen.getByText('edge-1')).toBeInTheDocument();
+    expect(screen.getByText('链路置信度')).toBeInTheDocument();
+    expect(screen.getAllByText('73%').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('推断').length).toBeGreaterThan(0);
+    expect(screen.getByLabelText('Graph path')).toBeInTheDocument();
+    expect(screen.getByText('Alpha')).toBeInTheDocument();
+    expect(screen.getByText('depends_on')).toBeInTheDocument();
+  });
+
+  it('normalizes alternate nested source_chain graph path and page fallback', async () => {
+    const citation = buildCitation({
+      source_chain_json: {
+        source_chain: {
+          page_id: 'nested-target',
+          source_document_ids: ['doc-nested'],
+          graph_edge_ids: ['edge-nested'],
+          chain_confidence: '0.42',
+          graph_path_nodes: [
+            { node_key: 'person:alice', name: 'Alice', type: 'Person' },
+            'Plain target',
+          ],
+          graph_path_edges: [{ edge_id: 'edge-nested', source: 'person:alice', target: 'node-1', type: 'mentions', edge_confidence: 'AMBIGUOUS' }],
+        },
+      },
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/spaces/space-1/chat']}>
+        <Routes>
+          <Route
+            path="/spaces/:spaceId/chat"
+            element={
+              <ChatMessageBubble
+                message={buildMessage({ role: 'assistant', content: 'Nested source [^1].', citations: [citation] })}
+                spaceId="space-1"
+              />
+            }
+          />
+          <Route path="/spaces/:spaceId/wiki/:pageId" element={<h1>Nested wiki target</h1>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const sourceChainHeader = screen.getAllByText('查看图谱路径').at(-1);
+    expect(sourceChainHeader).toBeDefined();
+    fireEvent.click(sourceChainHeader!);
+
+    expect(screen.getByText('doc-nested')).toBeInTheDocument();
+    expect(screen.getByText('edge-nested')).toBeInTheDocument();
+    expect(screen.getAllByText('42%').length).toBeGreaterThan(0);
+    expect(screen.getByText('Alice')).toBeInTheDocument();
+    expect(screen.getByText('Plain target')).toBeInTheDocument();
+    expect(screen.getByText('Person')).toBeInTheDocument();
+    expect(screen.getByText('mentions')).toBeInTheDocument();
+    expect(screen.getAllByText('待确认').length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole('button', { name: '[1]' }));
+    expect(await screen.findByRole('heading', { name: 'Nested wiki target' })).toBeInTheDocument();
+  });
+
+  it('renders tool, chart, thinking, typing, completion, and fallback error states', () => {
+    const circularInput: Record<string, unknown> = {};
+    circularInput.self = circularInput;
+
+    renderWithRouter(
+      <>
+        <ChatMessageBubble
+          message={buildMessage({
+            id: 'parts',
+            role: 'assistant',
+            content: '',
+            parts: [
+              { type: 'tool_use', id: null, name: 'Bash', input: { command: 'cherrydb query "SELECT 1"' } },
+              { type: 'tool_use', id: 'circular', name: 'Inspector', input: circularInput },
+              {
+                type: 'chart',
+                id: 'chart-1',
+                chart_type: 'bar',
+                option: { xAxis: { type: 'category' }, yAxis: {}, series: [{ type: 'bar', data: [1] }] },
+                raw: {},
+              },
+            ],
+          })}
+          spaceId="space-1"
+        />
+        <ChatMessageBubble message={buildMessage({ id: 'thinking', agentThinking: true, status: 'streaming', content: '' })} spaceId="space-1" />
+        <ChatMessageBubble
+          message={buildMessage({ id: 'typing', status: 'streaming', content: '', parts: [] })}
+          spaceId="space-1"
+        />
+        <ChatMessageBubble
+          message={buildMessage({ id: 'complete', status: 'complete', completedAt: '2026-05-01T10:00:01.000Z', latencyMs: 123 })}
+          spaceId="space-1"
+        />
+        <ChatMessageBubble message={buildMessage({ id: 'error', status: 'error' })} spaceId="space-1" />
+      </>,
+    );
+
+    expect(screen.getByText('Bash')).toBeInTheDocument();
+    expect(screen.getAllByText(/cherrydb query/).length).toBeGreaterThan(0);
+    expect(screen.getByText('Inspector')).toBeInTheDocument();
+    expect(screen.getAllByText('[object Object]').length).toBeGreaterThan(0);
+    expect(screen.getByLabelText('Chart data')).toBeInTheDocument();
+    expect(screen.getByText('bar')).toBeInTheDocument();
+    expect(screen.getByLabelText('Agent 思考中')).toBeInTheDocument();
+    expect(screen.getByLabelText('Assistant is typing')).toBeInTheDocument();
+    expect(screen.getByLabelText('Message complete')).toHaveTextContent('123ms');
+    expect(screen.getByText('响应中断，请重试')).toBeInTheDocument();
+  });
+
   it('routes citation clicks to the wiki page', async () => {
     const citation = buildCitation({ index: 1, source_chain_json: { page_id: 'target-page' } });
 
