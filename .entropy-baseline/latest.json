@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "timestamp": "2026-05-31T09:54:51Z",
+  "timestamp": "2026-06-01T08:50:26Z",
   "repo": "DankerMu/CherryWiki",
   "branch": "main",
-  "commit": "9e54863",
+  "commit": "010e5852725b",
   "scope": {
     "included": [
       "apps/*",
@@ -25,101 +25,86 @@
     ],
     "notes": "external/cherry-studio, external/graphify, and external/docmost were treated as reference or forked third-party code, not actual project implementation code."
   },
+  "scan_method": {
+    "type": "practical entropy-focused shell and Node structured parsing",
+    "source_roots": [
+      "apps/*",
+      "packages/*",
+      "tools/cherrydb",
+      "tools/cherrywiki"
+    ],
+    "exclusions_applied": [
+      "external/*",
+      "node_modules",
+      "dist",
+      ".venv",
+      ".pytest_cache",
+      ".ruff_cache",
+      "__pycache__",
+      "tests/fixtures",
+      "tests/screenshots",
+      "openspec/*"
+    ],
+    "commands": [
+      "find apps/*/ packages/*/ tools/cherrydb/ tools/cherrywiki/ -maxdepth 1 \\( -name AGENTS.md -o -name CLAUDE.md \\) -type f 2>/dev/null | sort",
+      "find apps packages tools -maxdepth 2 \\( -name AGENTS.md -o -name CLAUDE.md \\) -type f | sort",
+      "rg -n \"function throwApiError|const throwApiError\" apps/api/src || true",
+      "rg -n \"throwApiError\\(['\"]\" apps/api/src || true",
+      "wc -l apps/api/src/chat/chat.service.ts apps/web/src/pages/Chat.tsx apps/ingestion-worker/src/job_client.py apps/url-fetcher-worker/src/job_client.py",
+      "find apps/api/src/chat -maxdepth 2 -type f | sort",
+      "find apps/web/src/pages/chat -maxdepth 3 -type f | sort",
+      "find packages/python-worker-protocol -maxdepth 3 -type f | sort"
+    ],
+    "caveats": "Heuristic scan records trend signals, not exhaustive static analysis. Structure scoring follows the agent-era calibration in scan-dimensions.md: line count is informational, while import diversity and clustered responsibility indicators drive high-risk scoring. SCC/layer violations are set from practical import-scope scan and not from a dedicated graph solver."
+  },
   "summary": {
-    "total_source_files": 336,
-    "total_test_files": 209,
-    "total_instruction_files": 2,
-    "total_modules": 16,
+    "total_source_files": 359,
+    "total_test_files": 210,
+    "total_instruction_files": 7,
+    "total_modules": 17,
     "modules_with_high_entropy": 2,
-    "modules_with_attention_priority": 11,
-    "overall_trend": "baseline"
+    "modules_with_attention_priority": 12,
+    "overall_trend": "improving"
   },
   "modules": {
     "apps/api": {
-      "file_count": 136,
+      "file_count": 145,
       "test_file_count": 99,
       "structure": {
         "score": "high",
         "scc_count": 0,
-        "max_file_lines": 2358,
-        "large_files_over_500": 19,
-        "high_import_diversity_files": 29,
+        "max_file_lines": 1266,
+        "large_files_over_500": 21,
+        "high_import_diversity_files": 43,
         "layer_violations": 0
       },
       "semantics": {
         "score": "medium",
-        "state_definition_count": 18,
-        "state_scatter_files": 18,
-        "notable_variants": [
-          "local status types alongside shared schema status enums",
-          "string error codes outside shared ErrorCode"
-        ]
+        "state_definition_count": 12,
+        "state_scatter_files": 12
       },
       "behavior": {
         "score": "high",
-        "error_envelope_variants": 3,
-        "local_throw_helpers": 14,
-        "any_unknown_occurrences": 361,
+        "error_envelope_variants": 1,
+        "local_throw_helpers": 1,
+        "any_unknown_occurrences": 270,
         "catch_occurrences": 113,
         "nullish_returns": 116
       },
       "context": {
-        "score": "medium",
-        "has_instruction_file": false,
+        "score": "low",
+        "has_instruction_file": true,
         "stale_docs": 0
       },
       "protocol": {
-        "score": "medium",
-        "template_compliance": false,
+        "score": "low",
+        "template_compliance": true,
         "ci_gate_alignment": true
       },
       "control": {
-        "score": "medium",
+        "score": "low",
         "documented_rules": 7,
-        "enforced_rules": 5,
-        "cleanup_markers": 0
-      }
-    },
-    "apps/web": {
-      "file_count": 59,
-      "test_file_count": 16,
-      "structure": {
-        "score": "high",
-        "scc_count": 0,
-        "max_file_lines": 1528,
-        "large_files_over_500": 4,
-        "high_import_diversity_files": 16,
-        "layer_violations": 0
-      },
-      "semantics": {
-        "score": "medium",
-        "state_definition_count": 20,
-        "state_scatter_files": 20,
-        "notable_variants": [
-          "frontend copies selected backend status literals for display and local state"
-        ]
-      },
-      "behavior": {
-        "score": "medium",
-        "error_envelope_variants": 2,
-        "any_unknown_occurrences": 126,
-        "catch_occurrences": 68,
-        "nullish_returns": 35
-      },
-      "context": {
-        "score": "medium",
-        "has_instruction_file": false,
-        "stale_docs": 0
-      },
-      "protocol": {
-        "score": "medium",
-        "template_compliance": false,
-        "ci_gate_alignment": true
-      },
-      "control": {
-        "score": "medium",
-        "documented_rules": 6,
-        "enforced_rules": 5,
+        "enforced_rules": 6,
         "cleanup_markers": 0
       }
     },
@@ -129,24 +114,22 @@
       "structure": {
         "score": "medium",
         "scc_count": 0,
-        "max_file_lines": 951,
+        "max_file_lines": 952,
         "large_files_over_500": 2,
         "layer_violations": 0
       },
       "semantics": {
-        "score": "low",
+        "score": "medium",
         "state_definition_count": 1,
         "state_scatter_files": 1
       },
       "behavior": {
-        "score": "medium",
-        "error_envelope_variants": 2,
-        "catch_occurrences": 39,
-        "nullish_returns": 12
+        "score": "low",
+        "error_envelope_variants": 1
       },
       "context": {
-        "score": "medium",
-        "has_instruction_file": false,
+        "score": "low",
+        "has_instruction_file": true,
         "stale_docs": 0
       },
       "protocol": {
@@ -156,84 +139,8 @@
       },
       "control": {
         "score": "low",
-        "documented_rules": 4,
-        "enforced_rules": 4,
-        "cleanup_markers": 0
-      }
-    },
-    "apps/ingestion-worker": {
-      "file_count": 19,
-      "test_file_count": 5,
-      "structure": {
-        "score": "medium",
-        "scc_count": 0,
-        "max_file_lines": 356,
-        "large_files_over_500": 0,
-        "layer_violations": 0
-      },
-      "semantics": {
-        "score": "low",
-        "state_definition_count": 0,
-        "state_scatter_files": 0
-      },
-      "behavior": {
-        "score": "medium",
-        "error_envelope_variants": 2,
-        "catch_occurrences": 20,
-        "nullish_returns": 1
-      },
-      "context": {
-        "score": "medium",
-        "has_instruction_file": false,
-        "stale_docs": 0
-      },
-      "protocol": {
-        "score": "low",
-        "template_compliance": true,
-        "ci_gate_alignment": true
-      },
-      "control": {
-        "score": "low",
-        "documented_rules": 4,
-        "enforced_rules": 4,
-        "cleanup_markers": 0
-      }
-    },
-    "apps/url-fetcher-worker": {
-      "file_count": 13,
-      "test_file_count": 5,
-      "structure": {
-        "score": "medium",
-        "scc_count": 0,
-        "max_file_lines": 375,
-        "large_files_over_500": 0,
-        "layer_violations": 0
-      },
-      "semantics": {
-        "score": "low",
-        "state_definition_count": 0,
-        "state_scatter_files": 0
-      },
-      "behavior": {
-        "score": "medium",
-        "error_envelope_variants": 2,
-        "catch_occurrences": 19,
-        "nullish_returns": 4
-      },
-      "context": {
-        "score": "medium",
-        "has_instruction_file": false,
-        "stale_docs": 0
-      },
-      "protocol": {
-        "score": "low",
-        "template_compliance": true,
-        "ci_gate_alignment": true
-      },
-      "control": {
-        "score": "low",
-        "documented_rules": 4,
-        "enforced_rules": 4,
+        "documented_rules": 7,
+        "enforced_rules": 6,
         "cleanup_markers": 0
       }
     },
@@ -243,7 +150,7 @@
       "structure": {
         "score": "medium",
         "scc_count": 0,
-        "max_file_lines": 567,
+        "max_file_lines": 596,
         "large_files_over_500": 1,
         "high_import_diversity_files": 2,
         "layer_violations": 0
@@ -261,8 +168,8 @@
         "nullish_returns": 3
       },
       "context": {
-        "score": "medium",
-        "has_instruction_file": false,
+        "score": "low",
+        "has_instruction_file": true,
         "stale_docs": 0
       },
       "protocol": {
@@ -272,8 +179,120 @@
       },
       "control": {
         "score": "low",
-        "documented_rules": 4,
-        "enforced_rules": 4,
+        "documented_rules": 7,
+        "enforced_rules": 6,
+        "cleanup_markers": 0
+      }
+    },
+    "apps/ingestion-worker": {
+      "file_count": 19,
+      "test_file_count": 5,
+      "structure": {
+        "score": "low",
+        "scc_count": 0,
+        "max_file_lines": 357,
+        "large_files_over_500": 0,
+        "layer_violations": 0
+      },
+      "semantics": {
+        "score": "low",
+        "state_definition_count": 0,
+        "state_scatter_files": 0
+      },
+      "behavior": {
+        "score": "low",
+        "error_envelope_variants": 1
+      },
+      "context": {
+        "score": "low",
+        "has_instruction_file": true,
+        "stale_docs": 0
+      },
+      "protocol": {
+        "score": "low",
+        "template_compliance": true,
+        "ci_gate_alignment": true
+      },
+      "control": {
+        "score": "low",
+        "documented_rules": 7,
+        "enforced_rules": 6,
+        "cleanup_markers": 0
+      }
+    },
+    "apps/url-fetcher-worker": {
+      "file_count": 13,
+      "test_file_count": 5,
+      "structure": {
+        "score": "low",
+        "scc_count": 0,
+        "max_file_lines": 376,
+        "large_files_over_500": 0,
+        "layer_violations": 0
+      },
+      "semantics": {
+        "score": "low",
+        "state_definition_count": 0,
+        "state_scatter_files": 0
+      },
+      "behavior": {
+        "score": "low",
+        "error_envelope_variants": 1
+      },
+      "context": {
+        "score": "low",
+        "has_instruction_file": true,
+        "stale_docs": 0
+      },
+      "protocol": {
+        "score": "low",
+        "template_compliance": true,
+        "ci_gate_alignment": true
+      },
+      "control": {
+        "score": "low",
+        "documented_rules": 7,
+        "enforced_rules": 6,
+        "cleanup_markers": 0
+      }
+    },
+    "apps/web": {
+      "file_count": 71,
+      "test_file_count": 16,
+      "structure": {
+        "score": "high",
+        "scc_count": 0,
+        "max_file_lines": 810,
+        "large_files_over_500": 4,
+        "high_import_diversity_files": 19,
+        "layer_violations": 0
+      },
+      "semantics": {
+        "score": "medium",
+        "state_definition_count": 13,
+        "state_scatter_files": 13
+      },
+      "behavior": {
+        "score": "medium",
+        "error_envelope_variants": 2,
+        "any_unknown_occurrences": 94,
+        "catch_occurrences": 70,
+        "nullish_returns": 35
+      },
+      "context": {
+        "score": "low",
+        "has_instruction_file": true,
+        "stale_docs": 0
+      },
+      "protocol": {
+        "score": "low",
+        "template_compliance": true,
+        "ci_gate_alignment": true
+      },
+      "control": {
+        "score": "low",
+        "documented_rules": 7,
+        "enforced_rules": 6,
         "cleanup_markers": 0
       }
     },
@@ -283,26 +302,26 @@
       "structure": {
         "score": "medium",
         "scc_count": 0,
-        "max_file_lines": 796,
+        "max_file_lines": 797,
         "large_files_over_500": 1,
         "high_import_diversity_files": 2,
         "layer_violations": 0
       },
       "semantics": {
         "score": "medium",
-        "state_definition_count": 4,
-        "state_scatter_files": 4
+        "state_definition_count": 1,
+        "state_scatter_files": 1
       },
       "behavior": {
         "score": "medium",
         "error_envelope_variants": 2,
-        "any_unknown_occurrences": 57,
+        "any_unknown_occurrences": 35,
         "catch_occurrences": 13,
         "nullish_returns": 2
       },
       "context": {
-        "score": "medium",
-        "has_instruction_file": false,
+        "score": "low",
+        "has_instruction_file": true,
         "stale_docs": 0
       },
       "protocol": {
@@ -312,8 +331,8 @@
       },
       "control": {
         "score": "low",
-        "documented_rules": 4,
-        "enforced_rules": 4,
+        "documented_rules": 7,
+        "enforced_rules": 6,
         "cleanup_markers": 0
       }
     },
@@ -323,7 +342,7 @@
       "structure": {
         "score": "low",
         "scc_count": 0,
-        "max_file_lines": 224,
+        "max_file_lines": 243,
         "large_files_over_500": 0,
         "layer_violations": 0
       },
@@ -333,13 +352,15 @@
         "state_scatter_files": 0
       },
       "behavior": {
-        "score": "low",
-        "error_envelope_variants": 1,
-        "any_unknown_occurrences": 13
+        "score": "medium",
+        "error_envelope_variants": 2,
+        "any_unknown_occurrences": 12,
+        "catch_occurrences": 2,
+        "nullish_returns": 5
       },
       "context": {
-        "score": "medium",
-        "has_instruction_file": false,
+        "score": "low",
+        "has_instruction_file": true,
         "stale_docs": 0
       },
       "protocol": {
@@ -349,8 +370,8 @@
       },
       "control": {
         "score": "low",
-        "documented_rules": 3,
-        "enforced_rules": 3,
+        "documented_rules": 5,
+        "enforced_rules": 4,
         "cleanup_markers": 0
       }
     },
@@ -360,26 +381,24 @@
       "structure": {
         "score": "low",
         "scc_count": 0,
-        "max_file_lines": 354,
+        "max_file_lines": 367,
         "large_files_over_500": 0,
         "layer_violations": 0
       },
       "semantics": {
-        "score": "medium",
+        "score": "low",
         "state_definition_count": 0,
-        "state_scatter_files": 0,
-        "notable_variants": [
-          "permission constants overlap with apps/api/src/shared/permission-constants.ts"
-        ]
+        "state_scatter_files": 0
       },
       "behavior": {
-        "score": "low",
-        "error_envelope_variants": 1,
-        "any_unknown_occurrences": 10
+        "score": "medium",
+        "error_envelope_variants": 2,
+        "any_unknown_occurrences": 7,
+        "nullish_returns": 12
       },
       "context": {
-        "score": "medium",
-        "has_instruction_file": false,
+        "score": "low",
+        "has_instruction_file": true,
         "stale_docs": 0
       },
       "protocol": {
@@ -389,8 +408,8 @@
       },
       "control": {
         "score": "low",
-        "documented_rules": 3,
-        "enforced_rules": 3,
+        "documented_rules": 5,
+        "enforced_rules": 4,
         "cleanup_markers": 0
       }
     },
@@ -398,9 +417,9 @@
       "file_count": 10,
       "test_file_count": 9,
       "structure": {
-        "score": "low",
+        "score": "medium",
         "scc_count": 0,
-        "max_file_lines": 673,
+        "max_file_lines": 674,
         "large_files_over_500": 1,
         "layer_violations": 0
       },
@@ -410,13 +429,14 @@
         "state_scatter_files": 0
       },
       "behavior": {
-        "score": "low",
-        "error_envelope_variants": 1,
-        "any_unknown_occurrences": 22
+        "score": "medium",
+        "error_envelope_variants": 2,
+        "any_unknown_occurrences": 20,
+        "nullish_returns": 1
       },
       "context": {
-        "score": "medium",
-        "has_instruction_file": false,
+        "score": "low",
+        "has_instruction_file": true,
         "stale_docs": 0
       },
       "protocol": {
@@ -426,8 +446,8 @@
       },
       "control": {
         "score": "low",
-        "documented_rules": 3,
-        "enforced_rules": 3,
+        "documented_rules": 5,
+        "enforced_rules": 4,
         "cleanup_markers": 0
       }
     },
@@ -437,23 +457,25 @@
       "structure": {
         "score": "low",
         "scc_count": 0,
-        "max_file_lines": 234,
+        "max_file_lines": 278,
         "large_files_over_500": 0,
         "layer_violations": 0
       },
       "semantics": {
-        "score": "low",
+        "score": "medium",
         "state_definition_count": 1,
         "state_scatter_files": 1
       },
       "behavior": {
-        "score": "low",
-        "error_envelope_variants": 1,
-        "any_unknown_occurrences": 12
+        "score": "medium",
+        "error_envelope_variants": 2,
+        "any_unknown_occurrences": 9,
+        "catch_occurrences": 2,
+        "nullish_returns": 1
       },
       "context": {
-        "score": "medium",
-        "has_instruction_file": false,
+        "score": "low",
+        "has_instruction_file": true,
         "stale_docs": 0
       },
       "protocol": {
@@ -463,18 +485,18 @@
       },
       "control": {
         "score": "low",
-        "documented_rules": 3,
-        "enforced_rules": 3,
+        "documented_rules": 5,
+        "enforced_rules": 4,
         "cleanup_markers": 0
       }
     },
-    "packages/rag-core": {
-      "file_count": 12,
-      "test_file_count": 7,
+    "packages/python-worker-protocol": {
+      "file_count": 2,
+      "test_file_count": 1,
       "structure": {
         "score": "low",
         "scc_count": 0,
-        "max_file_lines": 287,
+        "max_file_lines": 270,
         "large_files_over_500": 0,
         "layer_violations": 0
       },
@@ -485,12 +507,11 @@
       },
       "behavior": {
         "score": "low",
-        "error_envelope_variants": 1,
-        "any_unknown_occurrences": 0
+        "error_envelope_variants": 1
       },
       "context": {
-        "score": "medium",
-        "has_instruction_file": false,
+        "score": "low",
+        "has_instruction_file": true,
         "stale_docs": 0
       },
       "protocol": {
@@ -500,8 +521,45 @@
       },
       "control": {
         "score": "low",
-        "documented_rules": 3,
-        "enforced_rules": 3,
+        "documented_rules": 5,
+        "enforced_rules": 4,
+        "cleanup_markers": 0
+      }
+    },
+    "packages/rag-core": {
+      "file_count": 12,
+      "test_file_count": 7,
+      "structure": {
+        "score": "medium",
+        "scc_count": 0,
+        "max_file_lines": 474,
+        "large_files_over_500": 0,
+        "layer_violations": 0
+      },
+      "semantics": {
+        "score": "low",
+        "state_definition_count": 0,
+        "state_scatter_files": 0
+      },
+      "behavior": {
+        "score": "medium",
+        "error_envelope_variants": 1,
+        "nullish_returns": 2
+      },
+      "context": {
+        "score": "low",
+        "has_instruction_file": true,
+        "stale_docs": 0
+      },
+      "protocol": {
+        "score": "low",
+        "template_compliance": true,
+        "ci_gate_alignment": true
+      },
+      "control": {
+        "score": "low",
+        "documented_rules": 5,
+        "enforced_rules": 4,
         "cleanup_markers": 0
       }
     },
@@ -511,23 +569,22 @@
       "structure": {
         "score": "medium",
         "scc_count": 0,
-        "max_file_lines": 1112,
+        "max_file_lines": 1113,
         "large_files_over_500": 2,
         "layer_violations": 0
       },
       "semantics": {
-        "score": "low",
-        "state_definition_count": 10,
+        "score": "medium",
+        "state_definition_count": 1,
         "state_scatter_files": 1
       },
       "behavior": {
         "score": "low",
-        "error_envelope_variants": 1,
-        "any_unknown_occurrences": 1
+        "error_envelope_variants": 1
       },
       "context": {
-        "score": "medium",
-        "has_instruction_file": false,
+        "score": "low",
+        "has_instruction_file": true,
         "stale_docs": 0
       },
       "protocol": {
@@ -537,8 +594,8 @@
       },
       "control": {
         "score": "low",
-        "documented_rules": 3,
-        "enforced_rules": 3,
+        "documented_rules": 5,
+        "enforced_rules": 4,
         "cleanup_markers": 0
       }
     },
@@ -546,9 +603,9 @@
       "file_count": 16,
       "test_file_count": 15,
       "structure": {
-        "score": "low",
+        "score": "medium",
         "scc_count": 0,
-        "max_file_lines": 313,
+        "max_file_lines": 573,
         "large_files_over_500": 1,
         "layer_violations": 0
       },
@@ -562,12 +619,12 @@
       },
       "behavior": {
         "score": "medium",
-        "error_envelope_variants": 2,
-        "any_unknown_occurrences": 6
+        "error_envelope_variants": 1,
+        "nullish_returns": 8
       },
       "context": {
-        "score": "medium",
-        "has_instruction_file": false,
+        "score": "low",
+        "has_instruction_file": true,
         "stale_docs": 0
       },
       "protocol": {
@@ -577,8 +634,8 @@
       },
       "control": {
         "score": "low",
-        "documented_rules": 3,
-        "enforced_rules": 3,
+        "documented_rules": 5,
+        "enforced_rules": 4,
         "cleanup_markers": 0
       }
     },
@@ -588,7 +645,7 @@
       "structure": {
         "score": "low",
         "scc_count": 0,
-        "max_file_lines": 363,
+        "max_file_lines": 364,
         "large_files_over_500": 0,
         "layer_violations": 0
       },
@@ -598,14 +655,12 @@
         "state_scatter_files": 0
       },
       "behavior": {
-        "score": "medium",
-        "error_envelope_variants": 2,
-        "catch_occurrences": 9,
-        "nullish_returns": 4
+        "score": "low",
+        "error_envelope_variants": 1
       },
       "context": {
-        "score": "medium",
-        "has_instruction_file": false,
+        "score": "low",
+        "has_instruction_file": true,
         "stale_docs": 0
       },
       "protocol": {
@@ -615,8 +670,8 @@
       },
       "control": {
         "score": "low",
-        "documented_rules": 2,
-        "enforced_rules": 2,
+        "documented_rules": 4,
+        "enforced_rules": 3,
         "cleanup_markers": 0
       }
     },
@@ -626,7 +681,7 @@
       "structure": {
         "score": "low",
         "scc_count": 0,
-        "max_file_lines": 175,
+        "max_file_lines": 176,
         "large_files_over_500": 0,
         "layer_violations": 0
       },
@@ -637,13 +692,11 @@
       },
       "behavior": {
         "score": "low",
-        "error_envelope_variants": 1,
-        "catch_occurrences": 2,
-        "nullish_returns": 1
+        "error_envelope_variants": 1
       },
       "context": {
-        "score": "medium",
-        "has_instruction_file": false,
+        "score": "low",
+        "has_instruction_file": true,
         "stale_docs": 0
       },
       "protocol": {
@@ -653,98 +706,222 @@
       },
       "control": {
         "score": "low",
-        "documented_rules": 2,
-        "enforced_rules": 2,
+        "documented_rules": 4,
+        "enforced_rules": 3,
         "cleanup_markers": 0
       }
     }
   },
+  "trend_comparison": {
+    "previous_baseline": {
+      "archive": ".entropy-baseline/2026-05-31-9e54863.json",
+      "timestamp": "2026-05-31T09:54:51Z",
+      "commit": "9e54863"
+    },
+    "metrics": [
+      {
+        "metric": "modules_with_high_entropy",
+        "previous": 2,
+        "current": 2,
+        "trend": "stable"
+      },
+      {
+        "metric": "total_instruction_files",
+        "previous": 2,
+        "current": 7,
+        "trend": "improving"
+      },
+      {
+        "metric": "api_local_throw_helpers",
+        "previous": 14,
+        "current": 1,
+        "trend": "improving"
+      },
+      {
+        "metric": "api_chat_service_lines",
+        "previous": 2358,
+        "current": 922,
+        "trend": "improving"
+      },
+      {
+        "metric": "web_chat_page_lines",
+        "previous": 1528,
+        "current": 703,
+        "trend": "improving"
+      },
+      {
+        "metric": "python_worker_protocol_runtime_implementations",
+        "previous": 2,
+        "current": 1,
+        "trend": "improving"
+      },
+      {
+        "metric": "scoped_agents_module_boundary_coverage_files",
+        "previous": 0,
+        "current": 9,
+        "trend": "improving"
+      }
+    ],
+    "required_focus": [
+      {
+        "area": "API local throwApiError helper replication / shared ErrorCode behavior",
+        "previous": "14 domain-local throwApiError helpers recorded in apps/api; local string-code drift was a high-spread behavior risk.",
+        "current": "Only apps/api/src/common/errors/api-error.ts defines throwApiError; raw string-code throwApiError calls are absent; shared ErrorCode remains the API code source of truth.",
+        "evidence": [
+          "apps/api/src/common/errors/api-error.ts:6:export function throwApiError(",
+          "no raw string-code calls"
+        ],
+        "trend": "improved"
+      },
+      {
+        "area": "API Chat backend responsibility concentration after #413-#416",
+        "previous": "apps/api/src/chat/chat.service.ts was 2358 lines and owned session/scope, retrieval/rerank, model/Agent routing, persistence, traces, and SSE shaping.",
+        "current": "chat.service.ts is 922 lines with bounded collaborators: apps/api/src/chat/chat-model-resolution.service.ts, apps/api/src/chat/chat-persistence.service.ts, apps/api/src/chat/chat-retrieval.service.ts, apps/api/src/chat/chat-routing.service.ts, apps/api/src/chat/chat-session-boundary.service.ts, apps/api/src/chat/chat-stream-event.service.ts.",
+        "evidence": [
+          "wc -l apps/api/src/chat/chat.service.ts",
+          "find apps/api/src/chat -maxdepth 2 -type f"
+        ],
+        "trend": "improved"
+      },
+      {
+        "area": "Web Chat responsibility concentration after #417-#419",
+        "previous": "apps/web/src/pages/Chat.tsx was 1528 lines and owned session state, scope/settings/model/database gating, message rendering, citations/source chain, and layout controls.",
+        "current": "Chat.tsx is 703 lines with extracted hooks/components under apps/web/src/pages/chat (11 source files).",
+        "evidence": [
+          "wc -l apps/web/src/pages/Chat.tsx",
+          "find apps/web/src/pages/chat -maxdepth 3 -type f"
+        ],
+        "trend": "improved"
+      },
+      {
+        "area": "Python worker protocol duplication after #421-#423",
+        "previous": "ingestion-worker and url-fetcher-worker each carried near-identical job_client.py lifecycle implementations.",
+        "current": "packages/python-worker-protocol now provides the shared lifecycle package (packages/python-worker-protocol/src/cherry_worker_protocol/__init__.py, packages/python-worker-protocol/src/cherry_worker_protocol/job_lifecycle.py); both worker job_client.py files are thin apps/ingestion-worker/src/job_client.py:129 lines, apps/url-fetcher-worker/src/job_client.py:129 lines wrappers.",
+        "evidence": [
+          "find packages/python-worker-protocol -maxdepth 3 -type f",
+          "wc -l apps/ingestion-worker/src/job_client.py apps/url-fetcher-worker/src/job_client.py"
+        ],
+        "trend": "improved"
+      },
+      {
+        "area": "scoped AGENTS module-boundary coverage after #409",
+        "previous": "critical implementation modules lacked scoped AGENTS.md files; previous baseline counted only 2 direct instruction files in included scan roots.",
+        "current": "7 physical instruction files are directly inside the declared included scan roots. 9 scoped instruction files provide module-boundary coverage for API, Web, workers, packages, and tools: apps/api/AGENTS.md, apps/graphify-worker/AGENTS.md, apps/indexer-worker/AGENTS.md, apps/ingestion-worker/AGENTS.md, apps/url-fetcher-worker/AGENTS.md, apps/web/AGENTS.md, apps/wiki-sync-worker/AGENTS.md, packages/AGENTS.md, tools/AGENTS.md. The parent-scoped packages/AGENTS.md and tools/AGENTS.md are counted only in module-boundary coverage, not in summary.total_instruction_files.",
+        "evidence": [
+          "find apps/*/ packages/*/ tools/cherrydb/ tools/cherrywiki/ -maxdepth 1 \\( -name AGENTS.md -o -name CLAUDE.md \\) -type f 2>/dev/null | sort",
+          "find apps packages tools -maxdepth 2 \\( -name AGENTS.md -o -name CLAUDE.md \\) -type f | sort"
+        ],
+        "trend": "improved"
+      }
+    ]
+  },
   "high_spread_patterns": [
     {
-      "description": "Chat backend responsibilities are concentrated in one service: session lifecycle, ACL, model resolution, static RAG, GraphRAG, rerank, agent routing, persistence, traces, and SSE shaping.",
+      "description": "API Chat backend remains the largest API orchestration boundary, but #413-#416 moved session/scope, retrieval/rerank, model/routing, persistence, and SSE shaping into bounded collaborators.",
       "occurrences": 1,
-      "files": [
-        "apps/api/src/chat/chat.service.ts"
-      ],
-      "axis": "structure",
-      "spread_risk": "high"
-    },
-    {
-      "description": "API modules replicate local throwApiError helpers and sometimes use string error codes outside packages/shared ErrorCode.",
-      "occurrences": 14,
       "files": [
         "apps/api/src/chat/chat.service.ts",
-        "apps/api/src/wiki/wiki.service.ts",
-        "apps/api/src/graphify/graphify.service.ts",
-        "apps/api/src/jobs/jobs.service.ts",
-        "apps/api/src/groups/group.service.ts",
-        "apps/api/src/models/model-config.service.ts"
-      ],
-      "axis": "behavior",
-      "spread_risk": "high"
-    },
-    {
-      "description": "Chat frontend responsibilities are concentrated in one page component: session state, space scope, model availability, database toggle, message rendering, citations, source chain, and layout controls.",
-      "occurrences": 1,
-      "files": [
-        "apps/web/src/pages/Chat.tsx"
+        "apps/api/src/chat/chat-session-boundary.service.ts",
+        "apps/api/src/chat/chat-retrieval.service.ts",
+        "apps/api/src/chat/chat-model-resolution.service.ts",
+        "apps/api/src/chat/chat-routing.service.ts",
+        "apps/api/src/chat/chat-persistence.service.ts",
+        "apps/api/src/chat/chat-stream-event.service.ts"
       ],
       "axis": "structure",
-      "spread_risk": "high"
+      "spread_risk": "medium",
+      "trend": "improved from high"
     },
     {
-      "description": "Python worker job protocol is duplicated between ingestion-worker and url-fetcher-worker with near-identical claim, heartbeat, progress, fail, and complete flow.",
-      "occurrences": 2,
+      "description": "API error construction is now centralized through one common helper with shared ErrorCode values; local helper replication is no longer a high-spread pattern.",
+      "occurrences": 1,
       "files": [
+        "apps/api/src/common/errors/api-error.ts",
+        "packages/shared/src/errors.ts"
+      ],
+      "axis": "behavior",
+      "spread_risk": "low",
+      "trend": "improved from high"
+    },
+    {
+      "description": "Web Chat is still a central composition page, but #417-#419 extracted session/scope/model/database hooks and message/citation/source-chain components.",
+      "occurrences": 1,
+      "files": [
+        "apps/web/src/pages/Chat.tsx",
+        "apps/web/src/pages/chat/AssistantMarkdown.tsx",
+        "apps/web/src/pages/chat/ChatMessageBubble.tsx",
+        "apps/web/src/pages/chat/ChatMessageParts.tsx",
+        "apps/web/src/pages/chat/CitationPanel.tsx",
+        "apps/web/src/pages/chat/chatScopeUtils.ts",
+        "apps/web/src/pages/chat/sourceChainUtils.ts",
+        "apps/web/src/pages/chat/types.ts",
+        "apps/web/src/pages/chat/useChatDatabaseGate.ts",
+        "apps/web/src/pages/chat/useChatModelGate.ts",
+        "apps/web/src/pages/chat/useChatScopeSettings.ts",
+        "apps/web/src/pages/chat/useChatSessions.ts"
+      ],
+      "axis": "structure",
+      "spread_risk": "medium",
+      "trend": "improved from high"
+    },
+    {
+      "description": "Python worker lifecycle protocol has a shared implementation package; ingestion and URL fetcher worker job clients are thin wrappers around the common protocol.",
+      "occurrences": 1,
+      "files": [
+        "packages/python-worker-protocol/src/cherry_worker_protocol/job_lifecycle.py",
         "apps/ingestion-worker/src/job_client.py",
         "apps/url-fetcher-worker/src/job_client.py"
       ],
       "axis": "structure",
-      "spread_risk": "medium"
+      "spread_risk": "low",
+      "trend": "improved from medium"
     },
     {
-      "description": "Scoped module instructions are absent for critical implementation modules despite root AGENTS.md recommending scoped AGENTS files.",
-      "occurrences": 7,
+      "description": "Scoped AGENTS.md files now cover API, Web, workers, packages, and tools module boundaries that govern the included scan roots.",
+      "occurrences": 9,
       "files": [
-        "apps/api",
-        "apps/web",
-        "apps/graphify-worker",
-        "apps/ingestion-worker",
-        "apps/url-fetcher-worker",
-        "packages",
-        "tools"
+        "apps/api/AGENTS.md",
+        "apps/graphify-worker/AGENTS.md",
+        "apps/indexer-worker/AGENTS.md",
+        "apps/ingestion-worker/AGENTS.md",
+        "apps/url-fetcher-worker/AGENTS.md",
+        "apps/web/AGENTS.md",
+        "apps/wiki-sync-worker/AGENTS.md",
+        "packages/AGENTS.md",
+        "tools/AGENTS.md"
       ],
       "axis": "context",
-      "spread_risk": "medium"
+      "spread_risk": "low",
+      "trend": "improved from medium"
     }
   ],
   "cleanup_priorities": [
     {
-      "target": "Split apps/api/src/chat/chat.service.ts into bounded services for session/scope, model resolution, retrieval/rerank, agent routing, and persistence.",
+      "target": "Keep new Chat backend changes inside the bounded collaborator that owns the responsibility instead of expanding ChatService again.",
       "impact": "high",
-      "effort": "high",
+      "effort": "medium",
       "axis": "structure"
     },
     {
-      "target": "Unify API error helper and promote local string codes into packages/shared ErrorCode.",
+      "target": "Preserve single API error helper usage and reject new domain-local throwApiError definitions during reviews.",
       "impact": "high",
-      "effort": "medium",
+      "effort": "low",
       "axis": "behavior"
     },
     {
-      "target": "Split apps/web/src/pages/Chat.tsx into hooks and presentational components with unchanged UX behavior.",
-      "impact": "high",
-      "effort": "medium",
-      "axis": "structure"
-    },
-    {
-      "target": "Extract or template the Python worker job protocol shared by ingestion-worker and url-fetcher-worker.",
+      "target": "Keep Chat frontend additions in extracted hooks/components and prevent Chat.tsx from regaining data/rendering responsibilities.",
       "impact": "medium",
       "effort": "medium",
       "axis": "structure"
     },
     {
-      "target": "Add scoped AGENTS.md files for critical implementation boundaries.",
+      "target": "Keep ingestion/url-fetcher lifecycle changes in packages/python-worker-protocol unless worker-specific parser/fetcher behavior is required.",
+      "impact": "medium",
+      "effort": "low",
+      "axis": "structure"
+    },
+    {
+      "target": "Maintain scoped AGENTS.md files as local commands and boundaries change.",
       "impact": "medium",
       "effort": "low",
       "axis": "context"
