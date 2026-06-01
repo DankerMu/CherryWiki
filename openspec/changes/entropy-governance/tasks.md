@@ -771,7 +771,7 @@ Issue #422 fixture:
 - Non-goals: URL fetcher migration, first-time shared-package Docker/compose/CI/venv wiring, parser/storage redesign, API/server changes, dependency lockfile churn unrelated to the shared package, or changes inside `external/*`.
 
 - [x] 5.3 Issue #422: migrate only `apps/ingestion-worker` to the shared protocol after #421 wiring exists.
-  - Verification: #422 required evidence commands passed: ingestion venv pytest (16 tests), ingestion venv import check, focused ingestion `ruff check` / `ruff format --check`, ingestion per-app Dockerfile syntax check, root `ingestion-worker` target syntax check, both compose config checks, `openspec validate entropy-governance --strict --no-interactive`, and `git diff --check`.
+  - Verification: #422 required evidence commands passed: ingestion venv pytest (18 tests), ingestion venv import check, focused ingestion `ruff check` / `ruff format --check`, ingestion per-app Dockerfile syntax check, root `ingestion-worker` target syntax check, both compose config checks, `openspec validate entropy-governance --strict --no-interactive`, and `git diff --check`.
 
 Issue #423 fixture:
 - Issue type: refactor / URL fetcher migration plus final deployability verification
