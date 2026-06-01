@@ -134,8 +134,8 @@ services:
     # Pin to release tag during deployment; :latest is build-time default.
     image: cherrywiki/ingestion-worker:latest
     build:
-      context: ./apps/ingestion-worker
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/ingestion-worker/Dockerfile
     restart: unless-stopped
     mem_limit: 2g
     cpus: 2.0

@@ -1,7 +1,7 @@
 # CherryWiki 项目进度
 
 > 本文件是 session 间的状态接力棒。每次重大变更后更新。上限 200 行。
-> 最后更新: 2026-05-31
+> 最后更新: 2026-06-01
 
 ## 1. 系统架构一句话
 
@@ -157,7 +157,7 @@
 
 | Change | 状态 | 说明 |
 |---|---|---|
-| entropy-governance | #420 Python worker protocol decision complete, issues #408-#424 | `.entropy-baseline/latest.json` 已记录实际项目代码熵基线并排除 `external/*`；#410/#411/#412 API error helper 迁移完成；#413-#416 API Chat backend 已拆为 bounded collaborators；#417-#419 Web Chat 拆分完成；#420 决定后续用 `packages/python-worker-protocol/` 共享 Python worker lifecycle 协议，并明确 #421 先拥有全部 Docker/compose/CI/venv shared-package wiring，#422 仅迁移 ingestion，#423 迁移 url-fetcher 并做最终 deployability 验证；OpenSpec strict validate、diff check、compose config 双环境通过 |
+| entropy-governance | #421 Python worker protocol shared package foundation complete, issues #408-#424 | `.entropy-baseline/latest.json` 已记录实际项目代码熵基线并排除 `external/*`；#410/#411/#412 API error helper 迁移完成；#413-#416 API Chat backend 已拆为 bounded collaborators；#417-#419 Web Chat 拆分完成；#420 选定 `packages/python-worker-protocol/`；#421 已新增 `cherry_worker_protocol` lifecycle 包与测试，并完成 Docker/compose/CI/worker venv shared-package visibility wiring；#422 仅迁移 ingestion，#423 迁移 url-fetcher 并做最终 deployability 验证 |
 | graph-explorer-visual-overhaul | panel-theme-alignment complete, issues #400/#401/#403 | 新增 `useGraphTheme` 读取 theme CSS vars 并监听 `data-theme`；GraphCanvas 背景/边框/标签主题化；节点渲染增加默认/选中 glow、选中双环、大图默认 glow 降级；Graph Explorer 面板、Community 选中态和 Legend 对齐 theme token；`getNodeColor`/`getLinkColor` 已提取为纯函数并补充测试 |
 | wiki-version-diff | API+UI complete, pending browser verification | `GET /wiki/pages/:pageId/diff` + version history compare modal；`npm run build`、Wiki API tests 通过 |
 | fix-session-delete-cascade | complete, issue #381 | Chat session 关联 retrieval traces/model usage logs/feedback items 删除级联修复 |
@@ -169,7 +169,7 @@
 ## 9. 下一步
 
 0. **Codex 工作流与 AGENTS 规则可用** — 已安装 `agentic-issue-delivery` pack、`repo-entropy-audit`、`control-plane-auditor`，并补强仓库级协作规则
-1. **熵治理实现批次** — 继续 #421/#422/#423 Python worker protocol 共享包实现与双 worker 迁移，按 #408 依赖图推进
+1. **熵治理实现批次** — 继续 #422/#423 Python worker protocol 双 worker 迁移，按 #408 依赖图推进
 2. **继续 P0 测试** — 可立即测的 ~20 项（权限、多格式上传、SSE 事件、Model 管理）
 3. **运行 Graphify** — 容器内 Claude Code 可用，运行后解锁 Graph/Wiki/Index/Citation 相关 P0 测试
 

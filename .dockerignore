@@ -15,7 +15,9 @@ tests
 *.md
 !README.md
 apps/graphify-worker/.venv
+apps/ingestion-worker/.venv
 apps/url-fetcher-worker/.venv
+packages/python-worker-protocol/.venv
 apps/graphify-worker/__pycache__
 .pytest_cache
 **/__pycache__

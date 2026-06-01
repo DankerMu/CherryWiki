@@ -744,8 +744,8 @@ Issue #421 fixture:
   - CI/local venv commands prove `cherry_worker_protocol` is importable for both worker venvs before #422/#423 runtime migrations.
 - Non-goals: migrating `apps/ingestion-worker/src/job_client.py`, migrating `apps/url-fetcher-worker/src/job_client.py`, changing parser/fetcher/SSRF/archive/storage behavior, changing job API/server behavior, or deferring first-time shared-package wiring to #422/#423.
 
-- [ ] 5.2 Issue #421: implement `packages/python-worker-protocol/` with lifecycle protocol tests and all first-time shared-package Docker/compose/CI/venv visibility wiring required before worker migrations.
-  - Verification: #421 required evidence commands pass, including shared-package tests, both worker venv import checks, both per-worker Dockerfile root-context syntax checks, both root worker target syntax checks, both compose config checks, and OpenSpec strict validation.
+- [x] 5.2 Issue #421: implement `packages/python-worker-protocol/` with lifecycle protocol tests and all first-time shared-package Docker/compose/CI/venv visibility wiring required before worker migrations.
+  - Verification: #421 required evidence commands passed: shared package pytest (19 tests), both worker venv editable installs and import checks, URL fetcher egress smoke Vitest, both per-worker Dockerfile root-context syntax checks, both root worker target syntax checks, both compose config checks, `ruff check`/`ruff format --check` for the new package, `git diff --check`, and `openspec validate entropy-governance --strict --no-interactive`.
 
 Issue #422 fixture:
 - Issue type: refactor / ingestion worker migration
