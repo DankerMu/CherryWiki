@@ -5,7 +5,7 @@ from collections.abc import Callable
 from typing import Any
 
 from cherry_worker_protocol import (
-    InternalApiClient,
+    InternalApiClient as _SharedInternalApiClient,
     WorkerProtocolConfig,
 )
 from cherry_worker_protocol import (
@@ -36,6 +36,26 @@ INGESTION_WORKER_PROTOCOL = WorkerProtocolConfig(
     worker_error_type=IngestionJobError,
     build_error_json=build_error_json,
 )
+
+
+class InternalApiClient(_SharedInternalApiClient):
+    def fetch_pending_job(
+        self, *, job_type: str = INGESTION_WORKER_PROTOCOL.job_type
+    ) -> dict[str, Any] | None:
+        return super().fetch_pending_job(job_type=job_type)
+
+    def heartbeat(
+        self,
+        worker_id: str,
+        active_jobs: list[str],
+        *,
+        worker_type: str = INGESTION_WORKER_PROTOCOL.worker_type,
+    ) -> dict[str, Any]:
+        return super().heartbeat(
+            worker_id,
+            active_jobs,
+            worker_type=worker_type,
+        )
 
 
 def generate_worker_id() -> str:
