@@ -667,8 +667,49 @@ Issue #419 fixture:
 
 ## 5. Python Worker Protocol
 
-- [ ] 5.1 Inspect Docker/CI/venv constraints and decide the worker protocol strategy: shared Python package, shared local module wired into both build contexts, or protocol-template enforcement.
-  - Verification: decision note records chosen strategy, rejected alternatives, Docker/CI/venv impact, rollback path, and exact verification commands.
+- [x] 5.1 Issue #420: Inspect Docker/CI/venv constraints and decide the worker protocol strategy: shared Python package, shared local module wired into both build contexts, or protocol-template enforcement.
+  - Verification: `openspec/changes/entropy-governance/design.md` Issue #420 section selects `packages/python-worker-protocol/` as the shared package strategy and records rejected alternatives, exact future Docker copy/install/import wiring for per-worker Dockerfiles and root worker targets, CI/venv impact, rollback path, #421/#422/#423 boundaries, inspection evidence, and verification commands. Decision-only validation run: `openspec validate entropy-governance --strict --no-interactive`, `git diff --check`, `docker compose config --quiet`, and `docker compose -f docker-compose.prod.yml config --quiet`.
+
+Issue #420 fixture:
+- Issue type: decision / architecture note
+- Project profile: other
+- Blast radius: medium
+- Fixture level: compact
+- Repair intensity: medium
+- Change surface: OpenSpec/docs/progress only; inspect `apps/ingestion-worker/**`, `apps/url-fetcher-worker/**`, `.github/workflows/ci.yml`, Dockerfiles, and compose files read-only.
+- Dependency/context: #409 scoped worker AGENTS exist; #421-#423 will implement and migrate the protocol. #420 must remove strategy ambiguity without changing runtime behavior.
+- Must preserve: no worker runtime behavior change, no API/DTO/schema change, no Docker/CI rewiring, no dependency lockfile change, no worker test expectation change, and no changes inside `external/*`.
+- Must add/change: a decision note in the OpenSpec change that compares shared Python package, shared local module wired into both Docker build contexts, and protocol-template enforcement; records chosen strategy, rejected alternatives, Docker build-context impact, exact copy/install/import wiring for both per-worker Dockerfiles and root `ingestion-worker` / `url-fetcher-worker` Dockerfile targets, CI/venv impact, rollback path, downstream issue boundaries, and exact verification commands.
+- Selected risk packs:
+  - Config / project setup: selected - strategy must account for current per-worker Docker contexts, root Dockerfile syntax checks, compose validation, CI matrix, and local venv constraints.
+  - Release / packaging / dependency compatibility: selected - shared package or module choices can change Docker build contexts and Python import/install paths in later issues.
+  - Documentation / migration notes: selected - #420's output is intentionally a decision artifact that governs #421-#423.
+- Risk packs considered:
+  - Public API / CLI / script entry: not selected - no endpoint, CLI, or script behavior changes in this decision-only issue.
+  - File IO / path safety / overwrite: not selected - no runtime file IO changes.
+  - Schema / columns / units / field names: not selected - no database schema or DTO changes.
+  - Error handling / rollback / partial outputs: not selected - worker error semantics are documented for later implementation but not changed in #420.
+  - Resource limits / large input / discovery: not selected - no parsing/fetching behavior changes.
+  - Geospatial / CRS / shapefile sidecars: not selected - no geospatial code changes.
+  - Time series / forcing / temporal boundaries: not selected - no temporal behavior changes.
+  - Numerical stability / conservation / NaN: not selected - no numerical code changes.
+  - Solver runtime / performance / threading: not selected - no runtime/threading code changes in #420.
+  - Legacy compatibility / examples: not selected - no legacy sample changes.
+- Required evidence:
+  - `openspec validate entropy-governance --strict --no-interactive`
+  - `git diff --check`
+  - `docker compose config --quiet`
+  - `docker compose -f docker-compose.prod.yml config --quiet`
+  - Read-only inspection evidence for `apps/ingestion-worker/src/job_client.py`, `apps/url-fetcher-worker/src/job_client.py`, both per-worker Dockerfiles, root `Dockerfile`, `docker-compose.yml`, `docker-compose.prod.yml`, CI Python matrix, CI root Dockerfile target syntax checks, and worker AGENTS venv commands.
+- Regression rows:
+  - current worker Dockerfiles use per-worker build contexts and copy only local `requirements.txt` plus `src/` -> chosen strategy states whether future implementation must change build context or package copy/install steps.
+  - root `Dockerfile` also defines `ingestion-worker` and `url-fetcher-worker` targets while prod compose uses the root `url-fetcher-worker` target -> chosen strategy states exact future copy/install/import wiring for both root targets and per-worker Dockerfiles.
+  - CI `python-ci` matrix runs from `apps/${{ matrix.worker }}` with local requirements -> chosen strategy states exact CI impact and required follow-up wiring.
+  - CI `validate` checks both per-app Dockerfiles and root `api/web/ingestion-worker/url-fetcher-worker/indexer-worker` targets -> downstream #421-#423 must preserve `python-ci` matrix behavior and root target syntax checks.
+  - local venv commands differ by worker subtree -> chosen strategy records exact ingestion/url-fetcher pytest commands and whether additional shared-package tests are required.
+  - duplicated `job_client.py` protocol differs only in worker type, handler/error classes, log labels, and worker-id prefix -> chosen strategy identifies which parameters must become shared/enforced.
+  - downstream issue split remains clear -> #421 owns shared/enforced protocol implementation tests, #422 owns ingestion migration, #423 owns url-fetcher migration and deployability verification.
+- Non-goals: implementing the shared protocol, migrating either worker, changing Docker/CI files, adding dependencies, changing job lifecycle API/server behavior, changing worker parser/fetcher behavior, running full worker migrations, or touching `external/*`.
 - [ ] 5.2 Implement the shared/enforced worker job lifecycle protocol with tests for pending polling, claim, heartbeat, progress, completion, failure, retryability, lock expiry, concurrent claim, duplicate terminal calls, and active jobs cleanup.
   - Verification: protocol tests pass in the selected package/template location.
 - [ ] 5.3 Migrate `apps/ingestion-worker` to the shared/enforced protocol and run ingestion worker tests.
