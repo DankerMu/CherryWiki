@@ -801,20 +801,12 @@ describe('Phase 3 chat controls and stream events', () => {
 
     renderChatRoute();
 
-    await waitFor(() =>
-      expect(fetchState.calls).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            path: '/api/spaces/space-1',
-          }),
-        ]),
-      ),
-    );
-    fireEvent.click(await screen.findByRole('button', { name: '数据库' }, { timeout: 5000 }));
+    fireEvent.click(await screen.findByRole('button', { name: '数据库' }));
     fireEvent.mouseDown(await screen.findByRole('combobox', { name: '聊天空间' }));
     fireEvent.click(await screen.findByText('Space Two'));
 
-    await waitFor(() => expect(screen.queryByRole('button', { name: '数据库' })).not.toBeInTheDocument());
+    expect(await screen.findByText(/已选择 2 个空间/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '数据库' })).not.toBeInTheDocument();
     await sendChatMessage('multi-space disables database');
 
     await waitFor(() => expect(getLastChatCompletionBody(fetchState.calls)).not.toHaveProperty('enable_database'));
