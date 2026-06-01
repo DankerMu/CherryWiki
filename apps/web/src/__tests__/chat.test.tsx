@@ -888,16 +888,15 @@ describe('Phase 3 chat controls and stream events', () => {
 
     renderChatRoute();
 
-    // antd Select renders a combobox input; find the retrieval mode selector
-    // via its surrounding label text and the Select's internal input.
+    await waitFor(() => expect(screen.getByLabelText<HTMLTextAreaElement>('消息')).not.toBeDisabled());
     const selectWrapper = await screen.findByText('检索模式');
-    const combobox = selectWrapper.closest('.chat-retrieval-mode-label')?.querySelector<HTMLInputElement>('input[role="combobox"]');
-    expect(combobox).not.toBeNull();
-    fireEvent.mouseDown(combobox!);
+    const selectTrigger = selectWrapper.closest('.chat-retrieval-mode-label')?.querySelector<HTMLElement>('.ant-select-selector');
+    expect(selectTrigger).not.toBeNull();
+    fireEvent.mouseDown(selectTrigger!);
     const pathOption = await screen.findByText('路径优先');
     fireEvent.click(pathOption);
 
-    expect(screen.getByText('Agent')).toBeInTheDocument();
+    expect(await screen.findByText('Agent')).toBeInTheDocument();
     await sendChatMessage('trace the path');
 
     await waitFor(() => expect(getLastChatCompletionBody(fetchState.calls)).toMatchObject({ retrieval_mode: 'path_first' }));
