@@ -41,6 +41,8 @@ import {
   normalizeSelectedSpaceIds,
 } from './chat/chatScopeUtils.js';
 import type { AvailableChatSpace, ChatSession, ChatSettings } from './chat/types.js';
+import { useChatDatabaseGate } from './chat/useChatDatabaseGate.js';
+import { useChatModelGate } from './chat/useChatModelGate.js';
 import { useChatScopeSettings } from './chat/useChatScopeSettings.js';
 import { useChatSessions } from './chat/useChatSessions.js';
 
@@ -91,9 +93,7 @@ export default function Chat() {
   const loadSessionsRef = useRef<((background?: boolean) => Promise<void>) | undefined>(undefined);
   const {
     availableSpaces,
-    chatModelAvailable,
     chatSettings,
-    databaseAvailable,
     selectedSpaceIds,
     setAvailableSpaces,
     setSelectedSpaceIds,
@@ -105,6 +105,15 @@ export default function Chat() {
     isAllowed: gate.isAllowed,
     user,
     hasSpacePermission,
+  });
+  const chatModelAvailable = useChatModelGate(isAuthenticated && gate.isAllowed);
+  const { databaseAvailable } = useChatDatabaseGate({
+    spaceId,
+    isAuthenticated,
+    isAllowed: gate.isAllowed,
+    selectedSpaceIds,
+    chatSettings,
+    updateChatSettings,
   });
   const spaceNameById = useMemo(() => {
     const names: Record<string, string> = {};

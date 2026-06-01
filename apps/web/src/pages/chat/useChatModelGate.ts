@@ -1,18 +1,18 @@
 import { useEffect, useState } from 'react';
 
-import { api } from '../lib/api.js';
+import { api } from '../../lib/api.js';
 
 type ChatModelAvailabilityResponse = {
   available: boolean;
 };
 
-type ChatModelAvailabilityState = {
+type ChatModelGateState = {
   available: boolean;
   loading: boolean;
 };
 
-export function useChatModelAvailable(enabled = true): ChatModelAvailabilityState {
-  const [state, setState] = useState<ChatModelAvailabilityState>({ available: true, loading: enabled });
+export function useChatModelGate(enabled: boolean): ChatModelGateState {
+  const [state, setState] = useState<ChatModelGateState>({ available: true, loading: enabled });
 
   useEffect(() => {
     let cancelled = false;

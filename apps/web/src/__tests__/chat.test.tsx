@@ -353,7 +353,7 @@ describe('Chat bottom area layout', () => {
 
 describe('Chat model availability pre-check', () => {
   it('shows a no-model banner and disables input when chat models are unavailable', async () => {
-    stubChatFetch({ chatModelAvailable: false });
+    const fetchState = stubChatFetch({ chatModelAvailable: false });
 
     renderChatRoute();
 
@@ -361,6 +361,10 @@ describe('Chat model availability pre-check', () => {
     const textarea = screen.getByLabelText<HTMLTextAreaElement>('消息');
     expect(textarea).toBeDisabled();
     expect(screen.getByRole('button', { name: /发送/ })).toBeDisabled();
+    fireEvent.change(textarea, { target: { value: 'should not send' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    expect(fetchState.calls.some((call) => call.path === '/api/chat/completions')).toBe(false);
   });
 
   it('shows no no-model banner and keeps input enabled when chat models are available', async () => {
@@ -796,6 +800,62 @@ describe('Phase 3 chat controls and stream events', () => {
     expect(screen.getByRole('button', { name: '数据库' })).toBeInTheDocument();
   });
 
+  it('sends no enable_database flag when database_config is disabled', async () => {
+    const fetchState = stubChatFetch({
+      databaseEnabled: false,
+      streamEvents: [{ event: 'message.completed', data: {} }],
+    });
+    renderChatRoute();
+
+    await waitForChatControlsReady(fetchState);
+    expect(screen.queryByRole('button', { name: '数据库' })).not.toBeInTheDocument();
+    await sendChatMessage('database disabled');
+
+    await waitFor(() => expect(getLastChatCompletionBody(fetchState.calls)).not.toHaveProperty('enable_database'));
+  });
+
+  it('hides and clears database settings when the space detail lookup fails', async () => {
+    window.sessionStorage.setItem(
+      'cherry-chat-settings:["space-1"]',
+      JSON.stringify({ enableDeepAnalysis: false, enableDatabase: true, retrievalMode: 'wiki_only' }),
+    );
+    const fetchState = stubChatFetch({
+      databaseDetailStatus: 500,
+      streamEvents: [{ event: 'message.completed', data: {} }],
+    });
+    renderChatRoute();
+
+    await waitForChatControlsReady(fetchState);
+    expect(screen.queryByRole('button', { name: '数据库' })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(window.sessionStorage.getItem('cherry-chat-settings:["space-1"]')).toContain('"enableDatabase":false');
+    });
+    await sendChatMessage('database lookup failed');
+
+    await waitFor(() => expect(getLastChatCompletionBody(fetchState.calls)).not.toHaveProperty('enable_database'));
+  });
+
+  it('sends enable_database and keeps completion metadata when database is enabled for one selected space', async () => {
+    const fetchState = stubChatFetch({
+      databaseEnabled: true,
+      streamEvents: [
+        { event: 'content', data: { delta: 'Database answer.' } },
+        { event: 'message.completed', data: { latency_ms: 123 } },
+      ],
+    });
+
+    renderChatRoute();
+    await waitForChatControlsReady(fetchState, { databaseAvailable: true });
+
+    fireEvent.click(screen.getByRole('button', { name: '数据库' }));
+    await sendChatMessage('use database');
+
+    await waitFor(() => expect(getLastChatCompletionBody(fetchState.calls)).toMatchObject({ enable_database: true }));
+    const complete = await screen.findByLabelText('Message complete');
+    expect(complete).toHaveTextContent('完成');
+    expect(complete).toHaveTextContent('123ms');
+  });
+
   it(
     'hides the database toggle and sends no enable_database flag when multiple spaces are selected',
     async () => {
@@ -1087,6 +1147,7 @@ type StubSessionDetail = {
 
 function stubChatFetch({
   databaseEnabled = false,
+  databaseDetailStatus = 200,
   chatModelAvailable = true,
   chatModelAvailableStatus = 200,
   spaces = [
@@ -1099,6 +1160,7 @@ function stubChatFetch({
   patchSessionSpacesStatus = 200,
 }: {
   databaseEnabled?: boolean;
+  databaseDetailStatus?: number;
   chatModelAvailable?: boolean;
   chatModelAvailableStatus?: number;
   spaces?: StubSpace[];
@@ -1137,7 +1199,14 @@ function stubChatFetch({
       }
 
       if (path === '/api/spaces/space-1') {
-        return Promise.resolve(jsonResponse({ data: { id: 'space-1', database_config: { enabled: databaseEnabled } } }));
+        return Promise.resolve(
+          databaseDetailStatus >= 200 && databaseDetailStatus < 300
+            ? jsonResponse({ data: { id: 'space-1', database_config: { enabled: databaseEnabled } } })
+            : jsonResponse(
+                { error: { code: 'INTERNAL_ERROR', message: 'Failed to load space detail' } },
+                databaseDetailStatus,
+              ),
+        );
       }
 
       if (path === '/api/spaces/space-1/chat/sessions' && init?.method !== 'POST') {
