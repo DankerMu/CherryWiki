@@ -846,9 +846,60 @@ Issue #423 fixture:
 
 ## 6. Governance Verification
 
-- [ ] 6.1 Re-run entropy-focused checks using the same scope as `.entropy-baseline/latest.json`, excluding `external/*`, generated output, venvs, fixtures/screenshots, and `openspec/*`.
-  - Verification: audit notes show the same include/exclude rules and no implementation refactor touches `external/*`.
-- [ ] 6.2 Archive the old baseline if present, update `.entropy-baseline/latest.json` after implementation, and record trend changes against this baseline.
-  - Verification: baseline timestamp/commit/scope are current and trend summary reports changed high-entropy hotspots.
-- [ ] 6.3 Update `progress.md` with the completed entropy governance slices and actual verification commands.
-  - Verification: `progress.md` stays under 200 lines and references the relevant issue numbers.
+Issue #424 fixture:
+- Issue type: governance / baseline refresh
+- Project profile: other
+- Blast radius: low
+- Fixture level: compact
+- Repair intensity: low
+- Change surface: `.entropy-baseline/**`, `progress.md`, OpenSpec task evidence, the entropy-governance evidence rows in `docs/project/26_需求追踪矩阵.md`, and local PR evidence files only.
+- Dependency/context: #412, #416, #419, and #423 are complete. #424 closes the entropy-governance implementation batch by refreshing the baseline with the same include/exclude scope as the original baseline and recording trend changes.
+- Must preserve: no product behavior change, no source-code refactor, no generated dependency or lockfile churn, no `external/*` edits, and the same baseline scope exclusions for reference/fork code, generated output, venvs, fixtures/screenshots, and `openspec/*`.
+- Must add/change: archive the previous `.entropy-baseline/latest.json`, write a new `.entropy-baseline/latest.json` for the current `main` commit/timestamp, include trend comparison against the prior baseline, update #424 task evidence and `progress.md`, and prove implementation changes did not include `external/*`.
+- Selected risk packs:
+  - Documentation / migration notes: selected - #424 writes baseline/trend governance records and progress evidence.
+  - Config / project setup: selected - baseline scope and exclusions affect future governance workflows but not runtime config.
+  - Release / packaging / dependency compatibility: selected - must prove no dependency/lockfile/package behavior changes are introduced by the close-out.
+  - Legacy compatibility / examples: selected - `external/*` reference/fork code must remain excluded and untouched.
+- Risk packs considered:
+  - Public API / CLI / script entry: not selected - no API route, CLI behavior, or script contract changes.
+  - File IO / path safety / overwrite: not selected - writes are limited to `.entropy-baseline/**`, `progress.md`, and OpenSpec evidence; no runtime file IO behavior changes.
+  - Schema / columns / units / field names: not selected - no DB schema or DTO changes.
+  - Resource limits / large input / discovery: not selected - no runtime discovery behavior changes.
+  - Error handling / rollback / partial outputs: not selected - no product error path changes.
+- Invariant Matrix:
+  - Governing invariant: refreshed entropy baseline must measure the actual project implementation code with the same scope exclusions as the original baseline, accurately record trend changes from the completed #409-#423 governance slices, and avoid any source/runtime behavior changes.
+  - Source-of-truth identity/contract: previous `.entropy-baseline/latest.json` scope object, current `main` commit SHA, `.entropy-baseline/latest.json` JSON format, and #424 issue acceptance criteria.
+  - Producers: entropy scan/audit commands, baseline archive file, new latest baseline, OpenSpec tasks, and `progress.md`.
+  - Validators/preflight: JSON parse check, scope/exclusion comparison, `git diff --name-only` / `git diff --name-only main...HEAD` checks for `external/*` and source-code edits, OpenSpec strict validation, and `progress.md` line count.
+  - Storage/cache/query: unchanged - no database/cache/runtime storage behavior.
+  - Public routes/entrypoints: none - no public API/CLI behavior changes.
+  - Frontend/downstream consumers: future agents consuming `.entropy-baseline/latest.json` and `progress.md`.
+  - Failure paths/rollback/stale state: old baseline remains archived and `latest.json` remains parseable with current commit/timestamp and trend summary.
+  - Evidence/audit/readiness: #424 required evidence commands, Stage gate matrix evidence row, codeagent review evidence, and PR work summary.
+  - Regression rows:
+    - previous baseline exists -> archived under `.entropy-baseline/<date-or-sha>.json` and new latest is valid JSON
+    - scope exclusions -> `external/*`, `node_modules`, `dist`, `.venv`, `.pytest_cache`, `.ruff_cache`, `__pycache__`, `tests/fixtures`, `tests/screenshots`, and `openspec/*` remain excluded in latest baseline
+    - completed governance slices -> trend summary reports improvements for API error helper replication, Chat backend/Web Chat responsibility concentration, Python worker protocol duplication, physical instruction files in direct scan roots, and separate scoped AGENTS module-boundary coverage
+    - implementation diff -> no `external/*` path and no source-code refactor outside allowed governance artifacts
+- Boundary-surface checklist:
+  - Allowed write surfaces: `.entropy-baseline/**`, `progress.md`, `openspec/changes/entropy-governance/tasks.md`, and the specific entropy-governance baseline refresh evidence row in `docs/project/26_需求追踪矩阵.md`.
+  - Prohibited surfaces: `external/*`, `apps/**`, `packages/**`, `tools/**`, Docker/compose/CI files, package manifests/lockfiles, database migrations, and product docs unrelated to #424 evidence. The only allowed product-doc touch is the Stage gate requirements-matrix evidence row named above.
+  - Evidence boundaries: trend statements must be backed by prior baseline fields, current file/module inspection, and completed issue list rather than broad claims.
+- Required evidence:
+  - JSON parse check for `.entropy-baseline/latest.json`
+  - `test -f .entropy-baseline/<archived-baseline>.json`
+  - `git diff --name-only main...HEAD` or equivalent PR diff check shows no `external/*` and no source-code paths outside allowed governance artifacts
+  - scope/exclusion comparison proves latest baseline still excludes `external/*`, `node_modules`, `dist`, `.venv`, `.pytest_cache`, `.ruff_cache`, `__pycache__`, `tests/fixtures`, `tests/screenshots`, and `openspec/*`
+  - `rg -n "external/\\*|node_modules|dist|\\.venv|\\.pytest_cache|\\.ruff_cache|__pycache__|tests/fixtures|tests/screenshots|openspec/\\*" .entropy-baseline/latest.json`
+  - `openspec validate entropy-governance --strict --no-interactive`
+  - `wc -l progress.md` remains under 200
+  - `git diff --check`
+- Non-goals: source-code refactor, new product behavior, new GitHub issues, changing test expectations, changing baseline schema version, touching `external/*`, or running broad formatting.
+
+- [x] 6.1 Re-run entropy-focused checks using the same scope as `.entropy-baseline/latest.json`, excluding `external/*`, generated output, venvs, fixtures/screenshots, and `openspec/*`.
+  - Verification: `.entropy-baseline/latest.json` `scan_method` records a practical shell + Node structured parsing scan over `apps/*`, `packages/*`, `tools/cherrydb`, and `tools/cherrywiki` with preserved exclusions: `external/*`, `node_modules`, `dist`, `.venv`, `.pytest_cache`, `.ruff_cache`, `__pycache__`, `tests/fixtures`, `tests/screenshots`, and `openspec/*`. Evidence commands included `rg -n "function throwApiError|const throwApiError" apps/api/src`, `rg -n "throwApiError\\(['\"]" apps/api/src`, `wc -l apps/api/src/chat/chat.service.ts apps/web/src/pages/Chat.tsx apps/ingestion-worker/src/job_client.py apps/url-fetcher-worker/src/job_client.py`, `find apps/api/src/chat -maxdepth 2 -type f`, `find apps/web/src/pages/chat -maxdepth 3 -type f`, `find packages/python-worker-protocol -maxdepth 3 -type f`, direct-scan-root instruction discovery, and separate scoped AGENTS module-boundary discovery.
+- [x] 6.2 Archive the old baseline if present, update `.entropy-baseline/latest.json` after implementation, and record trend changes against this baseline.
+  - Verification: previous baseline archived at `.entropy-baseline/2026-05-31-9e54863.json`; new `.entropy-baseline/latest.json` keeps schema `version: 1`, records `branch: main`, records current commit `010e5852725b`, and preserves the exact prior include/exclude scope. Trend comparison records: API local `throwApiError` helpers `14 -> 1` with no raw string-code helper calls; `apps/api/src/chat/chat.service.ts` `2358 -> 922` lines with session/retrieval/model/routing/persistence/SSE collaborators; `apps/web/src/pages/Chat.tsx` `1528 -> 703` lines with 11 extracted chat hooks/components; Python worker protocol runtime implementations `2 -> 1` via `packages/python-worker-protocol`; direct scan-root instruction files `2 -> 7`; scoped AGENTS module-boundary coverage `0 -> 9`.
+- [x] 6.3 Update `progress.md` with the completed entropy governance slices and actual verification commands.
+  - Verification: `progress.md` marks #424 baseline refresh complete, names the archived and latest baseline artifacts, and sets the next step to entropy-governance closure plus product validation queue; `wc -l progress.md` remains under 200.
