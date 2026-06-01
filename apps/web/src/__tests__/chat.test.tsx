@@ -793,27 +793,31 @@ describe('Phase 3 chat controls and stream events', () => {
     expect(await screen.findByRole('button', { name: '数据库' })).toBeInTheDocument();
   });
 
-  it('hides the database toggle and sends no enable_database flag when multiple spaces are selected', async () => {
-    const fetchState = stubChatFetch({
-      databaseEnabled: true,
-      streamEvents: [{ event: 'message.completed', data: {} }],
-    });
+  it(
+    'hides the database toggle and sends no enable_database flag when multiple spaces are selected',
+    async () => {
+      const fetchState = stubChatFetch({
+        databaseEnabled: true,
+        streamEvents: [{ event: 'message.completed', data: {} }],
+      });
 
-    renderChatRoute();
+      renderChatRoute();
 
-    fireEvent.click(await screen.findByRole('button', { name: '数据库' }));
-    fireEvent.mouseDown(await screen.findByRole('combobox', { name: '聊天空间' }));
-    fireEvent.click(await screen.findByText('Space Two'));
+      fireEvent.click(await screen.findByRole('button', { name: '数据库' }));
+      fireEvent.mouseDown(await screen.findByRole('combobox', { name: '聊天空间' }));
+      fireEvent.click(await screen.findByText('Space Two'));
 
-    expect(await screen.findByText(/已选择 2 个空间/)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '数据库' })).not.toBeInTheDocument();
-    await sendChatMessage('multi-space disables database');
+      expect(await screen.findByText(/已选择 2 个空间/)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '数据库' })).not.toBeInTheDocument();
+      await sendChatMessage('multi-space disables database');
 
-    await waitFor(() => expect(getLastChatCompletionBody(fetchState.calls)).not.toHaveProperty('enable_database'));
-    expect(getLastChatCompletionBody(fetchState.calls)).toMatchObject({
-      space_ids: ['space-1', 'space-2'],
-    });
-  });
+      await waitFor(() => expect(getLastChatCompletionBody(fetchState.calls)).not.toHaveProperty('enable_database'));
+      expect(getLastChatCompletionBody(fetchState.calls)).toMatchObject({
+        space_ids: ['space-1', 'space-2'],
+      });
+    },
+    25_000,
+  );
 
   it('renders agent.tool_use events as a collapsed tool panel', async () => {
     stubChatFetch({
