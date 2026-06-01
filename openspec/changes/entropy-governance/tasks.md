@@ -667,16 +667,141 @@ Issue #419 fixture:
 
 ## 5. Python Worker Protocol
 
-- [ ] 5.1 Inspect Docker/CI/venv constraints and decide the worker protocol strategy: shared Python package, shared local module wired into both build contexts, or protocol-template enforcement.
-  - Verification: decision note records chosen strategy, rejected alternatives, Docker/CI/venv impact, rollback path, and exact verification commands.
-- [ ] 5.2 Implement the shared/enforced worker job lifecycle protocol with tests for pending polling, claim, heartbeat, progress, completion, failure, retryability, lock expiry, concurrent claim, duplicate terminal calls, and active jobs cleanup.
-  - Verification: protocol tests pass in the selected package/template location.
-- [ ] 5.3 Migrate `apps/ingestion-worker` to the shared/enforced protocol and run ingestion worker tests.
-  - Verification: `apps/ingestion-worker/.venv/bin/python -m pytest apps/ingestion-worker/tests -v` passes.
-- [ ] 5.4 Migrate `apps/url-fetcher-worker` to the shared/enforced protocol and run URL fetch worker tests.
-  - Verification: `apps/url-fetcher-worker/.venv/bin/python -m pytest apps/url-fetcher-worker/tests -v` passes.
-- [ ] 5.5 Update Docker/CI/local verification wiring only where required by the chosen strategy.
-  - Verification: `docker compose config --quiet`, `docker compose -f docker-compose.prod.yml config --quiet`, and relevant CI workflow checks are updated or explicitly documented as unchanged.
+- [x] 5.1 Issue #420: Inspect Docker/CI/venv constraints and decide the worker protocol strategy: shared Python package, shared local module wired into both build contexts, or protocol-template enforcement.
+  - Verification: `openspec/changes/entropy-governance/design.md` Issue #420 section selects `packages/python-worker-protocol/` as the shared package strategy and records rejected alternatives, exact future Docker copy/install/import wiring for per-worker Dockerfiles and root worker targets, CI/venv impact, rollback path, #421/#422/#423 boundaries, inspection evidence, and verification commands. Decision-only validation run: `openspec validate entropy-governance --strict --no-interactive`, `git diff --check`, `docker compose config --quiet`, and `docker compose -f docker-compose.prod.yml config --quiet`.
+
+Issue #420 fixture:
+- Issue type: decision / architecture note
+- Project profile: other
+- Blast radius: medium
+- Fixture level: compact
+- Repair intensity: medium
+- Change surface: OpenSpec/docs/progress only; inspect `apps/ingestion-worker/**`, `apps/url-fetcher-worker/**`, `.github/workflows/ci.yml`, Dockerfiles, and compose files read-only.
+- Dependency/context: #409 scoped worker AGENTS exist; #421-#423 will implement and migrate the protocol. #420 must remove strategy ambiguity without changing runtime behavior.
+- Must preserve: no worker runtime behavior change, no API/DTO/schema change, no Docker/CI rewiring, no dependency lockfile change, no worker test expectation change, and no changes inside `external/*`.
+- Must add/change: a decision note in the OpenSpec change that compares shared Python package, shared local module wired into both Docker build contexts, and protocol-template enforcement; records chosen strategy, rejected alternatives, Docker build-context impact, exact copy/install/import wiring for both per-worker Dockerfiles and root `ingestion-worker` / `url-fetcher-worker` Dockerfile targets, CI/venv impact, rollback path, downstream issue boundaries, and exact verification commands.
+- Selected risk packs:
+  - Config / project setup: selected - strategy must account for current per-worker Docker contexts, root Dockerfile syntax checks, compose validation, CI matrix, and local venv constraints.
+  - Release / packaging / dependency compatibility: selected - shared package or module choices can change Docker build contexts and Python import/install paths in later issues.
+  - Documentation / migration notes: selected - #420's output is intentionally a decision artifact that governs #421-#423.
+- Risk packs considered:
+  - Public API / CLI / script entry: not selected - no endpoint, CLI, or script behavior changes in this decision-only issue.
+  - File IO / path safety / overwrite: not selected - no runtime file IO changes.
+  - Schema / columns / units / field names: not selected - no database schema or DTO changes.
+  - Error handling / rollback / partial outputs: not selected - worker error semantics are documented for later implementation but not changed in #420.
+  - Resource limits / large input / discovery: not selected - no parsing/fetching behavior changes.
+  - Geospatial / CRS / shapefile sidecars: not selected - no geospatial code changes.
+  - Time series / forcing / temporal boundaries: not selected - no temporal behavior changes.
+  - Numerical stability / conservation / NaN: not selected - no numerical code changes.
+  - Solver runtime / performance / threading: not selected - no runtime/threading code changes in #420.
+  - Legacy compatibility / examples: not selected - no legacy sample changes.
+- Required evidence:
+  - `openspec validate entropy-governance --strict --no-interactive`
+  - `git diff --check`
+  - `docker compose config --quiet`
+  - `docker compose -f docker-compose.prod.yml config --quiet`
+  - Read-only inspection evidence for `apps/ingestion-worker/src/job_client.py`, `apps/url-fetcher-worker/src/job_client.py`, both per-worker Dockerfiles, root `Dockerfile`, `docker-compose.yml`, `docker-compose.prod.yml`, CI Python matrix, CI root Dockerfile target syntax checks, and worker AGENTS venv commands.
+- Regression rows:
+  - current worker Dockerfiles use per-worker build contexts and copy only local `requirements.txt` plus `src/` -> chosen strategy states whether future implementation must change build context or package copy/install steps.
+  - root `Dockerfile` also defines `ingestion-worker` and `url-fetcher-worker` targets while prod compose uses the root `url-fetcher-worker` target -> chosen strategy states exact future copy/install/import wiring for both root targets and per-worker Dockerfiles.
+  - CI `python-ci` matrix runs from `apps/${{ matrix.worker }}` with local requirements -> chosen strategy states exact CI impact and required follow-up wiring.
+  - CI `validate` checks both per-app Dockerfiles and root `api/web/ingestion-worker/url-fetcher-worker/indexer-worker` targets -> downstream #421-#423 must preserve `python-ci` matrix behavior and root target syntax checks.
+  - local venv commands differ by worker subtree -> chosen strategy records exact ingestion/url-fetcher pytest commands and whether additional shared-package tests are required.
+  - duplicated `job_client.py` protocol differs only in worker type, handler/error classes, log labels, and worker-id prefix -> chosen strategy identifies which parameters must become shared/enforced.
+  - downstream issue split remains clear -> #421 owns shared/enforced protocol implementation tests plus all first-time shared-package Docker/compose/CI/venv visibility wiring, #422 owns ingestion migration only after that wiring exists, and #423 owns url-fetcher migration plus final deployability verification rather than first-time shared-package wiring.
+- Non-goals: implementing the shared protocol, migrating either worker, changing Docker/CI files, adding dependencies, changing job lifecycle API/server behavior, changing worker parser/fetcher behavior, running full worker migrations, or touching `external/*`.
+
+Issue #421 fixture:
+- Issue type: refactor / shared package foundation plus build wiring
+- Project profile: other
+- Blast radius: medium
+- Fixture level: expanded
+- Repair intensity: medium
+- Change surface: `packages/python-worker-protocol/**`, `docker-compose.yml`, `docker-compose.prod.yml`, both Python worker app Dockerfiles, root `Dockerfile` worker targets, `.github/workflows/ci.yml`, and focused shared-package/worker import visibility tests only.
+- Dependency/context: #420 selected `packages/python-worker-protocol/` and assigned all first-time shared-package visibility/build wiring to #421. #422/#423 may not start worker migrations until #421 wiring exists.
+- Must preserve: no ingestion or URL fetch parser/fetcher/storage/runtime migration, no API/DTO/schema change, no worker job lifecycle server contract change, no dependency lockfile churn outside the Python package metadata needed by #421, and no changes inside `external/*`.
+- Must add/change: create the shared package and lifecycle protocol tests; make both workers and both root worker Docker targets able to install the package from repository root context; switch compose build contexts needed by both Python workers to root context; update CI Dockerfile syntax-check commands to use root context for the two Python worker app Dockerfiles; add the shared-package install/test command to CI/local venv verification before worker migrations.
+- Required evidence:
+  - `packages/python-worker-protocol/.venv/bin/python -m pytest packages/python-worker-protocol/tests -v`
+  - `apps/ingestion-worker/.venv/bin/pip install -e packages/python-worker-protocol`
+  - `apps/url-fetcher-worker/.venv/bin/pip install -e packages/python-worker-protocol`
+  - `apps/ingestion-worker/.venv/bin/python -c "import cherry_worker_protocol"`
+  - `apps/url-fetcher-worker/.venv/bin/python -c "import cherry_worker_protocol"`
+  - `docker buildx build --check -f apps/ingestion-worker/Dockerfile .`
+  - `docker buildx build --check -f apps/url-fetcher-worker/Dockerfile .`
+  - `docker buildx build --check -f Dockerfile --target ingestion-worker .`
+  - `docker buildx build --check -f Dockerfile --target url-fetcher-worker .`
+  - `docker compose config --quiet`
+  - `docker compose -f docker-compose.prod.yml config --quiet`
+  - `openspec validate entropy-governance --strict --no-interactive`
+- Regression rows:
+  - `docker-compose.yml` and `docker-compose.prod.yml` worker builds that need the shared package use repository root context and still point at the intended worker Dockerfile/target.
+  - Both per-worker app Dockerfiles copy/install `packages/python-worker-protocol/` before copying worker `src/`, without importing parser/fetcher behavior.
+  - Root `Dockerfile` `ingestion-worker` and `url-fetcher-worker` targets install `packages/python-worker-protocol/`.
+  - CI Dockerfile syntax checks for `apps/ingestion-worker/Dockerfile` and `apps/url-fetcher-worker/Dockerfile` use root context, while root target checks remain present.
+  - CI/local venv commands prove `cherry_worker_protocol` is importable for both worker venvs before #422/#423 runtime migrations.
+- Non-goals: migrating `apps/ingestion-worker/src/job_client.py`, migrating `apps/url-fetcher-worker/src/job_client.py`, changing parser/fetcher/SSRF/archive/storage behavior, changing job API/server behavior, or deferring first-time shared-package wiring to #422/#423.
+
+- [ ] 5.2 Issue #421: implement `packages/python-worker-protocol/` with lifecycle protocol tests and all first-time shared-package Docker/compose/CI/venv visibility wiring required before worker migrations.
+  - Verification: #421 required evidence commands pass, including shared-package tests, both worker venv import checks, both per-worker Dockerfile root-context syntax checks, both root worker target syntax checks, both compose config checks, and OpenSpec strict validation.
+
+Issue #422 fixture:
+- Issue type: refactor / ingestion worker migration
+- Project profile: other
+- Blast radius: medium
+- Fixture level: expanded
+- Repair intensity: medium
+- Change surface: `apps/ingestion-worker/**` job lifecycle client/configuration and directly affected ingestion tests only.
+- Dependency/context: #421 must already provide `packages/python-worker-protocol/` and all shared-package Docker/compose/CI/venv visibility wiring. #422 consumes that wiring; it does not introduce first-time Docker/compose/CI/venv wiring.
+- Must preserve: ingestion parser/storage/archive behavior, ingestion result payloads, error serialization, health port/env behavior, job type `ingestion`, heartbeat `worker_type`, worker-id prefix, retryability, active-job cleanup, API/DTO/schema behavior, and no changes inside `external/*`.
+- Must add/change: replace ingestion-local lifecycle duplication with imports/configuration from `cherry_worker_protocol` while keeping worker-local handler and error serializer ownership in `apps/ingestion-worker`.
+- Required evidence:
+  - `apps/ingestion-worker/.venv/bin/python -m pytest apps/ingestion-worker/tests -v`
+  - `apps/ingestion-worker/.venv/bin/python -c "import cherry_worker_protocol"`
+  - `docker buildx build --check -f apps/ingestion-worker/Dockerfile .`
+  - `docker buildx build --check -f Dockerfile --target ingestion-worker .`
+  - `docker compose config --quiet`
+  - `docker compose -f docker-compose.prod.yml config --quiet`
+  - `openspec validate entropy-governance --strict --no-interactive`
+- Regression rows:
+  - Ingestion migration uses #421 wiring and does not change compose contexts, CI syntax-check contexts, root Dockerfile package install steps, or shared-package venv install commands except to fix regressions in already-owned #421 surfaces.
+  - Ingestion parser/storage/archive tests keep existing payloads and terminal-state behavior.
+- Non-goals: URL fetcher migration, first-time shared-package Docker/compose/CI/venv wiring, parser/storage redesign, API/server changes, dependency lockfile churn unrelated to the shared package, or changes inside `external/*`.
+
+- [ ] 5.3 Issue #422: migrate only `apps/ingestion-worker` to the shared protocol after #421 wiring exists.
+  - Verification: #422 required evidence commands pass, especially ingestion venv tests and ingestion Docker/root-target syntax checks using #421 wiring.
+
+Issue #423 fixture:
+- Issue type: refactor / URL fetcher migration plus final deployability verification
+- Project profile: other
+- Blast radius: medium
+- Fixture level: expanded
+- Repair intensity: medium
+- Change surface: `apps/url-fetcher-worker/**` job lifecycle client/configuration, directly affected URL fetcher tests, and final deployability verification evidence across existing #421 wiring surfaces.
+- Dependency/context: #421 owns first-time shared-package Docker/compose/CI/venv visibility wiring; #422 has migrated ingestion. #423 migrates URL fetcher and proves the full two-worker deployment surface is coherent.
+- Must preserve: URL fetcher SSRF/fetch/archive behavior, URL fetch result payloads, error serialization, health port/env behavior, job type `url_fetch`, heartbeat `worker_type`, worker-id prefix, retryability, active-job cleanup, API/DTO/schema behavior, and no changes inside `external/*`.
+- Must add/change: replace URL fetcher-local lifecycle duplication with imports/configuration from `cherry_worker_protocol`; run final deployability checks across both per-worker Dockerfiles, both root worker targets, both compose files, and both worker venv tests. Any Docker/compose/CI fix in #423 must be limited to correcting regressions in wiring already introduced by #421, not first-time shared-package visibility wiring.
+- Required evidence:
+  - `apps/url-fetcher-worker/.venv/bin/python -m pytest apps/url-fetcher-worker/tests -v`
+  - `apps/ingestion-worker/.venv/bin/python -m pytest apps/ingestion-worker/tests -v`
+  - `packages/python-worker-protocol/.venv/bin/python -m pytest packages/python-worker-protocol/tests -v`
+  - `apps/url-fetcher-worker/.venv/bin/python -c "import cherry_worker_protocol"`
+  - `apps/ingestion-worker/.venv/bin/python -c "import cherry_worker_protocol"`
+  - `docker buildx build --check -f apps/ingestion-worker/Dockerfile .`
+  - `docker buildx build --check -f apps/url-fetcher-worker/Dockerfile .`
+  - `docker buildx build --check -f Dockerfile --target ingestion-worker .`
+  - `docker buildx build --check -f Dockerfile --target url-fetcher-worker .`
+  - `docker compose config --quiet`
+  - `docker compose -f docker-compose.prod.yml config --quiet`
+  - `openspec validate entropy-governance --strict --no-interactive`
+- Regression rows:
+  - URL fetcher migration uses #421 wiring and preserves SSRF/private-network protections, fetch/archive output, and terminal-state reporting.
+  - Final deployability evidence covers both workers, both app Dockerfiles from root context, both root Dockerfile targets, both compose files, and shared-package tests.
+  - #423 does not become the first issue to add shared-package copy/install steps, compose root-context changes, CI syntax-check context changes, or worker venv package install commands.
+- Non-goals: first-time shared-package Docker/compose/CI/venv wiring, ingestion behavior changes beyond regression fixes, API/server changes, SSRF/fetcher redesign, dependency lockfile churn unrelated to the shared package, or changes inside `external/*`.
+
+- [ ] 5.4 Issue #423: migrate only `apps/url-fetcher-worker` to the shared protocol and complete final two-worker deployability verification.
+  - Verification: #423 required evidence commands pass, including URL fetcher tests, ingestion regression tests, shared-package tests, both worker import checks, all Docker syntax checks, both compose config checks, and OpenSpec strict validation.
 
 ## 6. Governance Verification
 
