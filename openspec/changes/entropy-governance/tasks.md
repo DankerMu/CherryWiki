@@ -717,16 +717,17 @@ Issue #421 fixture:
 - Blast radius: medium
 - Fixture level: expanded
 - Repair intensity: medium
-- Change surface: `packages/python-worker-protocol/**`, `docker-compose.yml`, `docker-compose.prod.yml`, both Python worker app Dockerfiles, root `Dockerfile` worker targets, `.github/workflows/ci.yml`, and focused shared-package/worker import visibility tests only.
+- Change surface: `packages/python-worker-protocol/**`, `docker-compose.yml`, `docker-compose.prod.yml`, both Python worker app Dockerfiles, root `Dockerfile` worker targets, `.github/workflows/ci.yml` including both `python-ci` and the `node-ci` URL fetcher Python setup, and focused shared-package/worker import visibility tests only.
 - Dependency/context: #420 selected `packages/python-worker-protocol/` and assigned all first-time shared-package visibility/build wiring to #421. #422/#423 may not start worker migrations until #421 wiring exists.
 - Must preserve: no ingestion or URL fetch parser/fetcher/storage/runtime migration, no API/DTO/schema change, no worker job lifecycle server contract change, no dependency lockfile churn outside the Python package metadata needed by #421, and no changes inside `external/*`.
-- Must add/change: create the shared package and lifecycle protocol tests; make both workers and both root worker Docker targets able to install the package from repository root context; switch compose build contexts needed by both Python workers to root context; update CI Dockerfile syntax-check commands to use root context for the two Python worker app Dockerfiles; add the shared-package install/test command to CI/local venv verification before worker migrations.
+- Must add/change: create the shared package and lifecycle protocol tests; make both workers and both root worker Docker targets able to install the package from repository root context; switch compose build contexts needed by both Python workers to root context; update CI Dockerfile syntax-check commands to use root context for the two Python worker app Dockerfiles; add the shared-package install/test command to CI/local venv verification before worker migrations; update `node-ci` URL fetcher Python dependency setup to install `-e packages/python-worker-protocol` before `URL_FETCHER_PYTHON=python` tests.
 - Required evidence:
   - `packages/python-worker-protocol/.venv/bin/python -m pytest packages/python-worker-protocol/tests -v`
   - `apps/ingestion-worker/.venv/bin/pip install -e packages/python-worker-protocol`
   - `apps/url-fetcher-worker/.venv/bin/pip install -e packages/python-worker-protocol`
   - `apps/ingestion-worker/.venv/bin/python -c "import cherry_worker_protocol"`
   - `apps/url-fetcher-worker/.venv/bin/python -c "import cherry_worker_protocol"`
+  - `pnpm exec vitest run tests/smoke/egress-smoke.test.ts --config vitest.config.ts --passWithNoTests=false`
   - `docker buildx build --check -f apps/ingestion-worker/Dockerfile .`
   - `docker buildx build --check -f apps/url-fetcher-worker/Dockerfile .`
   - `docker buildx build --check -f Dockerfile --target ingestion-worker .`
@@ -739,6 +740,7 @@ Issue #421 fixture:
   - Both per-worker app Dockerfiles copy/install `packages/python-worker-protocol/` before copying worker `src/`, without importing parser/fetcher behavior.
   - Root `Dockerfile` `ingestion-worker` and `url-fetcher-worker` targets install `packages/python-worker-protocol/`.
   - CI Dockerfile syntax checks for `apps/ingestion-worker/Dockerfile` and `apps/url-fetcher-worker/Dockerfile` use root context, while root target checks remain present.
+  - CI `node-ci` URL fetcher Python setup installs `packages/python-worker-protocol` before Node tests that use `URL_FETCHER_PYTHON=python`.
   - CI/local venv commands prove `cherry_worker_protocol` is importable for both worker venvs before #422/#423 runtime migrations.
 - Non-goals: migrating `apps/ingestion-worker/src/job_client.py`, migrating `apps/url-fetcher-worker/src/job_client.py`, changing parser/fetcher/SSRF/archive/storage behavior, changing job API/server behavior, or deferring first-time shared-package wiring to #422/#423.
 
