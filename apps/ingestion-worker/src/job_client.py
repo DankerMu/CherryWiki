@@ -1,128 +1,65 @@
 from __future__ import annotations
 
-import logging
-import os
-import platform
 import threading
-import uuid
 from collections.abc import Callable
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
 
-import requests
+from cherry_worker_protocol import (
+    InternalApiClient as _SharedInternalApiClient,
+    WorkerProtocolConfig,
+)
+from cherry_worker_protocol import (
+    generate_worker_id as _generate_worker_id,
+)
+from cherry_worker_protocol import (
+    poll_jobs as _poll_jobs,
+)
+from cherry_worker_protocol import (
+    run_once as _run_once,
+)
+from cherry_worker_protocol import (
+    start_heartbeat_thread as _start_heartbeat_thread,
+)
+from cherry_worker_protocol.job_lifecycle import (
+    _normalize_api_base_url,
+    _parse_pending_job,
+)
 
 from .errors import IngestionJobError, build_error_json
 from .handlers import IngestionJobHandler
 
-logger = logging.getLogger(__name__)
+INGESTION_WORKER_PROTOCOL = WorkerProtocolConfig(
+    job_type="ingestion",
+    worker_type="ingestion",
+    worker_id_prefix="ingestion-worker",
+    failure_log_message="ingestion job failed",
+    worker_error_type=IngestionJobError,
+    build_error_json=build_error_json,
+)
 
 
-class InternalApiClient:
-    def __init__(
-        self,
-        base_url: str,
-        *,
-        api_key: str | None = None,
-        session: requests.Session | None = None,
-        timeout_seconds: int = 10,
-    ) -> None:
-        self.base_url = _normalize_api_base_url(base_url)
-        self.api_key = api_key
-        self.session = session or requests.Session()
-        self.timeout_seconds = timeout_seconds
-
-    @classmethod
-    def from_env(cls) -> "InternalApiClient":
-        base_url = (
-            os.environ.get("CHERRY_API_URL")
-            or os.environ.get("API_BASE_URL")
-            or "http://cherry-api:8080/api"
-        )
-        return cls(base_url, api_key=os.environ.get("WORKER_API_KEY"))
-
+class InternalApiClient(_SharedInternalApiClient):
     def fetch_pending_job(
-        self, *, job_type: str = "ingestion"
+        self, *, job_type: str = INGESTION_WORKER_PROTOCOL.job_type
     ) -> dict[str, Any] | None:
-        response = self.session.get(
-            f"{self.base_url}/internal/jobs/pending",
-            params={"type": job_type, "limit": 1},
-            headers=self._headers(),
-            timeout=self.timeout_seconds,
-        )
-        response.raise_for_status()
-        return _parse_pending_job(_unwrap_response(response.json()))
+        return super().fetch_pending_job(job_type=job_type)
 
-    def report_progress(
-        self, job_id: str, worker_id: str, percent: int, stage: str
-    ) -> None:
-        response = self.session.patch(
-            f"{self.base_url}/internal/jobs/{job_id}/progress",
-            json={"worker_id": worker_id, "percent": percent, "stage": stage},
-            headers=self._headers(),
-            timeout=self.timeout_seconds,
-        )
-        response.raise_for_status()
-
-    def complete_job(
-        self, job_id: str, worker_id: str, result_json: dict[str, Any]
-    ) -> None:
-        response = self.session.patch(
-            f"{self.base_url}/internal/jobs/{job_id}/complete",
-            json={"worker_id": worker_id, "result_json": result_json},
-            headers=self._headers(),
-            timeout=self.timeout_seconds,
-        )
-        response.raise_for_status()
-
-    def fail_job(
+    def heartbeat(
         self,
-        job_id: str,
         worker_id: str,
-        error_json: dict[str, Any],
+        active_jobs: list[str],
         *,
-        retryable: bool,
-    ) -> None:
-        response = self.session.patch(
-            f"{self.base_url}/internal/jobs/{job_id}/fail",
-            json={
-                "worker_id": worker_id,
-                "error_json": error_json,
-                "retryable": retryable,
-            },
-            headers=self._headers(),
-            timeout=self.timeout_seconds,
+        worker_type: str = INGESTION_WORKER_PROTOCOL.worker_type,
+    ) -> dict[str, Any]:
+        return super().heartbeat(
+            worker_id,
+            active_jobs,
+            worker_type=worker_type,
         )
-        response.raise_for_status()
-
-    def heartbeat(self, worker_id: str, active_jobs: list[str]) -> dict[str, Any]:
-        response = self.session.post(
-            f"{self.base_url}/internal/workers/heartbeat",
-            json={
-                "worker_id": worker_id,
-                "active_jobs": active_jobs,
-                "system_info": {
-                    "worker_type": "ingestion",
-                    "hostname": platform.node(),
-                    "python_version": platform.python_version(),
-                    "active_job_count": len(active_jobs),
-                },
-            },
-            headers=self._headers(),
-            timeout=self.timeout_seconds,
-        )
-        response.raise_for_status()
-        payload = _unwrap_response(response.json())
-        return payload if isinstance(payload, dict) else {}
-
-    def _headers(self) -> dict[str, str]:
-        headers = {"accept": "application/json"}
-        if self.api_key:
-            headers["x-worker-key"] = self.api_key
-        return headers
 
 
 def generate_worker_id() -> str:
-    return os.environ.get("WORKER_ID") or f"ingestion-worker-{uuid.uuid4()}"
+    return _generate_worker_id(INGESTION_WORKER_PROTOCOL)
 
 
 def run_once(
@@ -132,32 +69,13 @@ def run_once(
     worker_id: str,
     active_jobs: Any | None = None,
 ) -> bool:
-    job = api_client.fetch_pending_job(job_type="ingestion")
-    if job is None:
-        return False
-
-    job_id = _job_id(job)
-    if active_jobs is not None:
-        active_jobs.add(job_id)
-
-    def progress(percent: int, stage: str) -> None:
-        api_client.report_progress(job_id, worker_id, percent, stage)
-
-    try:
-        result = handler.handle(job, progress)
-    except Exception as exc:
-        retryable = exc.retryable if isinstance(exc, IngestionJobError) else True
-        logger.exception("ingestion job failed", extra={"job_id": job_id})
-        api_client.fail_job(
-            job_id, worker_id, build_error_json(exc), retryable=retryable
-        )
-    else:
-        api_client.complete_job(job_id, worker_id, result)
-    finally:
-        if active_jobs is not None:
-            active_jobs.discard(job_id)
-
-    return True
+    return _run_once(
+        config=INGESTION_WORKER_PROTOCOL,
+        api_client=api_client,
+        handler=handler,
+        worker_id=worker_id,
+        active_jobs=active_jobs,
+    )
 
 
 def poll_jobs(
@@ -169,23 +87,15 @@ def poll_jobs(
     poll_interval: float = 5,
     active_jobs: Any | None = None,
 ) -> None:
-    while not stop_event.is_set():
-        try:
-            handled = run_once(
-                api_client=api_client,
-                handler=handler,
-                worker_id=worker_id,
-                active_jobs=active_jobs,
-            )
-        except (requests.RequestException, OSError) as exc:
-            logger.warning("job polling failed: %s", exc)
-            handled = False
-        except Exception:
-            logger.exception("unexpected polling error")
-            handled = False
-
-        if not handled:
-            stop_event.wait(poll_interval)
+    _poll_jobs(
+        config=INGESTION_WORKER_PROTOCOL,
+        api_client=api_client,
+        handler=handler,
+        worker_id=worker_id,
+        stop_event=stop_event,
+        poll_interval=poll_interval,
+        active_jobs=active_jobs,
+    )
 
 
 def start_heartbeat_thread(
@@ -196,53 +106,23 @@ def start_heartbeat_thread(
     stop_event: threading.Event,
     interval_seconds: float = 30,
 ) -> threading.Thread:
-    def loop() -> None:
-        while not stop_event.is_set():
-            try:
-                api_client.heartbeat(worker_id, active_jobs_getter())
-            except Exception as exc:
-                logger.warning("worker heartbeat failed: %s", exc)
-            stop_event.wait(interval_seconds)
-
-    thread = threading.Thread(target=loop, name="worker-heartbeat", daemon=True)
-    thread.start()
-    return thread
+    return _start_heartbeat_thread(
+        config=INGESTION_WORKER_PROTOCOL,
+        api_client=api_client,
+        worker_id=worker_id,
+        active_jobs_getter=active_jobs_getter,
+        stop_event=stop_event,
+        interval_seconds=interval_seconds,
+    )
 
 
-def _normalize_api_base_url(base_url: str) -> str:
-    trimmed = base_url.rstrip("/")
-    parsed = urlsplit(trimmed)
-    if parsed.path in {"", "/"}:
-        parsed = parsed._replace(path="/api")
-        return urlunsplit(parsed).rstrip("/")
-    return trimmed
-
-
-def _unwrap_response(payload: Any) -> Any:
-    if isinstance(payload, dict) and "data" in payload and "meta" in payload:
-        return payload["data"]
-    return payload
-
-
-def _parse_pending_job(payload: Any) -> dict[str, Any] | None:
-    if isinstance(payload, list):
-        first = payload[0] if payload else None
-        return first if isinstance(first, dict) else None
-    if isinstance(payload, dict):
-        job = payload.get("job")
-        if isinstance(job, dict):
-            return job
-        jobs = payload.get("jobs")
-        if isinstance(jobs, list):
-            first = jobs[0] if jobs else None
-            return first if isinstance(first, dict) else None
-        if "id" in payload or "job_id" in payload:
-            return payload
-    return None
-
-
-def _job_id(job: dict[str, Any]) -> str:
-    raw_job_id = job.get("job_id") or job.get("id")
-    if raw_job_id is None:
-        raise ValueError("Pending job is missing job_id")
-    return str(raw_job_id)
+__all__ = [
+    "INGESTION_WORKER_PROTOCOL",
+    "InternalApiClient",
+    "generate_worker_id",
+    "poll_jobs",
+    "run_once",
+    "start_heartbeat_thread",
+    "_normalize_api_base_url",
+    "_parse_pending_job",
+]

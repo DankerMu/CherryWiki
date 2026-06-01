@@ -157,7 +157,7 @@
 
 | Change | 状态 | 说明 |
 |---|---|---|
-| entropy-governance | #421 Python worker protocol shared package foundation complete, issues #408-#424 | `.entropy-baseline/latest.json` 已记录实际项目代码熵基线并排除 `external/*`；#410/#411/#412 API error helper 迁移完成；#413-#416 API Chat backend 已拆为 bounded collaborators；#417-#419 Web Chat 拆分完成；#420 选定 `packages/python-worker-protocol/`；#421 已新增 `cherry_worker_protocol` lifecycle 包与测试，并完成 Docker/compose/CI/worker venv shared-package visibility wiring；PR-437 fix 补 live-stack smoke shared package 安装、Docker root-context hygiene、protocol failure-boundary tests；#422 仅迁移 ingestion，#423 迁移 url-fetcher 并做最终 deployability 验证 |
+| entropy-governance | #422 ingestion worker protocol migration complete, issues #408-#424 | `.entropy-baseline/latest.json` 已记录实际项目代码熵基线并排除 `external/*`；#410/#411/#412 API error helper 迁移完成；#413-#416 API Chat backend 已拆为 bounded collaborators；#417-#419 Web Chat 拆分完成；#420 选定 `packages/python-worker-protocol/`；#421 已新增 `cherry_worker_protocol` lifecycle 包与测试，并完成 Docker/compose/CI/worker venv shared-package visibility wiring；PR-437 fix 补 live-stack smoke shared package 安装、Docker root-context hygiene、protocol failure-boundary tests；#422 已将 `apps/ingestion-worker` lifecycle wrapper 迁移到 shared protocol，保留 ingestion handler/error/result/health 行为；PR-438 R1 修复 ingestion `InternalApiClient` 旧默认签名兼容性；#423 迁移 url-fetcher 并做最终 deployability 验证 |
 | graph-explorer-visual-overhaul | panel-theme-alignment complete, issues #400/#401/#403 | 新增 `useGraphTheme` 读取 theme CSS vars 并监听 `data-theme`；GraphCanvas 背景/边框/标签主题化；节点渲染增加默认/选中 glow、选中双环、大图默认 glow 降级；Graph Explorer 面板、Community 选中态和 Legend 对齐 theme token；`getNodeColor`/`getLinkColor` 已提取为纯函数并补充测试 |
 | wiki-version-diff | API+UI complete, pending browser verification | `GET /wiki/pages/:pageId/diff` + version history compare modal；`npm run build`、Wiki API tests 通过 |
 | fix-session-delete-cascade | complete, issue #381 | Chat session 关联 retrieval traces/model usage logs/feedback items 删除级联修复 |
@@ -169,7 +169,7 @@
 ## 9. 下一步
 
 0. **Codex 工作流与 AGENTS 规则可用** — 已安装 `agentic-issue-delivery` pack、`repo-entropy-audit`、`control-plane-auditor`，并补强仓库级协作规则
-1. **熵治理实现批次** — 继续 #422/#423 Python worker protocol 双 worker 迁移，按 #408 依赖图推进
+1. **熵治理实现批次** — 继续 #423 Python worker protocol url-fetcher 迁移与最终 deployability 验证，按 #408 依赖图推进
 2. **继续 P0 测试** — 可立即测的 ~20 项（权限、多格式上传、SSE 事件、Model 管理）
 3. **运行 Graphify** — 容器内 Claude Code 可用，运行后解锁 Graph/Wiki/Index/Citation 相关 P0 测试
 
