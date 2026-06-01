@@ -801,7 +801,16 @@ describe('Phase 3 chat controls and stream events', () => {
 
     renderChatRoute();
 
-    fireEvent.click(await screen.findByRole('button', { name: '数据库' }));
+    await waitFor(() =>
+      expect(fetchState.calls).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: '/api/spaces/space-1',
+          }),
+        ]),
+      ),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: '数据库' }, { timeout: 5000 }));
     fireEvent.mouseDown(await screen.findByRole('combobox', { name: '聊天空间' }));
     fireEvent.click(await screen.findByText('Space Two'));
 
