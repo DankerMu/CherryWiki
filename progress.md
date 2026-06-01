@@ -30,6 +30,7 @@
 
 **M8: Production Readiness** (Epic #337)
 - Phase 1 Real E2E Pipeline (#340) — 进行中
+- `main` HEAD: `b81e837f2562a3761acb2600c1346a6f797abd6b`
 
 ## 5. 已完成 Stages (按 git 历史)
 
@@ -157,7 +158,7 @@
 
 | Change | 状态 | 说明 |
 |---|---|---|
-| entropy-governance | #424 baseline refresh complete, issues #408-#424 implementation closed | `.entropy-baseline/2026-05-31-9e54863.json` 已归档旧基线；`.entropy-baseline/latest.json` 已刷新到 `main` commit `010e5852725b`，保持 `external/*`、生成物、venv、fixtures/screenshots、`openspec/*` 排除范围；趋势记录显示 API error helper 复制、API/Web Chat 职责集中、Python worker protocol 复制、直接扫描根 instruction 文件数与 scoped AGENTS 模块边界覆盖均已改善；待最终归档/关闭 OpenSpec change |
+| entropy-governance | archived, Epic #408 closed, issues #409-#424 complete and merged | OpenSpec change 已归档到 `openspec/changes/archive/2026-06-01-entropy-governance`；生成 specs validate cleanly；`.entropy-baseline/latest.json` 已在 #424 刷新，旧基线已归档；`main` HEAD 为 `b81e837f2562a3761acb2600c1346a6f797abd6b` |
 | graph-explorer-visual-overhaul | panel-theme-alignment complete, issues #400/#401/#403 | 新增 `useGraphTheme` 读取 theme CSS vars 并监听 `data-theme`；GraphCanvas 背景/边框/标签主题化；节点渲染增加默认/选中 glow、选中双环、大图默认 glow 降级；Graph Explorer 面板、Community 选中态和 Legend 对齐 theme token；`getNodeColor`/`getLinkColor` 已提取为纯函数并补充测试 |
 | wiki-version-diff | API+UI complete, pending browser verification | `GET /wiki/pages/:pageId/diff` + version history compare modal；`npm run build`、Wiki API tests 通过 |
 | fix-session-delete-cascade | complete, issue #381 | Chat session 关联 retrieval traces/model usage logs/feedback items 删除级联修复 |
@@ -169,7 +170,7 @@
 ## 9. 下一步
 
 0. **Codex 工作流与 AGENTS 规则可用** — 已安装 `agentic-issue-delivery` pack、`repo-entropy-audit`、`control-plane-auditor`，并补强仓库级协作规则
-1. **关闭 entropy-governance** — #424 已完成 baseline refresh；下一步归档/关闭 OpenSpec change 并回到产品验证队列
+1. **回到产品验证队列** — entropy-governance 已完成合并、Epic #408 已关闭、OpenSpec change 已归档
 2. **继续 P0 测试** — 可立即测的 ~20 项（权限、多格式上传、SSE 事件、Model 管理）
 3. **运行 Graphify** — 容器内 Claude Code 可用，运行后解锁 Graph/Wiki/Index/Citation 相关 P0 测试
 
