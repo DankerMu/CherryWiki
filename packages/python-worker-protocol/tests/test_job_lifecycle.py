@@ -237,6 +237,48 @@ def test_run_once_cleans_up_active_job_when_terminal_report_fails() -> None:
     assert active_jobs == set()
 
 
+def test_run_once_reports_progress_failure_and_cleans_up_active_job() -> None:
+    api = FakeApi([{"job_id": "job-1"}], progress_error=RuntimeError("api down"))
+    active_jobs: set[str] = set()
+
+    handled = run_once(
+        config=CONFIG,
+        api_client=api,  # type: ignore[arg-type]
+        handler=FakeHandler({"ok": True}),
+        worker_id="worker-1",
+        active_jobs=active_jobs,
+    )
+
+    assert handled is True
+    assert api.completed == []
+    assert api.failed == [
+        (
+            "job-1",
+            "worker-1",
+            {"error_type": "RuntimeError", "error_message": "api down"},
+            True,
+        )
+    ]
+    assert active_jobs == set()
+
+
+def test_run_once_propagates_failed_terminal_report_errors() -> None:
+    api = FakeApi([{"job_id": "job-1"}], fail_error=RuntimeError("api down"))
+    active_jobs: set[str] = set()
+
+    with pytest.raises(RuntimeError, match="api down"):
+        run_once(
+            config=CONFIG,
+            api_client=api,  # type: ignore[arg-type]
+            handler=FakeHandler(WorkerError("blocked", retryable=False)),
+            worker_id="worker-1",
+            active_jobs=active_jobs,
+        )
+
+    assert api.completed == []
+    assert active_jobs == set()
+
+
 def test_poll_jobs_waits_after_no_job_and_stops() -> None:
     api = FakeApi([])
     stop_event = StopAfterWaitEvent()
@@ -269,6 +311,51 @@ def test_poll_jobs_recovers_from_request_errors() -> None:
     assert stop_event.waits == [0.5]
 
 
+def test_poll_jobs_recovers_from_terminal_report_errors() -> None:
+    api = FakeApi(
+        [{"job_id": "job-1"}], complete_error=requests.RequestException("api down")
+    )
+    stop_event = StopAfterWaitEvent()
+    active_jobs: set[str] = set()
+
+    poll_jobs(
+        config=CONFIG,
+        api_client=api,  # type: ignore[arg-type]
+        handler=FakeHandler({"ok": True}),
+        worker_id="worker-1",
+        stop_event=stop_event,  # type: ignore[arg-type]
+        poll_interval=0.5,
+        active_jobs=active_jobs,
+    )
+
+    assert stop_event.waits == [0.5]
+    assert active_jobs == set()
+
+
+def test_poll_jobs_recovers_when_progress_failure_report_fails() -> None:
+    api = FakeApi(
+        [{"job_id": "job-1"}],
+        progress_error=RuntimeError("progress api down"),
+        fail_error=requests.RequestException("fail api down"),
+    )
+    stop_event = StopAfterWaitEvent()
+    active_jobs: set[str] = set()
+
+    poll_jobs(
+        config=CONFIG,
+        api_client=api,  # type: ignore[arg-type]
+        handler=FakeHandler({"ok": True}),
+        worker_id="worker-1",
+        stop_event=stop_event,  # type: ignore[arg-type]
+        poll_interval=0.5,
+        active_jobs=active_jobs,
+    )
+
+    assert stop_event.waits == [0.5]
+    assert api.completed == []
+    assert active_jobs == set()
+
+
 def test_start_heartbeat_thread_sends_configured_worker_type() -> None:
     api = FakeHeartbeatApi()
     stop_event = threading.Event()
@@ -289,6 +376,27 @@ def test_start_heartbeat_thread_sends_configured_worker_type() -> None:
     assert api.heartbeats[0] == ("worker-1", ["job-1"], "example")
 
 
+def test_start_heartbeat_thread_swallows_api_failures() -> None:
+    api = FakeHeartbeatApi(failures_before_success=1)
+    stop_event = threading.Event()
+
+    thread = start_heartbeat_thread(
+        config=CONFIG,
+        api_client=api,  # type: ignore[arg-type]
+        worker_id="worker-1",
+        active_jobs_getter=lambda: ["job-1"],
+        stop_event=stop_event,
+        interval_seconds=0.01,
+    )
+
+    wait_for(lambda: bool(api.heartbeats))
+    stop_event.set()
+    thread.join(timeout=1)
+
+    assert api.calls >= 2
+    assert api.heartbeats == [("worker-1", ["job-1"], "example")]
+
+
 class FakeHandler:
     def __init__(self, result_or_error: dict[str, Any] | BaseException) -> None:
         self.result_or_error = result_or_error
@@ -306,11 +414,15 @@ class FakeApi:
         jobs: list[dict[str, Any]],
         *,
         fetch_error: BaseException | None = None,
+        progress_error: BaseException | None = None,
         complete_error: BaseException | None = None,
+        fail_error: BaseException | None = None,
     ) -> None:
         self.jobs = jobs
         self.fetch_error = fetch_error
+        self.progress_error = progress_error
         self.complete_error = complete_error
+        self.fail_error = fail_error
         self.fetched_job_types: list[str] = []
         self.progress: list[tuple[str, str, int, str]] = []
         self.completed: list[tuple[str, str, dict[str, Any]]] = []
@@ -325,6 +437,8 @@ class FakeApi:
     def report_progress(
         self, job_id: str, worker_id: str, percent: int, stage: str
     ) -> None:
+        if self.progress_error is not None:
+            raise self.progress_error
         self.progress.append((job_id, worker_id, percent, stage))
 
     def complete_job(
@@ -342,16 +456,23 @@ class FakeApi:
         *,
         retryable: bool,
     ) -> None:
+        if self.fail_error is not None:
+            raise self.fail_error
         self.failed.append((job_id, worker_id, error_json, retryable))
 
 
 class FakeHeartbeatApi:
-    def __init__(self) -> None:
+    def __init__(self, *, failures_before_success: int = 0) -> None:
+        self.failures_before_success = failures_before_success
+        self.calls = 0
         self.heartbeats: list[tuple[str, list[str], str]] = []
 
     def heartbeat(
         self, worker_id: str, active_jobs: list[str], *, worker_type: str
     ) -> dict[str, Any]:
+        self.calls += 1
+        if self.calls <= self.failures_before_success:
+            raise RuntimeError("api down")
         self.heartbeats.append((worker_id, active_jobs, worker_type))
         return {"ok": True}
 
