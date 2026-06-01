@@ -7,6 +7,12 @@ node_modules
 !.env.example
 .git
 .github
+.agents/
+.claude/
+.codex/
+.codex*
+openspec/
+.entropy-baseline/
 .vscode
 .idea
 external
@@ -15,8 +21,14 @@ tests
 *.md
 !README.md
 apps/graphify-worker/.venv
+apps/ingestion-worker/.venv
 apps/url-fetcher-worker/.venv
+packages/python-worker-protocol/.venv
 apps/graphify-worker/__pycache__
+.ruff_cache/
 .pytest_cache
+**/.pytest_cache
+*.egg-info
+**/*.egg-info
 **/__pycache__
 **/*.tsbuildinfo

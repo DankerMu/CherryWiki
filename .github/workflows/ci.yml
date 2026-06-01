@@ -78,6 +78,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r apps/url-fetcher-worker/requirements.txt
+          python -m pip install -e packages/python-worker-protocol
 
       - name: Build
         run: pnpm build
@@ -129,7 +130,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          if [ "${{ matrix.worker }}" = "ingestion-worker" ] || [ "${{ matrix.worker }}" = "url-fetcher-worker" ]; then
+            pip install -e ../../packages/python-worker-protocol
+          fi
           pip install ruff pytest pytest-asyncio
+
+      - name: Test shared worker protocol
+        if: matrix.worker == 'ingestion-worker'
+        run: python -m pytest ../../packages/python-worker-protocol/tests -v
 
       - name: Lint
         run: ruff check src/ tests/
@@ -189,7 +197,14 @@ jobs:
           for f in apps/*/Dockerfile ops/agent/Dockerfile; do
             if [ -f "$f" ]; then
               echo "Checking $f..."
-              docker buildx build --check -f "$f" "$(dirname "$f")" || status=1
+              case "$f" in
+                apps/ingestion-worker/Dockerfile|apps/url-fetcher-worker/Dockerfile)
+                  docker buildx build --check -f "$f" . || status=1
+                  ;;
+                *)
+                  docker buildx build --check -f "$f" "$(dirname "$f")" || status=1
+                  ;;
+              esac
             fi
           done
           exit $status

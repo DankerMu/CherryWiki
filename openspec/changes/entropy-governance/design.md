@@ -282,6 +282,18 @@ fi
 pip install ruff pytest pytest-asyncio
 ```
 
+CI `node-ci` also creates a Python environment for URL fetcher smoke/integration
+coverage (`URL_FETCHER_PYTHON=python`, including
+`tests/smoke/egress-smoke.test.ts`). #421 must install the shared package in
+that setup before Node tests so the URL fetcher runtime remains importable when
+#423 later migrates it:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r apps/url-fetcher-worker/requirements.txt
+python -m pip install -e packages/python-worker-protocol
+```
+
 CI Dockerfile syntax checks must use repository root context for the two Python
 worker app Dockerfiles:
 
@@ -361,6 +373,7 @@ Required future #421-#423 verification:
 
 ```bash
 packages/python-worker-protocol/.venv/bin/python -m pytest packages/python-worker-protocol/tests -v
+pnpm exec vitest run tests/smoke/egress-smoke.test.ts --config vitest.config.ts --passWithNoTests=false
 apps/ingestion-worker/.venv/bin/python -m pytest apps/ingestion-worker/tests -v
 apps/url-fetcher-worker/.venv/bin/python -m pytest apps/url-fetcher-worker/tests -v
 docker buildx build --check -f apps/ingestion-worker/Dockerfile .
