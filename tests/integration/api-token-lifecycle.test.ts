@@ -146,7 +146,7 @@ function createApiTokenRow(overrides: Partial<typeof apiTokens.$inferSelect> = {
     token_prefix: 'cwt_ab12',
     scopes: ['mcp:invoke'],
     last_used_at: null,
-    expires_at: new Date('2026-06-01T00:00:00.000Z'),
+    expires_at: new Date('2099-06-01T00:00:00.000Z'),
     revoked_at: null,
     created_at: new Date('2026-05-01T00:00:00.000Z'),
     ...overrides,

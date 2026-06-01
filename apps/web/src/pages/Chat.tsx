@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import { Link, Navigate, useNavigate, useParams } from 'react-router';
@@ -18,41 +18,31 @@ import {
 import ChatChart from '../components/ChatChart.js';
 import { ConfidenceBadge } from '../components/ConfidenceBadge.js';
 import GraphPathViewer, { type GraphPathData, type GraphPathEdge, type GraphPathNode } from '../components/GraphPathViewer.js';
-import { formatDate, getErrorMessage } from '../components/adminUi.js';
+import { formatDate } from '../components/adminUi.js';
 import { SpaceForbiddenState, useSpacePermissionGate } from '../components/SpacePermissionGate.js';
 import {
   CHAT_INPUT_MAX_LENGTH,
-  DEFAULT_RETRIEVAL_MODE,
   getChatErrorMessage,
   isAgentRetrievalMode,
   useChatStream,
-  type ChatApiSessionDetail,
   type ChatCitation,
   type ChatMessage,
   type ChatMessagePart,
   type ChatToolUsePart,
   type RetrievalMode,
   type SendMessageOptions,
-  type SpaceDisplayInfo,
 } from '../hooks/useChatStream.js';
-import { useChatModelAvailable } from '../hooks/useChatModelAvailable.js';
-import { api } from '../lib/api.js';
-import { useAuth, type AuthUser } from '../lib/auth.js';
+import { useAuth } from '../lib/auth.js';
 import NotFound from './NotFound.js';
-
-type ChatSession = {
-  id: string;
-  title: string | null;
-  space_ids?: string[];
-  space_details?: SpaceDisplayInfo[];
-  updated_at: string;
-  created_at: string;
-};
-
-type AvailableChatSpace = {
-  id: string;
-  name: string;
-};
+import {
+  CHAT_SPACE_SELECTION_MAX,
+  DEFAULT_CHAT_SETTINGS,
+  normalizeRetrievalMode,
+  normalizeSelectedSpaceIds,
+} from './chat/chatScopeUtils.js';
+import type { AvailableChatSpace, ChatSession, ChatSettings } from './chat/types.js';
+import { useChatScopeSettings } from './chat/useChatScopeSettings.js';
+import { useChatSessions } from './chat/useChatSessions.js';
 
 type MessageInputProps = {
   disabled: boolean;
@@ -87,22 +77,6 @@ type ChatMessageBubbleProps = {
   spaceNameById?: Record<string, string>;
 };
 
-type ChatSettings = {
-  enableDeepAnalysis: boolean;
-  enableDatabase: boolean;
-  retrievalMode: RetrievalMode;
-};
-
-type ChatSpaceDetail = {
-  database_config?: unknown;
-};
-
-const DEFAULT_CHAT_SETTINGS: ChatSettings = {
-  enableDeepAnalysis: false,
-  enableDatabase: false,
-  retrievalMode: DEFAULT_RETRIEVAL_MODE,
-};
-const CHAT_SPACE_SELECTION_MAX = 10;
 const CHAT_SIDEBAR_COLLAPSED_KEY = 'cherry-chat-sidebar-collapsed';
 
 export default function Chat() {
@@ -110,32 +84,28 @@ export default function Chat() {
   const { spaceId = '' } = useParams();
   const { accessToken, hasSpacePermission, isAdmin, isAuthenticated, user } = useAuth();
   const gate = useSpacePermissionGate(['space:view', 'chat:use']);
-  const chatModelAvailable = useChatModelAvailable(isAuthenticated && gate.isAllowed);
-  const [sessions, setSessions] = useState<ChatSession[]>([]);
-  const [sessionsLoading, setSessionsLoading] = useState(true);
-  const [sessionsError, setSessionsError] = useState<string | null>(null);
-  const [availableSpaces, setAvailableSpaces] = useState<AvailableChatSpace[]>([]);
-  const [spaceRefreshVersion, setSpaceRefreshVersion] = useState(0);
-  const [selectedSpaceIds, setSelectedSpaceIds] = useState<string[]>(() => normalizeSelectedSpaceIds(spaceId, [spaceId]));
-  const [spaceDatabaseEnabled, setSpaceDatabaseEnabled] = useState(false);
-  const selectedSpaceSettingsKey = useMemo(() => getChatSettingsKey(selectedSpaceIds), [selectedSpaceIds]);
-  const [chatSettingsState, setChatSettingsState] = useState<{ storageKey: string; settings: ChatSettings }>(() => {
-    const initialSpaceIds = normalizeSelectedSpaceIds(spaceId, [spaceId]);
-    return {
-      storageKey: getChatSettingsKey(initialSpaceIds),
-      settings: loadChatSettings(initialSpaceIds),
-    };
-  });
-  const chatSettingsKeyRef = useRef(chatSettingsState.storageKey);
-  const chatSettings =
-    chatSettingsState.storageKey === selectedSpaceSettingsKey
-      ? chatSettingsState.settings
-      : loadChatSettings(selectedSpaceIds);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => loadSidebarCollapsed());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
-  const sessionSwitchRef = useRef(0);
   const previousSpaceIdRef = useRef(spaceId);
+  const loadSessionsRef = useRef<((background?: boolean) => Promise<void>) | undefined>(undefined);
+  const {
+    availableSpaces,
+    chatModelAvailable,
+    chatSettings,
+    databaseAvailable,
+    selectedSpaceIds,
+    setAvailableSpaces,
+    setSelectedSpaceIds,
+    refreshAvailableSpaces,
+    updateChatSettings,
+  } = useChatScopeSettings({
+    spaceId,
+    isAuthenticated,
+    isAllowed: gate.isAllowed,
+    user,
+    hasSpacePermission,
+  });
   const spaceNameById = useMemo(() => {
     const names: Record<string, string> = {};
     for (const space of availableSpaces) {
@@ -143,39 +113,6 @@ export default function Chat() {
     }
     return names;
   }, [availableSpaces]);
-
-  const loadSessions = useCallback(
-    async (background = false) => {
-      if (!isAuthenticated || spaceId.length === 0 || !gate.isAllowed) {
-        setSessions([]);
-        setSessionsLoading(false);
-        return;
-      }
-
-      if (!background) {
-        setSessionsLoading(true);
-      }
-      setSessionsError(null);
-
-      try {
-        const response = await api.getWrapped<ChatSession[]>(
-          `/spaces/${encodeURIComponent(spaceId)}/chat/sessions`,
-          {
-            page: 1,
-            limit: 50,
-          },
-        );
-        setSessions(sortSessions(response.data));
-      } catch (err) {
-        setSessionsError(getErrorMessage(err));
-      } finally {
-        if (!background) {
-          setSessionsLoading(false);
-        }
-      }
-    },
-    [gate.isAllowed, isAuthenticated, spaceId],
-  );
 
   const {
     messages,
@@ -188,124 +125,49 @@ export default function Chat() {
     startNewSession,
   } = useChatStream({
     spaceId,
-    spaceIds: selectedSpaceIds,
     accessToken,
     onSession: () => {
-      void loadSessions(true);
+      void loadSessionsRef.current?.(true);
     },
   });
 
-  useEffect(() => {
-    void loadSessions();
-  }, [loadSessions]);
+  const {
+    sessions,
+    sessionsLoading,
+    sessionsError,
+    loadSessions,
+    openSession,
+    executeDeleteSession,
+    newChat,
+    handleSpaceChange,
+  } = useChatSessions({
+    spaceId,
+    isAuthenticated,
+    isAllowed: gate.isAllowed,
+    activeSessionId: sessionId,
+    selectedSpaceIds,
+    setSelectedSpaceIds,
+    setAvailableSpaces,
+    loadStreamSession: loadSession,
+    startStreamNewSession: startNewSession,
+    closeMobileSidebar: () => setIsMobileSidebarOpen(false),
+    scopeUpdateFailedMessage: t('chat.scopeUpdateFailed'),
+  });
+
+  loadSessionsRef.current = loadSessions;
 
   useEffect(() => {
     if (previousSpaceIdRef.current !== spaceId) {
       startNewSession();
       previousSpaceIdRef.current = spaceId;
     }
-    setSelectedSpaceIds(normalizeSelectedSpaceIds(spaceId, [spaceId]));
   }, [spaceId, startNewSession]);
 
   useEffect(() => {
-    if (chatSettingsKeyRef.current !== selectedSpaceSettingsKey) {
-      chatSettingsKeyRef.current = selectedSpaceSettingsKey;
-      setChatSettingsState({
-        storageKey: selectedSpaceSettingsKey,
-        settings: loadChatSettings(selectedSpaceIds),
-      });
-    }
-  }, [selectedSpaceIds, selectedSpaceSettingsKey]);
-
-  useEffect(() => {
-    if (chatSettingsState.storageKey === selectedSpaceSettingsKey) {
-      saveChatSettings(selectedSpaceIds, chatSettingsState.settings);
-    }
-  }, [chatSettingsState, selectedSpaceIds, selectedSpaceSettingsKey]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadAvailableSpaces(): Promise<void> {
-      if (!isAuthenticated || spaceId.length === 0 || !gate.isAllowed) {
-        setAvailableSpaces([]);
-        return;
-      }
-
-      try {
-        const response = await api.getWrapped<Array<AvailableChatSpace & { status?: string }>>('/spaces', {
-          per_page: 100,
-          sort: 'name',
-        });
-        if (cancelled) return;
-        const spaces = response.data
-          .filter((space) => (space.status ?? 'active') === 'active')
-          .filter((space) => hasSpacePermission(space.id, 'chat:use'))
-          .map((space) => ({ id: space.id, name: space.name }));
-        setAvailableSpaces(ensureSpaceOption(spaces, spaceId, getKnownSpaceName(user, spaceId)));
-      } catch {
-        if (!cancelled) {
-          setAvailableSpaces(ensureSpaceOption(getUserChatSpaces(user, hasSpacePermission), spaceId, getKnownSpaceName(user, spaceId)));
-        }
-      }
-    }
-
-    void loadAvailableSpaces();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [gate.isAllowed, hasSpacePermission, isAuthenticated, spaceId, spaceRefreshVersion, user]);
-
-  useEffect(() => {
-    setSelectedSpaceIds((current) => {
-      const authorized = new Set(availableSpaces.map((space) => space.id));
-      return normalizeSelectedSpaceIds(
-        spaceId,
-        current.filter((id) => id === spaceId || authorized.has(id)),
-      );
-    });
-  }, [availableSpaces, spaceId]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!isAuthenticated || spaceId.length === 0 || !gate.isAllowed) {
-      setSpaceDatabaseEnabled(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    api
-      .get<ChatSpaceDetail>(`/spaces/${encodeURIComponent(spaceId)}`)
-      .then((space) => {
-        if (!cancelled) {
-          setSpaceDatabaseEnabled(isSpaceDatabaseEnabled(space.database_config));
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setSpaceDatabaseEnabled(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [gate.isAllowed, isAuthenticated, spaceId]);
-
-  useEffect(() => {
-    if ((!spaceDatabaseEnabled || selectedSpaceIds.length > 1) && chatSettings.enableDatabase) {
-      updateChatSettings({ ...chatSettings, enableDatabase: false });
-    }
-  }, [chatSettings.enableDatabase, selectedSpaceIds.length, spaceDatabaseEnabled]);
-
-  useEffect(() => {
     if (streamError?.status === 403 || streamError?.code === 'SPACE_PERMISSION_DENIED') {
-      setSpaceRefreshVersion((version) => version + 1);
+      refreshAvailableSpaces();
     }
-  }, [streamError]);
+  }, [refreshAvailableSpaces, streamError]);
 
   useEffect(() => {
     if (typeof messagesEndRef.current?.scrollIntoView === 'function') {
@@ -329,88 +191,12 @@ export default function Chat() {
     return <SpaceForbiddenState context="chat" />;
   }
 
-  async function openSession(nextSessionId: string): Promise<void> {
-    setSessionsError(null);
-    setIsMobileSidebarOpen(false);
-    const switchVersion = ++sessionSwitchRef.current;
-
-    try {
-      const detail = await api.get<ChatApiSessionDetail>(
-        `/spaces/${encodeURIComponent(spaceId)}/chat/sessions/${encodeURIComponent(nextSessionId)}`,
-      );
-      if (sessionSwitchRef.current !== switchVersion) return;
-      setAvailableSpaces((current) => mergeSpaceOptions(current, detail.space_details ?? []));
-      setSelectedSpaceIds(normalizeSelectedSpaceIds(spaceId, detail.space_ids ?? [spaceId]));
-      loadSession(detail);
-    } catch (err) {
-      if (sessionSwitchRef.current !== switchVersion) return;
-      setSessionsError(getErrorMessage(err));
-    }
-  }
-
-  async function executeDeleteSession(session: ChatSession): Promise<void> {
-    setSessionsError(null);
-
-    try {
-      await api.delete<{ deleted: true }>(
-        `/spaces/${encodeURIComponent(spaceId)}/chat/sessions/${encodeURIComponent(session.id)}`,
-      );
-      setSessions((current) => current.filter((item) => item.id !== session.id));
-      if (session.id === sessionId) {
-        startNewSession();
-        setSelectedSpaceIds(normalizeSelectedSpaceIds(spaceId, [spaceId]));
-      }
-    } catch (err) {
-      setSessionsError(getErrorMessage(err));
-    }
-  }
-
-  function newChat(): void {
-    startNewSession();
-    setSelectedSpaceIds(normalizeSelectedSpaceIds(spaceId, [spaceId]));
-    setIsMobileSidebarOpen(false);
-  }
-
-  function updateChatSettings(settings: ChatSettings): void {
-    chatSettingsKeyRef.current = selectedSpaceSettingsKey;
-    setChatSettingsState({
-      storageKey: selectedSpaceSettingsKey,
-      settings,
-    });
-  }
-
-  async function patchSessionSpaces(nextSessionId: string, nextSpaceIds: string[]): Promise<void> {
-    await api.patch(
-      `/spaces/${encodeURIComponent(spaceId)}/chat/sessions/${encodeURIComponent(nextSessionId)}`,
-      { space_ids: nextSpaceIds },
-    );
-  }
-
-  async function handleSpaceChange(nextSpaceIds: string[]): Promise<void> {
-    const normalizedIds = normalizeSelectedSpaceIds(spaceId, nextSpaceIds);
-    if (sessionId !== null) {
-      const previousIds = selectedSpaceIds;
-      setSelectedSpaceIds(normalizedIds);
-      try {
-        await patchSessionSpaces(sessionId, normalizedIds);
-      } catch {
-        setSelectedSpaceIds(previousIds);
-        void message.error(t('chat.scopeUpdateFailed'));
-        return;
-      }
-      void loadSessions(true);
-      return;
-    }
-
-    setSelectedSpaceIds(normalizedIds);
-  }
-
   async function handleSend(message: string, settings: ChatSettings): Promise<void> {
     const options: SendMessageOptions = {
       sessionId,
       spaceIds: selectedSpaceIds,
       enableDeepAnalysis: settings.enableDeepAnalysis,
-      enableDatabase: selectedSpaceIds.length === 1 && spaceDatabaseEnabled && settings.enableDatabase,
+      enableDatabase: databaseAvailable && settings.enableDatabase,
       retrievalMode: settings.retrievalMode,
     };
 
@@ -561,7 +347,7 @@ export default function Chat() {
             disabled={chatInputDisabled}
             isStreaming={isStreaming}
             settings={chatSettings}
-            databaseAvailable={selectedSpaceIds.length === 1 && spaceDatabaseEnabled}
+            databaseAvailable={databaseAvailable}
             onSettingsChange={updateChatSettings}
             onSend={handleSend}
           />
@@ -834,7 +620,12 @@ export function SessionSidebar({
             return (
               <List.Item
                 className={`chat-session-item${session.id === activeSessionId ? ' active' : ''}`}
-                onClick={() => onSelectSession(session.id)}
+                onClick={(event) => {
+                  if (event.target instanceof Element && event.target.closest('.chat-session-delete-button') !== null) {
+                    return;
+                  }
+                  onSelectSession(session.id);
+                }}
                 actions={[
                   <Popconfirm
                     key="delete"
@@ -851,9 +642,9 @@ export function SessionSidebar({
                       type="text"
                       danger
                       size="small"
+                      className="chat-session-delete-button"
                       icon={<DeleteOutlined />}
                       aria-label={`${t('common.action.delete')} ${title}`}
-                      onClick={(e) => e.stopPropagation()}
                     />
                   </Popconfirm>,
                 ]}
@@ -1157,49 +948,6 @@ function TypingIndicator() {
   );
 }
 
-function normalizeRetrievalMode(value: string): RetrievalMode {
-  const validValues: RetrievalMode[] = ['wiki_only', 'graph_rag', 'path_first', 'community_first'];
-  return validValues.includes(value as RetrievalMode) ? (value as RetrievalMode) : DEFAULT_RETRIEVAL_MODE;
-}
-
-function loadChatSettings(spaceIds: string[]): ChatSettings {
-  if (typeof window === 'undefined' || spaceIds.length === 0) {
-    return DEFAULT_CHAT_SETTINGS;
-  }
-
-  const raw = window.sessionStorage.getItem(getChatSettingsKey(spaceIds));
-  if (raw === null) {
-    return DEFAULT_CHAT_SETTINGS;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!isRecord(parsed)) {
-      return DEFAULT_CHAT_SETTINGS;
-    }
-
-    return {
-      enableDeepAnalysis: parsed.enableDeepAnalysis === true,
-      enableDatabase: parsed.enableDatabase === true,
-      retrievalMode: typeof parsed.retrievalMode === 'string' ? normalizeRetrievalMode(parsed.retrievalMode) : DEFAULT_RETRIEVAL_MODE,
-    };
-  } catch {
-    return DEFAULT_CHAT_SETTINGS;
-  }
-}
-
-function saveChatSettings(spaceIds: string[], settings: ChatSettings): void {
-  if (typeof window === 'undefined' || spaceIds.length === 0) {
-    return;
-  }
-
-  window.sessionStorage.setItem(getChatSettingsKey(spaceIds), JSON.stringify(settings));
-}
-
-function getChatSettingsKey(spaceIds: string[]): string {
-  return `cherry-chat-settings:${JSON.stringify([...spaceIds].sort())}`;
-}
-
 function loadSidebarCollapsed(): boolean {
   if (typeof window === 'undefined') {
     return false;
@@ -1222,10 +970,6 @@ function saveSidebarCollapsed(isCollapsed: boolean): void {
   } catch {
     // localStorage can be unavailable in private browsing contexts.
   }
-}
-
-function isSpaceDatabaseEnabled(value: unknown): boolean {
-  return isRecord(value) && value.enabled === true;
 }
 
 function formatToolInput(input: unknown): string {
@@ -1422,60 +1166,6 @@ function readStringArray(value: unknown): string[] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function sortSessions(sessions: ChatSession[]): ChatSession[] {
-  return [...sessions].sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime());
-}
-
-function normalizeSelectedSpaceIds(primarySpaceId: string, selectedSpaceIds: string[]): string[] {
-  const normalized: string[] = [];
-  const add = (value: string | undefined) => {
-    const trimmed = value?.trim() ?? '';
-    if (trimmed.length > 0 && !normalized.includes(trimmed)) {
-      normalized.push(trimmed);
-    }
-  };
-
-  add(primarySpaceId);
-  for (const selectedSpaceId of selectedSpaceIds) {
-    add(selectedSpaceId);
-  }
-
-  return normalized;
-}
-
-function ensureSpaceOption(spaces: AvailableChatSpace[], spaceId: string, fallbackName: string): AvailableChatSpace[] {
-  const normalized = mergeSpaceOptions(spaces, [{ id: spaceId, name: fallbackName }]);
-  return normalized.sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'));
-}
-
-function mergeSpaceOptions(spaces: AvailableChatSpace[], incoming: SpaceDisplayInfo[]): AvailableChatSpace[] {
-  const byId = new Map<string, AvailableChatSpace>();
-  for (const space of spaces) {
-    if (space.id.length > 0) {
-      byId.set(space.id, space);
-    }
-  }
-  for (const space of incoming) {
-    if (space.id.length > 0 && space.name.length > 0) {
-      byId.set(space.id, { id: space.id, name: space.name });
-    }
-  }
-  return [...byId.values()];
-}
-
-function getUserChatSpaces(
-  user: AuthUser | null,
-  hasSpacePermission: (spaceId: string, permission: string) => boolean,
-): AvailableChatSpace[] {
-  return (user?.spaces ?? [])
-    .filter((space) => hasSpacePermission(space.id, 'chat:use'))
-    .map((space) => ({ id: space.id, name: space.name }));
-}
-
-function getKnownSpaceName(user: AuthUser | null, spaceId: string): string {
-  return user?.spaces?.find((space) => space.id === spaceId)?.name ?? spaceId;
 }
 
 function formatSessionDescription(session: ChatSession): string {

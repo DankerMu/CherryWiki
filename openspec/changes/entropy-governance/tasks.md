@@ -509,16 +509,57 @@ Issue #416 fixture:
 
 ## 4. Web Chat Boundary
 
-- [ ] 4.1 Add or strengthen Web characterization tests for session switching, deletion, multi-space scope changes, model-unavailable gating, database toggle gating, message rendering, citation/source-chain rendering, and current layout controls.
-  - Verification: `pnpm --filter @cherrygraph/web test -- chat` or the repo-equivalent targeted Vitest command passes.
-- [ ] 4.2 Extract session loading/deletion workflows from `apps/web/src/pages/Chat.tsx` into focused hook(s).
-  - Verification: session switching/deletion tests pass and visible i18n text remains unchanged.
-- [ ] 4.3 Extract selected-space scope/settings, model availability gating, and database toggle gating into focused hook(s).
-  - Verification: scope/model/database gating tests pass and request payload behavior remains unchanged.
-- [ ] 4.4 Move message markdown rendering, message parts, citation panel, and source-chain rendering into focused components without changing UX or i18n keys.
+Issue #417 fixture:
+- Issue type: refactor / frontend boundary extraction
+- Project profile: other
+- Blast radius: medium
+- Fixture level: compact
+- Repair intensity: medium
+- Change surface: `apps/web/src/pages/Chat.tsx`, new or existing `apps/web/src/pages/chat/**` hook files, and `apps/web/src/__tests__/chat.test.tsx`
+- Must preserve: existing routes, API endpoints and request payloads, session list/detail/delete behavior, multi-space selected-scope order and rollback behavior, model-unavailable precheck/banner/input disablement, database toggle visibility and payload gating, sidebar/mobile controls, Chinese/i18n text, message rendering, citation/source-chain display, SSE rendering, and visual layout.
+- Must add/change: strengthen Web characterization tests for session switching/deletion and multi-space scope/settings behavior; extract session loading/open/delete/new-chat workflow and selected-space scope/settings/model/database gating workflow into focused hook(s); keep `Chat.tsx` as the composition boundary.
+- Selected risk packs:
+  - Public API / CLI / script entry: selected - Web Chat constructs existing `/api/chat/completions`, `/spaces/:id/chat/sessions`, `/spaces/:id`, `/spaces`, and `/models/chat-available` calls and must keep payloads/requests stable.
+  - Resource limits / large input / discovery: selected - selected-space scope remains capped at 10 and must preserve route-space-first normalization.
+  - Error handling / rollback / partial outputs: selected - session open failures, delete failures, scope patch rollback, model availability failure, and stream permission refresh must keep current UI state behavior.
+  - Documentation / migration notes: selected - this fixture narrows #417 to session/scope hooks and leaves message/citation rendering extraction for later Web Chat work.
+- Risk packs considered:
+  - Config / project setup: not selected - no env, build config, dependency, Docker, or routing config changes.
+  - File IO / path safety / overwrite: not selected - no filesystem or browser storage semantics change beyond preserving existing localStorage/sessionStorage keys.
+  - Schema / columns / units / field names: not selected - no API schema, DTO, database schema, or persisted field names change.
+  - Geospatial / CRS / shapefile sidecars: not selected - no geospatial code changes.
+  - Time series / forcing / temporal boundaries: not selected - no temporal behavior beyond preserving existing session date display.
+  - Numerical stability / conservation / NaN: not selected - no numerical code changes.
+  - Solver runtime / performance / threading: not selected - no solver/runtime code changes.
+  - Legacy compatibility / examples: not selected - no legacy sample or migration surface changes; current UX compatibility is covered by Public API and Web tests.
+  - Release / packaging / dependency compatibility: not selected - no package metadata or dependency changes.
+- Required evidence:
+  - `pnpm exec vitest run apps/web/src/__tests__/chat.test.tsx --config vitest.config.ts --passWithNoTests=false`
+  - `pnpm --filter @cherrygraph/web test`
+  - `pnpm --filter @cherrygraph/web typecheck`
+  - `git diff --check`
+  - `openspec validate entropy-governance --strict --no-interactive`
+- Regression rows:
+  - opening a multi-space session -> `GET /spaces/:spaceId/chat/sessions/:sessionId` still restores `space_ids`, merges `space_details`, keeps selector editable, and does not change visible copy.
+  - deleting the active session -> `DELETE /spaces/:spaceId/chat/sessions/:sessionId` removes the sidebar row, starts a new session, and resets selected spaces to the route space.
+  - changing scope on an existing session succeeds -> optimistic selected spaces persist, `PATCH .../chat/sessions/:sessionId` sends `{ space_ids }`, and session list refreshes in background.
+  - changing scope on an existing session fails -> previous selected spaces are restored, `chat.scopeUpdateFailed` copy is shown, and later send payload keeps the previous scope.
+  - selected scope reaches 10 spaces -> additional unselected spaces remain disabled and route-space-first normalization is unchanged.
+  - no chat model available -> existing warning copy remains visible and input/send stay disabled; availability API failure keeps current fail-open behavior.
+  - database config disabled or multi-space selected -> database toggle hidden/disabled behavior and `enable_database=false` request payload behavior remain unchanged.
+  - unchanged sibling rendering -> message markdown, tool events, chart events, citations, source-chain links, and sidebar collapse/mobile controls still pass existing tests.
+- Non-goals: message/citation/source-chain component extraction (#future 4.4), API changes, route/DTO/schema changes, new i18n copy, visual redesign, dependency changes, backend changes, broad formatting churn, or changes inside `external/*`.
+
+- [x] 4.1 Add or strengthen Web characterization tests for session switching, deletion, multi-space scope changes, model-unavailable gating, database toggle gating, and current layout controls. For message rendering and citation/source-chain rendering, keep coverage characterization-only as unchanged sibling behavior for #417; do not extract rendering components in this issue.
+  - Verification: `pnpm exec vitest run apps/web/src/__tests__/chat.test.tsx --config vitest.config.ts --passWithNoTests=false` passed (41 tests), including active-session deletion reset, new-chat scope reset, successful/failed scope PATCH, model availability fail-open/unavailable gating, database gating, sidebar controls, and unchanged sibling rendering coverage.
+- [x] 4.2 Extract session loading/deletion workflows from `apps/web/src/pages/Chat.tsx` into focused hook(s).
+  - Verification: `apps/web/src/pages/chat/useChatSessions.ts` owns session list loading, open, delete, new chat, and scope PATCH rollback/list refresh; targeted Chat Vitest passed and visible i18n keys/text remain unchanged.
+- [x] 4.3 Extract selected-space scope/settings, model availability gating, and database toggle gating into focused hook(s).
+  - Verification: `apps/web/src/pages/chat/useChatScopeSettings.ts` owns available-space loading/fallback, selected-scope persistence, model availability precheck, database config gating, and permission-refresh trigger; Chat request payload tests passed with unchanged endpoints and payload fields.
+- [ ] 4.4 Future Web Chat issue: move message markdown rendering, message parts, citation panel, and source-chain rendering into focused components without changing UX or i18n keys. This is explicitly out of scope for #417.
   - Verification: message/citation/source-chain tests pass; unsafe markdown image/link behavior remains unchanged.
-- [ ] 4.5 Keep `Chat.tsx` as a thin page composition boundary and run targeted Web tests/typecheck.
-  - Verification: `pnpm --filter @cherrygraph/web test` and Web typecheck pass for touched files.
+- [x] 4.5 Keep `Chat.tsx` as a thin page composition boundary and run targeted Web tests/typecheck.
+  - Verification: `pnpm --filter @cherrygraph/web test` passed (15 files / 194 tests), `pnpm --filter @cherrygraph/web typecheck` passed, `git diff --check` passed, and `openspec validate entropy-governance --strict --no-interactive` passed.
 
 ## 5. Python Worker Protocol
 

@@ -500,8 +500,9 @@ describe('Phase 3 chat controls and stream events', () => {
     });
 
     renderChatRoute();
+    await waitForChatControlsReady(fetchState);
 
-    fireEvent.mouseDown(await screen.findByRole('combobox', { name: '聊天空间' }));
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: '聊天空间' }));
     fireEvent.click(await screen.findByText('Space Two'));
     await sendChatMessage('compare both spaces');
 
@@ -626,6 +627,140 @@ describe('Phase 3 chat controls and stream events', () => {
     );
   });
 
+  it('persists selected spaces and refreshes sessions when updating an existing session succeeds', async () => {
+    const fetchState = stubChatFetch({
+      sessions: [
+        {
+          id: 'session-single',
+          title: 'Single-space chat',
+          space_ids: ['space-1'],
+          space_details: [{ id: 'space-1', name: 'Space One' }],
+          created_at: '2026-05-01T10:00:00.000Z',
+          updated_at: '2026-05-01T11:00:00.000Z',
+        },
+      ],
+      sessionDetails: {
+        'session-single': {
+          id: 'session-single',
+          space_ids: ['space-1'],
+          space_details: [{ id: 'space-1', name: 'Space One' }],
+          messages: [],
+        },
+      },
+      streamEvents: [{ event: 'message.completed', data: {} }],
+    });
+
+    renderChatRoute();
+    fireEvent.click(await screen.findByText('Single-space chat'));
+
+    fireEvent.mouseDown(await screen.findByRole('combobox', { name: '聊天空间' }));
+    fireEvent.click(await screen.findByText('Space Two'));
+
+    await waitFor(() =>
+      expect(fetchState.calls).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: '/api/spaces/space-1/chat/sessions/session-single',
+            body: { space_ids: ['space-1', 'space-2'] },
+          }),
+        ]),
+      ),
+    );
+
+    const sessionListFetches = fetchState.calls.filter((call) => call.path === '/api/spaces/space-1/chat/sessions');
+    expect(sessionListFetches.length).toBeGreaterThanOrEqual(2);
+
+    await sendChatMessage('continue with expanded scope');
+    await waitFor(() =>
+      expect(getLastChatCompletionBody(fetchState.calls)).toMatchObject({
+        session_id: 'session-single',
+        space_ids: ['space-1', 'space-2'],
+      }),
+    );
+  });
+
+  it('deleting the active session removes it and resets the chat scope to the route space', async () => {
+    const fetchState = stubChatFetch({
+      sessions: [
+        {
+          id: 'session-multi',
+          title: 'Multi-space chat',
+          space_ids: ['space-1', 'space-2'],
+          space_details: [
+            { id: 'space-1', name: 'Space One' },
+            { id: 'space-2', name: 'Space Two' },
+          ],
+          created_at: '2026-05-01T10:00:00.000Z',
+          updated_at: '2026-05-01T11:00:00.000Z',
+        },
+      ],
+      sessionDetails: {
+        'session-multi': {
+          id: 'session-multi',
+          space_ids: ['space-1', 'space-2'],
+          space_details: [
+            { id: 'space-1', name: 'Space One' },
+            { id: 'space-2', name: 'Space Two' },
+          ],
+          messages: [],
+        },
+      },
+      streamEvents: [{ event: 'message.completed', data: {} }],
+    });
+
+    renderChatRoute();
+    fireEvent.click(await screen.findByText('Multi-space chat'));
+    expect(await screen.findByText('Space Two')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '删除 Multi-space chat' }));
+    await waitFor(() => {
+      const popoverButtons = document.querySelectorAll('.ant-popconfirm .ant-btn-primary');
+      expect(popoverButtons.length).toBeGreaterThan(0);
+      fireEvent.click(popoverButtons[0] as HTMLElement);
+    });
+
+    await waitFor(() =>
+      expect(fetchState.calls).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: '/api/spaces/space-1/chat/sessions/session-multi',
+            body: null,
+          }),
+        ]),
+      ),
+    );
+    await waitFor(() => expect(screen.queryByText('Multi-space chat')).not.toBeInTheDocument());
+
+    await sendChatMessage('start after delete');
+    await waitFor(() =>
+      expect(getLastChatCompletionBody(fetchState.calls)).toMatchObject({
+        space_ids: ['space-1'],
+      }),
+    );
+    expect(getLastChatCompletionBody(fetchState.calls)).not.toHaveProperty('session_id');
+  });
+
+  it('new chat resets selected spaces to the route space', async () => {
+    const fetchState = stubChatFetch({
+      streamEvents: [{ event: 'message.completed', data: {} }],
+    });
+
+    renderChatRoute();
+    fireEvent.mouseDown(await screen.findByRole('combobox', { name: '聊天空间' }));
+    fireEvent.click(await screen.findByText('Space Two'));
+    expect(await screen.findByText(/已选择 2 个空间/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /新建对话/ }));
+    await waitFor(() => expect(screen.queryByText(/已选择 2 个空间/)).not.toBeInTheDocument());
+
+    await sendChatMessage('single space after new chat');
+    await waitFor(() =>
+      expect(getLastChatCompletionBody(fetchState.calls)).toMatchObject({
+        space_ids: ['space-1'],
+      }),
+    );
+  });
+
   it('sends enable_deep_analysis when the deep analysis toggle is on', async () => {
     const fetchState = stubChatFetch({
       streamEvents: [{ event: 'message.completed', data: { latency_ms: 42 } }],
@@ -633,7 +768,8 @@ describe('Phase 3 chat controls and stream events', () => {
 
     renderChatRoute();
 
-    fireEvent.click(await screen.findByRole('button', { name: '深度分析' }));
+    await waitForChatControlsReady(fetchState);
+    fireEvent.click(screen.getByRole('button', { name: '深度分析' }));
     await sendChatMessage('explain the architecture');
 
     await waitFor(() => expect(getLastChatCompletionBody(fetchState.calls)).toMatchObject({ enable_deep_analysis: true }));
@@ -644,20 +780,48 @@ describe('Phase 3 chat controls and stream events', () => {
   });
 
   it('shows the database toggle only when the space database config is enabled', async () => {
-    stubChatFetch({ databaseEnabled: false });
+    const databaseDisabledFetchState = stubChatFetch({ databaseEnabled: false });
     renderChatRoute();
 
-    await screen.findByLabelText('消息');
+    await waitForChatControlsReady(databaseDisabledFetchState);
     expect(screen.queryByRole('button', { name: '数据库' })).not.toBeInTheDocument();
 
     cleanup();
     vi.unstubAllGlobals();
 
-    stubChatFetch({ databaseEnabled: true });
+    const databaseEnabledFetchState = stubChatFetch({ databaseEnabled: true });
     renderChatRoute();
 
-    expect(await screen.findByRole('button', { name: '数据库' })).toBeInTheDocument();
+    await waitForChatControlsReady(databaseEnabledFetchState, { databaseAvailable: true });
+    expect(screen.getByRole('button', { name: '数据库' })).toBeInTheDocument();
   });
+
+  it(
+    'hides the database toggle and sends no enable_database flag when multiple spaces are selected',
+    async () => {
+      const fetchState = stubChatFetch({
+        databaseEnabled: true,
+        streamEvents: [{ event: 'message.completed', data: {} }],
+      });
+
+      renderChatRoute();
+      await waitForChatControlsReady(fetchState, { databaseAvailable: true });
+
+      fireEvent.click(screen.getByRole('button', { name: '数据库' }));
+      fireEvent.mouseDown(screen.getByRole('combobox', { name: '聊天空间' }));
+      fireEvent.click(await screen.findByText('Space Two'));
+
+      expect(await screen.findByText(/已选择 2 个空间/)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '数据库' })).not.toBeInTheDocument();
+      await sendChatMessage('multi-space disables database');
+
+      await waitFor(() => expect(getLastChatCompletionBody(fetchState.calls)).not.toHaveProperty('enable_database'));
+      expect(getLastChatCompletionBody(fetchState.calls)).toMatchObject({
+        space_ids: ['space-1', 'space-2'],
+      });
+    },
+    25_000,
+  );
 
   it('renders agent.tool_use events as a collapsed tool panel', async () => {
     stubChatFetch({
@@ -672,7 +836,8 @@ describe('Phase 3 chat controls and stream events', () => {
 
     renderChatRoute();
 
-    fireEvent.click(await screen.findByRole('button', { name: '深度分析' }));
+    await waitForChatControlsReady();
+    fireEvent.click(screen.getByRole('button', { name: '深度分析' }));
     await sendChatMessage('run a database check');
 
     expect(await screen.findByText('Bash')).toBeInTheDocument();
@@ -724,16 +889,15 @@ describe('Phase 3 chat controls and stream events', () => {
 
     renderChatRoute();
 
-    // antd Select renders a combobox input; find the retrieval mode selector
-    // via its surrounding label text and the Select's internal input.
+    await waitFor(() => expect(screen.getByLabelText<HTMLTextAreaElement>('消息')).not.toBeDisabled());
     const selectWrapper = await screen.findByText('检索模式');
-    const combobox = selectWrapper.closest('.chat-retrieval-mode-label')?.querySelector<HTMLInputElement>('input[role="combobox"]');
-    expect(combobox).not.toBeNull();
-    fireEvent.mouseDown(combobox!);
+    const selectTrigger = selectWrapper.closest('.chat-retrieval-mode-label')?.querySelector<HTMLElement>('.ant-select-selector');
+    expect(selectTrigger).not.toBeNull();
+    fireEvent.mouseDown(selectTrigger!);
     const pathOption = await screen.findByText('路径优先');
     fireEvent.click(pathOption);
 
-    expect(screen.getByText('Agent')).toBeInTheDocument();
+    expect(await screen.findByText('Agent')).toBeInTheDocument();
     await sendChatMessage('trace the path');
 
     await waitFor(() => expect(getLastChatCompletionBody(fetchState.calls)).toMatchObject({ retrieval_mode: 'path_first' }));
@@ -817,6 +981,30 @@ function getSpaceSelectorCombobox(): HTMLInputElement {
   const combobox = document.querySelector<HTMLInputElement>('.chat-space-selector input[role="combobox"]');
   expect(combobox).not.toBeNull();
   return combobox!;
+}
+
+async function waitForChatControlsReady(
+  fetchState?: { calls: FetchCall[] },
+  { databaseAvailable = false }: { databaseAvailable?: boolean } = {},
+): Promise<void> {
+  await waitFor(() => {
+    expect(screen.getByLabelText<HTMLTextAreaElement>('消息')).not.toBeDisabled();
+    expect(screen.getByRole('combobox', { name: '聊天空间' })).toBeInTheDocument();
+    expect(screen.queryByText('加载会话中...')).not.toBeInTheDocument();
+    if (databaseAvailable) {
+      expect(screen.getByRole('button', { name: '数据库' })).toBeInTheDocument();
+    }
+    if (fetchState !== undefined) {
+      expect(fetchState.calls).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ path: '/api/models/chat-available' }),
+          expect.objectContaining({ path: '/api/spaces' }),
+          expect.objectContaining({ path: '/api/spaces/space-1' }),
+          expect.objectContaining({ path: '/api/spaces/space-1/chat/sessions' }),
+        ]),
+      );
+    }
+  });
 }
 
 function fireTextareaKeyDown(textarea: HTMLTextAreaElement, init: KeyboardEventInit): void {
