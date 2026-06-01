@@ -2,8 +2,8 @@
 
 - [x] 0.1 Update `docs/project/26_需求追踪矩阵.md` with entropy-governance rows for scoped agent context, API error contract, API Chat boundary, Web Chat boundary, Python worker protocol, and baseline refresh. Use explicit `N/A（不新增/不变更）` for unchanged API/Schema columns.
   - Verification: `rg -n "Entropy governance|熵治理" docs/project/26_需求追踪矩阵.md` shows rows with non-empty API, Schema, and Test columns.
-- [ ] 0.2 Produce implementation inventories for API error helpers/local string codes, Chat backend responsibility seams, Web Chat responsibility seams, and Python worker job protocol duplication.
-  - Verification: each downstream issue references the relevant inventory and has a bounded file list before code movement starts.
+- [x] 0.2 Produce implementation inventories for API error helpers/local string codes, Chat backend responsibility seams, Web Chat responsibility seams, and Python worker job protocol duplication.
+  - Verification: downstream issue fixtures record bounded file lists and inventories: #410 created `docs/audit/api-error-inventory.md`; #413-#416 record Chat backend responsibility surfaces; #417-#419 record Web Chat responsibility surfaces; #420 records Python worker protocol duplication and chosen shared package strategy.
 
 ## 1. Scoped Agent Context
 
