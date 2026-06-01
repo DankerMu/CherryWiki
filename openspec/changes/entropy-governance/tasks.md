@@ -443,10 +443,69 @@ Issue #415 fixture:
   - Verification: targeted Chat model/rerank/usage suite passed (3 files / 83 tests), query-routing + Agent routing/SSE/dispatch suite passed (4 files / 23 tests), and Chat-Agent integration suite passed (3 files / 7 tests). Added coverage for provider config conversion, missing embedding model row / unusable embedding key 422 `NO_EMBEDDING_MODEL_CONFIGURED`, bound Agent continuation without static retrieval/provider work, unavailable single-space database config static-route and Agent dispatch behavior, and ChatService `AgentSessionBusyError` SSE mapping.
 - [x] 3.6 Extract model/provider resolution and Agent dispatch decision code into focused collaborator(s), keeping `ChatService` as public orchestration boundary.
   - Verification: `ChatModelResolutionService` owns enabled chat model lookup and chat provider construction; `ChatRoutingService` owns Agent/static route decision, no-hit Agent fallback eligibility, and Agent database dispatch context. Chat stream still emits the same `session`, `content`, `citations`, `usage`, `agent.tool_use`, `chart.data`, `message.completed`, and `error` event names where applicable; API typecheck/lint, `git diff --check`, and `openspec validate entropy-governance --strict --no-interactive` passed.
-- [ ] 3.7 Add or strengthen characterization tests for message/citation persistence, model usage logs, retrieval traces, and completion metadata.
-  - Verification: `apps/api/src/chat/__tests__/model-usage.test.ts` and persistence/citation tests pass.
-- [ ] 3.8 Extract trace/usage/message/citation persistence and SSE shaping helpers while preserving `ChatService` as public orchestration boundary.
-  - Verification: targeted Chat and Agent tests pass; `apps/api/src/chat/chat.service.ts` no longer contains newly added mixed-responsibility blocks for these concerns.
+Issue #416 fixture:
+- Issue type: refactor / boundary extraction
+- Project profile: other
+- Blast radius: high
+- Fixture level: expanded
+- Repair intensity: high
+- Change surface: `apps/api/src/chat/**` persistence and stream event shaping, including `chat_messages`, `answer_citations`, `retrieval_traces`, `model_usage_logs`, completion metadata, and public Chat SSE event construction; `ChatService` remains the public controller-facing orchestration boundary
+- Must preserve: existing `POST /api/chat/completions` REST/SSE route contract, DTO shape, database schema, persisted row shapes for `chat_messages`, `answer_citations`, `retrieval_traces`, and `model_usage_logs`, message ordering/timestamps, citation/source-chain metadata JSON compatibility, retrieval trace JSON compatibility, model usage fields, completion metadata, audit completion metadata/payload compatibility, SSE event names/order/data shapes, Agent/static route behavior introduced by #415, retrieval behavior introduced by #414, and session/scope behavior introduced by #413
+- Must add/change: strengthen or reuse characterization tests for user/assistant message persistence, citation/source-chain persistence, retrieval trace insert/catch behavior, model usage log persistence, completion metadata, audit completion metadata, static no-hit metadata, Agent/database metadata, and SSE event shaping; extract trace/usage/message/citation persistence and stream event shaping into focused collaborator(s) without moving route/DTO/schema, retrieval/rerank internals, model/provider resolution, Agent routing, Agent runtime, or Web rendering
+- Selected risk packs:
+  - Public API / CLI / script entry: selected - Chat completion is a public REST/SSE entrypoint and SSE event compatibility is client-observable
+  - Schema / columns / units / field names: selected - persisted Chat rows and JSON metadata fields are DB-backed API contracts even though no migration is allowed
+  - Error handling / rollback / partial outputs: selected - trace insertion failure, model usage persistence, Agent failure/busy events, no-hit paths, and stream completion must preserve current partial-output and cleanup behavior
+  - Documentation / migration notes: selected - this fixture closes the final API Chat structural slice and records the persistence/SSE boundary for later Web and worker issues
+- Risk packs considered:
+  - Config / project setup: not selected - no runtime env, Docker, dependency, or deployment behavior changes
+  - File IO / path safety / overwrite: not selected - no filesystem reads/writes or artifact path behavior changes
+  - Geospatial / CRS / shapefile sidecars: not selected - no geospatial code changes
+  - Time series / forcing / temporal boundaries: not selected - no temporal data behavior changes beyond preserving existing timestamps and ordering
+  - Numerical stability / conservation / NaN: not selected - no numerical code changes
+  - Solver runtime / performance / threading: not selected - no solver/runtime/threading changes
+  - Resource limits / large input / discovery: selected - streamed events and citation/message persistence must remain bounded and must not duplicate large payloads or introduce unbounded buffering
+  - Legacy compatibility / examples: not selected - no legacy sample/runtime behavior changes
+  - Release / packaging / dependency compatibility: not selected - no package metadata or dependency changes
+- Invariant Matrix:
+  - Governing invariant: persistence/SSE refactoring must write the same durable Chat facts and emit the same public stream contract after the existing session, retrieval, model, and routing collaborators choose a path.
+  - Source-of-truth identity/contract: `ChatController` SSE/REST routes, Chat DTOs, Drizzle schema for `chat_messages`, `answer_citations`, `retrieval_traces`, and `model_usage_logs`, and current Chat/Agent stream tests.
+  - Producers: `ChatService` orchestration, static LLM completion path, strict/no-hit path, Agent routed path, retrieval trace construction from `ChatRetrievalService`, model/provider resolution from `ChatModelResolutionService`, and route decisions from `ChatRoutingService`.
+  - Validators/preflight: targeted Chat persistence/model-usage/query-routing/Agent SSE tests, Chat-Agent integration tests, full API tests, diff scope review, and `git diff --check`.
+  - Storage/cache/query: unchanged - no DB schema, migration, Drizzle table definition, query predicate, or cache behavior change; only persistence call ownership may move.
+  - Public routes/entrypoints: existing Chat completions SSE/REST route plus Chat session REST routes only as they are exercised by completion persistence.
+  - Frontend/downstream consumers: unchanged Web Chat SSE consumers of `session`, `content`, `citations`, `usage`, `agent.tool_use`, `chart.data`, `message.completed`, and `error`; admin/audit consumers of retrieval traces and model usage logs; citation/source-chain renderers consuming persisted citation metadata.
+  - Failure paths/rollback/stale state: trace DB insert failure remains non-fatal with the same catch/log timing, model usage write errors keep current request behavior, strict no-hit writes the same assistant metadata, Agent busy/failure emits the same `error` event shape, and stream completion/error cleanup behavior remains unchanged.
+  - Evidence/audit/readiness: OpenSpec fixture, targeted Vitest commands, full API typecheck/lint/test, `openspec validate entropy-governance --strict --no-interactive`, and PR diff review showing no DTO/schema/route/env/dependency/Web changes and no movement of #413/#414/#415 boundaries.
+  - Regression rows:
+    - static successful Chat completion -> same user and assistant `chat_messages` rows, same assistant `metadata_json`, same audit completion metadata/payload, same `answer_citations` rows/source-chain JSON, same `model_usage_logs` fields, and same `session/content/citations/usage/message.completed` event compatibility
+    - strict knowledge no-hit -> same no-hit assistant message, metadata/source behavior, trace persistence attempt, and no LLM invocation
+    - retrieval trace insert succeeds/fails -> same trace JSON shape on success and same non-fatal catch behavior on failure
+    - citations with source-chain metadata -> same normalized persisted `source_chain_json` and SSE citation payload shape
+    - Agent-routed completion -> same bound Agent metadata/database mode persistence, same Agent SSE passthrough events, same `message.completed` behavior, and no static persistence duplication
+    - Agent busy/failure/error event -> same public `{ type: "error", code: "agent_session_busy" }` or existing error shape and cleanup behavior
+    - missing chat/embedding/rerank model paths -> same status/code/message and no incompatible partial persistence introduced by extracted helpers
+- Boundary-surface checklist:
+  - Shared helper roots: new Chat-local persistence/SSE collaborator(s) under `apps/api/src/chat/**`; Nest provider wiring may change only to register those Chat-local collaborator(s), with no module import/env/dependency changes; no common/shared helper promotion unless already existing
+  - Public entrypoints: `ChatController` completion route and current SSE event stream
+  - Read/write surfaces: `chat_messages`, `answer_citations`, `retrieval_traces`, `model_usage_logs`, and session timestamp/title updates already owned by existing completion flow
+  - Producer/consumer evidence boundaries: retrieval result/model result/Agent result -> persistence helpers -> SSE shaping helpers -> Web/admin/downstream consumers
+  - Stale-state/idempotency boundaries: existing session not-found, permission failure, strict/no-hit, Agent continuation, Agent busy, and stream abort/error paths
+  - Unchanged downstream consumers: `ChatController`, Web Chat SSE rendering, `ChatSessionBoundaryService`, `ChatRetrievalService`, `ChatModelResolutionService`, `ChatRoutingService`, Agent runtime, route DTOs, DB schema, and worker/CLI implementations
+- Required evidence:
+  - `pnpm exec vitest run apps/api/src/chat/__tests__/chat.service.test.ts apps/api/src/chat/__tests__/model-usage.test.ts apps/api/src/chat/__tests__/source-chain-citation.test.ts apps/api/src/chat/__tests__/query-routing.test.ts apps/api/src/agent/__tests__/agent-routing.test.ts apps/api/src/agent/__tests__/agent-sse-events.test.ts apps/api/src/agent/__tests__/agent-turn-dispatch.test.ts --config vitest.config.ts --passWithNoTests=false`
+  - `pnpm exec vitest run tests/integration/chat-agent-routing.test.ts tests/integration/chat-sse-format.test.ts tests/integration/chat-rag-flow.test.ts tests/integration/agent-persistent-runtime.test.ts tests/integration/cherrydb-e2e.test.ts --config vitest.config.ts --passWithNoTests=false`
+  - `pnpm --filter @cherrygraph/api typecheck`
+  - `pnpm --filter @cherrygraph/api lint`
+  - `pnpm --filter @cherrygraph/api test`
+  - `git diff --check` and PR diff scope review confirm no DTO/schema/route/env/dependency/Web changes and no movement of #413/#414/#415 boundaries
+  - `openspec validate entropy-governance --strict --no-interactive`
+- Non-goals: changing SSE event names/order/data shapes, database migration, route/DTO/schema changes, Web rendering changes, retrieval/rerank/model/provider/Agent route redesign, Agent runtime/cherrydb CLI changes, new error codes, broad formatting churn, Docker/env/dependency changes, or any changes inside `external/*`
+
+- [x] 3.7 Add or strengthen characterization tests for message/citation persistence, model usage logs, retrieval traces, and completion metadata.
+  - Verification: targeted Chat persistence/model-usage/source-chain/query-routing and Agent stream tests passed (7 files / 102 tests), plus Chat-Agent/SSE/RAG/persistent-runtime/cherrydb integration suite passed (5 files / 10 tests). Added #416 rows for static completion persisted rows/audit/trace/usage/event sequence, strict no-hit metadata and trace behavior, retrieval trace insert failure non-fatal stream compatibility, and centralized stream event shaping.
+- [x] 3.8 Extract trace/usage/message/citation persistence and SSE shaping helpers while preserving `ChatService` as public orchestration boundary.
+  - Verification: `ChatPersistenceService` owns completion-flow writes for `chat_messages`, `answer_citations`, `retrieval_traces`, `model_usage_logs`, session `updated_at`, and audit completion payloads; `ChatStreamEventService` owns public `ChatStreamEvent` construction. `ChatService` remains controller-facing orchestration, still reads `chatMessages` for session detail/history and updates session title generation, but no longer owns completion persistence write blocks or ad hoc stream event object construction. Targeted Chat/Agent tests, integration tests, API typecheck/lint, `git diff --check`, and `openspec validate entropy-governance --strict --no-interactive` passed.
 
 ## 4. Web Chat Boundary
 

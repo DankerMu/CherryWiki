@@ -8,9 +8,11 @@ import { GraphModule } from '../graph/graph.module.js';
 import { ModelConfigModule } from '../models/model-config.module.js';
 import { CHAT_PROVIDER_FACTORY, EMBEDDING_PROVIDER_FACTORY, ChatService } from './chat.service.js';
 import { ChatModelResolutionService } from './chat-model-resolution.service.js';
+import { ChatPersistenceService } from './chat-persistence.service.js';
 import { ChatRetrievalService } from './chat-retrieval.service.js';
 import { ChatRoutingService } from './chat-routing.service.js';
 import { ChatSessionBoundaryService } from './chat-session-boundary.service.js';
+import { ChatStreamEventService } from './chat-stream-event.service.js';
 import { ChatController } from './chat.controller.js';
 
 @Module({
@@ -21,6 +23,8 @@ import { ChatController } from './chat.controller.js';
     ChatRetrievalService,
     ChatModelResolutionService,
     ChatRoutingService,
+    ChatPersistenceService,
+    ChatStreamEventService,
     ChatService,
     {
       provide: CHAT_PROVIDER_FACTORY,
