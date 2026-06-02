@@ -1,10 +1,12 @@
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
+const webPort = Number(process.env.WEB_PORT);
+
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173,
+    port: Number.isInteger(webPort) && webPort > 0 ? webPort : 5173,
     proxy: {
       '/api': {
         target: process.env.API_BASE_URL ?? 'http://localhost:8081',
