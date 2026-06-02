@@ -265,7 +265,7 @@
 | 问题 | 修复 |
 |------|------|
 | graphify-worker /work/graphify 权限 | Dockerfile 添加 `mkdir + chown` 在 USER 切换前 |
-| MinIO bucket cherrywiki-graphify-out 缺失 | `mc mb` 创建；runner.py 默认名与 init 脚本不一致 |
+| MinIO bucket cherrywiki-graphify-output 缺失 | cherry-api 启动时自动创建（StorageService.onModuleInit → ensureBuckets，遍历 REQUIRED_STORAGE_BUCKETS）；runner.py:26 默认名已统一为 `cherrywiki-graphify-output`，与 storage.constants.ts（prefix `cherrywiki` + `graphify-output`）一致，无需 init 脚本手动 `mc mb` |
 | indexer-worker 缺 model_api_key 环境变量 | docker-compose.yml 添加小写 env var 映射 |
 | graph_edges 表无数据 | graph.json 的 links 字段已 backfill 到 graph_edges（34 条），新增 importGraphData 自动导入 |
 | pgcrypto 缺失 | CREATE EXTENSION pgcrypto 解决 database_config DSN 加密 |

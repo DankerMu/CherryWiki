@@ -23,7 +23,7 @@ GRAPHIFY_MODE = os.environ.get("GRAPHIFY_DEFAULT_MODE", "full")
 GRAPHIFY_REF = os.environ.get("GRAPHIFY_PINNED_REF")
 MAX_FILE_SIZE = 100 * 1024 * 1024
 MAX_TOTAL_SIZE = 1024 * 1024 * 1024
-OUTPUT_BUCKET = os.environ.get("GRAPHIFY_OUTPUT_BUCKET", "cherrywiki-graphify-out")
+OUTPUT_BUCKET = os.environ.get("GRAPHIFY_OUTPUT_BUCKET", "cherrywiki-graphify-output")
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 

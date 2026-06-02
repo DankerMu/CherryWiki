@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Any, Callable
@@ -12,6 +13,23 @@ from src import runner
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 FIXTURE_OUTPUT = REPO_ROOT / "tests" / "fixtures" / "test-graphify-output"
+
+
+def test_default_output_bucket_matches_api_authoritative_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pin the production default OUTPUT_BUCKET.
+
+    Other runner tests inject OUTPUT_BUCKET via monkeypatch, so a regression to
+    the import-time default (runner.py:26) would otherwise ship silently. The
+    value must match cherry-api's authoritative bucket name derived from
+    storage.constants.ts (prefix 'cherrywiki' + purpose 'graphify-output').
+    """
+    monkeypatch.delenv("GRAPHIFY_OUTPUT_BUCKET", raising=False)
+    resolved = os.environ.get("GRAPHIFY_OUTPUT_BUCKET", "cherrywiki-graphify-output")
+    assert resolved == "cherrywiki-graphify-output"
+    # Guard the module-level constant against a typo/revert in the default.
+    assert runner.OUTPUT_BUCKET == "cherrywiki-graphify-output"
 
 
 def test_run_success_uploads_outputs_and_cleans_workdir(
