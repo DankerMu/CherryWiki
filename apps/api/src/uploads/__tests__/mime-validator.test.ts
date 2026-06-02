@@ -155,6 +155,56 @@ describe('MimeValidator', () => {
     });
   });
 
+  it('passes .md regardless of an unusual declared MIME (text/x-markdown)', async () => {
+    const result = await new MimeValidator().validate({
+      filename: 'readme.md',
+      declaredMimeType: 'text/x-markdown',
+      buffer: Buffer.from('# Title\nProject notes.\n'),
+    });
+
+    expect(result).toMatchObject({ pass: true, details: { extension: '.md' } });
+  });
+
+  it('rejects .md declared as text/html', async () => {
+    const result = await new MimeValidator().validate({
+      filename: 'readme.md',
+      declaredMimeType: 'text/html',
+      buffer: Buffer.from('# Title\nProject notes.\n'),
+    });
+
+    expect(result).toMatchObject({ pass: false, code: ErrorCode.MIME_MISMATCH });
+  });
+
+  it('rejects .txt declared as application/zip', async () => {
+    const result = await new MimeValidator().validate({
+      filename: 'notes.txt',
+      declaredMimeType: 'application/zip',
+      buffer: Buffer.from('Plain text content for notes.\n'),
+    });
+
+    expect(result).toMatchObject({ pass: false, code: ErrorCode.MIME_MISMATCH });
+  });
+
+  it('rejects a binary extension whose declared MIME mismatches the declared gate', async () => {
+    // Buffer signature matches the extension (real PNG), so magic-byte detection would pass.
+    // The declared MIME (image/jpeg) is rejected by the declared-Content-Type gate, which
+    // runs before detection — this exercises the declared branch, not the magic-byte branch.
+    const result = await new MimeValidator().validate({
+      filename: 'image.png',
+      declaredMimeType: 'image/jpeg',
+      buffer: validPngBuffer(),
+    });
+
+    expect(result).toMatchObject({
+      pass: false,
+      code: ErrorCode.MIME_MISMATCH,
+      details: {
+        extension: '.png',
+        declared_mime: 'image/jpeg',
+      },
+    });
+  });
+
   it('passes XLSX files detected as ZIP containers', async () => {
     fileTypeFromBufferMock.mockResolvedValueOnce({ ext: 'zip', mime: 'application/zip' });
 
@@ -254,4 +304,8 @@ describe('isZipUpload', () => {
 
 function validPdfBuffer(): Buffer {
   return Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n');
+}
+
+function validPngBuffer(): Buffer {
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64)]);
 }

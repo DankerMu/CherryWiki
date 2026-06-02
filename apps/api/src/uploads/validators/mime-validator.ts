@@ -43,8 +43,8 @@ export const MIME_HEADER_BYTES = 4096;
 const PLAIN_TEXT_EXTENSIONS = new Set<AllowedUploadExtension>(['.md', '.mdx', '.txt', '.rst']);
 const OOXML_EXTENSIONS = new Set<AllowedUploadExtension>(['.docx', '.pptx', '.xlsx']);
 const EXTENSION_MIME_MAP = {
-  '.md': ['text/markdown', 'text/plain'],
-  '.mdx': ['text/markdown', 'text/mdx', 'text/plain'],
+  '.md': ['text/markdown', 'text/x-markdown', 'text/plain'],
+  '.mdx': ['text/markdown', 'text/x-markdown', 'text/mdx', 'text/plain'],
   '.txt': ['text/plain'],
   '.rst': ['text/x-rst', 'text/plain'],
   '.pdf': ['application/pdf'],
