@@ -94,6 +94,152 @@ describe('InternalJobsService', () => {
     await expect(service.pollPendingJobs('graphify', 1)).resolves.toEqual([]);
   });
 
+  it('in-process poller claims, validates, and succeeds a pending validation job', async () => {
+    const db = createDb();
+    const redis = createRedisMock();
+    const uploadsService = {
+      validateQuarantinedUpload: vi.fn(() => Promise.resolve({ pass: true })),
+      completeValidation: vi.fn(() => Promise.resolve({ status: 'archived' })),
+    };
+    const service = new InternalJobsService(db.asDb() as never, redis.asClient() as never, uploadsService as never);
+    const pendingJob = createJobRow({
+      id: 'val-1',
+      tenant_id: 'tenant-1',
+      type: 'validation',
+      status: JobStatus.PENDING,
+      payload_json: {
+        source_document_id: 'source-1',
+        quarantine_key: 'quarantine/tenant-1/space-1/upload-1.pdf',
+      },
+      created_by: 'user-1',
+    });
+
+    vi.spyOn(service, 'pollPendingJobs').mockResolvedValue([toDto(pendingJob)]);
+    vi.spyOn(JobRepository, 'findById').mockResolvedValue(pendingJob);
+    vi.spyOn(RedisJobLock, 'acquire').mockResolvedValue(true);
+    vi.spyOn(RedisJobLock, 'release').mockResolvedValue(true);
+    const transitionSpy = vi
+      .spyOn(JobStateMachine, 'transition')
+      .mockImplementation(async (_db, jobId, _from, to) => createJobRow({ ...pendingJob, id: jobId, status: to }) as never);
+    vi.spyOn(JobEventRepository, 'create').mockResolvedValue({} as Awaited<ReturnType<typeof JobEventRepository.create>>);
+
+    await expect(service.processPendingValidationJobs()).resolves.toBe(1);
+
+    // Real work ran before the terminal transition.
+    expect(uploadsService.validateQuarantinedUpload).toHaveBeenCalledWith(
+      { sourceDocumentId: 'source-1', quarantineKey: 'quarantine/tenant-1/space-1/upload-1.pdf' },
+      { tenantId: 'tenant-1', actorUserId: 'user-1', userId: 'user-1' },
+    );
+    expect(uploadsService.completeValidation).toHaveBeenCalledTimes(1);
+
+    // PENDING→RUNNING then RUNNING→SUCCEEDED, never SUCCEEDED before the work.
+    expect(transitionSpy).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      'val-1',
+      JobStatus.PENDING,
+      JobStatus.RUNNING,
+      expect.objectContaining({ locked_by: expect.stringContaining('internal:validation') }),
+    );
+    expect(transitionSpy).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      'val-1',
+      JobStatus.RUNNING,
+      JobStatus.SUCCEEDED,
+      expect.objectContaining({ result_json: { validated: true, passed: true }, locked_by: null }),
+    );
+
+    // No synthetic worker heartbeat was written.
+    expect([...redis.values.keys()].some((key) => key.startsWith('worker:heartbeat:'))).toBe(false);
+  });
+
+  it('in-process poller fails (recoverably) and does NOT succeed when validation work throws', async () => {
+    const db = createDb();
+    const redis = createRedisMock();
+    const uploadsService = {
+      validateQuarantinedUpload: vi.fn(() => Promise.reject(new Error('scanner offline'))),
+      completeValidation: vi.fn(),
+    };
+    const service = new InternalJobsService(db.asDb() as never, redis.asClient() as never, uploadsService as never);
+    const pendingJob = createJobRow({
+      id: 'val-1',
+      tenant_id: 'tenant-1',
+      type: 'validation',
+      status: JobStatus.PENDING,
+      attempt_count: 0,
+      max_attempts: 3,
+      payload_json: {
+        source_document_id: 'source-1',
+        quarantine_key: 'quarantine/tenant-1/space-1/upload-1.pdf',
+      },
+      created_by: 'user-1',
+    });
+    vi.spyOn(service, 'pollPendingJobs').mockResolvedValue([toDto(pendingJob)]);
+    vi.spyOn(JobRepository, 'findById').mockResolvedValue(pendingJob);
+    vi.spyOn(RedisJobLock, 'acquire').mockResolvedValue(true);
+    const releaseSpy = vi.spyOn(RedisJobLock, 'release').mockResolvedValue(true);
+    const transitionSpy = vi
+      .spyOn(JobStateMachine, 'transition')
+      .mockImplementation(async (_db, jobId, _from, to) =>
+        createJobRow({ ...pendingJob, id: jobId, status: to, attempt_count: 0, max_attempts: 3, locked_by: null }) as never,
+      );
+    vi.spyOn(JobEventRepository, 'create').mockResolvedValue({} as Awaited<ReturnType<typeof JobEventRepository.create>>);
+
+    await expect(service.processPendingValidationJobs()).resolves.toBe(0);
+
+    // Never archived the upload and never marked the job SUCCEEDED.
+    expect(uploadsService.completeValidation).not.toHaveBeenCalled();
+    const succeededCall = transitionSpy.mock.calls.find((call) => call[3] === JobStatus.SUCCEEDED);
+    expect(succeededCall).toBeUndefined();
+
+    // Recoverable: RUNNING→FAILED then FAILED→PENDING (attempts remain), lock released.
+    expect(transitionSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      'val-1',
+      JobStatus.RUNNING,
+      JobStatus.FAILED,
+      expect.objectContaining({ attempt_count: 1, locked_by: null }),
+    );
+    expect(transitionSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      'val-1',
+      JobStatus.FAILED,
+      JobStatus.PENDING,
+      expect.objectContaining({ started_at: null }),
+    );
+    expect(releaseSpy).toHaveBeenCalled();
+    expect([...redis.values.keys()].some((key) => key.startsWith('worker:heartbeat:'))).toBe(false);
+  });
+
+  it('in-process poller skips a job already claimed by another replica without running work', async () => {
+    const db = createDb();
+    const redis = createRedisMock();
+    const uploadsService = {
+      validateQuarantinedUpload: vi.fn(),
+      completeValidation: vi.fn(),
+    };
+    const service = new InternalJobsService(db.asDb() as never, redis.asClient() as never, uploadsService as never);
+    const pendingJob = createJobRow({ id: 'val-1', type: 'validation', status: JobStatus.PENDING });
+
+    vi.spyOn(service, 'pollPendingJobs').mockResolvedValue([toDto(pendingJob)]);
+    vi.spyOn(JobRepository, 'findById').mockResolvedValue(pendingJob);
+    vi.spyOn(RedisJobLock, 'acquire').mockResolvedValue(false); // lock held elsewhere
+    const transitionSpy = vi.spyOn(JobStateMachine, 'transition');
+
+    await expect(service.processPendingValidationJobs()).resolves.toBe(0);
+    expect(transitionSpy).not.toHaveBeenCalled();
+    expect(uploadsService.validateQuarantinedUpload).not.toHaveBeenCalled();
+  });
+
+  it('in-process poller skips when redis is unavailable', async () => {
+    const service = new InternalJobsService(createDb().asDb() as never);
+    const pollSpy = vi.spyOn(service, 'pollPendingJobs');
+
+    await expect(service.processPendingValidationJobs()).resolves.toBe(0);
+    expect(pollSpy).not.toHaveBeenCalled();
+  });
+
   it('records progress for the worker that owns the running job', async () => {
     const service = createService();
     vi.spyOn(JobRepository, 'findById').mockResolvedValue(
@@ -1240,6 +1386,11 @@ describe('InternalJobsService', () => {
     );
   });
 });
+
+// Minimal JobDto stand-in for the poller, which only reads job_id from the polled list.
+function toDto(job: JobRow): never {
+  return { job_id: job.id, tenant_id: job.tenant_id, type: job.type, status: job.status } as never;
+}
 
 function createService(): InternalJobsService {
   return new InternalJobsService(createDb().asDb() as never, createRedisMock().asClient() as never);

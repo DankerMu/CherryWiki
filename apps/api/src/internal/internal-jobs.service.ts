@@ -52,6 +52,14 @@ type StoredWorkerHeartbeat = {
 
 const DEAD_WORKER_SCAN_INTERVAL_MS = 30_000;
 const DEAD_WORKER_THRESHOLD_MS = 90_000;
+const VALIDATION_JOB_POLL_INTERVAL_MS = 5_000;
+// findPendingByType clamps the limit to Math.min(10, limit); keep this <= 10 or it is silently capped.
+const VALIDATION_JOB_BATCH = 5;
+// Lock-owner identity for in-process validation. This is the value stored in the Redis job lock
+// and in jobs.locked_by — it is NEVER registered as a worker heartbeat, so it does not show up in
+// the admin worker list. Suffixed with a per-instance UUID so a crashed instance's locks are
+// distinguishable and reclaimable by scanDeadWorkers (no heartbeat -> activity-time fallback).
+const IN_PROCESS_VALIDATION_OWNER_PREFIX = 'internal:validation';
 const DEFAULT_LOCK_TTL_SECONDS = 600;
 const HEARTBEAT_TTL_SECONDS = 180;
 const MAX_GRAPH_JSON_BYTES = 128 * 1024 * 1024;
@@ -60,6 +68,9 @@ const GRAPH_IMPORT_BATCH_SIZE = 500;
 @Injectable()
 export class InternalJobsService {
   private readonly graphImportService = new GraphImportService();
+  private validationPollInFlight = false;
+  // Stable per-instance lock owner; not a worker, never heartbeated.
+  private readonly validationLockOwner = `${IN_PROCESS_VALIDATION_OWNER_PREFIX}:${randomUUID()}`;
 
   constructor(
     @Inject(DRIZZLE) private readonly db: JobsDatabase,
@@ -102,7 +113,9 @@ export class InternalJobsService {
             result_json: null,
           });
 
-          await this.acquireJobLock(job.id, input.worker_id);
+          if (!(await this.acquireJobLock(job.id, input.worker_id))) {
+            throwApiError(ErrorCode.CONFLICT, 'Job lock already held by another worker', HttpStatus.CONFLICT);
+          }
           lockAcquired = true;
 
           await JobEventRepository.create(txDb, {
@@ -322,6 +335,239 @@ export class InternalJobsService {
     }
   }
 
+  // `validation` jobs have no external worker — cherry-api consumes them in-process via a
+  // first-class internal handler (NOT by impersonating a remote worker). Each pending job is
+  // claimed with a Redis job lock keyed by job id (safe across replicas), transitioned
+  // PENDING→RUNNING, then the real validation work runs BEFORE any terminal transition. Only on
+  // success do we move RUNNING→SUCCEEDED; on failure the job goes to FAILED and is requeued when
+  // attempts remain, so a stuck `validating` document always has a recovery path.
+  @Interval(VALIDATION_JOB_POLL_INTERVAL_MS)
+  async processPendingValidationJobs(): Promise<number> {
+    if (this.redis === undefined || this.validationPollInFlight) {
+      return 0;
+    }
+
+    this.validationPollInFlight = true;
+    try {
+      // TODO(#4): pollPendingJobs passes no tenantId, so a noisy tenant can starve others within a
+      // single batch. Per-tenant round-robin needs job-core changes (out of scope here).
+      const pending = await this.pollPendingJobs('validation', VALIDATION_JOB_BATCH);
+      if (pending.length === 0) {
+        return 0;
+      }
+
+      getApiLogger().debug(
+        { batch: pending.length, fairness: 'cross-tenant-fifo' },
+        'Processing in-process validation batch (no per-tenant fairness — see TODO #4)',
+      );
+
+      // Process the batch concurrently; per-job failures must not abort the rest.
+      const results = await Promise.allSettled(
+        pending.map((job) => this.runInternalValidationJob(job.job_id)),
+      );
+      return results.reduce((processed, result) => {
+        return processed + (result.status === 'fulfilled' && result.value ? 1 : 0);
+      }, 0);
+    } catch (error) {
+      getApiLogger().error({ err: error }, 'In-process validation poll failed');
+      return 0;
+    } finally {
+      this.validationPollInFlight = false;
+    }
+  }
+
+  // Claim, run, and finalize a single validation job as a first-class internal consumer.
+  // Returns true only when the job was claimed by THIS instance and reached SUCCEEDED.
+  private async runInternalValidationJob(jobId: string): Promise<boolean> {
+    const owner = this.validationLockOwner;
+    let lockAcquired = false;
+
+    try {
+      const job = await JobRepository.findById(this.db, jobId);
+      if (job === undefined || !isJobStatus(job.status, JobStatus.PENDING)) {
+        return false;
+      }
+
+      // Acquire the Redis lock FIRST so a concurrent replica cannot also claim this job.
+      // No worker heartbeat is written — the lock owner is an internal identity, not a worker.
+      if (!(await this.acquireJobLock(jobId, owner))) {
+        return false;
+      }
+      lockAcquired = true;
+
+      // PENDING → RUNNING (real work has not run yet, so the job is recoverable on crash).
+      const startedAt = new Date();
+      let runningJob: JobRow;
+      try {
+        runningJob = await this.db.transaction(async (tx) => {
+          const txDb = tx as JobsDatabase;
+          const nextJob = await JobStateMachine.transition(txDb, jobId, JobStatus.PENDING, JobStatus.RUNNING, {
+            locked_by: owner,
+            locked_at: startedAt,
+            started_at: startedAt,
+            completed_at: null,
+            error_json: null,
+            result_json: null,
+          });
+
+          await JobEventRepository.create(txDb, {
+            job_id: jobId,
+            event_type: 'status_changed',
+            detail_json: { from: JobStatus.PENDING, to: JobStatus.RUNNING, worker_id: owner },
+          });
+
+          return nextJob;
+        });
+      } catch (error) {
+        // Another replica won the PENDING→RUNNING race — not our job, leave it alone.
+        if (error instanceof JobConflictError) {
+          return false;
+        }
+        throw error;
+      }
+
+      // Run the actual validation work BEFORE the terminal transition.
+      const summary = await this.runValidationWork(runningJob).catch(async (error) => {
+        // Work failed: fail the job recoverably and signal "not succeeded".
+        await this.failInternalValidationJob(runningJob, owner, error);
+        lockAcquired = false;
+        throw error;
+      });
+
+      // RUNNING → SUCCEEDED only after the work succeeded.
+      const completedAt = new Date();
+      await this.db.transaction(async (tx) => {
+        const txDb = tx as JobsDatabase;
+        await JobStateMachine.transition(txDb, jobId, JobStatus.RUNNING, JobStatus.SUCCEEDED, {
+          result_json: summary,
+          error_json: null,
+          locked_by: null,
+          locked_at: null,
+          completed_at: completedAt,
+        });
+
+        await JobEventRepository.create(txDb, {
+          job_id: jobId,
+          event_type: 'status_changed',
+          detail_json: { from: JobStatus.RUNNING, to: JobStatus.SUCCEEDED, worker_id: owner },
+        });
+      });
+
+      lockAcquired = false;
+      await this.releaseJobLock(jobId, owner);
+      return true;
+    } catch (error) {
+      // A transition (PENDING→RUNNING / RUNNING→SUCCEEDED) threw after we held the lock but the
+      // validation-work failure path did not run. Release the lock so the job is reclaimable; the
+      // job is still RUNNING/PENDING here, never a stuck SUCCEEDED.
+      if (lockAcquired) {
+        try {
+          await this.releaseJobLock(jobId, owner);
+        } catch (releaseError) {
+          getApiLogger().error({ err: releaseError, job_id: jobId }, 'Failed to release in-process validation lock');
+        }
+      }
+      getApiLogger().error({ err: error, job_id: jobId }, 'In-process validation job failed');
+      return false;
+    }
+  }
+
+  // Runs the real validation work for a RUNNING validation job and returns a result summary.
+  // Throws if the work fails so the caller can transition the job to FAILED (recoverable),
+  // instead of swallowing the error and stranding the document in `validating`.
+  private async runValidationWork(job: JobRow): Promise<Record<string, unknown>> {
+    const uploadsService = this.getRequiredUploadsService();
+    const payload = asJsonRecord(job.payload_json);
+    const sourceDocumentId = readString(payload.source_document_id);
+    const quarantineKey = readString(payload.quarantine_key);
+    if (sourceDocumentId === undefined || quarantineKey === undefined) {
+      throwApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Validation job payload is missing source_document_id or quarantine_key',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+
+    const actor = {
+      tenantId: job.tenant_id,
+      ...(job.created_by !== null ? { actorUserId: job.created_by, userId: job.created_by } : {}),
+    };
+
+    const validation = await uploadsService.validateQuarantinedUpload(
+      { sourceDocumentId, quarantineKey },
+      actor,
+    );
+    if (!validation.pass) {
+      // Validation rejected the file. The upload service has already moved the document to its
+      // rejected state; the job itself succeeded (it did its job), so record the outcome.
+      return { validated: true, passed: false };
+    }
+
+    await uploadsService.completeValidation({ sourceDocumentId, quarantineKey }, actor);
+    return { validated: true, passed: true };
+  }
+
+  // Transition a RUNNING internal validation job to FAILED, requeueing it when attempts remain.
+  // Mirrors the reportFailure semantics so recovery is identical to remote-worker failures.
+  // If max_attempts is reached the job stays terminal FAILED (no infra exists to requeue beyond
+  // max_attempts); an operator can then inspect error_json.
+  private async failInternalValidationJob(runningJob: JobRow, owner: string, error: unknown): Promise<void> {
+    const jobId = runningJob.id;
+    const errorJson = toValidationErrorJson(error);
+    const nextAttemptCount = runningJob.attempt_count + 1;
+    const willRetry = nextAttemptCount < runningJob.max_attempts;
+
+    try {
+      // The RUNNING→FAILED transition is guarded by status = RUNNING in JobStateMachine, so if a
+      // dead-worker scan already reclaimed this job the transition throws JobConflictError below.
+      await this.db.transaction(async (tx) => {
+        const txDb = tx as JobsDatabase;
+        const failedAt = new Date();
+        await JobStateMachine.transition(txDb, jobId, JobStatus.RUNNING, JobStatus.FAILED, {
+          attempt_count: nextAttemptCount,
+          error_json: errorJson,
+          locked_by: null,
+          locked_at: null,
+          completed_at: failedAt,
+        });
+
+        await JobEventRepository.create(txDb, {
+          job_id: jobId,
+          event_type: 'status_changed',
+          detail_json: { from: JobStatus.RUNNING, to: JobStatus.FAILED, worker_id: owner, retryable: willRetry },
+        });
+
+        if (!willRetry) {
+          return;
+        }
+
+        const nextRunAt = new Date(failedAt.getTime() + getRetryDelaySeconds() * 1_000);
+        await JobStateMachine.transition(txDb, jobId, JobStatus.FAILED, JobStatus.PENDING, {
+          next_run_at: nextRunAt,
+          started_at: null,
+          completed_at: null,
+        });
+
+        await JobEventRepository.create(txDb, {
+          job_id: jobId,
+          event_type: 'status_changed',
+          detail_json: {
+            from: JobStatus.FAILED,
+            to: JobStatus.PENDING,
+            worker_id: owner,
+            next_run_at: nextRunAt.toISOString(),
+          },
+        });
+      });
+    } catch (failError) {
+      if (!(failError instanceof JobConflictError)) {
+        getApiLogger().error({ err: failError, job_id: jobId }, 'Failed to record in-process validation failure');
+      }
+    } finally {
+      await this.releaseJobLock(jobId, owner);
+    }
+  }
+
   private async getJob(jobId: string): Promise<JobRow> {
     const job = await JobRepository.findById(this.db, jobId);
     if (job === undefined) {
@@ -341,11 +587,9 @@ export class InternalJobsService {
     }
   }
 
-  private async acquireJobLock(jobId: string, workerId: string): Promise<void> {
+  private async acquireJobLock(jobId: string, workerId: string): Promise<boolean> {
     const redis = this.getRequiredRedis();
-    if (!(await RedisJobLock.acquire(redis, jobId, workerId, DEFAULT_LOCK_TTL_SECONDS))) {
-      throwApiError(ErrorCode.CONFLICT, 'Job lock already held by another worker', HttpStatus.CONFLICT);
-    }
+    return RedisJobLock.acquire(redis, jobId, workerId, DEFAULT_LOCK_TTL_SECONDS);
   }
 
   private async tryRenewOwnedJobLock(jobId: string, workerId: string): Promise<boolean> {
@@ -994,6 +1238,13 @@ function handleJobConflict(error: unknown): void {
 
 function getRetryDelaySeconds(): number {
   return 0;
+}
+
+function toValidationErrorJson(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    return { code: ErrorCode.INTERNAL_ERROR, message: error.message };
+  }
+  return { code: ErrorCode.INTERNAL_ERROR, message: String(error) };
 }
 
 function workerHeartbeatKey(workerId: string): string {
