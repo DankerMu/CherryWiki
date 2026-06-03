@@ -1,5 +1,5 @@
 import type { Job as BullMQJob } from 'bullmq';
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import type { EmbeddingProvider } from '@cherrygraph/ai-core';
@@ -119,7 +119,19 @@ export class IndexerWorker extends AbstractBullMQWorker<IndexerBullMQPayload, In
         activeSnapshot === undefined ? [] : await this.loadSnapshotChunks(payload.space_id, activeSnapshot.id);
       const previousByPosition = buildPreviousChunkMap(previousChunks, embeddingModel.id);
 
-      const snapshot = await this.createSnapshot(payload, embeddingModel.id, wikiRepoCommitHash);
+      // graphify 完成的 reindex 会带 graphify_run_id；手动重建不带，
+      // 此时继承当前激活快照的 run（自愈：若激活快照也为空，回退到该 space 最近一个有 run 的快照），
+      // 否则新快照 graphify_run_id 为空会令 Graph Explorer 丢失图谱可见性。
+      const graphifyRunId =
+        payload.graphify_run_id ??
+        activeSnapshot?.graphify_run_id ??
+        (await this.loadLatestGraphifyRunId(payload.tenant_id, payload.space_id));
+      const snapshot = await this.createSnapshot(
+        payload,
+        embeddingModel.id,
+        wikiRepoCommitHash,
+        graphifyRunId ?? undefined,
+      );
       snapshotId = snapshot.id;
 
       const chunkPlans =
@@ -192,15 +204,36 @@ export class IndexerWorker extends AbstractBullMQWorker<IndexerBullMQPayload, In
     payload: IndexerPayload,
     embeddingModelId: string,
     wikiRepoCommitHash: string,
+    graphifyRunId: string | undefined,
   ): Promise<IndexSnapshotRow> {
     return SnapshotManager.createSnapshot(
       this.db,
       payload.tenant_id,
       payload.space_id,
       embeddingModelId,
-      payload.graphify_run_id,
+      graphifyRunId,
       wikiRepoCommitHash,
     );
+  }
+
+  protected async loadLatestGraphifyRunId(tenantId: string, spaceId: string): Promise<string | undefined> {
+    const [row] = await this.db
+      .select({ graphify_run_id: indexSnapshots.graphify_run_id })
+      .from(indexSnapshots)
+      .where(
+        and(
+          eq(indexSnapshots.tenant_id, tenantId),
+          eq(indexSnapshots.space_id, spaceId),
+          isNotNull(indexSnapshots.graphify_run_id),
+          // Only snapshots that were actually live can be trusted; 'building'/'ready'/'failed'
+          // graph imports may be incomplete or rolled back.
+          inArray(indexSnapshots.status, ['activated', 'superseded']),
+        ),
+      )
+      .orderBy(desc(indexSnapshots.created_at), desc(indexSnapshots.id))
+      .limit(1);
+
+    return row?.graphify_run_id ?? undefined;
   }
 
   protected async loadActiveSnapshot(spaceId: string): Promise<IndexSnapshotRow | undefined> {

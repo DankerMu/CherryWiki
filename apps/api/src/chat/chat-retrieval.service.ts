@@ -24,6 +24,7 @@ import { validateAdminOutboundProbeUrl } from '../common/outbound-probe-safety.j
 import { throwApiError } from '../common/errors/api-error.js';
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { GraphService } from '../graph/graph.service.js';
+import { normalizeGraphifyRunId } from '../graph/graphify-run.util.js';
 import { ModelConfigService, type RerankModelConfig } from '../models/model-config.service.js';
 import { EMBEDDING_PROVIDER_FACTORY, type EmbeddingProviderFactory } from './chat.tokens.js';
 
@@ -858,8 +859,8 @@ function activeGraphifyRunIdsFromSnapshots(
   const activeRunIds = new Map<string, string>();
 
   for (const { spaceId, snapshot } of spaceSnapshots) {
-    const runId = snapshot.graphify_run_id?.trim();
-    if (runId !== undefined && runId.length > 0) {
+    const runId = normalizeGraphifyRunId(snapshot.graphify_run_id);
+    if (runId !== undefined) {
       activeRunIds.set(spaceId, runId);
     }
   }

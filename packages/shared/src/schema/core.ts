@@ -113,6 +113,7 @@ export const spaces = pgTable(
     status: text('status').notNull().default('active'),
     docmost_space_id: text('docmost_space_id'),
     wiki_repo_path: text('wiki_repo_path').notNull(),
+    // DEPRECATED: unmaintained; SpaceDetail.active_graphify_run_id is derived from the active index snapshot. Kept nullable for backward compatibility.
     active_graphify_run_id: text('active_graphify_run_id'),
     active_index_snapshot_id: text('active_index_snapshot_id'),
     index_consistency_status: text('index_consistency_status').notNull().default('healthy'),

@@ -5,6 +5,7 @@ import {
   graphEdges,
   graphNodes,
   group_members,
+  indexSnapshots,
   permission_versions,
   source_documents,
   space_permissions,
@@ -251,7 +252,24 @@ export class SpaceService {
       }
     }
 
-    return toSpaceDetail(space);
+    // active_graphify_run_id is derived from the active index snapshot; only query
+    // when a snapshot is active so the common null case adds no extra round-trip.
+    let activeGraphifyRunId: string | null = null;
+    if (space.active_index_snapshot_id !== null) {
+      const [snap] = await this.db
+        .select({ graphify_run_id: indexSnapshots.graphify_run_id })
+        .from(indexSnapshots)
+        .where(
+          and(
+            eq(indexSnapshots.id, space.active_index_snapshot_id),
+            eq(indexSnapshots.tenant_id, space.tenant_id),
+          ),
+        )
+        .limit(1);
+      activeGraphifyRunId = snap?.graphify_run_id ?? null;
+    }
+
+    return toSpaceDetail(space, activeGraphifyRunId);
   }
 
   async updateSpace(
@@ -755,12 +773,12 @@ function toSpaceListItem(row: SpaceRow, counts?: SpaceCounts): SpaceListItem {
   };
 }
 
-function toSpaceDetail(row: SpaceRow): SpaceDetail {
+function toSpaceDetail(row: SpaceRow, activeGraphifyRunId: string | null = null): SpaceDetail {
   return {
     ...toSpaceListItem(row),
     docmost_space_id: row.docmost_space_id,
     wiki_repo_path: row.wiki_repo_path,
-    active_graphify_run_id: row.active_graphify_run_id,
+    active_graphify_run_id: activeGraphifyRunId,
     active_index_snapshot_id: row.active_index_snapshot_id,
     index_consistency_status: row.index_consistency_status,
     strict_knowledge_only: row.strict_knowledge_only,

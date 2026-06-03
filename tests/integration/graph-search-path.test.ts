@@ -17,7 +17,7 @@ describe('Graph search and path integration', () => {
     const service = new GraphService(db.asDrizzle());
 
     db.queueSelect([createSpaceRow({ active_graphify_run_id: 'run-1' })]);
-    db.queueSelect([{ id: TEST_SPACE_ID, active_graphify_run_id: 'run-1' }]);
+    db.queueSelect([{ id: TEST_SPACE_ID, graphify_run_id: 'run-1' }]);
     db.queueExecute([
       graphNode({ id: 'node-sso', node_key: 'sso', stable_key: 'stable-sso', label: 'SSO', score: 1 }),
       graphNode({ id: 'node-session', node_key: 'session', stable_key: 'stable-session', label: 'Session', score: 0.72 }),
@@ -44,7 +44,7 @@ describe('Graph search and path integration', () => {
     const allowedEnd = graphNode({ id: 'node-b', label: 'Session', space_id: TEST_SPACE_ID });
     const forbiddenNode = graphNode({ id: 'node-c', label: 'Forbidden', space_id: 'space-hidden' });
 
-    db.queueSelect([{ id: TEST_SPACE_ID, active_graphify_run_id: 'run-1' }]);
+    db.queueSelect([{ id: TEST_SPACE_ID, graphify_run_id: 'run-1' }]);
     db.queueExecute([
       {
         nodes_json: [allowedStart, allowedEnd],

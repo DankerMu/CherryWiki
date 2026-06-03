@@ -98,6 +98,66 @@ describe('IndexerWorker', () => {
     expect(worker.snapshots.find((snapshot) => snapshot.id === 'old-snapshot')?.status).toBe('superseded');
   });
 
+  it('inherits the active snapshot graphify_run_id on manual rebuild (no payload run id)', async () => {
+    worker.snapshots = [createSnapshot('old-snapshot', 'activated', { graphify_run_id: 'run-42' })];
+    worker.activeSnapshotId = 'old-snapshot';
+    worker.pages = [createPublishedPage('page-1', 'hello')];
+
+    const result = await worker.run(createJob());
+
+    const created = worker.snapshots.find((snapshot) => snapshot.id === result.snapshot_id);
+    expect(created?.graphify_run_id).toBe('run-42');
+  });
+
+  it('falls back to the latest snapshot run id when the active snapshot has none', async () => {
+    worker.snapshots = [
+      createSnapshot('older', 'superseded', {
+        graphify_run_id: 'run-7',
+        created_at: new Date(now.getTime() - 60_000),
+      }),
+      createSnapshot('active-null', 'activated', { created_at: now }),
+    ];
+    worker.activeSnapshotId = 'active-null';
+    worker.pages = [createPublishedPage('page-1', 'hello')];
+
+    const result = await worker.run(createJob());
+
+    const created = worker.snapshots.find((snapshot) => snapshot.id === result.snapshot_id);
+    expect(created?.graphify_run_id).toBe('run-7');
+  });
+
+  it('ignores a more-recent non-live snapshot and inherits the older live run id', async () => {
+    worker.snapshots = [
+      createSnapshot('older-live', 'superseded', {
+        graphify_run_id: 'run-live',
+        created_at: new Date(now.getTime() - 120_000),
+      }),
+      createSnapshot('newer-failed', 'failed', {
+        graphify_run_id: 'run-failed',
+        created_at: new Date(now.getTime() - 60_000),
+      }),
+      createSnapshot('active-null', 'activated', { created_at: now }),
+    ];
+    worker.activeSnapshotId = 'active-null';
+    worker.pages = [createPublishedPage('page-1', 'hello')];
+
+    const result = await worker.run(createJob());
+
+    const created = worker.snapshots.find((snapshot) => snapshot.id === result.snapshot_id);
+    expect(created?.graphify_run_id).toBe('run-live');
+  });
+
+  it('uses the payload graphify_run_id when provided (graphify-triggered reindex)', async () => {
+    worker.snapshots = [createSnapshot('old-snapshot', 'activated', { graphify_run_id: 'run-old' })];
+    worker.activeSnapshotId = 'old-snapshot';
+    worker.pages = [createPublishedPage('page-1', 'hello')];
+
+    const result = await worker.run(createJob({ payload_json: createPayload({ graphify_run_id: 'run-new' }) }));
+
+    const created = worker.snapshots.find((snapshot) => snapshot.id === result.snapshot_id);
+    expect(created?.graphify_run_id).toBe('run-new');
+  });
+
   it('4.T5 reuses embeddings when content_hash matches the active snapshot', async () => {
     const page = createPublishedPage('page-1', 'unchanged');
     worker.pages = [page];
@@ -370,11 +430,12 @@ class HarnessIndexerWorker extends IndexerWorker {
     payload: IndexerPayload,
     embeddingModelId: string,
     wikiRepoCommitHash: string,
+    graphifyRunId: string | undefined,
   ): Promise<IndexSnapshotRow> {
     const snapshot = createSnapshot(`snapshot-${this.snapshots.length + 1}`, 'building', {
       tenant_id: payload.tenant_id,
       space_id: payload.space_id,
-      graphify_run_id: payload.graphify_run_id ?? null,
+      graphify_run_id: graphifyRunId ?? null,
       embedding_model_id: embeddingModelId,
       wiki_repo_commit_hash: wikiRepoCommitHash,
     });
@@ -386,6 +447,26 @@ class HarnessIndexerWorker extends IndexerWorker {
     void spaceId;
 
     return Promise.resolve(this.snapshots.find((snapshot) => snapshot.id === this.activeSnapshotId));
+  }
+
+  protected override loadLatestGraphifyRunId(tenantId: string, spaceId: string): Promise<string | undefined> {
+    // Mirror the real query: only trust snapshots that were actually live
+    // ('activated'/'superseded') with a non-null graphify_run_id, then pick the
+    // greatest created_at, tie-broken by greatest id.
+    const match = this.snapshots
+      .filter(
+        (snapshot) =>
+          snapshot.tenant_id === tenantId &&
+          snapshot.space_id === spaceId &&
+          snapshot.graphify_run_id != null &&
+          (snapshot.status === 'activated' || snapshot.status === 'superseded'),
+      )
+      .sort((a, b) => {
+        const byTime = b.created_at.getTime() - a.created_at.getTime();
+        return byTime !== 0 ? byTime : b.id.localeCompare(a.id);
+      })[0];
+
+    return Promise.resolve(match?.graphify_run_id ?? undefined);
   }
 
   protected override loadPublishedPages(payload: IndexerPayload): Promise<PageRow[]> {

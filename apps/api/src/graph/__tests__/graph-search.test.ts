@@ -224,7 +224,8 @@ function createRequest(spacePermissions: Record<string, string[]> = { [TEST_SPAC
 }
 
 function createActiveSpaceRow() {
-  return createSpaceRow({ active_graphify_run_id: 'run-1' });
+  // graph.service 现从激活快照推导 run，mock 返回投影后的形状（id + graphify_run_id）。
+  return { ...createSpaceRow(), graphify_run_id: 'run-1' };
 }
 
 function createGraphNode(overrides: Record<string, unknown> = {}): Record<string, unknown> {

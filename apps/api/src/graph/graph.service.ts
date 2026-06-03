@@ -3,6 +3,7 @@ import { ROLES, normalizeRole } from '@cherrygraph/auth-core';
 import {
   ErrorCode,
   group_members,
+  indexSnapshots,
   space_permissions,
   spaces,
 } from '@cherrygraph/shared';
@@ -16,6 +17,7 @@ import {
 import { and, eq, inArray } from 'drizzle-orm';
 
 import { DRIZZLE } from '../database/drizzle.constants.js';
+import { normalizeGraphifyRunId } from './graphify-run.util.js';
 import { throwApiError } from '../common/errors/api-error.js';
 import type { DrizzleDatabase } from '../database/drizzle.module.js';
 import { SPACE_VIEW_PERMISSIONS } from '../shared/permission-constants.js';
@@ -246,15 +248,24 @@ export class GraphService {
     }
 
     const tenantId = resolveTenantId(context);
+    // 从当前激活的索引快照推导图谱 run（与 chat 检索一致）。
+    // spaces.active_graphify_run_id 无任何代码维护，不再读取，避免指针卡在旧 run。
     const rows = await this.db
-      .select({ id: spaces.id, active_graphify_run_id: spaces.active_graphify_run_id })
+      .select({ id: spaces.id, graphify_run_id: indexSnapshots.graphify_run_id })
       .from(spaces)
+      .leftJoin(
+        indexSnapshots,
+        and(
+          eq(indexSnapshots.id, spaces.active_index_snapshot_id),
+          eq(indexSnapshots.tenant_id, tenantId),
+        ),
+      )
       .where(and(eq(spaces.tenant_id, tenantId), inArray(spaces.id, scopedSpaceIds)));
 
     const activeRunIds: ActiveGraphifyRunIds = new Map();
     for (const row of rows) {
-      const runId = row.active_graphify_run_id?.trim();
-      if (runId !== undefined && runId.length > 0) {
+      const runId = normalizeGraphifyRunId(row.graphify_run_id);
+      if (runId !== undefined) {
         activeRunIds.set(row.id, runId);
       }
     }
