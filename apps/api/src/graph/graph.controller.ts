@@ -6,11 +6,13 @@ import {
   parseGraphCommunitiesQuery,
   parseGraphCommunityNodesQuery,
   parseGraphNeighborsQuery,
+  parseGraphNodeDetailQuery,
   parseGraphNodeSearchQuery,
   parseGraphPathRequest,
   type GraphCommunitiesResponseDto,
   type GraphCommunityNodesResponseDto,
   type GraphNeighborsResponseDto,
+  type GraphNodeDetailResponseDto,
   type GraphPathListResponseDto,
   type GraphSearchResponseDto,
 } from './graph.dto.js';
@@ -60,6 +62,17 @@ export class GraphController {
   ): Promise<GraphNeighborsResponseDto> {
     const user = getAuthenticatedUser(request);
     return this.graphService.getNeighbors(nodeId, parseGraphNeighborsQuery(query), buildGraphContext(request, user));
+  }
+
+  @Get('nodes/:id/detail')
+  @Permissions('space:read')
+  async getNodeDetail(
+    @Param('id') nodeId: string,
+    @Query() query: Record<string, unknown>,
+    @Req() request: RequestWithAuth,
+  ): Promise<GraphNodeDetailResponseDto> {
+    const user = getAuthenticatedUser(request);
+    return this.graphService.getNodeDetail(nodeId, parseGraphNodeDetailQuery(query), buildGraphContext(request, user));
   }
 
   @Get('communities')

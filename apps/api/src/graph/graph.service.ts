@@ -10,6 +10,7 @@ import {
 import {
   type ActiveGraphifyRunIds,
   GraphQueryService,
+  type GraphNodeDetail,
   type GraphPath,
   type GraphQueryEdge,
   type GraphQueryNode,
@@ -29,6 +30,8 @@ import type {
   GraphEdgeResponseDto,
   GraphNeighborsQueryDto,
   GraphNeighborsResponseDto,
+  GraphNodeDetailQueryDto,
+  GraphNodeDetailResponseDto,
   GraphNodeResponseDto,
   GraphNodeSearchQueryDto,
   GraphPathListResponseDto,
@@ -125,6 +128,30 @@ export class GraphService {
       center_node: centerNode === null ? null : toGraphNodeResponse(centerNode),
       neighbors: buildNeighborItems(nodeId, result.nodes, result.edges),
     };
+  }
+
+  async getNodeDetail(
+    nodeId: string,
+    input: GraphNodeDetailQueryDto,
+    context: GraphContext = {},
+  ): Promise<GraphNodeDetailResponseDto> {
+    const spaceIds = await this.resolveReadableSpaceIds(input.space_id, context);
+    const detail =
+      spaceIds.length === 0
+        ? null
+        : await (async () => {
+            const activeRunIds = await this.resolveActiveGraphifyRunIds(spaceIds, context);
+            if (activeRunIds.size === 0) {
+              return null;
+            }
+            return this.queryService.getNodeDetail(nodeId, spaceIds, activeRunIds);
+          })();
+
+    if (detail === null) {
+      throwApiError(ErrorCode.NOT_FOUND, 'Graph node not found', HttpStatus.NOT_FOUND);
+    }
+
+    return toGraphNodeDetailResponse(detail);
   }
 
   async getCommunities(
@@ -451,9 +478,34 @@ function toGraphNodeResponse(node: GraphQueryNode): GraphNodeResponseDto {
     label: node.label,
     node_type: node.node_type,
     description: node.description ?? null,
+    source_files: node.source_files,
     space_id: node.space_id,
     community_id: node.community_id,
     score: node.score,
+  };
+}
+
+function toGraphNodeDetailResponse(detail: GraphNodeDetail): GraphNodeDetailResponseDto {
+  return {
+    id: detail.id,
+    node_key: detail.node_key,
+    stable_key: detail.stable_key,
+    label: detail.label,
+    node_type: detail.node_type,
+    space_id: detail.space_id,
+    community_id: detail.community_id,
+    score: detail.score,
+    source_files: detail.source_files,
+    relations: detail.relations,
+    evidence: detail.evidence
+      .filter((ref) => ref.quote_text !== null)
+      .map((ref) => ({
+        id: ref.id,
+        page_id: ref.page_id,
+        source_document_id: ref.source_document_id,
+        quote_text: ref.quote_text ?? '',
+      })),
+    wiki_page: detail.wiki_page,
   };
 }
 

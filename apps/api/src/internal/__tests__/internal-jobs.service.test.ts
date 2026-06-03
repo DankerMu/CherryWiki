@@ -13,6 +13,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Readable } from 'node:stream';
 
 import { InternalJobsService } from '../internal-jobs.service.js';
+import { WikiFromGraphService } from '../wiki-from-graph.service.js';
+import { FakeGraphPipelineDb } from './fake-graph-pipeline-db.js';
 
 describe('InternalJobsService', () => {
   const originalDefaultTenantId = process.env.DEFAULT_TENANT_ID;
@@ -545,6 +547,154 @@ describe('InternalJobsService', () => {
 
     expect(createJobSpy).not.toHaveBeenCalled();
     expect(createQueueSpy).not.toHaveBeenCalled();
+  });
+
+  describe('graphify completion document write-back + wiki generation', () => {
+    function seedGraphifyDb(): FakeGraphPipelineDb {
+      const db = new FakeGraphPipelineDb();
+      db.sourceDocuments.push(
+        {
+          id: 'doc-pending',
+          tenant_id: 'tenant-1',
+          space_id: 'space-1',
+          status: 'graphify_pending',
+          metadata_json: { graphify_run_id: 'run-1' },
+        },
+        {
+          id: 'doc-running',
+          tenant_id: 'tenant-1',
+          space_id: 'space-1',
+          status: 'graphify_running',
+          metadata_json: { graphify_run_id: 'run-1' },
+        },
+        {
+          id: 'doc-other-run',
+          tenant_id: 'tenant-1',
+          space_id: 'space-1',
+          status: 'graphify_pending',
+          metadata_json: { graphify_run_id: 'run-other' },
+        },
+      );
+      db.communities.push({
+        id: 'community-1',
+        tenant_id: 'tenant-1',
+        space_id: 'space-1',
+        graphify_run_id: 'run-1',
+        community_key: 'c1',
+        label: 'Auth',
+        summary: null,
+      });
+      db.nodes.push({
+        id: 'node-1',
+        tenant_id: 'tenant-1',
+        space_id: 'space-1',
+        graphify_run_id: 'run-1',
+        community_id: 'community-1',
+        label: 'Login',
+        type: 'concept',
+        source_refs_json: [{ file: 'login.md' }],
+        wiki_page_pk: null,
+      });
+      return db;
+    }
+
+    function spyTerminalCompletion(runningJob: JobRow, completedJob: JobRow): void {
+      vi.spyOn(JobRepository, 'findById').mockResolvedValue(runningJob);
+      vi.spyOn(RedisJobLock, 'renew').mockResolvedValue(true);
+      vi.spyOn(JobStateMachine, 'transition').mockResolvedValue(completedJob);
+      vi.spyOn(JobEventRepository, 'create').mockResolvedValue(
+        {} as Awaited<ReturnType<typeof JobEventRepository.create>>,
+      );
+      vi.spyOn(RedisJobLock, 'release').mockResolvedValue(true);
+      vi.spyOn(JobRepository, 'create').mockResolvedValue(
+        createJobRow({ id: 'index-job-1', queue_name: QUEUE_INDEXING, type: 'reindex' }),
+      );
+      vi.spyOn(QueueFactory, 'createQueue').mockReturnValue(createQueueMock() as never);
+    }
+
+    it('advances stuck docs to wiki_proposed and publishes wiki pages on success', async () => {
+      const db = seedGraphifyDb();
+      const redis = createRedisMock();
+      const graphifyService = {
+        handleRunCompletion: vi.fn(() => Promise.resolve({ status: 'succeeded', space_id: 'space-1' })),
+      };
+      const wikiFromGraphService = new WikiFromGraphService(db.asDb() as never);
+      const service = new InternalJobsService(
+        db.asDb() as never,
+        redis.asClient() as never,
+        undefined,
+        undefined,
+        graphifyService as never,
+        undefined,
+        undefined,
+        wikiFromGraphService,
+      );
+      const runningJob = createJobRow({
+        id: 'graphify-job-1',
+        type: 'graphify',
+        status: JobStatus.RUNNING,
+        locked_by: 'worker-1',
+        payload_json: { run_id: 'run-1' },
+        created_by: 'user-1',
+      });
+      const completedJob = createJobRow({
+        ...runningJob,
+        status: JobStatus.SUCCEEDED,
+        locked_by: null,
+        result_json: {},
+      });
+      spyTerminalCompletion(runningJob, completedJob);
+
+      await service.reportComplete('graphify-job-1', { worker_id: 'worker-1', result_json: {} });
+
+      // Only this run's stuck docs advanced to wiki_proposed; the other run is untouched.
+      expect(db.sourceDocuments.find((doc) => doc.id === 'doc-pending')!.status).toBe('wiki_proposed');
+      expect(db.sourceDocuments.find((doc) => doc.id === 'doc-running')!.status).toBe('wiki_proposed');
+      expect(db.sourceDocuments.find((doc) => doc.id === 'doc-other-run')!.status).toBe('graphify_pending');
+
+      // A published wiki page + version were created and the member node was linked.
+      expect(db.pages).toHaveLength(1);
+      expect(db.pages[0]!.status).toBe('published');
+      expect(db.versions).toHaveLength(1);
+      expect(db.versions[0]!.status).toBe('published');
+      expect(db.versions[0]!.source).toBe('graphify');
+      expect(db.nodes[0]!.wiki_page_pk).toBe(db.pages[0]!.id);
+    });
+
+    it('drives docs to graphify_failed when the run does not succeed', async () => {
+      const db = seedGraphifyDb();
+      const redis = createRedisMock();
+      const graphifyService = {
+        handleRunCompletion: vi.fn(() => Promise.resolve({ status: 'quarantined', space_id: 'space-1' })),
+      };
+      const wikiFromGraphService = new WikiFromGraphService(db.asDb() as never);
+      const service = new InternalJobsService(
+        db.asDb() as never,
+        redis.asClient() as never,
+        undefined,
+        undefined,
+        graphifyService as never,
+        undefined,
+        undefined,
+        wikiFromGraphService,
+      );
+      const runningJob = createJobRow({
+        id: 'graphify-job-1',
+        type: 'graphify',
+        status: JobStatus.RUNNING,
+        locked_by: 'worker-1',
+        payload_json: { run_id: 'run-1' },
+      });
+      const completedJob = createJobRow({ ...runningJob, status: JobStatus.SUCCEEDED, locked_by: null, result_json: {} });
+      spyTerminalCompletion(runningJob, completedJob);
+
+      await service.reportComplete('graphify-job-1', { worker_id: 'worker-1', result_json: {} });
+
+      expect(db.sourceDocuments.find((doc) => doc.id === 'doc-pending')!.status).toBe('graphify_failed');
+      expect(db.sourceDocuments.find((doc) => doc.id === 'doc-running')!.status).toBe('graphify_failed');
+      // No wiki pages generated on the failure path.
+      expect(db.pages).toHaveLength(0);
+    });
   });
 
   describe('importGraphData', () => {

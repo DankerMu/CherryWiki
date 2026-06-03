@@ -13,9 +13,18 @@ import {
   jobs,
   type JobRow,
 } from '@cherrygraph/job-core';
-import { ErrorCode, graphCommunities, graphEdges, graphifyRuns, graphNodes, spaces } from '@cherrygraph/shared';
+import {
+  ErrorCode,
+  graphCommunities,
+  graphEdges,
+  graphifyRuns,
+  graphNodes,
+  source_documents,
+  spaces,
+  type SourceDocumentStatus,
+} from '@cherrygraph/shared';
 import { GraphImportService, parseGraphJson, validateGraphOutput } from '@cherrygraph/graph-core';
-import { and, eq, inArray, isNotNull } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { randomUUID } from 'node:crypto';
 
@@ -27,6 +36,8 @@ import { REDIS_CLIENT, type OptionalRedisClient } from '../common/redis/redis.mo
 import { DRIZZLE } from '../database/drizzle.constants.js';
 import { GraphifyService } from '../graphify/graphify.service.js';
 import { StorageService } from '../storage/storage.service.js';
+import { SourceDocumentStateMachine } from '../uploads/source-document-state.js';
+import { WikiFromGraphService } from './wiki-from-graph.service.js';
 import { deriveDisplayName } from '../jobs/jobs.service.js';
 import type { JobDto, JobProgressDto } from '../jobs/jobs.dto.js';
 import { UploadsService } from '../uploads/uploads.service.js';
@@ -80,6 +91,7 @@ export class InternalJobsService {
     @Optional() private readonly graphifyService?: GraphifyService,
     @Optional() private readonly bridgeQueueService?: BridgeQueueService,
     @Optional() private readonly storageService?: StorageService,
+    @Optional() private readonly wikiFromGraphService?: WikiFromGraphService,
   ) {}
 
   async pollPendingJobs(type: string, limit: number, tenantId?: string): Promise<JobDto[]> {
@@ -911,20 +923,36 @@ export class InternalJobsService {
           { job_id: job.id, run_id: runId, run_status: completedRun.status },
           'Graphify run completion did not transition to succeeded — skipping indexing trigger',
         );
+        await this.advanceRunDocuments(job.tenant_id, completedRun.space_id, runId, job.id, 'graphify_failed');
         return;
       }
 
+      const spaceId = job.space_id ?? completedRun.space_id;
       const graphJsonUri = readString(asJsonRecord(job.result_json).graph_json_uri) ?? null;
-      await this.importGraphData(job.tenant_id, job.space_id ?? completedRun.space_id, runId, graphJsonUri, job.id);
+      await this.importGraphData(job.tenant_id, spaceId, runId, graphJsonUri, job.id);
+
+      // Turn the imported graph into published wiki pages so the reindex below picks them up.
+      if (this.wikiFromGraphService !== undefined) {
+        try {
+          await this.wikiFromGraphService.generateForRun(job.tenant_id, spaceId, runId, job.created_by);
+        } catch (err) {
+          getApiLogger().error(
+            { err, job_id: job.id, run_id: runId },
+            'Wiki generation from graph failed — published pages may be incomplete',
+          );
+        }
+      }
+
+      await this.advanceRunDocuments(job.tenant_id, spaceId, runId, job.id, 'wiki_proposed');
 
       const indexJob = await JobRepository.create(this.db, {
         tenant_id: job.tenant_id,
-        space_id: job.space_id,
+        space_id: spaceId,
         queue_name: QUEUE_INDEXING,
         type: 'reindex',
         payload_json: {
           tenant_id: job.tenant_id,
-          space_id: job.space_id,
+          space_id: spaceId,
           graphify_run_id: readString(payload.run_id),
           trigger: 'graphify_completion',
           scope: 'full',
@@ -985,6 +1013,73 @@ export class InternalJobsService {
         { err, job_id: job.id, run_id: runId },
         'Graphify job succeeded but API post-completion pipeline failed — run may require manual reconciliation',
       );
+    }
+  }
+
+  // Drive a run's source_documents through the legal state machine to their post-graphify terminal
+  // state. Today the completion hook only updated graphify_runs, leaving docs stuck at
+  // graphify_pending/graphify_running. One bad doc must not abort the rest — log and continue.
+  private async advanceRunDocuments(
+    tenantId: string,
+    spaceId: string,
+    runId: string,
+    jobId: string,
+    target: 'wiki_proposed' | 'graphify_failed',
+  ): Promise<void> {
+    let documents: Array<{ id: string; status: string }>;
+    try {
+      documents = (await this.db
+        .select({ id: source_documents.id, status: source_documents.status })
+        .from(source_documents)
+        .where(
+          and(
+            eq(source_documents.tenant_id, tenantId),
+            eq(source_documents.space_id, spaceId),
+            sql`${source_documents.metadata_json}->>'graphify_run_id' = ${runId}`,
+            inArray(source_documents.status, ['graphify_pending', 'graphify_running']),
+          ),
+        )) as Array<{ id: string; status: string }>;
+    } catch (err) {
+      getApiLogger().error(
+        { err, job_id: jobId, run_id: runId },
+        'Failed to load source_documents for graphify status write-back',
+      );
+      return;
+    }
+
+    for (const document of documents) {
+      try {
+        await this.transitionSourceDocument(document.id, document.status as SourceDocumentStatus, target);
+      } catch (err) {
+        getApiLogger().error(
+          { err, job_id: jobId, run_id: runId, source_document_id: document.id },
+          'Failed to advance source_document status after graphify completion — skipping',
+        );
+      }
+    }
+  }
+
+  // Walk the legal transitions one hop at a time (the state machine only allows single steps), e.g.
+  // graphify_pending -> graphify_running -> wiki_proposed. Each hop is guarded by the current status
+  // so a concurrent change surfaces as a no-op rather than an illegal write.
+  private async transitionSourceDocument(
+    id: string,
+    from: SourceDocumentStatus,
+    target: SourceDocumentStatus,
+  ): Promise<void> {
+    const path = buildTransitionPath(from, target);
+    let current = from;
+    for (const next of path) {
+      SourceDocumentStateMachine.assertTransition(current, next);
+      const [updated] = await this.db
+        .update(source_documents)
+        .set({ status: next, updated_at: new Date() })
+        .where(and(eq(source_documents.id, id), eq(source_documents.status, current)))
+        .returning({ status: source_documents.status });
+      if (updated === undefined) {
+        return;
+      }
+      current = next;
     }
   }
 
@@ -1238,6 +1333,18 @@ function toJobDto(job: JobRow, progress: JobProgressDto | null = null): JobDto {
     started_at: job.started_at,
     completed_at: job.completed_at,
   };
+}
+
+// Resolve the ordered single-hop path from a doc's current status to the post-graphify target.
+// graphify_pending must pass through graphify_running first; graphify_running goes direct.
+function buildTransitionPath(from: SourceDocumentStatus, target: SourceDocumentStatus): SourceDocumentStatus[] {
+  if (from === target) {
+    return [];
+  }
+  if (from === 'graphify_pending') {
+    return ['graphify_running', target];
+  }
+  return [target];
 }
 
 function chunkArray<T>(items: T[], size: number): T[][] {

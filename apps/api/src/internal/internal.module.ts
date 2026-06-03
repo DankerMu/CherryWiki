@@ -9,6 +9,7 @@ import { AgentModule } from '../agent/agent.module.js';
 import { InternalChartEventController } from './internal-chart-event.controller.js';
 import { InternalJobsController } from './internal-jobs.controller.js';
 import { InternalJobsService } from './internal-jobs.service.js';
+import { WikiFromGraphService } from './wiki-from-graph.service.js';
 import { InternalWikiController } from './internal-wiki.controller.js';
 import { InternalWorkersController } from './internal-workers.controller.js';
 import { AgentTokenGuard } from './agent-token.guard.js';
@@ -17,6 +18,6 @@ import { WorkerApiKeyGuard } from './worker-api-key.guard.js';
 @Module({
   imports: [ScheduleModule.forRoot(), UploadsModule, AuditModule, GraphifyModule, BridgeModule, AgentModule],
   controllers: [InternalJobsController, InternalWorkersController, InternalWikiController, InternalChartEventController],
-  providers: [InternalJobsService, WorkerApiKeyGuard, AgentTokenGuard],
+  providers: [InternalJobsService, WikiFromGraphService, WorkerApiKeyGuard, AgentTokenGuard],
 })
 export class InternalModule {}

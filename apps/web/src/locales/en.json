@@ -802,7 +802,11 @@
       "confidence": "Confidence",
       "evidenceCount": "Evidence count",
       "source": "Source",
-      "target": "Target"
+      "target": "Target",
+      "sources": "Source files",
+      "relations": "Relationships",
+      "evidence": "Evidence quotes",
+      "wikiPage": "Linked wiki page"
     },
     "legend": {
       "title": "Legend"

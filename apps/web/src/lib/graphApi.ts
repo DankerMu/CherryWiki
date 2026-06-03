@@ -7,9 +7,46 @@ export type GraphNode = {
   label: string;
   node_type: string | null;
   description?: string | null;
+  source_files?: string[];
   space_id: string;
   community_id: string | null;
   score: number;
+};
+
+export type GraphNodeRelation = {
+  direction: 'out' | 'in';
+  relation_type: string;
+  confidence_label: string;
+  effective_confidence_score: number | null;
+  neighbor_id: string;
+  neighbor_label: string;
+};
+
+export type GraphNodeEvidence = {
+  id: string;
+  page_id: string | null;
+  source_document_id: string | null;
+  quote_text: string;
+};
+
+export type GraphNodeWikiPage = {
+  title: string;
+  content_markdown: string;
+};
+
+export type GraphNodeDetail = {
+  id: string;
+  node_key: string;
+  stable_key: string;
+  label: string;
+  node_type: string | null;
+  space_id: string;
+  community_id: string | null;
+  score: number;
+  source_files: string[];
+  relations: GraphNodeRelation[];
+  evidence: GraphNodeEvidence[];
+  wiki_page: GraphNodeWikiPage | null;
 };
 
 export type GraphEdge = {
@@ -74,6 +111,15 @@ export function getGraphNeighbors(input: {
 }): Promise<GraphNeighborsResponse> {
   return api.get<GraphNeighborsResponse>(`/graph/nodes/${encodeURIComponent(input.nodeId)}/neighbors`, {
     hops: input.hops ?? 1,
+    space_id: input.spaceId,
+  });
+}
+
+export function getGraphNodeDetail(input: {
+  nodeId: string;
+  spaceId: string;
+}): Promise<GraphNodeDetail> {
+  return api.get<GraphNodeDetail>(`/graph/nodes/${encodeURIComponent(input.nodeId)}/detail`, {
     space_id: input.spaceId,
   });
 }

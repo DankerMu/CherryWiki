@@ -24,6 +24,10 @@ export const graphNeighborsQuerySchema = z.object({
   space_id: optionalSpaceIdSchema,
 });
 
+export const graphNodeDetailQuerySchema = z.object({
+  space_id: optionalSpaceIdSchema,
+});
+
 export const graphCommunitiesQuerySchema = z.object({
   space_id: optionalSpaceIdSchema,
 });
@@ -35,6 +39,7 @@ export const graphNodeResponseSchema = z.object({
   label: z.string(),
   node_type: z.string().nullable(),
   description: z.string().nullable().optional(),
+  source_files: z.array(z.string()),
   space_id: z.string(),
   community_id: z.string().nullable(),
   score: z.number(),
@@ -77,6 +82,42 @@ export const graphNeighborsResponseSchema = z.object({
   neighbors: z.array(graphNeighborResponseSchema),
 });
 
+export const graphNodeRelationResponseSchema = z.object({
+  direction: z.enum(['out', 'in']),
+  relation_type: z.string(),
+  confidence_label: z.string(),
+  effective_confidence_score: z.number().nullable(),
+  neighbor_id: z.string(),
+  neighbor_label: z.string(),
+});
+
+export const graphNodeEvidenceResponseSchema = z.object({
+  id: z.string(),
+  page_id: z.string().nullable(),
+  source_document_id: z.string().nullable(),
+  quote_text: z.string(),
+});
+
+export const graphNodeWikiPageResponseSchema = z.object({
+  title: z.string(),
+  content_markdown: z.string(),
+});
+
+export const graphNodeDetailResponseSchema = z.object({
+  id: z.string(),
+  node_key: z.string(),
+  stable_key: z.string(),
+  label: z.string(),
+  node_type: z.string().nullable(),
+  space_id: z.string(),
+  community_id: z.string().nullable(),
+  score: z.number(),
+  source_files: z.array(z.string()),
+  relations: z.array(graphNodeRelationResponseSchema),
+  evidence: z.array(graphNodeEvidenceResponseSchema),
+  wiki_page: graphNodeWikiPageResponseSchema.nullable(),
+});
+
 export const graphCommunityResponseSchema = z.object({
   id: z.string(),
   community_key: z.string(),
@@ -102,6 +143,8 @@ export const graphCommunityNodesResponseSchema = z.object({
 export type GraphNodeSearchQueryDto = z.infer<typeof graphNodeSearchQuerySchema>;
 export type GraphPathRequestDto = z.infer<typeof graphPathRequestSchema>;
 export type GraphNeighborsQueryDto = z.infer<typeof graphNeighborsQuerySchema>;
+export type GraphNodeDetailQueryDto = z.infer<typeof graphNodeDetailQuerySchema>;
+export type GraphNodeDetailResponseDto = z.infer<typeof graphNodeDetailResponseSchema>;
 export type GraphCommunitiesQueryDto = z.infer<typeof graphCommunitiesQuerySchema>;
 export type GraphCommunityNodesQueryDto = z.infer<typeof graphCommunityNodesQuerySchema>;
 export type GraphNodeResponseDto = z.infer<typeof graphNodeResponseSchema>;
@@ -123,6 +166,10 @@ export function parseGraphPathRequest(input: unknown): GraphPathRequestDto {
 
 export function parseGraphNeighborsQuery(input: unknown): GraphNeighborsQueryDto {
   return parseDto(graphNeighborsQuerySchema.safeParse(input));
+}
+
+export function parseGraphNodeDetailQuery(input: unknown): GraphNodeDetailQueryDto {
+  return parseDto(graphNodeDetailQuerySchema.safeParse(input));
 }
 
 export function parseGraphCommunitiesQuery(input: unknown): GraphCommunitiesQueryDto {

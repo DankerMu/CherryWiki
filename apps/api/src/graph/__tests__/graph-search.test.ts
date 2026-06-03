@@ -21,6 +21,7 @@ describe('GraphController search', () => {
     expect(getMetadata('searchNodes')).toEqual(['space:read']);
     expect(getMetadata('findPath')).toEqual(['space:read']);
     expect(getMetadata('getNeighbors')).toEqual(['space:read']);
+    expect(getMetadata('getNodeDetail')).toEqual(['space:read']);
     expect(getMetadata('getCommunities')).toEqual(['space:read']);
     expect(getMetadata('getCommunityNodes')).toEqual(['space:read']);
   });
@@ -84,6 +85,93 @@ describe('GraphController search', () => {
 
     expect(result).toEqual({ nodes: [], total: 0 });
     expect(db.executedQueries).toHaveLength(0);
+  });
+
+  it('returns node detail with sources, relations, evidence, and wiki page', async () => {
+    const { controller, db } = createGraphContext();
+    db.queueSelect([createSpaceRow()]);
+    db.queueSelect([createActiveSpaceRow()]);
+    db.queueExecute([
+      {
+        node_json: {
+          id: 'node-a',
+          node_key: 'sso',
+          stable_key: `${TEST_SPACE_ID}:concept:sso`,
+          label: 'SSO',
+          type: 'concept',
+          source_refs_json: [{ file: 'auth.md' }],
+          space_id: TEST_SPACE_ID,
+          community_id: 'community-1',
+        },
+        relations_json: [
+          {
+            direction: 'out',
+            relation_type: 'relates_to',
+            confidence_label: 'EXTRACTED',
+            effective_confidence_score: '0.8',
+            neighbor_id: 'node-b',
+            neighbor_label: 'OAuth',
+          },
+        ],
+        evidence_json: [
+          {
+            id: 'evidence-1',
+            page_id: 'page-1',
+            page_version_id: 'version-1',
+            source_document_id: 'source-1',
+            quote_text: 'A quote',
+            confidence_contribution: '0.4',
+          },
+        ],
+        wiki_page_json: { title: 'SSO Page', content_markdown: '# SSO' },
+      },
+    ]);
+
+    const result = await controller.getNodeDetail('node-a', { space_id: TEST_SPACE_ID }, createRequest());
+
+    expect(result).toEqual({
+      id: 'node-a',
+      node_key: 'sso',
+      stable_key: `${TEST_SPACE_ID}:concept:sso`,
+      label: 'SSO',
+      node_type: 'concept',
+      space_id: TEST_SPACE_ID,
+      community_id: 'community-1',
+      score: 1,
+      source_files: ['auth.md'],
+      relations: [
+        {
+          direction: 'out',
+          relation_type: 'relates_to',
+          confidence_label: 'EXTRACTED',
+          effective_confidence_score: 0.8,
+          neighbor_id: 'node-b',
+          neighbor_label: 'OAuth',
+        },
+      ],
+      evidence: [
+        {
+          id: 'evidence-1',
+          page_id: 'page-1',
+          source_document_id: 'source-1',
+          quote_text: 'A quote',
+        },
+      ],
+      wiki_page: { title: 'SSO Page', content_markdown: '# SSO' },
+    });
+  });
+
+  it('returns 404 when the node is not in the active run for a readable space', async () => {
+    const { controller, db } = createGraphContext();
+    db.queueSelect([createSpaceRow()]);
+    db.queueSelect([createActiveSpaceRow()]);
+    db.queueExecute([]);
+
+    const error = await getRejectedHttpException(
+      controller.getNodeDetail('missing-node', { space_id: TEST_SPACE_ID }, createRequest()),
+    );
+
+    expect(error.getStatus()).toBe(404);
   });
 
   it('lists communities within readable spaces', async () => {
@@ -236,6 +324,7 @@ function createGraphNode(overrides: Record<string, unknown> = {}): Record<string
     label: 'Node',
     node_type: 'concept',
     description: null,
+    source_refs_json: [],
     space_id: TEST_SPACE_ID,
     community_id: null,
     score: 1,

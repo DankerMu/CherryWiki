@@ -802,7 +802,11 @@
       "confidence": "置信度",
       "evidenceCount": "证据数",
       "source": "源节点",
-      "target": "目标节点"
+      "target": "目标节点",
+      "sources": "来源文件",
+      "relations": "关系",
+      "evidence": "证据引用",
+      "wikiPage": "关联 Wiki 页面"
     },
     "legend": {
       "title": "图例"

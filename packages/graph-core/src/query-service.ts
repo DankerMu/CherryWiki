@@ -13,6 +13,36 @@ export interface GraphQueryNode {
   space_id: string;
   community_id: string | null;
   score: number;
+  source_files: string[];
+}
+
+export interface GraphNodeRelation {
+  direction: 'out' | 'in';
+  relation_type: string;
+  confidence_label: string;
+  effective_confidence_score: number | null;
+  neighbor_id: string;
+  neighbor_label: string;
+}
+
+export interface GraphNodeWikiPage {
+  title: string;
+  content_markdown: string;
+}
+
+export interface GraphNodeDetail {
+  id: string;
+  node_key: string;
+  stable_key: string;
+  label: string;
+  node_type: string | null;
+  space_id: string;
+  community_id: string | null;
+  score: number;
+  source_files: string[];
+  relations: GraphNodeRelation[];
+  evidence: GraphEvidenceRef[];
+  wiki_page: GraphNodeWikiPage | null;
 }
 
 export interface GraphQueryEdge {
@@ -52,9 +82,10 @@ export interface GraphCommunitySummary {
 export type ActiveGraphifyRunIds = Map<string, string>;
 
 type QueryResult<T> = T[] | { rows?: T[] };
-type RawNodeRow = Omit<GraphQueryNode, 'description' | 'score'> & {
+type RawNodeRow = Omit<GraphQueryNode, 'description' | 'score' | 'source_files'> & {
   description?: string | null;
   score?: number | string | null;
+  source_refs_json?: unknown;
 };
 type RawEdgeRow = Omit<GraphQueryEdge, 'effective_confidence_score' | 'evidence_count'> & {
   effective_confidence_score?: number | string | null;
@@ -79,6 +110,22 @@ type RawCommunityRow = Omit<GraphCommunitySummary, 'node_count'> & {
 type RawEvidenceRefRow = Omit<GraphEvidenceRef, 'confidence_contribution'> & {
   confidence_contribution?: number | string | null;
 };
+type RawNodeDetailNode = {
+  id: string;
+  node_key: string;
+  stable_key: string;
+  label: string;
+  type?: string | null;
+  source_refs_json?: unknown;
+  space_id: string;
+  community_id?: string | null;
+};
+type RawNodeDetailRow = {
+  node_json?: unknown;
+  relations_json?: unknown;
+  evidence_json?: unknown;
+  wiki_page_json?: unknown;
+};
 
 const DEFAULT_TOP_K = 20;
 const MAX_PATH_RESULTS = 50;
@@ -86,6 +133,9 @@ const MAX_PATH_INTERMEDIATE_ROWS = 500;
 const MAX_NEIGHBOR_RESULTS = 200;
 const MAX_COMMUNITY_RESULTS = 100;
 const MAX_COMMUNITY_NODE_RESULTS = 200;
+const MAX_NODE_RELATIONS = 200;
+const MAX_NODE_EVIDENCE = 10;
+const MAX_WIKI_MARKDOWN_CHARS = 4000;
 
 export class GraphQueryService {
   constructor(private readonly db: NodePgDatabase) {}
@@ -112,6 +162,7 @@ export class GraphQueryService {
         label,
         type as node_type,
         null::text as description,
+        source_refs_json,
         space_id,
         community_id,
         greatest(
@@ -213,6 +264,7 @@ export class GraphQueryService {
             'label', n.label,
             'node_type', n.type,
             'description', null,
+            'source_refs_json', n.source_refs_json,
             'space_id', n.space_id,
             'community_id', n.community_id,
             'score', 1
@@ -317,6 +369,7 @@ export class GraphQueryService {
             'label', n.label,
             'node_type', n.type,
             'description', null,
+            'source_refs_json', n.source_refs_json,
             'space_id', n.space_id,
             'community_id', n.community_id,
             'score', 1
@@ -348,6 +401,109 @@ export class GraphQueryService {
     return {
       nodes: parseNodeArray(row.nodes_json).filter((node) => activeScope.spaceIds.includes(node.space_id)),
       edges: parseEdgeArray(row.edges_json).filter((edge) => activeScope.spaceIds.includes(edge.space_id)),
+    };
+  }
+
+  async getNodeDetail(
+    nodeId: string,
+    spaceIds: string[],
+    activeRunIds: ActiveGraphifyRunIds,
+  ): Promise<GraphNodeDetail | null> {
+    const activeScope = activeGraphScope(spaceIds, activeRunIds);
+    if (nodeId.trim().length === 0 || activeScope.spaceIds.length === 0) {
+      return null;
+    }
+
+    const result = await this.db.execute<RawNodeDetailRow>(sql`
+      with node as (
+        select id, node_key, stable_key, label, type, source_refs_json, space_id, community_id, wiki_page_pk
+        from graph_nodes
+        where id = ${nodeId}
+          and space_id = any(${toPgTextArray(activeScope.spaceIds)}::text[])
+          and graphify_run_id = any(${toPgTextArray(activeScope.runIds)}::text[])
+        limit 1
+      ),
+      node_edges as (
+        select
+          e.id,
+          case when e.source_node_id = node.id then 'out' else 'in' end as direction,
+          e.relation_type,
+          e.confidence_label,
+          e.effective_confidence_score,
+          case when e.source_node_id = node.id then e.target_node_id else e.source_node_id end as neighbor_id
+        from graph_edges e
+        join node on e.source_node_id = node.id or e.target_node_id = node.id
+        where e.space_id = any(${toPgTextArray(activeScope.spaceIds)}::text[])
+          and e.graphify_run_id = any(${toPgTextArray(activeScope.runIds)}::text[])
+        order by e.effective_confidence_score desc nulls last, e.id asc
+        limit ${MAX_NODE_RELATIONS}
+      )
+      select
+        (select row_to_json(node) from node) as node_json,
+        (
+          select coalesce(jsonb_agg(jsonb_build_object(
+            'direction', ne.direction,
+            'relation_type', ne.relation_type,
+            'confidence_label', ne.confidence_label,
+            'effective_confidence_score', ne.effective_confidence_score,
+            'neighbor_id', ne.neighbor_id,
+            'neighbor_label', coalesce(neighbor.label, ne.neighbor_id)
+          )), '[]'::jsonb)
+          from node_edges ne
+          left join graph_nodes neighbor on neighbor.id = ne.neighbor_id
+            and neighbor.space_id = any(${toPgTextArray(activeScope.spaceIds)}::text[])
+            and neighbor.graphify_run_id = any(${toPgTextArray(activeScope.runIds)}::text[])
+        ) as relations_json,
+        (
+          select coalesce(jsonb_agg(jsonb_build_object(
+            'id', refs.id,
+            'page_id', refs.page_id,
+            'page_version_id', refs.page_version_id,
+            'source_document_id', refs.source_document_id,
+            'quote_text', refs.quote_text,
+            'confidence_contribution', refs.confidence_contribution
+          )), '[]'::jsonb)
+          from (
+            select refs.id, refs.page_id, refs.page_version_id, refs.source_document_id, refs.quote_text, refs.confidence_contribution
+            from graph_evidence_refs refs
+            where refs.edge_id in (select id from node_edges)
+              and refs.quote_text is not null
+            order by refs.created_at asc, refs.id asc
+            limit ${MAX_NODE_EVIDENCE}
+          ) refs
+        ) as evidence_json,
+        (
+          select jsonb_build_object(
+            'title', pages.title,
+            'content_markdown', left(coalesce(versions.content_markdown, ''), ${MAX_WIKI_MARKDOWN_CHARS})
+          )
+          from node
+          join wiki_pages pages on pages.id = node.wiki_page_pk
+          left join wiki_page_versions versions on versions.id = pages.current_version_id
+          where node.wiki_page_pk is not null
+        ) as wiki_page_json
+      from node
+    `);
+
+    const [row] = rowsFromResult<RawNodeDetailRow>(result);
+    if (row === undefined || !isRawNodeDetailNode(row.node_json)) {
+      return null;
+    }
+
+    const node = row.node_json;
+    return {
+      id: node.id,
+      node_key: node.node_key,
+      stable_key: node.stable_key,
+      label: node.label,
+      node_type: node.type ?? null,
+      space_id: node.space_id,
+      community_id: node.community_id ?? null,
+      score: 1,
+      source_files: parseSourceFiles(node.source_refs_json),
+      relations: parseRelations(row.relations_json),
+      evidence: parseEvidenceArray(row.evidence_json),
+      wiki_page: parseWikiPage(row.wiki_page_json),
     };
   }
 
@@ -396,6 +552,7 @@ export class GraphQueryService {
           stable_key,
           label,
           type,
+          source_refs_json,
           space_id,
           community_id,
           graphify_run_id,
@@ -436,6 +593,7 @@ export class GraphQueryService {
             'label', n.label,
             'node_type', n.type,
             'description', null,
+            'source_refs_json', n.source_refs_json,
             'space_id', n.space_id,
             'community_id', n.community_id,
             'score', 1
@@ -549,7 +707,29 @@ function toGraphQueryNode(row: RawNodeRow): GraphQueryNode {
     space_id: row.space_id,
     community_id: row.community_id,
     score: normalizeNumber(row.score, 0),
+    source_files: parseSourceFiles(row.source_refs_json),
   };
+}
+
+function parseSourceFiles(value: unknown): string[] {
+  const raw = typeof value === 'string' ? safeJsonParse(value) : value;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  const files = raw
+    .map((entry) => (isRecord(entry) && isString(entry.file) ? entry.file.trim() : ''))
+    .filter((file) => file.length > 0);
+
+  return [...new Set(files)];
+}
+
+function safeJsonParse(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
 }
 
 function toGraphQueryEdge(row: RawEdgeRow): GraphQueryEdge {
@@ -579,6 +759,66 @@ function parseEdgeArray(value: unknown): GraphQueryEdge[] {
   }
 
   return value.filter(isRawEdgeRow).map(toGraphQueryEdge);
+}
+
+function parseRelations(value: unknown): GraphNodeRelation[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter(isRecord).map((entry) => ({
+    direction: entry.direction === 'out' ? 'out' : 'in',
+    relation_type: isString(entry.relation_type) ? entry.relation_type : '',
+    confidence_label: isString(entry.confidence_label) ? entry.confidence_label : '',
+    effective_confidence_score: nullableNumber(asNumeric(entry.effective_confidence_score)),
+    neighbor_id: isString(entry.neighbor_id) ? entry.neighbor_id : '',
+    neighbor_label: isString(entry.neighbor_label) ? entry.neighbor_label : '',
+  }));
+}
+
+function parseEvidenceArray(value: unknown): GraphEvidenceRef[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter(isRecord).map((entry) => ({
+    id: isString(entry.id) ? entry.id : '',
+    page_id: isString(entry.page_id) ? entry.page_id : null,
+    page_version_id: isString(entry.page_version_id) ? entry.page_version_id : null,
+    source_document_id: isString(entry.source_document_id) ? entry.source_document_id : null,
+    quote_text: isString(entry.quote_text) ? entry.quote_text : null,
+    confidence_contribution: nullableNumber(asNumeric(entry.confidence_contribution)),
+  }));
+}
+
+function parseWikiPage(value: unknown): GraphNodeWikiPage | null {
+  if (!isRecord(value) || !isString(value.title)) {
+    return null;
+  }
+
+  return {
+    title: value.title,
+    content_markdown: isString(value.content_markdown) ? value.content_markdown : '',
+  };
+}
+
+function isRawNodeDetailNode(value: unknown): value is RawNodeDetailNode {
+  return (
+    isRecord(value) &&
+    isString(value.id) &&
+    isString(value.node_key) &&
+    isString(value.stable_key) &&
+    isString(value.label) &&
+    isString(value.space_id)
+  );
+}
+
+function asNumeric(value: unknown): number | string | null | undefined {
+  if (typeof value === 'number' || typeof value === 'string' || value === null || value === undefined) {
+    return value;
+  }
+
+  return null;
 }
 
 function rowsFromResult<T>(result: QueryResult<T>): T[] {

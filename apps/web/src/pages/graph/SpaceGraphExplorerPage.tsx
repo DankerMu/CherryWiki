@@ -1,6 +1,7 @@
 import {
   Alert,
   Button,
+  Collapse,
   Descriptions,
   Drawer,
   Empty,
@@ -15,6 +16,8 @@ import {
 } from 'antd';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useParams } from 'react-router';
 import { getErrorMessage } from '../../components/adminUi';
 import { SpaceForbiddenState, useSpacePermissionGate } from '../../components/SpacePermissionGate';
@@ -24,10 +27,12 @@ import {
   getGraphCommunities,
   getGraphCommunityNodes,
   getGraphNeighbors,
+  getGraphNodeDetail,
   searchGraphNodes,
   type GraphCommunity,
   type GraphEdge,
   type GraphNode,
+  type GraphNodeDetail,
 } from '../../lib/graphApi';
 import NotFound from '../NotFound';
 import GraphCanvas, { GRAPH_NODE_TYPE_COLORS, getGraphNodeTypeColor, type GraphCanvasData } from './GraphCanvas';
@@ -375,6 +380,7 @@ export default function SpaceGraphExplorerPage() {
       )}
 
       <GraphSelectionDrawer
+        spaceId={spaceId}
         selectedNode={selectedNode}
         selectedEdge={selectedEdge}
         nodeById={graphState.nodesById}
@@ -576,11 +582,13 @@ function GraphLegend() {
 }
 
 function GraphSelectionDrawer({
+  spaceId,
   selectedNode,
   selectedEdge,
   nodeById,
   onClose,
 }: {
+  spaceId: string;
   selectedNode: GraphNode | null;
   selectedEdge: GraphEdge | null;
   nodeById: Map<string, GraphNode>;
@@ -588,6 +596,41 @@ function GraphSelectionDrawer({
 }) {
   const { t } = useTranslation();
   const isOpen = selectedNode !== null || selectedEdge !== null;
+  const [detail, setDetail] = useState<GraphNodeDetail | null>(null);
+  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+  const selectedNodeId = selectedNode?.id ?? null;
+
+  useEffect(() => {
+    if (selectedNodeId === null || spaceId.length === 0) {
+      setDetail(null);
+      setIsLoadingDetail(false);
+      return;
+    }
+
+    let active = true;
+    setDetail(null);
+    setIsLoadingDetail(true);
+    void (async () => {
+      try {
+        const response = await getGraphNodeDetail({ nodeId: selectedNodeId, spaceId });
+        if (active) {
+          setDetail(response);
+        }
+      } catch {
+        if (active) {
+          setDetail(null);
+        }
+      } finally {
+        if (active) {
+          setIsLoadingDetail(false);
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedNodeId, spaceId]);
 
   return (
     <Drawer title={t('graph.drawer.title')} open={isOpen} onClose={onClose} width={420}>
@@ -604,6 +647,10 @@ function GraphSelectionDrawer({
             <Descriptions.Item label={t('graph.detail.description')}>{selectedNode.description}</Descriptions.Item>
           ) : null}
         </Descriptions>
+      ) : null}
+
+      {selectedNode !== null ? (
+        <GraphNodeDetailSection node={selectedNode} detail={detail} isLoading={isLoadingDetail} />
       ) : null}
 
       {selectedEdge !== null ? (
@@ -626,6 +673,90 @@ function GraphSelectionDrawer({
         </Descriptions>
       ) : null}
     </Drawer>
+  );
+}
+
+function GraphNodeDetailSection({
+  node,
+  detail,
+  isLoading,
+}: {
+  node: GraphNode;
+  detail: GraphNodeDetail | null;
+  isLoading: boolean;
+}) {
+  const { t } = useTranslation();
+  const sourceFiles = detail?.source_files ?? node.source_files ?? [];
+
+  return (
+    <Space direction="vertical" size={16} style={{ width: '100%', marginTop: 16 }}>
+      {sourceFiles.length > 0 ? (
+        <div>
+          <Typography.Title level={5} style={{ marginTop: 0 }}>{t('graph.detail.sources')}</Typography.Title>
+          <List
+            size="small"
+            dataSource={sourceFiles}
+            renderItem={(file) => <List.Item>{file}</List.Item>}
+          />
+        </div>
+      ) : null}
+
+      {isLoading ? <Spin /> : null}
+
+      {!isLoading && detail !== null ? (
+        <>
+          {detail.relations.length > 0 ? (
+            <div>
+              <Typography.Title level={5} style={{ marginTop: 0 }}>{t('graph.detail.relations')}</Typography.Title>
+              <List
+                size="small"
+                dataSource={detail.relations}
+                renderItem={(relation) => (
+                  <List.Item>
+                    <Typography.Text>
+                      {relation.neighbor_label} · {relation.relation_type} · {relation.confidence_label}
+                    </Typography.Text>
+                  </List.Item>
+                )}
+              />
+            </div>
+          ) : null}
+
+          {detail.evidence.length > 0 ? (
+            <Collapse
+              size="small"
+              items={[
+                {
+                  key: 'evidence',
+                  label: t('graph.detail.evidence'),
+                  children: (
+                    <List
+                      size="small"
+                      dataSource={detail.evidence}
+                      renderItem={(item) => (
+                        <List.Item>
+                          <Typography.Text type="secondary">“{item.quote_text}”</Typography.Text>
+                        </List.Item>
+                      )}
+                    />
+                  ),
+                },
+              ]}
+            />
+          ) : null}
+
+          {detail.wiki_page !== null ? (
+            <div>
+              <Typography.Title level={5} style={{ marginTop: 0 }}>{t('graph.detail.wikiPage')}</Typography.Title>
+              <Typography.Text strong>{detail.wiki_page.title}</Typography.Text>
+              <div style={wikiExcerptStyle}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{detail.wiki_page.content_markdown}</ReactMarkdown>
+              </div>
+            </div>
+          ) : null}
+        </>
+      ) : null}
+    </Space>
   );
 }
 
@@ -704,5 +835,15 @@ const panelStyle = {
   border: '1px solid var(--color-border)',
   borderRadius: 8,
   padding: 16,
+  background: 'var(--color-surface)',
+} satisfies CSSProperties;
+
+const wikiExcerptStyle = {
+  marginTop: 8,
+  maxHeight: 240,
+  overflowY: 'auto',
+  border: '1px solid var(--color-border)',
+  borderRadius: 8,
+  padding: 12,
   background: 'var(--color-surface)',
 } satisfies CSSProperties;

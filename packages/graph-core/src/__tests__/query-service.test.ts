@@ -200,6 +200,108 @@ describe('GraphQueryService', () => {
     await expect(new GraphQueryService(db).getEvidenceRefs('edge-1', ['space-denied'])).resolves.toEqual([]);
   });
 
+  it('parses source files from node source_refs_json during search', async () => {
+    const { db } = createDb([
+      {
+        id: 'node-1',
+        node_key: 'sso',
+        stable_key: 'space-1:concept:sso',
+        label: 'SSO',
+        node_type: 'concept',
+        source_refs_json: [{ file: 'auth.md' }, { file: 'auth.md' }, { wrong: 'x' }, { file: 'sso.md' }],
+        space_id: 'space-1',
+        community_id: null,
+        score: '1',
+      },
+    ]);
+
+    const [node] = await new GraphQueryService(db).searchNodes('SSO', ['space-1'], activeRunIds());
+
+    expect(node?.source_files).toEqual(['auth.md', 'sso.md']);
+  });
+
+  it('returns node detail with source files, relations, evidence, and wiki page', async () => {
+    const { db } = createDb([
+      {
+        node_json: {
+          id: 'node-a',
+          node_key: 'sso',
+          stable_key: 'space-1:concept:sso',
+          label: 'SSO',
+          type: 'concept',
+          source_refs_json: [{ file: 'auth.md' }],
+          space_id: 'space-1',
+          community_id: 'community-1',
+        },
+        relations_json: [
+          {
+            direction: 'out',
+            relation_type: 'relates_to',
+            confidence_label: 'EXTRACTED',
+            effective_confidence_score: '0.8',
+            neighbor_id: 'node-b',
+            neighbor_label: 'OAuth',
+          },
+        ],
+        evidence_json: [
+          {
+            id: 'evidence-1',
+            page_id: 'page-1',
+            page_version_id: 'version-1',
+            source_document_id: 'source-1',
+            quote_text: 'A quote',
+            confidence_contribution: '0.4',
+          },
+        ],
+        wiki_page_json: { title: 'SSO Page', content_markdown: '# SSO' },
+      },
+    ]);
+
+    const detail = await new GraphQueryService(db).getNodeDetail('node-a', ['space-1'], activeRunIds());
+
+    expect(detail).toEqual({
+      id: 'node-a',
+      node_key: 'sso',
+      stable_key: 'space-1:concept:sso',
+      label: 'SSO',
+      node_type: 'concept',
+      space_id: 'space-1',
+      community_id: 'community-1',
+      score: 1,
+      source_files: ['auth.md'],
+      relations: [
+        {
+          direction: 'out',
+          relation_type: 'relates_to',
+          confidence_label: 'EXTRACTED',
+          effective_confidence_score: 0.8,
+          neighbor_id: 'node-b',
+          neighbor_label: 'OAuth',
+        },
+      ],
+      evidence: [
+        {
+          id: 'evidence-1',
+          page_id: 'page-1',
+          page_version_id: 'version-1',
+          source_document_id: 'source-1',
+          quote_text: 'A quote',
+          confidence_contribution: 0.4,
+        },
+      ],
+      wiki_page: { title: 'SSO Page', content_markdown: '# SSO' },
+    });
+  });
+
+  it('returns null node detail when the node is outside the active run or readable spaces', async () => {
+    const { db, execute } = createDb([]);
+
+    await expect(new GraphQueryService(db).getNodeDetail('node-a', ['space-1'], activeRunIds())).resolves.toBeNull();
+    await expect(new GraphQueryService(db).getNodeDetail('node-a', [], activeRunIds())).resolves.toBeNull();
+    await expect(new GraphQueryService(db).getNodeDetail('node-a', ['space-1'], new Map())).resolves.toBeNull();
+    expect(execute).toHaveBeenCalledOnce();
+  });
+
   it('orders paths by shortest depth before effective confidence score', async () => {
     const lowConfidenceEdge = createEdge({ id: 'edge-low', effective_confidence_score: 0.5, evidence_count: 1 });
     const highConfidenceEdgeA = createEdge({ id: 'edge-high-a', effective_confidence_score: 0.9, evidence_count: 4 });
@@ -259,6 +361,7 @@ function createNode(overrides: Partial<GraphQueryNode> = {}): GraphQueryNode {
     space_id: 'space-1',
     community_id: null,
     score: 1,
+    source_files: [],
     ...overrides,
   };
 }

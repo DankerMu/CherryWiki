@@ -491,6 +491,7 @@ function makeNode(id: string, label: string, overrides: Partial<GraphQueryNode> 
     space_id: 'space-1',
     community_id: null,
     score: 1,
+    source_files: [],
     ...overrides,
   };
 }
