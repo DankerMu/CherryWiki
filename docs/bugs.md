@@ -1,271 +1,100 @@
-# CherryWiki Bug 追踪（P0 复测轮次 2026-05-15）
+# CherryWiki Bug 追踪（浏览器 E2E 轮次 2026-06-02）
 
-> P0 级功能测试中发现的 bug。修复后勾选并注明修复 commit。
+> 本轮基于 agent-browser 真实浏览器逐项测试。旧轮次记录保留在 git 历史。
+> 编号 `B2-NNN`。环境：13 容器 healthy，源码 `fd07dda` 重新打包。入口 http://localhost。
+> 测试清单与结果：`docs/e2e-browser-run-2026-06-02.md`。
 
----
+## 严重程度
 
-## P0 — 阻塞性
-
-### BUG-005: 页面刷新丢失登录状态（AuthProvider 缺少 bootstrap refresh）
-
-- **现象**: 登录后的任何页面，按 F5 或 `location.reload()` 后跳回登录页。在 agent-browser 和用户真实浏览器中均可复现。
-- **根因**: `AuthProvider`（`apps/web/src/lib/auth.tsx:72`）初始化时，若无 `initialSession` prop（页面刷新场景），`accessToken` 和 `user` 均为 `null`。没有 useEffect 在 mount 时调用 `POST /api/auth/refresh`（携带 HttpOnly cookie）来恢复 session。路由守卫检测到未认证后立即重定向到 `/login`。
-- **复现**:
-  1. 正常登录进入任意页面
-  2. 按 F5 刷新页面
-  3. 页面跳回登录页
-- **API 端无问题**: `POST /api/auth/refresh` 配合 HttpOnly cookie 可正常返回新 access_token（API 测试已验证）
-- **影响**: P0 阻塞 — 用户每次刷新页面都需重新登录，严重影响可用性
-- **修复方向**: 在 `AuthProvider` 的 mount useEffect 中，当 `initialSession` 未提供时，自动调用 `refresh()` 尝试恢复 session。成功则设置 token+user（调用 `/auth/me`），失败则导航到 `/login`。需要添加 `isBootstrapping` 状态避免闪烁。
-- **关联文件**: 
-  - `apps/web/src/lib/auth.tsx:72-162` — AuthProvider
-  - `apps/web/src/App.tsx:141` — AuthProvider 初始化（未传 initialSession）
-- **发现日期**: 2026-05-15
-- **状态**: [x] 已修复 — AuthProvider bootstrap refresh + `isBootstrapping` 路由守卫 + 回归测试
-
----
-
-### BUG-006: XLSX 上传被安全检查误拒（OOXML MIME 误判）
-
-- **现象**: 上传合法 .xlsx 文件时，状态变为 `security_rejected`，原因为 `MIME_MISMATCH`
-- **根因**: 安全校验检测到 XLSX 文件底层 MIME 为 `application/zip`（OOXML 格式基于 ZIP 容器），而期望的 MIME 是 `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`，导致误判为伪造文件
-- **复现**: 上传任意有效 .xlsx 文件 → 状态显示 Security Rejected
-- **影响**: P1 — XLSX 格式无法上传，但 UI 的 Supported 列表中包含 .xlsx
-- **修复方向**: 安全校验中对 OOXML 格式（.xlsx/.docx/.pptx）的 MIME 检测需识别 ZIP 容器为合法基础格式，而非视为 MIME 伪造。可通过 magic number 检测 OOXML 签名（PK header + [Content_Types].xml）来区分
-- **关联文件**: ingestion-worker 安全校验逻辑（`apps/ingestion-worker/` 相关文件）
-- **发现日期**: 2026-05-15
-- **状态**: [x] 已修复 — API MIME validator 允许 OOXML ZIP 容器，并在 `isZipUpload()` 排除 .xlsx/.docx/.pptx，避免 ZipValidator 校验 OOXML 内部条目
-
-### BUG-007: Chat 页面在无 Chat Model 时缺少前置提示
-
-- **现象**: 禁用所有 Chat Model 后，Chat 页面仍显示正常输入界面，用户需发送消息后才看到 "No enabled chat model configured" 错误
-- **期望**: 进入 Chat 页面时应预先检测并显示提示信息（如 "请先配置聊天模型"），禁用发送按钮
-- **影响**: P2 — UX 问题，不阻塞功能，但用户体验不佳
-- **发现日期**: 2026-05-15
-- **状态**: [x] 已修复 — 新增 `GET /api/models/chat-available` boolean-only endpoint，Chat 页预检查并显示无模型提示、禁用输入
-
----
-
-## P1 — 功能缺陷
-
-### BUG-008: chart.data SSE 事件未触发（persistent runner 不转发 tool_result）
-
-- **现象**: Chat 使用 `cherrydb chart bar "SQL"` 工具时，工具正确输出 `{"type": "cherrywiki.chart", ...}` JSON，但前端未收到 `chart.data` SSE 事件，图表不渲染
-- **根因**: `persistent-stream-parser.ts` 从 Claude Code CLI 的 JSONL stdout 读取事件，只处理 `type: 'assistant'`（文本+tool_use）和 `type: 'result'`（完成）。`type: 'user'`（含 tool_result content blocks）不会被 CLI 输出到 stdout，因此 `claude-event-mapper.ts:51-74` 中的 `extractChartEnvelopes` 逻辑永远不会被触发。当前修复改用 cherrydb CLI HTTP callback side-channel 将 chart envelope POST 到内部 API。
-- **复现**:
-  1. 配置 Space 的 database_config（enabled=true, 有效 DSN）
-  2. Chat 中要求 "cherrydb chart bar 'SELECT ...'"
-  3. Agent 正确执行命令，输出 cherrywiki.chart JSON
-  4. 前端 SSE 流中无 `event: chart.data`
-- **影响**: P1 — 数据库图表功能不可用，但不阻塞核心 RAG/Chat 流程
-- **修复方向**: 在 `persistent-stream-parser.ts` 中，解析 tool 执行结果（可能需要 Claude Code CLI 输出 tool_result 事件，或在 agent service 层面拦截 Bash tool 的 stdout 并调用 `extractChartEnvelopes`）
-- **关联文件**:
-  - `apps/api/src/agent/persistent-stream-parser.ts` — 事件流解析
-  - `apps/api/src/agent/claude-event-mapper.ts:51-74` — chart 提取逻辑（正确但无法触达）
-  - `tools/cherrydb/cli.py` — chart 命令输出 JSON 后回调内部 endpoint
-- **发现日期**: 2026-05-16
-- **状态**: [x] 已修复待端到端复测 — #364 active turn 事件注入、#365 internal endpoint、#366 cherrydb CLI callback；`tools/cherrydb` 16 tests pass
-
-### BUG-009: Space 列表 VIEW_SATISFYING_PERMISSIONS 缺少 space:read
-
-- **现象**: 通过分组分配 `space:read` 权限后，`GET /api/spaces` 返回空列表；改为 `space:view` 则正常显示
-- **根因**: `apps/api/src/spaces/space.service.ts:120` 定义 `VIEW_SATISFYING_PERMISSIONS = ['space:view', 'space:edit', 'space:admin']`，缺少 `space:read`。同样的问题存在于 `apps/api/src/jobs/jobs.service.ts:60`。而 Graph 模块 (`apps/api/src/graph/graph.service.ts:46`) 正确包含了 `space:read`。
-- **影响**: P1 — 权限名称不一致导致部分 API 无法通过 `space:read` 获取 Space 列表。`/auth/me` 返回的 spaces 列表是正确的（不受此过滤影响），造成行为不一致。
-- **修复方向**: 在 `space.service.ts:120` 和 `jobs.service.ts:60` 的 `VIEW_SATISFYING_PERMISSIONS` 数组中添加 `'space:read'`
-- **关联文件**:
-  - `apps/api/src/spaces/space.service.ts:120` — Space 列表权限过滤
-  - `apps/api/src/jobs/jobs.service.ts:60` — Jobs 列表权限过滤
-  - `apps/api/src/graph/graph.service.ts:46` — Graph 正确实现（参考）
-- **发现日期**: 2026-05-17
-- **状态**: [ ] 待修复
-
-### BUG-011: Chat session 删除 FK 未级联（Issue #381）
-
-- **现象**: `DELETE /api/spaces/:spaceId/chat/sessions/:sessionId` 在 session 有 `retrieval_traces`、`model_usage_logs` 或关联 `feedback_items` 时返回 500
-- **根因**: `retrieval_traces.conversation_id`、`model_usage_logs.conversation_id`、`feedback_items.message_id` 三个 FK 缺少 `ON DELETE CASCADE`
-- **修复**: Drizzle schema 增加 `{ onDelete: 'cascade' }`，新增 `0019_fix_session_delete_cascade.sql` 迁移重建三个 FK，新增 schema 回归测试
-- **发现日期**: 2026-05-17
-- **状态**: [x] 已修复 — `npm run build`、`npm test` 通过
-
----
-
-## 已修复（本轮）
-
-- BUG-006: XLSX 上传被安全检查误拒 → 当前分支：OOXML ZIP MIME 通过，且不作为普通 ZIP 解包校验 ✅
-- BUG-011/#381: Chat session 删除 FK 未级联 → 三个关联 FK 改为 `ON DELETE CASCADE`，新增 schema 回归测试 ✅
-- BUG-005: 页面刷新丢失登录状态 → 当前分支：bootstrap refresh + route guard loading ✅
-- BUG-007: Chat 页面在无 Chat Model 时缺少前置提示 → 当前分支：Chat 页预检查模型可用性，缺失时提示并禁用发送 ✅
-- BUG-008/#366: cherrydb chart CLI HTTP callback → chart 输出后非阻塞 POST 内部 endpoint，callback 缺失静默跳过、凭据缺失/HTTP 失败仅 stderr WARN ✅
-
-## 已修复（上一轮）
-
-- BUG-001: cookie Secure 标志 → `ae11d58` ✅
-- BUG-002: Space 选择器刷新 → `eb85819` ✅
-- BUG-003: 文档列表不显示 → `b698f10` ✅
-- BUG-004: Docmost Bridge Unhealthy → `19c40fa` + `.env` 修复 ✅
-
----
-
-## P0 测试进度记录（2026-05-15）
-
-### §1 认证与用户管理
-
-| 测试项 | 结果 | 备注 |
-|--------|------|------|
-| §1.1 登录成功 | ✅ PASS | admin 登录跳转 Overview |
-| §1.1 refresh_token HttpOnly cookie | ✅ PASS | 无 Secure 标志，HttpOnly; SameSite=Lax |
-| §1.1 错误密码 | ✅ PASS | 已在上轮验证 |
-| §1.2 登出清除 cookie | ✅ PASS | Set-Cookie Max-Age=0 |
-| §1.2 登出后 token 失效 | ✅ PASS | TOKEN_REVOKED |
-| §1.3 Token 刷新（valid cookie） | ✅ PASS | 200 OK + 新 access_token |
-| §1.3 Token 刷新（invalid cookie） | ✅ PASS | 401 |
-| §1.4 GET /auth/me | ✅ PASS | 返回 role/groups/spaces |
-| §1.4 未登录 /auth/me | ✅ PASS | 401 |
-| §1.x 页面刷新保持 session | ✅ PASS | BUG-005 已修复，新增 auth bootstrap 回归测试 |
-
-### §2 Space 管理
-
-| 测试项 | 结果 | 备注 |
-|--------|------|------|
-| §2.1 创建 Space | ✅ PASS | |
-| §2.1 Space 选择器更新 | ✅ PASS | BUG-002 已修复 |
-| §2.2 Overview stats | ✅ PASS | Documents=1, Wiki=0, Nodes=0, Edges=0 |
-| §2.2 Knowledge Status | ✅ PASS | Index consistency Healthy, Strict mode Enabled |
-| §2.2 Recent Documents | ✅ PASS | test-knowledge.md 显示 |
-| §2.2 Quick actions | ✅ PASS | 6 个按钮路由正确 |
-
-### §3 文档上传与解析
-
-| 测试项 | 结果 | 备注 |
-|--------|------|------|
-| §3.1 上传 Markdown | ✅ PASS | API 验证通过 |
-| §3.1 文档列表 UI 显示 | ✅ PASS | BUG-003 已修复，1016B/Graphify Pending |
-| §3.4 Ingestion 解析 | ✅ PASS | status=graphify_pending, parsed_uri 存在 |
-
-### §4 知识图谱
-
-| 测试项 | 结果 | 备注 |
-|--------|------|------|
-| §4.3 Graph Explorer | ✅ PASS | 空状态正确，有搜索/Communities/Legend |
-
-### §5 Wiki 管理
-
-| 测试项 | 结果 | 备注 |
-|--------|------|------|
-| §5.1 Wiki 页面列表 | ✅ PASS | 空状态 + 搜索/过滤 |
-
-### §7 Chat（RAG）
-
-| 测试项 | 结果 | 备注 |
-|--------|------|------|
-| §7.1 Chat 页面布局 | ✅ PASS | New Chat/input/Deep Analysis/Retrieval mode |
-| §7.1 发送消息获得回答 | ✅ PASS | SSE 流完成，fallback 响应（strict mode） |
-| §7.5 多轮对话 | ✅ PASS | 同一 session 两轮 Q&A |
-| §7.5 Session 历史 | ✅ PASS | 左侧列表显示 session |
-
-### §8 Model 配置
-
-| 测试项 | 结果 | 备注 |
-|--------|------|------|
-| §8.1 Chat Model 显示 | ✅ PASS | 上轮验证 |
-| §8.3 Embedding Model | ✅ PASS | 上轮验证 |
-
-### §9 管理后台
-
-| 测试项 | 结果 | 备注 |
-|--------|------|------|
-| §9.2 Health 全组件 | ✅ PASS | 6 组件 Healthy，BUG-004 已修复 |
-
-### §10 UI/UX
-
-| 测试项 | 结果 | 备注 |
-|--------|------|------|
-| §10.3 侧边栏折叠/展开 | ✅ PASS | icon 导航可用 |
-| §10.3 折叠跨刷新保持 | ✅ PASS | BUG-005 已修复，localStorage 正常生效 |
-
----
-
-## 第二轮 P0 测试（2026-05-15 续）
-
-### §1 认证 — 补充
-
-| 测试项 | 结果 | 备注 |
-|--------|------|------|
-| §1.1 连续5次错误密码锁定 | ✅ PASS | 第6次返回 ACCOUNT_LOCKED，TTL 15 分钟 |
-
-### §3 文档上传 — 多格式
-
-| 测试项 | 结果 | 备注 |
-|--------|------|------|
-| §3.1 上传 TXT | ✅ PASS | text/plain, graphify_pending |
-| §3.1 上传 PDF | ✅ PASS | application/pdf, graphify_pending |
-| §3.1 上传 DOCX | ✅ PASS | application/octet-stream, graphify_pending |
-| §3.1 上传 PPTX | ✅ PASS | application/octet-stream, graphify_pending |
-| §3.1 上传 XLSX | ✅ PASS | BUG-006 已修复：application/octet-stream, graphify_pending |
-| §3.1 Documents UI 列表 | ✅ PASS | 6 个文件全部显示，含 Status/Size/Type/Uploader/Time |
-
-### §7 Chat — SSE 事件
-
-| 测试项 | 结果 | 备注 |
-|--------|------|------|
-| §7.2 SSE session 事件 | ✅ PASS | 返回 session_id |
-| §7.2 SSE content 事件 | ✅ PASS | delta 内容 |
-| §7.2 SSE citations 事件 | ✅ PASS | citations 数组（空，无索引） |
-| §7.2 SSE usage 事件 | ✅ PASS | prompt/completion/total tokens |
-| §7.2 SSE message.completed | ✅ PASS | 流结束事件 |
-
-### §8 Model 配置
-
-| 测试项 | 结果 | 备注 |
-|--------|------|------|
-| §8.1 禁用模型 | ✅ PASS | UI 开关+确认对话框，状态变 Disabled |
-| §8.1 启用模型 | ✅ PASS | API PATCH enabled=true 恢复 Active |
-| §8.1 无 model 时 Chat 提示 | ✅ PASS | BUG-007 已修复：前置提示 "Enable a chat model" + 输入/发送 disabled |
-
-### §2 Space 权限
-
-| 测试项 | 结果 | 备注 |
-|--------|------|------|
-| §2.3 分配 Group 权限 | ✅ PASS | PUT /spaces/:id/permissions 6 个权限点 |
-| §2.3 无权限用户不可见 Space | ✅ PASS | viewer 返回空列表 |
-| §2.3 viewer 不能上传 | ✅ PASS | PERMISSION_DENIED |
-| §2.3 editor 可上传+Chat | ✅ PASS | upload:create + chat:use 生效 |
-| §2.3 viewer 不能触发 Graphify | ✅ PASS | PERMISSION_DENIED |
-| §7.8 Chat 权限隔离 | ✅ PASS | 无权用户 Chat 被拒 |
-
-### 页面刷新 session 保持
-
-| 测试项 | 结果 | 备注 |
-|--------|------|------|
-| BUG-005 修复验证 | ✅ PASS | 刷新后停留在 Overview，未跳回登录 |
-| §10.3 侧边栏折叠持久化 | ✅ PASS | BUG-005 解除阻塞 |
-
-### §4 Graphify 运行 (2026-05-16)
-
-| 测试项 | 结果 | 备注 |
-|--------|------|------|
-| §4.1 触发 Run Graphify | ✅ PASS | API 创建 full manual run, graphify-worker pick up |
-| §4.1 Graphify 处理完成 | ✅ PASS | 28 nodes, 34 edges, 16 wiki pages, 228s |
-| Graphify 输出上传 MinIO | ✅ PASS | graph.json(25KB), wiki/(16 files), GRAPH_REPORT.md |
-| §2.3 admin 修改 Space 配置 | ✅ PASS | strict_knowledge_only 开关切换 + API 验证 |
-
-### P0 补充测试 (2026-05-16 续)
-
-| 测试项 | 结果 | 备注 |
-|--------|------|------|
-| CP-18 全量 vs 选定文档 | ✅ PASS | 无 input_scope 时全量；指定 source_document_ids 时 payload 正确包含 2 docs |
-| CP-19 full/update/incremental 模式 | ✅ PASS | 三种模式均创建 run 成功 |
-| §4.3 边关系类型和权重 | ✅ PASS | neighbors API 返回 relationship + confidence_label + effective_confidence_score |
-| §5.5 unpublish (published→draft) | ✅ PASS | 新增 POST unpublish 端点，状态正确转为 draft，可 re-publish |
-| AM-3 第二 embedding 策略 | ✅ PASS | EMBEDDING_LIMIT_EXCEEDED — Only one embedding model can be active |
-| CA-10 chart.data 配置就绪 | ⚠️ 条件满足 | database_config 已启用，chart.data 触发取决于 agent 是否返回图表数据格式 |
-
-### 环境问题修复记录
-
-| 问题 | 修复 |
+| 级别 | 含义 |
 |------|------|
-| graphify-worker /work/graphify 权限 | Dockerfile 添加 `mkdir + chown` 在 USER 切换前 |
-| MinIO bucket cherrywiki-graphify-output 缺失 | cherry-api 启动时自动创建（StorageService.onModuleInit → ensureBuckets，遍历 REQUIRED_STORAGE_BUCKETS）；runner.py:26 默认名已统一为 `cherrywiki-graphify-output`，与 storage.constants.ts（prefix `cherrywiki` + `graphify-output`）一致，无需 init 脚本手动 `mc mb` |
-| indexer-worker 缺 model_api_key 环境变量 | docker-compose.yml 添加小写 env var 映射 |
-| graph_edges 表无数据 | graph.json 的 links 字段已 backfill 到 graph_edges（34 条），新增 importGraphData 自动导入 |
-| pgcrypto 缺失 | CREATE EXTENSION pgcrypto 解决 database_config DSN 加密 |
+| P0 | 阻塞核心路径，系统不可用 |
+| P1 | 功能缺陷，影响主要使用 |
+| P2 | 边界/体验问题 |
+
+---
+
+## 活跃 BUG
+
+### B2-001：前端与反代容器长期停摆，API 镜像滞后源码 2 周（环境卫生）
+
+- **级别**：P0（运维 / 测试可信度）
+- **现象**：本轮开始时 `docker compose ps` 显示 `cherry-web`（Exited 7 天前，exit 1）与 `nginx`（Exited 7 天前）均未运行，`http://localhost`（nginx:80）完全不可达；`cherry-api` 运行镜像为 **2 周前**构建，而源码已前进到 `fd07dda`。
+- **影响**：任何基于此环境的"功能已通过"结论都不可信——测的是停运/陈旧代码。这是"经过测试仍很多 bug"的最可能根因。
+- **处置**：已 `docker compose up -d cherry-web nginx` 拉起，并对 `cherry-api/cherry-web/ingestion/url-fetcher/graphify` 用当前源码重新打包（`docker compose build` → `up -d`），13 容器全部 healthy 后重新测试。
+- **后续**：需排查为何 web/nginx 会停摆 7 天（重启策略/健康检查/CI 部署流程），并建立"镜像与 `main` HEAD 一致性"校验，避免再次出现陈旧镜像。
+- **状态**：[x] 环境已修复；根因（为何停摆/镜像滞后）待团队排查
+
+### B2-002：6 项后端管理能力无前端路由（产品覆盖缺口）
+
+- **级别**：P1
+- **现象**：后端 API 已实现但 `apps/web` 路由表中**无对应页面**：
+  - API Tokens（`/api/admin/api-tokens`）
+  - MCP 工具（`/api/admin/mcp/tools`）
+  - Feedback 队列（`/api/admin/feedback`）
+  - Governance 治理（`/api/admin/governance/*`）
+  - Proposals 提案（`/api/admin/proposals`）
+  - Workers 状态（`/api/admin/workers`）
+- **现有前端 admin 路由仅**：users / groups / spaces / models / audit / health / jobs / graphify。
+- **影响**：管理员无法通过界面使用上述能力（只能调 API）。旧清单将这些标记为"已测通过"，实为 API 层验证，浏览器层根本无入口——属虚假覆盖。
+- **修复方向**：补齐对应 Admin 页面与侧边栏入口，或在产品上明确这些为"API-only"能力并从验收范围剔除。
+- **状态**：[ ] 待产品/前端决策
+
+### B2-003：Graph Explorer 画布在 headless 下截图为空白（待真人复核）
+
+- **级别**：P2（疑似 headless 伪影，需确认）
+- **现象**：Graph Explorer 搜索/选中节点/展开邻居/社区列表数据层全部正常（Selection Details 正确显示 Label/Node type/Community/Score/ID）；但 agent-browser 截图中中央画布区为纯白。`canvas.getContext('2d').getImageData` 采样显示**确有渲染像素**（约 4783px，集中于 (332,188)-(427,271) 的 95×83 小区域），与"几个节点被画得很小/聚簇"一致。
+- **判断**：更可能是 headless Chromium 对 canvas 的截图捕获伪影，而非功能缺陷；但渲染内容偏小也可能是 zoom-to-fit/布局问题。
+- **修复方向**：用真人浏览器目视确认节点是否正常可见与可交互；若确实偏小，检查初始 zoom / fit-to-view 逻辑。
+- **处置**：`GraphCanvas.tsx` 新增 useEffect，在 `graphData.nodes.length` 变化且非空时延迟 150ms 调用 `zoomToFit(400,48)`，使初次搜索/展开/社区切换载入数据后视口自动贴合内容（此前疑似缺少 fit-to-view 致内容偏小）。typecheck/lint/test 通过。
+- **状态**：[x] 已补 fit-to-view；仍建议真人浏览器目视复核渲染效果
+
+### B2-004：窄视口下侧边栏不折叠，布局横向溢出（响应式缺陷）
+
+- **级别**：P2
+- **现象**：`apps/web/src/components/AppShell.tsx:217` 的 `Layout.Sider` **未设置 `breakpoint` 属性**，仅靠手动按钮折叠（状态存 localStorage）。将视口设为 375×812 后，侧栏仍固定 264px 宽、不自动折叠，主内容区被压到 111px，`document.body.scrollWidth=495 > 375` 出现横向滚动条。
+- **影响**：移动端/窄屏不可用。若产品定位为桌面端则为低优先级。
+- **修复方向**：给 `Layout.Sider` 增加 `breakpoint="lg"` + `collapsedWidth`，或在窄屏切换为抽屉式导航。
+- **处置**：`AppShell.tsx` 加 `breakpoint="lg"` + `onBreakpoint`；新增 `responsiveCollapsed` 状态与手动 `collapsed`（localStorage）分离，派生 `effectiveCollapsed = responsiveCollapsed || collapsed` 驱动 Sider 与全部折叠态视觉条件——窄屏自动折叠且**不污染用户手动折叠的持久化**。typecheck/lint/test 通过。
+- **状态**：[x] 已修复（建议真机/窄屏目视复核）
+
+### B2-005：Wiki unpublish / 文档删除 / 模型删除——后端有能力但前端无入口
+
+- **级别**：P1（覆盖缺口）
+- **现象**（源码核实）：
+  - `apps/api/src/wiki/wiki.controller.ts:102` 有 `@Post(':pageId/unpublish')`，但 `WikiPageDetail.tsx` 只接了 `publish`，**无取消发布按钮**（且 publish 按钮仅 draft 状态显示，现有 2 页均 Published 故不可见）。
+  - `apps/api/src/uploads/uploads.controller.ts` **无 `@Delete`**，且 `reprocess`（`POST uploads/:id/reprocess`）端点存在却无 UI 按钮，上传列表行仅有 "Details"。
+  - `apps/api/src/models/model-config.controller.ts` **无 `@Delete`**，模型仅支持启停（软删）+ 编辑。
+- **影响**：取消发布、文档删除/重处理、模型删除无法从 UI 完成。文档/模型"无硬删除"可能是有意的软删除设计；unpublish 与 reprocess 已有端点却无按钮则更像遗漏。
+- **修复方向**：补 unpublish 与 reprocess 的 UI 按钮；明确文档/模型删除策略（软删 vs 硬删）。
+- **处置**：
+  - **Wiki 取消发布（已修）**：`wikiApi.ts` 补 `unpublish()`；`WikiPageDetail.tsx` 加 danger「取消发布」按钮，门控 `status==='published'` 且 `wiki:publish` 权限，发布/取消发布操作互斥 disabled，失败经页面 Alert 提示，成功后 `loadPage` 刷新；`en/zh-CN` locale 同步 `wiki.detail.unpublish/unpublishing`。
+  - **上传重处理（已修）**：reprocess 接线本已存在于 `UploadDetail`，本次将按钮可见条件由仅 `parse_failed` 扩展为 `parse_failed || security_rejected`（两者均终态失败、后端 reprocess 接受）。
+  - **硬删除（推迟，待产品决策）**：uploads / model-config 后端均无 `@Delete`，仅软删（归档/禁用）。硬删除属横切产品决策（数据保留/合规、审计留痕、误删风险、对集成方破坏性），不擅自实现。建议另立 issue：先界定可删对象与权限（建议 `space:admin` 或租户 admin）、是否设清除宽限期、审计要求，批准后再补后端 `@Delete`（带审计）+ 前端两步确认删除 + i18n。
+  - typecheck/lint/test 全过（201 测试）。
+- **状态**：[x] unpublish + reprocess 已接线；[ ] 硬删除待产品决策
+
+---
+
+## 本轮未复现/已确认正常（历史 bug 区域）
+
+- BUG-005 页面刷新丢登录：**未复现**，F5 停留当前页。
+- BUG-006 XLSX 误拒：无 office 样本未直接验证；MIME 拒绝逻辑对 `.py` 正常（UNSUPPORTED_FILE_TYPE）。
+- BUG-007 无模型前置提示：当前有可用 chat model，未触发该分支。
+- 登出/会话保护、Health 6+组件、Job error_json、i18n、主题/折叠持久化、Audit 记录：均正常。
+
+## 第二批深测（写回类）已验证通过
+
+- **用户管理**：禁用（→Disabled，带 Popconfirm）/编辑显示名/删除，列表实时更新；分组创建（绑定 chat:use+space:view 权限）+ 删除。
+- **Space 配置**：创建 Space、strict_knowledge_only 开关关闭抽屉重开 round-trip 持久、Rebuild Index 入队两条 Reindex job 均 Succeeded(snapshot_activated)、归档 Space→archived（坐实 §6.2 重建后状态更新）。
+- **上传**：Status 过滤（20→2 行 Parse Failed）、详情抽屉全字段（SHA256/error_type/metadata JSON）完整。
+- **Chat**：多轮上下文保持（"its"正确指代 RAG）、检索模式切换到 Graph first（走 Agent 路径正常回答）、session 新建/切换/删除（18↔17）。
+- **Model**：新增（rerank 类型入列表）、禁用（→Disabled）、编辑显示名、连通性测试均生效。
+
+> 说明：上述操作产生的测试数据（用户/分组/临时 Space/测试模型）已清理或置为 Disabled/archived，不影响后续使用。
+
+---
+
+## 已知覆盖缺口
+
+见 B2-002。

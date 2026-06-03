@@ -124,6 +124,17 @@
 
 ## 7. 活跃 BUG
 
+### 2026-06-02 浏览器 E2E 轮次（重测，见 `docs/e2e-browser-run-2026-06-02.md` + 重写的 `docs/bugs.md`）
+
+- **B2-001 P0 环境卫生**：测试开始时 cherry-web/nginx 已停摆 7 天、cherry-api 镜像滞后源码 2 周。已用当前源码 `fd07dda` 重新打包全部 app 服务，13 容器 healthy 后重测。**核心路径（登录→上传→图谱/Wiki→索引→Chat RAG 引用）全部走通，未发现阻塞性功能 bug** —— "很多 bug" 的最可能根因即为陈旧/停运容器。根因（为何停摆/镜像滞后）待排查。
+- **B2-002 P1 覆盖缺口**：6 项后端管理能力（API Tokens/MCP/Feedback/Governance/Proposals/Workers）无前端路由，UI 无入口；旧清单的"已测通过"为 API 层验证，浏览器层虚假覆盖。
+- **B2-003 P2**：Graph 画布 headless 截图为空（数据层正常，getImageData 有像素），待真人浏览器目视复核。
+- **B2-004 P2 响应式**：`AppShell.tsx:217` Sider 无 `breakpoint`，375px 视口侧栏不折叠、主内容压到 111px、横向溢出。**[已修]** 加 `breakpoint="lg"`，responsiveCollapsed 与手动 collapsed 分离，不污染 localStorage 持久化。
+- **B2-005 P1 覆盖缺口**：Wiki unpublish、上传 reprocess 端点存在却无 UI 按钮；文档/模型无硬删除 UI。**[部分已修]** unpublish 按钮 + reprocess 可见条件扩展(parse_failed||security_rejected)已接线 + i18n 同步；硬删除推迟待产品决策(后端无 @Delete)。
+- **B2-003 P2**：**[已修]** `GraphCanvas.tsx` 数据就绪后 150ms `zoomToFit`，仍建议真人目视复核。
+- 上述修复经 workflow(7 agent) 实现，`pnpm --filter @cherrygraph/web typecheck/lint/test` 三项全过(201 测试)。
+- **第二批写回类深测全通**：用户/分组 CRUD、Space 配置 round-trip+Rebuild入队Succeeded、上传过滤/详情、Chat 多轮+检索模式切换+session 增删切、Model CRUD —— 均验证生效，测试数据已清理。
+
 | ID | 优先级 | 状态 | 描述 | Issue |
 |---|---|---|---|---|
 | BUG-008 | P1 | 已完成 | chart.data SSE 事件未触发 — #364 active turn 事件注入、#365 内部 HTTP callback endpoint、#366 cherrydb chart CLI callback、#367 endpoint→SSE 集成验证已完成 | #364/#365/#366/#367 |
