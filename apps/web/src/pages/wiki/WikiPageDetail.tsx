@@ -26,6 +26,7 @@ export default function WikiPageDetail({ spaceId, pageId, versionId }: WikiPageD
   const [content, setContent] = useState<WikiPageContent | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isUnpublishing, setIsUnpublishing] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -79,6 +80,24 @@ export default function WikiPageDetail({ spaceId, pageId, versionId }: WikiPageD
     }
   }
 
+  async function unpublishCurrentVersion(): Promise<void> {
+    if (page?.current_version_id === null || page?.current_version_id === undefined || !gate.isAllowed) {
+      return;
+    }
+
+    setIsUnpublishing(true);
+    setError(null);
+
+    try {
+      await wikiApi.unpublish(spaceId, pageId, page.current_version_id);
+      await loadPage();
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setIsUnpublishing(false);
+    }
+  }
+
   if (notFound) {
     return <NotFound />;
   }
@@ -86,6 +105,12 @@ export default function WikiPageDetail({ spaceId, pageId, versionId }: WikiPageD
   const canPublish =
     page !== null &&
     page.status === 'draft' &&
+    page.current_version_id !== null &&
+    hasSpacePermission(spaceId, 'wiki:publish');
+
+  const canUnpublish =
+    page !== null &&
+    page.status === 'published' &&
     page.current_version_id !== null &&
     hasSpacePermission(spaceId, 'wiki:publish');
 
@@ -122,9 +147,20 @@ export default function WikiPageDetail({ spaceId, pageId, versionId }: WikiPageD
             <Button
               type="primary"
               loading={isPublishing}
+              disabled={isUnpublishing}
               onClick={() => { void publishCurrentVersion(); }}
             >
               {t('wiki.detail.publish')}
+            </Button>
+          )}
+          {canUnpublish && (
+            <Button
+              danger
+              loading={isUnpublishing}
+              disabled={isPublishing}
+              onClick={() => { void unpublishCurrentVersion(); }}
+            >
+              {t('wiki.detail.unpublish')}
             </Button>
           )}
         </div>

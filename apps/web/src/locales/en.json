@@ -694,6 +694,8 @@
       "history": "History",
       "publish": "Publish",
       "publishing": "Publishing...",
+      "unpublish": "Unpublish",
+      "unpublishing": "Unpublishing...",
       "loadingPage": "Loading wiki page...",
       "unavailable": "Wiki page content is unavailable.",
       "statusDraft": "Draft",

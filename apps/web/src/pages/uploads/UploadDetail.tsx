@@ -114,7 +114,7 @@ export default function UploadDetail({ open, upload, status, canReprocess, onClo
         {JSON.stringify(upload.metadata_json ?? {}, null, 2)}
       </pre>
 
-      {activeStatus === 'parse_failed' && canReprocess && (
+      {(activeStatus === 'parse_failed' || activeStatus === 'security_rejected') && canReprocess && (
         <div style={{ marginTop: 16, textAlign: 'right' }}>
           <Button
             type="primary"

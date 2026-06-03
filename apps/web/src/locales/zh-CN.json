@@ -694,6 +694,8 @@
       "history": "历史",
       "publish": "发布",
       "publishing": "发布中...",
+      "unpublish": "取消发布",
+      "unpublishing": "取消发布中...",
       "loadingPage": "加载知识库页面中...",
       "unavailable": "知识库页面内容不可用。",
       "statusDraft": "草稿",

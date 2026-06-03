@@ -82,6 +82,8 @@ export default function AppShell() {
   const location = useLocation();
   const { spaceId: routeSpaceId } = useParams();
   const [collapsed, setCollapsed] = useState(() => safeReadBoolean(SIDER_STORAGE_KEY, false));
+  const [responsiveCollapsed, setResponsiveCollapsed] = useState(false);
+  const effectiveCollapsed = responsiveCollapsed || collapsed;
 
   const spaces = useMemo(() => user?.spaces ?? [], [user?.spaces]);
   const selectedSpace = useMemo(
@@ -155,6 +157,12 @@ export default function AppShell() {
     }
   }
 
+  function handleBreakpoint(broken: boolean): void {
+    // Responsive collapse is tracked separately so it never overwrites the
+    // user's persisted manual choice.
+    setResponsiveCollapsed(broken);
+  }
+
   const handleMenuClick: MenuProps['onClick'] = (event) => {
     try {
       const key = String(event.key);
@@ -213,18 +221,20 @@ export default function AppShell() {
     themeMode === 'dark' ? t('shell.control.theme.light') : t('shell.control.theme.dark');
 
   return (
-    <Layout className={`app-shell${collapsed ? ' app-shell-collapsed' : ''}`}>
+    <Layout className={`app-shell${effectiveCollapsed ? ' app-shell-collapsed' : ''}`}>
       <Layout.Sider
+        breakpoint="lg"
         className="app-shell-sider"
-        collapsed={collapsed}
+        collapsed={effectiveCollapsed}
         collapsedWidth={72}
         collapsible
+        onBreakpoint={handleBreakpoint}
         trigger={null}
         width={264}
       >
         <div className="app-shell-brand">
           <span className="app-shell-brand-mark">C</span>
-          {!collapsed ? (
+          {!effectiveCollapsed ? (
             <span className="app-shell-brand-text">
               <strong>{t('common.app.name')}</strong>
               <span>{t('shell.brand.adminConsole')}</span>
@@ -232,7 +242,7 @@ export default function AppShell() {
           ) : null}
         </div>
 
-        {!collapsed ? (
+        {!effectiveCollapsed ? (
           <div className="app-shell-space-select">
             <Typography.Text type="secondary">{t('shell.space.selectorLabel')}</Typography.Text>
             <Select
@@ -247,7 +257,7 @@ export default function AppShell() {
           </div>
         ) : null}
 
-        {spaces.length === 0 && !collapsed ? (
+        {spaces.length === 0 && !effectiveCollapsed ? (
           <div className="app-shell-empty-space">
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('shell.space.empty')} />
           </div>
@@ -263,7 +273,7 @@ export default function AppShell() {
         />
 
         <div className="app-shell-bottom">
-          {!collapsed ? (
+          {!effectiveCollapsed ? (
             <div className="app-shell-controls">
               <Segmented
                 aria-label={t('shell.control.language.label')}
@@ -315,7 +325,7 @@ export default function AppShell() {
 
           <div className="app-shell-user">
             <Avatar icon={<UserOutlined />} size="small" />
-            {!collapsed ? (
+            {!effectiveCollapsed ? (
               <span className="app-shell-user-text">
                 <strong>{user?.name ?? user?.email ?? t('shell.user.profile')}</strong>
                 <span>{getRoleLabel(user, t)}</span>

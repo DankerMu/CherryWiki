@@ -90,6 +90,13 @@ export const wikiApi = {
     );
   },
 
+  unpublish(spaceId: string, pageId: string, versionId: string, reason?: string) {
+    return api.post<{ page_id: string; version_id: string; status: string }>(
+      `/spaces/${encodeURIComponent(spaceId)}/wiki/pages/${encodeURIComponent(pageId)}/unpublish`,
+      { version_id: versionId, reason },
+    );
+  },
+
   rollback(spaceId: string, pageId: string, targetVersionId: string, reason?: string) {
     return api.post<{ page_id: string; new_version_id: string; status: string }>(
       `/spaces/${encodeURIComponent(spaceId)}/wiki/pages/${encodeURIComponent(pageId)}/rollback`,

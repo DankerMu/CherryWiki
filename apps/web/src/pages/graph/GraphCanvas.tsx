@@ -141,6 +141,18 @@ export default function GraphCanvas({
     graphRef.current?.zoomToFit(400, 48);
   }
 
+  // 数据就绪后自动 fit-to-view，确保初次加载/展开/社区切换时视口贴合内容
+  useEffect(() => {
+    if (graphData.nodes.length === 0) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      graphRef.current?.zoomToFit(400, 48);
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [graphData.nodes.length, graphData.links.length]);
+
   const resolveNodeColor = (node: NodeObject<GraphNode>): string =>
     getNodeColor(node.id, selectedNodeId, activeCommunityId, node.community_id, node.node_type, theme.primary);
 
