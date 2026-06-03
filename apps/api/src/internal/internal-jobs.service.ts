@@ -13,7 +13,7 @@ import {
   jobs,
   type JobRow,
 } from '@cherrygraph/job-core';
-import { ErrorCode, graphEdges, graphifyRuns, graphNodes, spaces } from '@cherrygraph/shared';
+import { ErrorCode, graphCommunities, graphEdges, graphifyRuns, graphNodes, spaces } from '@cherrygraph/shared';
 import { GraphImportService, parseGraphJson, validateGraphOutput } from '@cherrygraph/graph-core';
 import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
@@ -1039,6 +1039,29 @@ export class InternalJobsService {
       const edgesCreated = await this.db.transaction(async (tx) => {
         const txDb = tx as JobsDatabase;
 
+        // Generate a PK per community and map local community_key -> PK so node
+        // community_id can reference graph_communities.id (the getCommunityNodes linkage).
+        const communityKeyToId = new Map<string, string>();
+        if (importOp.communities.length > 0) {
+          const communityValues = importOp.communities.map((community) => {
+            const id = randomUUID();
+            communityKeyToId.set(community.community_key, id);
+            return {
+              id,
+              tenant_id: tenantId,
+              space_id: spaceId,
+              graphify_run_id: runId,
+              community_key: community.community_key,
+              label: community.label,
+              node_count: community.node_count,
+            };
+          });
+
+          for (const communityBatch of chunkArray(communityValues, GRAPH_IMPORT_BATCH_SIZE)) {
+            await txDb.insert(graphCommunities).values(communityBatch).onConflictDoNothing();
+          }
+        }
+
         const nodeValues = importOp.nodes.map((node) => ({
           id: randomUUID(),
           tenant_id: tenantId,
@@ -1049,7 +1072,9 @@ export class InternalJobsService {
           label: node.label,
           norm_label: node.normLabel,
           type: node.type,
-          community_id: node.communityId,
+          // node.communityId is a local community_key; resolve to the generated PK.
+          community_id:
+            node.communityId === null ? null : (communityKeyToId.get(node.communityId) ?? null),
           source_refs_json: node.sourceRefsJson,
         }));
 

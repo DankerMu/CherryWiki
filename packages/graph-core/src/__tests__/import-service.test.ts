@@ -113,6 +113,29 @@ describe('GraphImportService', () => {
     expect(operation.stats.shrinkDetected).toBe(false);
   });
 
+  it('assigns local community keys via structural detection when nodes carry no community', () => {
+    const nodes = [
+      node({ id: 'n1', label: 'Node 1', norm_label: 'node_1', community: null }),
+      node({ id: 'n2', label: 'Node 2', norm_label: 'node_2', community: null }),
+      node({ id: 'n3', label: 'Node 3', norm_label: 'node_3', community: null }),
+    ];
+    const validEdges: GraphEdge[] = [edge({ source: 'n1', target: 'n2' })];
+
+    const operation = new GraphImportService().prepareImport('space-1', { validNodes: nodes, validEdges });
+
+    // n1+n2 connected -> one community; n3 isolated -> singleton.
+    expect(operation.communities).toHaveLength(2);
+    const keys = new Set(operation.communities.map((c) => c.community_key));
+    expect(keys).toEqual(new Set(['community-1', 'community-2']));
+
+    // communityId holds the LOCAL community_key, not a PK.
+    const byKey = new Map(operation.nodes.map((n) => [n.nodeKey, n.communityId]));
+    expect(byKey.get('n1')).toBe(byKey.get('n2'));
+    expect(byKey.get('n3')).not.toBe(byKey.get('n1'));
+    expect(byKey.get('n1')).toMatch(/^community-\d+$/);
+    expect(operation.stats.communitiesCreated).toBe(2);
+  });
+
   it('supports importRun as a pure wrapper around prepareImport', () => {
     const existingStableKeys = new Set<string>([computeStableKey('space-1', 'node_1', 'concept')]);
 

@@ -120,7 +120,7 @@ describe('InternalJobsService', () => {
     vi.spyOn(RedisJobLock, 'release').mockResolvedValue(true);
     const transitionSpy = vi
       .spyOn(JobStateMachine, 'transition')
-      .mockImplementation(async (_db, jobId, _from, to) => createJobRow({ ...pendingJob, id: jobId, status: to }) as never);
+      .mockImplementation((_db, jobId, _from, to) => Promise.resolve(createJobRow({ ...pendingJob, id: jobId, status: to })));
     vi.spyOn(JobEventRepository, 'create').mockResolvedValue({} as Awaited<ReturnType<typeof JobEventRepository.create>>);
 
     await expect(service.processPendingValidationJobs()).resolves.toBe(1);
@@ -139,7 +139,7 @@ describe('InternalJobsService', () => {
       'val-1',
       JobStatus.PENDING,
       JobStatus.RUNNING,
-      expect.objectContaining({ locked_by: expect.stringContaining('internal:validation') }),
+      expect.objectContaining({ locked_by: expect.stringContaining('internal:validation') as unknown as string }),
     );
     expect(transitionSpy).toHaveBeenNthCalledWith(
       2,
@@ -181,8 +181,10 @@ describe('InternalJobsService', () => {
     const releaseSpy = vi.spyOn(RedisJobLock, 'release').mockResolvedValue(true);
     const transitionSpy = vi
       .spyOn(JobStateMachine, 'transition')
-      .mockImplementation(async (_db, jobId, _from, to) =>
-        createJobRow({ ...pendingJob, id: jobId, status: to, attempt_count: 0, max_attempts: 3, locked_by: null }) as never,
+      .mockImplementation((_db, jobId, _from, to) =>
+        Promise.resolve(
+          createJobRow({ ...pendingJob, id: jobId, status: to, attempt_count: 0, max_attempts: 3, locked_by: null }),
+        ),
       );
     vi.spyOn(JobEventRepository, 'create').mockResolvedValue({} as Awaited<ReturnType<typeof JobEventRepository.create>>);
 
@@ -190,7 +192,7 @@ describe('InternalJobsService', () => {
 
     // Never archived the upload and never marked the job SUCCEEDED.
     expect(uploadsService.completeValidation).not.toHaveBeenCalled();
-    const succeededCall = transitionSpy.mock.calls.find((call) => call[3] === JobStatus.SUCCEEDED);
+    const succeededCall = transitionSpy.mock.calls.find((call) => (call[3] as JobStatus) === JobStatus.SUCCEEDED);
     expect(succeededCall).toBeUndefined();
 
     // Recoverable: RUNNING→FAILED then FAILED→PENDING (attempts remain), lock released.
@@ -584,6 +586,57 @@ describe('InternalJobsService', () => {
 
       await expect(callImportGraphData(service, 's3://bucket/graph.json')).resolves.toBeUndefined();
       expect(storageService.download).toHaveBeenCalledWith('bucket', 'graph.json');
+    });
+
+    it('persists graph_communities and links node community_id to the generated PK', async () => {
+      const graph = {
+        nodes: [
+          { id: 'n1', label: 'Node 1', type: 'concept' },
+          { id: 'n2', label: 'Node 2', type: 'concept' },
+          { id: 'n3', label: 'Node 3', type: 'concept' },
+        ],
+        edges: [
+          { source: 'n1', target: 'n2', relation: 'links_to', confidence: 'EXTRACTED', confidence_score: 1 },
+        ],
+      };
+      const storageService = createStorageServiceMock(JSON.stringify(graph));
+      const captureDb = new CaptureDb();
+      const service = new InternalJobsService(
+        captureDb.asDb() as never,
+        createRedisMock().asClient() as never,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        storageService as never,
+      );
+
+      await callImportGraphData(service, 's3://bucket/graph.json');
+
+      // n1+n2 connected -> one community; n3 isolated -> singleton => 2 communities.
+      const communityRows = captureDb.inserted.get('graph_communities') ?? [];
+      expect(communityRows).toHaveLength(2);
+      const communityIds = communityRows.map((row) => row.id as string);
+      expect(new Set(communityIds).size).toBe(2); // unique PKs
+      for (const row of communityRows) {
+        expect(typeof row.community_key).toBe('string');
+        expect(typeof row.node_count).toBe('number');
+      }
+
+      // node community_id must be a generated community PK, never the local key.
+      const nodeRows = captureDb.inserted.get('graph_nodes') ?? [];
+      expect(nodeRows).toHaveLength(3);
+      const localKeys = new Set(communityRows.map((row) => row.community_key as string));
+      for (const row of nodeRows) {
+        const communityId = row.community_id as string;
+        expect(communityIds).toContain(communityId);
+        expect(localKeys.has(communityId)).toBe(false);
+      }
+
+      // n1 and n2 share a community PK; n3 (singleton) differs.
+      const byKey = new Map(nodeRows.map((row) => [row.node_key as string, row.community_id as string]));
+      expect(byKey.get('n1')).toBe(byKey.get('n2'));
+      expect(byKey.get('n3')).not.toBe(byKey.get('n1'));
     });
   });
 
@@ -1454,6 +1507,63 @@ class TestDb<Row = unknown> {
   asDb(): unknown {
     return this;
   }
+}
+
+// Captures insert payloads and replays inserted graph_nodes through the
+// select(...).from(graphNodes).where(...) round-trip the import transaction uses.
+class CaptureDb {
+  readonly inserted = new Map<string, Array<Record<string, unknown>>>();
+
+  async transaction<T>(callback: (tx: unknown) => Promise<T>): Promise<T> {
+    return callback(this);
+  }
+
+  insert(table: { [key: symbol]: unknown }): {
+    values: (rows: Array<Record<string, unknown>>) => { onConflictDoNothing: () => Promise<void> };
+  } {
+    const name = tableName(table);
+    return {
+      values: (rows) => ({
+        onConflictDoNothing: () => {
+          const bucket = this.inserted.get(name) ?? [];
+          bucket.push(...rows);
+          this.inserted.set(name, bucket);
+          return Promise.resolve();
+        },
+      }),
+    };
+  }
+
+  select(): this {
+    return this;
+  }
+
+  from(): this {
+    return this;
+  }
+
+  where(): Promise<Array<{ id: string; node_key: string }>> {
+    const nodeRows = this.inserted.get('graph_nodes') ?? [];
+    return Promise.resolve(
+      nodeRows.map((row) => ({ id: row.id as string, node_key: row.node_key as string })),
+    );
+  }
+
+  asDb(): unknown {
+    return this;
+  }
+}
+
+function tableName(table: { [key: symbol]: unknown }): string {
+  for (const symbol of Object.getOwnPropertySymbols(table)) {
+    if (symbol.description?.includes('Name')) {
+      const value = (table as Record<symbol, unknown>)[symbol];
+      if (typeof value === 'string') {
+        return value;
+      }
+    }
+  }
+  return 'unknown';
 }
 
 class RedisMemoryStore {

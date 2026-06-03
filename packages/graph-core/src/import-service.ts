@@ -1,4 +1,4 @@
-import { mergeCommunities } from './communities.js';
+import { detectCommunities } from './communities.js';
 import { mapConfidence } from './confidence.js';
 import { computeStableKey } from './stable-key.js';
 import type {
@@ -57,6 +57,13 @@ export class GraphImportService {
       }
     }
 
+    // assignments map node.id -> LOCAL community_key (e.g. 'community-1', or the
+    // original node.community in backward-compat mode), NOT a graph_communities PK.
+    const { assignments, communities } = detectCommunities(
+      graphOutput.validNodes,
+      graphOutput.validEdges,
+    );
+
     let nodesMatched = 0;
     const nodes = graphOutput.validNodes.map((node) => {
       const stableKey = computeStableKey(spaceId, node.norm_label, node.type);
@@ -70,7 +77,8 @@ export class GraphImportService {
         label: node.label,
         normLabel: node.norm_label,
         type: node.type,
-        communityId: node.community,
+        // Local community_key; persist layer resolves it to a graph_communities PK.
+        communityId: assignments.get(node.id) ?? null,
         sourceRefsJson: sourceRefsFor(node.source_file, node.source_location),
       };
     });
@@ -92,7 +100,6 @@ export class GraphImportService {
       };
     });
 
-    const communities = mergeCommunities(graphOutput.validNodes);
     const aliases = nodes.map((node) => ({ stableKey: node.stableKey, alias: node.nodeKey }));
 
     return {
